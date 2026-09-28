@@ -1,0 +1,4 @@
+friction_multiplier,round_trip_bps,cagr_pct,max_drawdown_pct,sharpe_ratio,calmar_ratio,total_trades
+1x,15.0,53.5,2.5,-0.1241,21.3929,268
+2x,30.0,53.49,2.48,-0.1264,21.5855,268
+3x,45.0,53.47,2.45,-0.1288,21.7801,271

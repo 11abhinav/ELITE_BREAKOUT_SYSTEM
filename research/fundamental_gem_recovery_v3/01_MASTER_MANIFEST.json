@@ -1,0 +1,63 @@
+{
+  "strategy_id": "FUNDAMENTAL_GEM_RECOVERY_V3",
+  "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
+  "execution_mode": "ONE_SHOT_PREREGISTERED_PORTFOLIO_TOURNAMENT",
+  "timestamp": "2026-09-28T17:04:46.798436",
+  "friction": {
+    "slippage_bps": 7.5,
+    "brokerage_bps": 7.5,
+    "total_round_trip_bps": 15.0
+  },
+  "portfolio_params": {
+    "simulated_capital_cr": 10.0,
+    "max_slots": 15,
+    "target_position_weight_pct": 6.67,
+    "max_stock_weight_pct": 10.0,
+    "max_sector_weight_pct": 30.0,
+    "max_adtv_participation_pct": 5.0,
+    "cash_yield_annual_pct": 6.0,
+    "tranche_count": 2,
+    "reentry_cooldown_months": 12
+  },
+  "funnel_parameters": {
+    "quality_layer_1": {
+      "roce_avg_10y_min": 15.0,
+      "roe_avg_10y_financials_min": 15.0,
+      "sales_cagr_5y_min": 10.0,
+      "pat_cagr_5y_min": 10.0,
+      "cum_cfo_pat_5y_min": 0.8,
+      "debt_equity_max": 0.5,
+      "interest_coverage_min": 5.0,
+      "promoter_holding_min": 40.0,
+      "promoter_pledge_max": 5.0,
+      "equity_dilution_5y_max_pct": 10.0,
+      "market_cap_cr_min": 1000.0,
+      "adtv_20d_cr_min": 5.0
+    },
+    "forensic_layer_2": {
+      "receivable_days_rising_years_max": 2,
+      "other_income_pbt_max_pct": 25.0,
+      "unconverted_cwip_gross_block_max_pct": 20.0
+    },
+    "valuation_layer_3": {
+      "ev_ebitda_discount_vs_10y_median_pct": 25.0,
+      "pe_norm_discount_vs_10y_median_pct": 20.0,
+      "pb_discount_financials_pct": 25.0
+    },
+    "dislocation_layer_4": {
+      "stock_52w_drawdown_min_pct": 25.0,
+      "max_residual_sector_drawdown_pct": 10.0,
+      "margin_roce_max_relative_decline_pct": 15.0
+    }
+  },
+  "exit_parameters": {
+    "state_1_thesis_pat_roce_drop_max_pct": 20.0,
+    "state_1_hard_loss_audit_stop_pct": -25.0,
+    "state_1_time_stop_months": 18,
+    "state_2_40w_sma_break_buffer_pct": 5.0,
+    "state_3_profit_booking_pct": 50.0,
+    "state_3_profit_target_trigger_pct": 50.0,
+    "state_3_50dma_break_buffer_pct": 3.0
+  },
+  "hash_sha256": "169dd426204fdb6aa8df526ee7b45bc0d7b38648652ca3d507b1ab15426c0a45"
+}

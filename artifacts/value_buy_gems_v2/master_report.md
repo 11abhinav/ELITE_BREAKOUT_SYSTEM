@@ -184,7 +184,7 @@ A definitive clean multi-year, multi-regime research backtest of the `VALUE_BUY_
 | **DATA_VALIDITY** | Upstox Historical Candle API V3 | **PASS** | 100% real Upstox market data verified with zero synthetic interpolation. |
 | **PIT_VALIDITY** | Audited publication timestamps before signal | **FAIL** | Historical quarterly balance sheets lack exchange filing broadcast timestamps. |
 | **SURVIVORSHIP_VALIDITY**| Point-in-time universe membership | **FAIL** | Universe restricted to 2026 surviving equities; survivorship bias limitation true. |
-| **EXECUTION_VALIDITY** | Causal $T$ Close Signal $\rightarrow$ $T+1$ Open Fill | **PASS** | Strict next-bar open fills with realistic 5 bps entry/exit friction. |
+| **EXECUTION_VALIDITY** | Causal $T$ Close Signal $\rightarrow$ $T+1$ Open Fill | **PASS** | Strict next-bar open fills with realistic transaction friction (15 bps round-trip total: 7.5 bps entry / 7.5 bps exit). |
 | **ACCOUNTING_VALIDITY** | Daily equity curve, cash ledger & NAV reconciliation | **PASS** | Exact mathematical reconciliation across all cash and trade ledgers. |
 | **STATISTICAL_VALIDITY** | Multi-testing correction & realistic $N_{eff}$ | **FAIL** | Incremental alpha of quality over cheap alone is statistically insignificant ($p = 0.285$). |
 | **STRATEGY_EVIDENCE** | Economic robustness across regimes and periods | **PARTIAL** | Positive return in 7 of 8 rolling windows; however, core setup lags passive index (9.12% vs 12.80%). |

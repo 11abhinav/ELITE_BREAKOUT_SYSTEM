@@ -1,0 +1,97 @@
+{
+  "strategy_id": "FUNDAMENTAL_RE_RATING_V1",
+  "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
+  "predecessor": "VALUE_BUY_GEM (Decommissioned 2026-09-28)",
+  "execution_mode": "ONE_SHOT_PREREGISTERED_TOURNAMENT",
+  "timestamp": "2026-09-28T10:19:49.233398",
+  "friction": {
+    "entry_bps": 7.5,
+    "exit_bps": 7.5,
+    "total_round_trip_bps": 15.0
+  },
+  "universe_scope": {
+    "target": "NSE Non-Financial Operating Equities",
+    "exclusions": [
+      "BANK",
+      "BANKS",
+      "FINANCE",
+      "FINANCIAL",
+      "NBFC",
+      "INSURANCE",
+      "HOUSING FIN",
+      "CAPITAL MARKET",
+      "ASSET MANAGEMENT"
+    ]
+  },
+  "hypotheses": {
+    "H1": "Earnings Inflection (EPS YoY Growth Acceleration)",
+    "H2": "Margin Inflection (OPM YoY & TTM Expansion)",
+    "H3": "Cash-Flow Inflection (OCF/NetProfit > 1.0 with Positive Profit)",
+    "H4": "Deleveraging Inflection (NetDebt Decline & Interest Coverage > 3.0)",
+    "H5": "Multi-Inflection Confirmation (H1 AND H2 AND H3)"
+  },
+  "price_arms": {
+    "PRICE_ARM_A": "Close > 50-day EMA",
+    "PRICE_ARM_B": "Close >= Prior 20-day High"
+  },
+  "volume_arms": {
+    "VOLUME_ON": "20-day Volume Accumulation Ratio > 1.20",
+    "VOLUME_OFF": "Volume Unconstrained"
+  },
+  "valuation_arms": {
+    "VAL_0": "Valuation Unconstrained",
+    "VAL_1": "Own-History PE <= 40th Percentile",
+    "VAL_2": "Sector Relative PE Attractive",
+    "VAL_3": "VAL_1 AND VAL_2"
+  },
+  "controls": [
+    "CONTROL_Q",
+    "CONTROL_V",
+    "CONTROL_F",
+    "CONTROL_P",
+    "CONTROL_QP",
+    "CONTROL_RANDOM"
+  ],
+  "ex_ante_1r_formula": "max(Entry Price - SMA200_Entry, 0.10 * Entry Price)",
+  "exits": {
+    "EXIT_1": "Structural Trend Breakdown (Weekly Close < 20W EMA OR Daily < SMA200)",
+    "EXIT_2": "Fundamental Re-Deterioration (2 consecutive quarters YoY EPS < 0)"
+  },
+  "temporal_cells": {
+    "CELL_1": [
+      "2016-01-01",
+      "2018-12-31"
+    ],
+    "CELL_2": [
+      "2019-01-01",
+      "2021-12-31"
+    ],
+    "CELL_3": [
+      "2022-01-01",
+      "2024-12-31"
+    ]
+  },
+  "locked_holdout": [
+    "2025-01-01",
+    "2026-09-27"
+  ],
+  "certification_gates": [
+    "DATA_PROVENANCE",
+    "PIT_TIMESTAMPING",
+    "SURVIVORSHIP_PROTECTION",
+    "LOOKAHEAD_AUDIT",
+    "HOLDOUT_MEAN_NET_R",
+    "HOLDOUT_CI_LOWER",
+    "PORTFOLIO_ALPHA",
+    "TEMPORAL_REPLICATION",
+    "CONCENTRATION",
+    "EFFECTIVE_SAMPLE_SIZE",
+    "COST_ROBUSTNESS",
+    "LIQUIDITY",
+    "CONTROL_SEPARATION",
+    "PLACEBO_FAILURE",
+    "CAUSALITY",
+    "REPRODUCIBILITY",
+    "PAPER_GATE"
+  ]
+}

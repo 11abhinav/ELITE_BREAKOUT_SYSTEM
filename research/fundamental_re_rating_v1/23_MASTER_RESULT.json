@@ -1,0 +1,37 @@
+{
+  "strategy_id": "FUNDAMENTAL_RE_RATING_V1",
+  "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
+  "data_state": "CERTIFIED",
+  "pit_state": "CERTIFIED",
+  "universe_state": "NON_FINANCIAL_OPERATING",
+  "candidate_count": 80,
+  "trade_count": 126030,
+  "symbol_count": 750,
+  "effective_sample_size": 126030,
+  "holdout": {
+    "window": "2025-01-01 to 2026-09-27",
+    "trade_count": 29607,
+    "mean_net_r": -0.01981348431787475
+  },
+  "certification_gates": {
+    "DATA_PROVENANCE": "PASS",
+    "PIT_TIMESTAMPING": "PASS",
+    "SURVIVORSHIP_PROTECTION": "PASS",
+    "LOOKAHEAD_AUDIT": "PASS",
+    "HOLDOUT_MEAN_NET_R": "FAIL",
+    "HOLDOUT_CI_LOWER": "FAIL",
+    "PORTFOLIO_ALPHA": "FAIL",
+    "TEMPORAL_REPLICATION": "FAIL",
+    "CONCENTRATION": "PASS",
+    "EFFECTIVE_SAMPLE_SIZE": "PASS",
+    "COST_ROBUSTNESS": "PASS",
+    "LIQUIDITY": "PASS",
+    "CONTROL_SEPARATION": "PASS",
+    "PLACEBO_FAILURE": "PASS",
+    "CAUSALITY": "PASS",
+    "REPRODUCIBILITY": "PASS",
+    "PAPER_GATE": "PENDING"
+  },
+  "final_verdict": "REJECTED",
+  "execution_time_seconds": 781.61
+}

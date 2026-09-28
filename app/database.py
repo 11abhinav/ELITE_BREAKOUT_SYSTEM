@@ -623,6 +623,20 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS source_trading_date DATE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS alert_fingerprint VARCHAR(128)")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS cmp_updated_at TIMESTAMPTZ")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS record_type VARCHAR(50) DEFAULT 'ALERT_EVENT'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS watchlist_state VARCHAR(50)")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rejection_reason VARCHAR(100)")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS quality_gate_status VARCHAR(50)")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS value_gate_status VARCHAR(50)")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS tier VARCHAR(50)")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS ranking_score REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reference_entry_open REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS reference_exit_open REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS signal_date DATE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS next_trading_day DATE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS governance_status VARCHAR(50) DEFAULT 'GOVERNANCE_PENDING'")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_record_type ON alerts(record_type, scanner, alert_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_v2_lookup ON alerts(scanner, record_type, symbol, alert_date DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_source_trading_date ON alerts(symbol, scanner, source_trading_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_fingerprint ON alerts(alert_fingerprint)")
 
@@ -11818,4 +11832,254 @@ def get_current_company_intelligence(symbol: str) -> dict:
     except Exception as e:
         logger.debug(f"Failed to get current company intelligence for {symbol}: {e}")
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# QUALITY_COMPOUNDER_VALUE_V2_FINAL — ALERT TABLE SINGLE SOURCE OF TRUTH FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+def save_v2_scan_snapshots(snapshot_records: List[Dict[str, Any]]) -> int:
+    """
+    Persist daily immutable scan snapshots for QUALITY_COMPOUNDER_VALUE_V2_FINAL into existing 'alerts' table.
+    Every stock evaluated on the 17:00 IST daily run receives a row.
+    record_type = 'SCAN_SNAPSHOT'
+    breakout_type = 'SCAN_SNAPSHOT'
+    scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+    """
+    if not snapshot_records:
+        return 0
+    init_db()
+    inserted_count = 0
+    now_ist = datetime.now(IST)
+    today_date = now_ist.date()
+
+    with get_connection() as conn:
+        if isinstance(conn, DummyConnection):
+            logger.info(f"DummyConnection active: simulated persistence of {len(snapshot_records)} V2 snapshots")
+            return len(snapshot_records)
+        with conn.cursor() as cur:
+            for rec in snapshot_records:
+                sym = str(rec.get("symbol", "")).strip().upper()
+                if not sym:
+                    continue
+                sanitized_ctx = _sanitize_for_json(rec.get("context", {}))
+                ctx_str = json.dumps(sanitized_ctx, default=str)
+
+                cur.execute("""
+                    INSERT INTO alerts (
+                        symbol, breakout_type, alert_time, alert_date, scanner, category,
+                        current_price, status, record_type, watchlist_state, rejection_reason,
+                        quality_gate_status, value_gate_status, tier, ranking_score,
+                        signal_date, context
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
+                    SET current_price = EXCLUDED.current_price,
+                        watchlist_state = EXCLUDED.watchlist_state,
+                        rejection_reason = EXCLUDED.rejection_reason,
+                        quality_gate_status = EXCLUDED.quality_gate_status,
+                        value_gate_status = EXCLUDED.value_gate_status,
+                        tier = EXCLUDED.tier,
+                        ranking_score = EXCLUDED.ranking_score,
+                        context = EXCLUDED.context,
+                        updated_at = NOW()
+                """, (
+                    sym,
+                    "SCAN_SNAPSHOT",
+                    rec.get("scan_timestamp", now_ist.isoformat()),
+                    today_date,
+                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    "V2_DAILY_SNAPSHOT",
+                    rec.get("current_price"),
+                    rec.get("overall_candidate_status", "SNAPSHOT"),
+                    "SCAN_SNAPSHOT",
+                    rec.get("watchlist_state", "REJECTED"),
+                    rec.get("rejection_reason", "FAIL"),
+                    rec.get("quality_gate_status", "FAIL"),
+                    rec.get("value_gate_status", "FAIL"),
+                    rec.get("tier"),
+                    rec.get("ranking_score"),
+                    rec.get("scan_date", str(today_date)),
+                    ctx_str
+                ))
+                inserted_count += 1
+            conn.commit()
+    return inserted_count
+
+
+def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
+    """
+    Persist or update candidate alert for QUALITY_COMPOUNDER_VALUE_V2_FINAL in existing 'alerts' table.
+    record_type = 'ALERT_EVENT'
+    breakout_type = 'QUALITY_COMPOUNDER_V2'
+    scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+    """
+    init_db()
+    sym = str(candidate.get("symbol", "")).strip().upper()
+    now_ist = datetime.now(IST)
+    today_date = now_ist.date()
+
+    sanitized_ctx = _sanitize_for_json(candidate.get("context", {}))
+    ctx_str = json.dumps(sanitized_ctx, default=str)
+
+    with get_connection() as conn:
+        if isinstance(conn, DummyConnection):
+            logger.info(f"DummyConnection active: simulated persistence of V2 candidate alert for {sym}")
+            return True, "INSERTED_DUMMY_CANDIDATE"
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, status, watchlist_state FROM alerts
+                WHERE symbol = %s AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+                  AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                ORDER BY alert_time DESC LIMIT 1
+            """, (sym,))
+            row = cur.fetchone()
+            if row:
+                alert_id = row[0]
+                cur.execute("""
+                    UPDATE alerts
+                    SET current_price = %s,
+                        ranking_score = %s,
+                        tier = %s,
+                        watchlist_state = %s,
+                        context = %s::jsonb,
+                        updated_at = NOW()
+                    WHERE id = %s
+                """, (
+                    candidate.get("current_price"),
+                    candidate.get("ranking_score"),
+                    candidate.get("tier"),
+                    candidate.get("watchlist_state", "GREEN"),
+                    ctx_str,
+                    alert_id
+                ))
+                conn.commit()
+                return True, f"UPDATED_EXISTING_ALERT_{alert_id}"
+            else:
+                cur.execute("""
+                    INSERT INTO alerts (
+                        symbol, breakout_type, alert_time, alert_date, scanner, category,
+                        entry_price, current_price, status, record_type, watchlist_state,
+                        rejection_reason, quality_gate_status, value_gate_status, tier,
+                        ranking_score, signal_date, next_trading_day, reference_entry_open,
+                        governance_status, context, signals, score
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                """, (
+                    sym,
+                    "QUALITY_COMPOUNDER_V2",
+                    now_ist.isoformat(),
+                    today_date,
+                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    "LIVE_PRODUCTION_WATCHLIST",
+                    candidate.get("entry_price"),
+                    candidate.get("current_price"),
+                    "OPEN",
+                    "ALERT_EVENT",
+                    candidate.get("watchlist_state", "GREEN"),
+                    "PASS",
+                    "PASS",
+                    "PASS",
+                    candidate.get("tier"),
+                    candidate.get("ranking_score"),
+                    candidate.get("signal_date", str(today_date)),
+                    candidate.get("next_trading_day"),
+                    candidate.get("reference_entry_open"),
+                    "GOVERNANCE_PENDING",
+                    ctx_str,
+                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL (PASS ALL GATES)",
+                    int(candidate.get("ranking_score", 90))
+                ))
+                conn.commit()
+                return True, "INSERTED_NEW_ALERT"
+
+
+def save_v2_exit_event(
+    symbol: str,
+    event_type: str,  # 'EXIT_CHECK_PRE_CLOSE' or 'FINAL_EXIT'
+    new_watchlist_state: str,  # 'ORANGE', 'RED', 'CLOSED'
+    exit_reason: str = None,   # 'SMA200_BREAK', 'FUNDAMENTAL_DETERIORATION', or combined
+    exit_price: float = None,
+    reference_exit_open: float = None,
+    context_update: dict = None
+) -> bool:
+    """
+    Record state transition or exit event for QUALITY_COMPOUNDER_VALUE_V2_FINAL in existing 'alerts' table.
+    """
+    init_db()
+    sym = symbol.strip().upper()
+    now_ist = datetime.now(IST)
+
+    with get_connection() as conn:
+        if isinstance(conn, DummyConnection):
+            logger.info(f"DummyConnection active: simulated exit event {event_type} for {sym}")
+            return True
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, status, watchlist_state, exit_history, context FROM alerts
+                WHERE symbol = %s AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+                  AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                ORDER BY alert_time DESC LIMIT 1
+            """, (sym,))
+            row = cur.fetchone()
+            if not row:
+                logger.warning(f"No active V2 alert found for {sym} to apply exit event {event_type}")
+                return False
+
+            alert_id = row[0]
+            existing_exit_hist = row[3] or []
+            if isinstance(existing_exit_hist, str):
+                try:
+                    existing_exit_hist = json.loads(existing_exit_hist)
+                except Exception:
+                    existing_exit_hist = []
+
+            event_entry = {
+                "event_type": event_type,
+                "timestamp": now_ist.isoformat(),
+                "watchlist_state": new_watchlist_state,
+                "exit_reason": exit_reason,
+                "exit_price": exit_price,
+                "reference_exit_open": reference_exit_open,
+                "details": context_update or {}
+            }
+            existing_exit_hist.append(event_entry)
+
+            if event_type == "FINAL_EXIT":
+                cur.execute("""
+                    UPDATE alerts
+                    SET status = 'CLOSED',
+                        watchlist_state = %s,
+                        exit_price = %s,
+                        reference_exit_open = %s,
+                        exit_reason = %s,
+                        exit_signal = %s,
+                        closed_at = NOW(),
+                        exit_history = %s::jsonb,
+                        updated_at = NOW()
+                    WHERE id = %s
+                """, (
+                    new_watchlist_state,
+                    exit_price,
+                    reference_exit_open,
+                    exit_reason,
+                    exit_reason,
+                    json.dumps(_sanitize_for_json(existing_exit_hist)),
+                    alert_id
+                ))
+            else:
+                cur.execute("""
+                    UPDATE alerts
+                    SET watchlist_state = %s,
+                        exit_history = %s::jsonb,
+                        updated_at = NOW()
+                    WHERE id = %s
+                """, (
+                    new_watchlist_state,
+                    json.dumps(_sanitize_for_json(existing_exit_hist)),
+                    alert_id
+                ))
+            conn.commit()
+            return True
+
 

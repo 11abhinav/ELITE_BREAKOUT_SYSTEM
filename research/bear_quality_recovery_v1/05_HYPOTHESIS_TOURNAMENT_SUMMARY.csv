@@ -1,0 +1,5 @@
+hypothesis,total_trades,unique_symbols,win_rate_pct,mean_net_r,median_net_r,mean_net_return_pct,dev_mean_net_r,holdout_n,holdout_mean_net_r,holdout_ci_95_low,holdout_ci_95_high,ret_1m_mean_pct,ret_3m_mean_pct,ret_6m_mean_pct,ret_12m_mean_pct,ret_2y_mean_pct,ret_3y_mean_pct
+CONTROL_1,15475,258,39.02,-0.0532,-0.1168,-0.8,0.6835,15465,-0.0537,-0.0628,-0.0445,0.51,-0.5,-0.67,-0.65,-0.68,-0.68
+CONTROL_3,69,6,49.28,0.1662,-0.0488,2.49,0.0001,66,0.1738,-0.0514,0.4116,11.81,5.18,3.01,5.02,3.36,3.21
+PRIMARY_BEAR_RECOVERY,55,2,41.82,-0.7091,-0.1761,-10.64,-2.3086,34,0.2789,0.1421,0.4211,1.45,12.97,-0.27,-16.41,-10.24,-11.72
+CONTROL_5,13,3,76.92,0.4594,0.4622,6.89,-1.3373,10,0.9984,0.5426,1.5906,12.14,14.31,7.33,1.36,0.18,-1.47

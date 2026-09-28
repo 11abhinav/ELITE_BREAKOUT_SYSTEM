@@ -1,0 +1,4 @@
+friction_multiplier,round_trip_bps,cagr_pct,max_dd_pct,sharpe_ratio,calmar_ratio
+1x,15.0,17.8,12.05,1.5481,1.4769
+2x,30.0,17.57,11.68,1.4991,1.5047
+3x,45.0,17.22,14.07,1.4334,1.224

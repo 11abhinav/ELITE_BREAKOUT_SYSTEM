@@ -1,0 +1,65 @@
+{
+  "strategy_id": "BEAR_QUALITY_RECOVERY_V1",
+  "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
+  "predecessor": "VALUE_BUY_GEM / FUNDAMENTAL_RE_RATING_V1 / CONTROL_P (Decommissioned)",
+  "execution_mode": "ONE_SHOT_PREREGISTERED_TOURNAMENT",
+  "timestamp": "2026-09-28T12:13:53.708670",
+  "regime_scope": "BEAR_ONLY (Nifty 500 = BEAR)",
+  "friction": {
+    "entry_bps": 7.5,
+    "exit_bps": 7.5,
+    "total_round_trip_bps": 15.0
+  },
+  "regime_definition": {
+    "formula": "Nifty500 Close < SMA200 AND SMA50 < SMA200 AND 20D_Slope_SMA200 < 0",
+    "min_episode_duration_sessions": 10,
+    "min_episode_gap_sessions": 20
+  },
+  "attribution_engine": {
+    "drawdown_definition": "POSITIVE_MAGNITUDE ((Peak52W - Close) / Peak52W)",
+    "dislocation_floor_pct": 15.0,
+    "classes": [
+      "MARKET_DRIVEN",
+      "SECTOR_DRIVEN",
+      "COMPANY_SPECIFIC",
+      "MIXED"
+    ],
+    "precedence": "SECTOR_DRIVEN takes precedence over MARKET_DRIVEN if both pass"
+  },
+  "quality_gate": {
+    "roce_roe_min_pct": 12.0,
+    "de_max": 1.0,
+    "ocf_conversion_min_pct": 70.0,
+    "data_states": [
+      "PASS",
+      "FAIL",
+      "INSUFFICIENT_DATA",
+      "INVALID"
+    ]
+  },
+  "exit_collapse_formulas": {
+    "eps_collapse_max_yoy_pct": -20.0,
+    "ocf_collapse_max_yoy_pct": -25.0,
+    "roce_failure_min_pct": 8.0
+  },
+  "confirmation_matrix": [
+    "ARM_A",
+    "ARM_B",
+    "ARM_C",
+    "ARM_AB",
+    "ARM_AC",
+    "ARM_BC",
+    "ARM_ABC",
+    "ARM_ANY"
+  ],
+  "holding_models": {
+    "PRIMARY_NO_FIXED_PRICE_SL": "Primary Model: Exits strictly on Quality Collapse or PE Saturation at 90th percentile",
+    "CONTROL_FIXED_SL_TP": "Control Model: Fixed 20% Stop / 40% Target (Worst-case collision fill on same bar)"
+  },
+  "concentration_limits": {
+    "max_single_symbol_pnl_pct": 15.0,
+    "max_sector_pnl_pct": 40.0,
+    "max_bear_episode_pnl_pct": 60.0
+  },
+  "dataset_hash_sha256": "48de4357623d0939c5bc57cd1b64a990030718db23c89bef18cd5be8f75736a1"
+}

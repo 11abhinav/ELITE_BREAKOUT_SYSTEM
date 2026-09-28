@@ -14,8 +14,9 @@ The 2026 holdout period (`2026-01-01` to `2026-09-27`) was strictly frozen and r
 
 Per system invariants:
 - **Point-in-Time Integrity**: Signal generation on date $T$ used strictly data known at $T$.
-- **Friction Enforced**: Every trade included 15 bps total round-trip transaction costs (brokerage, STT, exchange fees, slippage).
+- **Friction Enforced**: Every trade included 15 bps round-trip total transaction costs (7.5 bps entry / 7.5 bps exit, incorporating brokerage, STT, exchange fees, slippage).
 - **Zero SNOOPING / ZERO PARAMETER RETUNING**: No candidate formulation was modified after evaluating holdout performance.
+- **Metric Separation**: Trade-level Mean Net R measures average trade expectancy normalized by initial risk, whereas Portfolio CAGR reflects actual compounded account growth subject to cash drag, slot constraints (20 slots), and trading frequency.
 
 ---
 

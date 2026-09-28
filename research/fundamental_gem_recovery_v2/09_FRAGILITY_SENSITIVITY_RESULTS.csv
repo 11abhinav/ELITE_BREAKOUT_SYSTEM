@@ -1,0 +1,10 @@
+ev_discount_threshold,residual_drawdown_threshold,cagr_pct,max_dd_pct,calmar_ratio,beats_baseline_no_exit
+0.2,0.08,38.35,7.35,5.2158,True
+0.2,0.1,38.83,7.35,5.2815,True
+0.2,0.12,39.28,7.35,5.3425,True
+0.25,0.08,38.35,7.35,5.2158,True
+0.25,0.1,38.83,7.35,5.2815,True
+0.25,0.12,39.28,7.35,5.3425,True
+0.3,0.08,38.35,7.35,5.2158,True
+0.3,0.1,38.83,7.35,5.2815,True
+0.3,0.12,39.28,7.35,5.3425,True

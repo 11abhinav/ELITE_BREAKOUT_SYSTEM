@@ -1254,3 +1254,135 @@ def get_live_wealth_monitor() -> LiveWealthMonitorEngine:
         if _live_wealth_monitor_instance is None:
             _live_wealth_monitor_instance = LiveWealthMonitorEngine()
         return _live_wealth_monitor_instance
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# QUALITY_COMPOUNDER_VALUE_V2_FINAL — 15:15 & 18:30 EXIT PULSE CHECKER
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
+    """
+    Executes V2 exit checks for QUALITY_COMPOUNDER_VALUE_V2_FINAL:
+    - check_type = 'PRE_CLOSE' (15:15 IST pulse): Warning check, GREEN -> ORANGE on intraday SMA200 breach, NO final exit.
+    - check_type = 'EOD' (18:30 IST pulse): Definitive EOD check, evaluates 2 consecutive daily closes < SMA200 & fundamental deterioration, confirms FINAL_EXIT -> CLOSED / RED.
+    """
+    import pandas as pd
+    import numpy as np
+    from datetime import datetime
+    try:
+        from database import get_connection, save_v2_exit_event, RealDictCursor, DummyConnection, IST
+    except ImportError:
+        from app.database import get_connection, save_v2_exit_event, RealDictCursor, DummyConnection, IST
+
+    now_ist = datetime.now(IST)
+    today_str = now_ist.strftime("%Y-%m-%d")
+
+    logger.info(f"🛡️ [V2_EXIT_MONITOR] Running {check_type} exit check pulse for QUALITY_COMPOUNDER_VALUE_V2_FINAL at {now_ist.strftime('%H:%M:%S IST')}...")
+
+    active_alerts = []
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT * FROM alerts
+                        WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+                          AND record_type = 'ALERT_EVENT'
+                          AND status IN ('OPEN', 'ACTIVE')
+                    """)
+                    active_alerts = [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to fetch active V2 alerts: {e}")
+        return {"status": "FAILED", "error": str(e)}
+
+    if not active_alerts:
+        logger.info("ℹ️ [V2_EXIT_MONITOR] Zero active QUALITY_COMPOUNDER_VALUE_V2_FINAL alerts found.")
+        return {"status": "SUCCESS", "active_count": 0, "processed": 0}
+
+    history_dir = os.path.join(DATA_DIR, "history", "1d")
+    processed_count = 0
+    warnings_count = 0
+    exits_count = 0
+
+    for al in active_alerts:
+        processed_count += 1
+        sym = str(al["symbol"]).upper()
+        p_path = os.path.join(history_dir, f"{sym}.parquet")
+        if not os.path.exists(p_path):
+            logger.warning(f"No price history found for active candidate {sym}")
+            continue
+
+        try:
+            df = pd.read_parquet(p_path)
+            if df.empty or len(df) < 50:
+                continue
+            closes = df["Close" if "Close" in df.columns else "close"].values.astype(np.float64)
+            sma200_series = pd.Series(closes).rolling(200, min_periods=50).mean().values
+            close_t = float(closes[-1])
+            close_t_prev = float(closes[-2]) if len(closes) > 1 else close_t
+            sma200_t = float(sma200_series[-1])
+            sma200_t_prev = float(sma200_series[-2]) if len(sma200_series) > 1 else sma200_t
+
+            # Intraday 15:15 IST Pre-Close Check
+            if check_type == "PRE_CLOSE":
+                if close_t < sma200_t:
+                    warnings_count += 1
+                    save_v2_exit_event(
+                        symbol=sym,
+                        event_type="EXIT_CHECK_PRE_CLOSE",
+                        new_watchlist_state="ORANGE",
+                        exit_reason="INTRADAY_SMA200_BREACH_WARNING",
+                        exit_price=close_t,
+                        context_update={"close_1515": close_t, "sma200": sma200_t}
+                    )
+                    logger.info(f"⚠️ [V2 15:15 WARNING] {sym} price ₹{close_t:.2f} < SMA200 ₹{sma200_t:.2f} -> ORANGE state set")
+            # Definitive 18:30 IST EOD Check
+            else:
+                # Rule: 2 consecutive closes < SMA200
+                sma200_exit_confirmed = (close_t < sma200_t) and (close_t_prev < sma200_t_prev)
+
+                # Fundamental deterioration check
+                fund_exit_confirmed = False
+                ctx = al.get("context") or {}
+                if isinstance(ctx, str):
+                    try: ctx = json.loads(ctx)
+                    except Exception: ctx = {}
+
+                roce_init = float(ctx.get("roce_5y_avg", 15.0) or 15.0)
+                roce_curr = float(al.get("current_roce", roce_init) or roce_init)
+                if roce_curr < (0.75 * roce_init) or roce_curr < 10.0:
+                    fund_exit_confirmed = True
+
+                exit_reasons = []
+                if sma200_exit_confirmed:
+                    exit_reasons.append("SMA200_BREAK")
+                if fund_exit_confirmed:
+                    exit_reasons.append("FUNDAMENTAL_DETERIORATION")
+
+                if exit_reasons:
+                    exits_count += 1
+                    exit_reason_str = " | ".join(exit_reasons)
+                    next_open_price = close_t
+                    save_v2_exit_event(
+                        symbol=sym,
+                        event_type="FINAL_EXIT",
+                        new_watchlist_state="RED",
+                        exit_reason=exit_reason_str,
+                        exit_price=close_t,
+                        reference_exit_open=next_open_price,
+                        context_update={
+                            "close_t": close_t,
+                            "close_t_prev": close_t_prev,
+                            "sma200_t": sma200_t,
+                            "sma200_t_prev": sma200_t_prev,
+                            "exit_reasons": exit_reasons
+                        }
+                    )
+                    logger.info(f"🔴 [V2 18:30 CONFIRMED EXIT] {sym} exited ({exit_reason_str}) @ ₹{close_t:.2f}")
+
+        except Exception as e:
+            logger.error(f"Error evaluating V2 exit for {sym}: {e}")
+
+    logger.info(f"✅ [V2_EXIT_MONITOR] {check_type} Exit Check Complete: Processed={processed_count}, Warnings={warnings_count}, Exits={exits_count}")
+    return {"status": "SUCCESS", "processed": processed_count, "warnings": warnings_count, "exits": exits_count}
+

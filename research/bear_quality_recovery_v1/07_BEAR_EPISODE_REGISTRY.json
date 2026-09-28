@@ -1,0 +1,170 @@
+[
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2016-11-28",
+    "end_date": "2016-11-29",
+    "duration_sessions": 13
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2016-12-20",
+    "end_date": "2016-12-21",
+    "duration_sessions": 14
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-01-05",
+    "end_date": "2017-01-09",
+    "duration_sessions": 15
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-02-09",
+    "end_date": "2017-02-14",
+    "duration_sessions": 18
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-02-27",
+    "end_date": "2017-03-17",
+    "duration_sessions": 84
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-06-13",
+    "end_date": "2017-06-15",
+    "duration_sessions": 12
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-08-01",
+    "end_date": "2017-08-02",
+    "duration_sessions": 10
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-08-09",
+    "end_date": "2017-08-18",
+    "duration_sessions": 45
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-08-28",
+    "end_date": "2017-08-31",
+    "duration_sessions": 31
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-09-06",
+    "end_date": "2017-09-07",
+    "duration_sessions": 12
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2017-11-13",
+    "end_date": "2017-11-29",
+    "duration_sessions": 87
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-01-22",
+    "end_date": "2018-01-24",
+    "duration_sessions": 10
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-02-20",
+    "end_date": "2018-02-22",
+    "duration_sessions": 10
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-04-11",
+    "end_date": "2018-04-12",
+    "duration_sessions": 10
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-05-31",
+    "end_date": "2018-06-18",
+    "duration_sessions": 73
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-06-22",
+    "end_date": "2018-06-27",
+    "duration_sessions": 17
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-07-25",
+    "end_date": "2018-07-26",
+    "duration_sessions": 10
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-08-13",
+    "end_date": "2018-09-04",
+    "duration_sessions": 101
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-09-07",
+    "end_date": "2018-09-11",
+    "duration_sessions": 16
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-09-27",
+    "end_date": "2018-09-28",
+    "duration_sessions": 10
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-10-08",
+    "end_date": "2018-10-10",
+    "duration_sessions": 10
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-10-29",
+    "end_date": "2018-11-02",
+    "duration_sessions": 35
+  },
+  {
+    "episode_id": "BEAR_EPISODE_01_2018_MIDCAP",
+    "start_date": "2018-12-20",
+    "end_date": "2019-10-22",
+    "duration_sessions": 204
+  },
+  {
+    "episode_id": "BEAR_EPISODE_02_2020_COVID",
+    "start_date": "2020-03-17",
+    "end_date": "2020-07-21",
+    "duration_sessions": 85
+  },
+  {
+    "episode_id": "BEAR_EPISODE_03_2022_INFLATION",
+    "start_date": "2022-05-10",
+    "end_date": "2022-08-01",
+    "duration_sessions": 60
+  },
+  {
+    "episode_id": "BEAR_EPISODE_26_2024_2026_CHOPPY",
+    "start_date": "2023-01-31",
+    "end_date": "2023-04-03",
+    "duration_sessions": 43
+  },
+  {
+    "episode_id": "BEAR_EPISODE_27_2024_2026_CHOPPY",
+    "start_date": "2025-03-05",
+    "end_date": "2025-05-12",
+    "duration_sessions": 43
+  },
+  {
+    "episode_id": "BEAR_EPISODE_28_2024_2026_CHOPPY",
+    "start_date": "2026-03-16",
+    "end_date": "2026-04-09",
+    "duration_sessions": 16
+  }
+]

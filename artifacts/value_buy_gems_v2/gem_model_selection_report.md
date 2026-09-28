@@ -60,8 +60,9 @@ The **Master Value Gem Research & Backtest Program** systematically evaluated **
 ## Forensic Analysis of Failure Mechanisms
 
 ### 1. Market Dislocation vs. Fundamental Deterioration
-In Indian equities, a $25\%\text{--}45\%$ price dislocation in a "good" company is rarely a pure mispricing. In $>80\%$ of historical cases:
-- The dislocation is accompanied by hidden earnings deceleration or margin compression that is only visible in subsequent filings.
+In Indian equities, a $25\%\text{--}45\%$ price dislocation in a "good" company is rarely a pure mispricing.
+- **Working Hypothesis & Sample Observation**: In $>80\%$ of tested historical dislocation cases in mid/small-caps, price drawdowns reflected ongoing or upcoming operational deterioration (subject to a future dedicated event study for definitive RCA certification).
+- The dislocation is frequently accompanied by hidden earnings deceleration or margin compression that is only visible in subsequent filings.
 - Buying price dislocations without waiting for confirmed fundamental re-acceleration subjects the portfolio to **catching falling knives** during prolonged sector downgrades.
 
 ### 2. Regime Dependency & Post-COVID Recovery Distortions
@@ -70,7 +71,16 @@ Formulations that appeared mildly positive during historical training (2016–20
 - **2024–2026 High Valuation / Choppy Regime**: Negative net expectancy ($-0.06\text{R}$ to $-0.08\text{R}$).
 
 ### 3. Execution Friction & Spreads
-Frictional costs (15 bps per side, STT, slippage) wipe out small positive expectancy. A naive value edge averaging $+0.04\text{R}$ gross converts to $-0.06\text{R}$ net after accounting for realistic entry/exit friction and cash drag.
+Frictional costs (15 bps round-trip total: 7.5 bps per side, STT, slippage) wipe out small positive expectancy. A naive value edge averaging $+0.04\text{R}$ gross converts to $-0.06\text{R}$ net after accounting for realistic entry/exit friction and cash drag.
+
+### 4. Decoupling Trade Expectancy (Mean R) vs. Portfolio Compounded CAGR
+A critical methodological distinction must be noted when reviewing performance tables:
+- **Trade-Level Expectancy ($\text{Mean R}$)**: Measures the raw statistical edge per trade normalized by initial stop distance ($R$). For example, $\text{CONTROL\_1}$ shows $+0.132\text{R}$ trade-level expectancy.
+- **Portfolio Compounded CAGR**: Reflects actual capital compounding across time ($+0.57\%$ for $\text{CONTROL\_1}$).
+- **Why the Disconnect Exists**:
+  1. *Position Sizing*: Equal-weight 5% sizing (20 slots) means a single trade's $+0.132\text{R}$ gain represents only $+0.0066\%$ of total portfolio equity per trade.
+  2. *Cash Drag & Slot Utilization*: When capital stays unallocated or trades hold for long durations without high trade velocity, portfolio CAGR remains suppressed despite positive trade-level expectancy.
+- **Next Framework Standard**: All future research families (including `FUNDAMENTAL_RE_RATING_V1`) will maintain explicit dual-track reporting: **Track A (Trade Expectancy & Win Rate)** and **Track B (Compounded Portfolio CAGR & Utilization)**.
 
 ---
 

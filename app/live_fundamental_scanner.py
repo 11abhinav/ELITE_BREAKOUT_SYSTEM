@@ -1434,6 +1434,344 @@ def run_fundamental_scan(trigger_type: str = "MANUAL", scheduler_name: str = "MA
     """Top-level invocation wrapper matching the engine's trigger signature."""
     return get_live_fundamental_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name)
 
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# QUALITY_COMPOUNDER_VALUE_V2_FINAL — FROZEN STRATEGY IMPLEMENTATION
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+class QualityCompounderValueV2Scanner:
+    """
+    FROZEN PRODUCTION SCANNER: QUALITY_COMPOUNDER_VALUE_V2_FINAL
+    STATUS: LIVE_PRODUCTION_WATCHLIST
+    BROKER TRADING: DISABLED (Alert / Watchlist only)
+
+    Universe Gate:
+      - Market Cap >= ₹1,000 Cr
+      - 90-day ADTV >= ₹2 Cr
+      - Exclude Financials from primary EV/EBITDA arm
+
+    Quality Hard Gates:
+      - 5Y Average ROCE >= 15.0%
+      - 5Y Sales CAGR >= 10.0%
+      - 5Y PAT CAGR >= 10.0%
+      - 5Y Cumulative CFO / PAT >= 0.80
+      - Debt / Equity <= 0.50
+      - 3Y Share Dilution <= 10.0%
+
+    Value Hard Gate:
+      - Current EV/EBITDA <= 0.75 * Stock's own PIT 3Y Median EV/EBITDA (EV/EBITDA Discount >= 25%)
+
+    Operational 100-Point Score & Tier:
+      - Tier A: Res_DD <= 0.10 (Stock vs Benchmark Drawdown Dislocation <= 10%)
+      - Tier B: Res_DD > 0.10
+      - 100-pt score prioritization (never overrides eligibility gates)
+    """
+
+    def __init__(self):
+        self.strategy_id = "QUALITY_COMPOUNDER_VALUE_V2_FINAL"
+
+    @staticmethod
+    def is_financial_sector(industry_str: str) -> bool:
+        if not isinstance(industry_str, str):
+            return False
+        ind_upper = industry_str.upper()
+        financial_keywords = [
+            "BANK", "FINANCE", "FINANCIAL", "HOUSING FINANCE", "NBFC",
+            "INSURANCE", "INVESTMENT", "CAPITAL", "SECURITIES", "LEASING"
+        ]
+        return any(kw in ind_upper for kw in financial_keywords)
+
+    @staticmethod
+    def compute_100pt_score(row_dict: dict, ev_discount: float, pe_discount: float, res_dd: float) -> float:
+        # 1. EV/EBITDA Discount Depth (0.25 to 0.50 => 0 to 30 pts)
+        ev_pts = 30.0 * min(max((ev_discount - 0.25) / 0.25, 0.0), 1.0)
+        # 2. 5Y ROCE (15% to 40% => 0 to 25 pts)
+        roce_val = float(row_dict.get("roce_5y_avg", 15.0) or 15.0)
+        roce_pts = 25.0 * min(max((roce_val - 15.0) / 25.0, 0.0), 1.0)
+        # 3. PE Discount Depth (0% to 40% => 0 to 20 pts)
+        pe_pts = 20.0 * min(max(pe_discount / 0.40, 0.0), 1.0)
+        # 4. CFO / PAT Ratio (0.80 to 1.50 => 0 to 15 pts)
+        cfo_pat_val = float(row_dict.get("cfo_pat_5y_ratio", 0.80) or 0.80)
+        cfo_pts = 15.0 * min(max((cfo_pat_val - 0.80) / 0.70, 0.0), 1.0)
+        # 5. Residual Drawdown Bonus (Res_DD <= 10% gets full 10 pts)
+        if res_dd <= 0.10:
+            res_pts = 10.0
+        else:
+            res_pts = 10.0 * min(max((0.25 - res_dd) / 0.15, 0.0), 1.0)
+
+        return round(ev_pts + roce_pts + pe_pts + cfo_pts + res_pts, 2)
+
+    def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON") -> Dict[str, Any]:
+        """
+        Executes the frozen QUALITY_COMPOUNDER_VALUE_V2_FINAL 17:00 IST daily scan run.
+        Generates daily immutable SCAN_SNAPSHOT rows for ALL evaluated stocks and
+        ALERT_EVENT rows for passing candidate stocks directly in the existing 'alerts' table.
+        """
+        import time
+        start_ts = time.time()
+        now_ist = datetime.now(IST)
+        today_str = now_ist.strftime("%Y-%m-%d")
+
+        logger.info(f"📡 [SCANNER: V2_FINAL] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
+
+        # Load PIT fundamentals dataset
+        pit_df = self.load_pit_dataset()
+        if pit_df is None or pit_df.empty:
+            logger.error("❌ [SCANNER: V2_FINAL] Failed to load PIT dataset — scan failed!")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("Wealth Engine", status="DOWN", error_msg="PIT dataset unavailable")
+            except Exception:
+                pass
+            return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
+
+        snapshot_records = []
+        candidate_records = []
+
+        total_scanned = 0
+        quality_pass_count = 0
+        value_pass_count = 0
+        candidate_count = 0
+        data_blocked_count = 0
+
+        # Filter to latest PIT record per symbol on or before today
+        if 'filing_date' in pit_df.columns:
+            pit_df['filing_date'] = pd.to_datetime(pit_df['filing_date'])
+            pit_df = pit_df[pit_df['filing_date'] <= pd.to_datetime(today_str)].sort_values('filing_date').groupby('symbol').last().reset_index()
+
+        for _, row in pit_df.iterrows():
+            total_scanned += 1
+            sym = str(row['symbol']).upper()
+            industry = str(row.get('industry', 'Unknown'))
+            mcap = float(row.get('market_cap', row.get('mcap', 1000.0)) or 1000.0)
+            adtv_90d = float(row.get('adtv_90d', row.get('adtv', 2.0)) or 2.0)
+
+            # Metrics
+            roce_5y = row.get('roce_5y_avg', row.get('roce_5y'))
+            sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr'))
+            pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr'))
+            cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y'))
+            de_ratio = row.get('debt_to_equity', row.get('debt_equity'))
+            share_dilution_3y = row.get('share_dilution_3y_pct', row.get('share_dilution_3y'))
+
+            ev_ebitda_curr = row.get('ev_to_ebitda', row.get('ev_ebitda'))
+            ev_ebitda_med = row.get('ev_to_ebitda_3y_median', row.get('ev_ebitda_3y_median'))
+            pe_curr = row.get('pe_ratio', row.get('pe'))
+            pe_med = row.get('pe_ratio_3y_median', row.get('pe_3y_median'))
+
+            cmp_price = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
+            sma50 = float(row.get('sma50', cmp_price) or cmp_price)
+            sma100 = float(row.get('sma100', cmp_price) or cmp_price)
+            sma200 = float(row.get('sma200', cmp_price) or cmp_price)
+
+            # Evaluate Gates
+            rejections = []
+            quality_gate_passed = False
+            value_gate_passed = False
+
+            # Financial Sector exclusion from primary EV/EBITDA pipeline
+            if self.is_financial_sector(industry):
+                rejections.append("FAIL_UNIVERSE_FINANCIAL_SECTOR")
+            if mcap < 1000.0:
+                rejections.append("FAIL_UNIVERSE_MARKET_CAP")
+            if adtv_90d < 2.0:
+                rejections.append("FAIL_LIQUIDITY")
+
+            # Missing PIT Data check
+            if any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio]):
+                rejections.append("DATA_INSUFFICIENT_QUALITY")
+                data_blocked_count += 1
+            else:
+                roce_val = float(roce_5y)
+                sales_val = float(sales_cagr_5y)
+                pat_val = float(pat_cagr_5y)
+                cfo_val = float(cfo_pat_5y)
+                de_val = float(de_ratio)
+
+                if roce_val < 15.0: rejections.append("FAIL_ROCE")
+                if sales_val < 10.0: rejections.append("FAIL_SALES_CAGR")
+                if pat_val < 10.0: rejections.append("FAIL_PAT_CAGR")
+                if cfo_val < 0.80: rejections.append("FAIL_CFO_PAT")
+                if de_val > 0.50: rejections.append("FAIL_DEBT")
+
+                if share_dilution_3y is not None and not pd.isna(share_dilution_3y):
+                    if float(share_dilution_3y) > 10.0:
+                        rejections.append("FAIL_DILUTION")
+
+                quality_gate_passed = not any(r.startswith("FAIL_") or r.startswith("DATA_") for r in rejections)
+                if quality_gate_passed:
+                    quality_pass_count += 1
+
+            # Value Gate
+            ev_discount = 0.0
+            pe_discount = 0.0
+            if pd.isna(ev_ebitda_curr) or pd.isna(ev_ebitda_med) or float(ev_ebitda_med or 0) <= 0:
+                rejections.append("DATA_INSUFFICIENT_VALUATION")
+                data_blocked_count += 1
+            else:
+                ev_c = float(ev_ebitda_curr)
+                ev_m = float(ev_ebitda_med)
+                ev_discount = (ev_m - ev_c) / ev_m
+                if ev_discount < 0.25:
+                    rejections.append("FAIL_VALUATION")
+
+                if not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
+                    pe_c = float(pe_curr)
+                    pe_m = float(pe_med)
+                    pe_discount = max((pe_m - pe_c) / pe_m, 0.0)
+
+                value_gate_passed = (ev_discount >= 0.25)
+                if value_gate_passed:
+                    value_pass_count += 1
+
+            # Drawdown & Tiering
+            dd_stock = float(row.get('drawdown_252d', 0.15) or 0.15)
+            dd_nifty = float(row.get('nifty_drawdown_252d', 0.10) or 0.10)
+            res_dd = max(dd_stock - dd_nifty, 0.0)
+            tier = "Tier A" if res_dd <= 0.10 else "Tier B"
+
+            score_100 = self.compute_100pt_score(row.to_dict(), ev_discount, pe_discount, res_dd)
+
+            is_candidate = quality_gate_passed and value_gate_passed and len(rejections) == 0
+            if is_candidate:
+                candidate_count += 1
+
+            primary_rejection = "PASS" if is_candidate else (rejections[0] if rejections else "FAIL_UNKNOWN")
+            watchlist_state = "GREEN" if is_candidate else "REJECTED"
+
+            # Context Payload for forensic prospective research
+            ctx = {
+                "strategy_id": self.strategy_id,
+                "symbol": sym,
+                "scan_date": today_str,
+                "industry": industry,
+                "market_cap_cr": round(mcap, 2),
+                "adtv_90d_cr": round(adtv_90d, 2),
+                "current_price": round(cmp_price, 2),
+                "roce_5y_avg": round(float(roce_5y), 2) if roce_5y is not None and not pd.isna(roce_5y) else None,
+                "sales_cagr_5y": round(float(sales_cagr_5y), 2) if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else None,
+                "pat_cagr_5y": round(float(pat_cagr_5y), 2) if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else None,
+                "cfo_pat_5y_ratio": round(float(cfo_pat_5y), 2) if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else None,
+                "debt_to_equity": round(float(de_ratio), 2) if de_ratio is not None and not pd.isna(de_ratio) else None,
+                "share_dilution_3y_pct": round(float(share_dilution_3y), 2) if share_dilution_3y is not None and not pd.isna(share_dilution_3y) else None,
+                "current_ev_ebitda": round(float(ev_ebitda_curr), 2) if ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr) else None,
+                "ev_ebitda_3y_median": round(float(ev_ebitda_med), 2) if ev_ebitda_med is not None and not pd.isna(ev_ebitda_med) else None,
+                "ev_ebitda_discount_pct": round(ev_discount * 100, 1),
+                "current_pe": round(float(pe_curr), 2) if pe_curr is not None and not pd.isna(pe_curr) else None,
+                "pe_3y_median": round(float(pe_med), 2) if pe_med is not None and not pd.isna(pe_med) else None,
+                "pe_discount_pct": round(pe_discount * 100, 1),
+                "sma50": round(sma50, 2),
+                "sma100": round(sma100, 2),
+                "sma200": round(sma200, 2),
+                "res_dd_pct": round(res_dd * 100, 1),
+                "tier": tier,
+                "score_100": score_100,
+                "rejection_reasons": rejections,
+                "primary_rejection_reason": primary_rejection,
+                "filing_date": str(row.get("filing_date", today_str)),
+                "financial_period_end": str(row.get("financial_period_end", "")),
+                "data_available_date": str(row.get("data_available_date", today_str))
+            }
+
+            snapshot_rec = {
+                "symbol": sym,
+                "scan_timestamp": now_ist.isoformat(),
+                "scan_date": today_str,
+                "current_price": cmp_price,
+                "overall_candidate_status": "CANDIDATE" if is_candidate else "REJECTED",
+                "watchlist_state": watchlist_state,
+                "rejection_reason": primary_rejection,
+                "quality_gate_status": "PASS" if quality_gate_passed else "FAIL",
+                "value_gate_status": "PASS" if value_gate_passed else "FAIL",
+                "tier": tier,
+                "ranking_score": score_100,
+                "context": ctx
+            }
+            snapshot_records.append(snapshot_rec)
+
+            if is_candidate:
+                candidate_rec = {
+                    "symbol": sym,
+                    "entry_price": cmp_price,
+                    "current_price": cmp_price,
+                    "watchlist_state": "GREEN",
+                    "tier": tier,
+                    "ranking_score": score_100,
+                    "signal_date": today_str,
+                    "context": ctx
+                }
+                candidate_records.append(candidate_rec)
+
+        # Persist to SAME ALERT TABLE
+        try:
+            from database import save_v2_scan_snapshots, save_v2_candidate_alert, upsert_scanner_health
+            snapshots_inserted = save_v2_scan_snapshots(snapshot_records)
+            candidates_inserted = 0
+            for cand in candidate_records:
+                ok, _ = save_v2_candidate_alert(cand)
+                if ok: candidates_inserted += 1
+
+            duration_sec = round(time.time() - start_ts, 2)
+            upsert_scanner_health(
+                "Wealth Engine",
+                status="OK",
+                today_alerts=candidate_count,
+                last_success=now_ist.isoformat(),
+                processed_count=total_scanned,
+                total_count=total_scanned,
+                duration_seconds=duration_sec
+            )
+            logger.info(
+                f"✅ [SCANNER: V2_FINAL] 17:00 IST Scan Complete: Scanned={total_scanned}, "
+                f"QualityPass={quality_pass_count}, ValuePass={value_pass_count}, Candidates={candidate_count}, "
+                f"SnapshotsInserted={snapshots_inserted}, Duration={duration_sec}s"
+            )
+            return {
+                "status": "SUCCESS",
+                "total_scanned": total_scanned,
+                "quality_pass_count": quality_pass_count,
+                "value_pass_count": value_pass_count,
+                "candidate_count": candidate_count,
+                "data_blocked_count": data_blocked_count,
+                "snapshots_inserted": snapshots_inserted,
+                "duration_sec": duration_sec
+            }
+        except Exception as err:
+            logger.exception(f"❌ [SCANNER: V2_FINAL] Database persistence error: {err}")
+            return {"status": "FAILED", "error": str(err)}
+
+    def load_pit_dataset(self) -> Optional[pd.DataFrame]:
+        """Load certified PIT dataset from disk/cache."""
+        paths = [
+            os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet"),
+            os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet"),
+            os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                try:
+                    df = pd.read_parquet(p)
+                    if not df.empty:
+                        logger.info(f"✅ Loaded PIT dataset from {p} ({len(df)} rows)")
+                        return df
+                except Exception as e:
+                    logger.warning(f"Failed loading parquet {p}: {e}")
+        return None
+
+
+_v2_scanner_instance = None
+
+def get_quality_compounder_v2_scanner() -> QualityCompounderValueV2Scanner:
+    global _v2_scanner_instance
+    if _v2_scanner_instance is None:
+        _v2_scanner_instance = QualityCompounderValueV2Scanner()
+    return _v2_scanner_instance
+
+def run_quality_compounder_v2_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON") -> Dict[str, Any]:
+    """Top-level invocation wrapper for QUALITY_COMPOUNDER_VALUE_V2_FINAL scanner."""
+    return get_quality_compounder_v2_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name)
+
+
 __all__ = [
     "RejectionReason",
     "ApprovedUniverseRegistry",
@@ -1447,5 +1785,9 @@ __all__ = [
     "live_fundamental_scanner",
     "get_live_fundamental_scanner",
     "run_fundamental_scan",
+    "QualityCompounderValueV2Scanner",
+    "get_quality_compounder_v2_scanner",
+    "run_quality_compounder_v2_scan",
 ]
+
 

@@ -1,0 +1,47 @@
+{
+  "strategy_id": "FUNDAMENTAL_GEM_RECOVERY_V1",
+  "governance_verdict": "CERTIFIED_FOR_PRODUCTION_CANDIDACY",
+  "execution_timestamp": "2026-09-28T15:35:35.236051",
+  "primary_arm": "PRIMARY_FUNDAMENTAL_GEM_HYBRID_EXIT",
+  "portfolio_metrics": {
+    "cagr_pct": 27.0,
+    "max_drawdown_pct": 18.15,
+    "sharpe_ratio_excess_rf": 1.5839,
+    "calmar_ratio": 1.4876,
+    "daily_excess_return_bootstrap_95_ci": [
+      0.1038,
+      0.2782
+    ],
+    "total_trades": 77
+  },
+  "benchmark_comparisons": {
+    "baseline_no_exit_3y_calmar": 0.6287,
+    "nifty_500_tri_calmar": 0.0489,
+    "primary_hybrid_exit_calmar": 1.4876
+  },
+  "gates_assessment": {
+    "gate_1_upstox_data_provenance": "PASS",
+    "gate_2_pit_causality_and_warmup": "PASS",
+    "gate_3_friction_15bps_enforced": "PASS",
+    "gate_4_building_block_code_frozen": "PASS",
+    "gate_5_pit_screening_funnel": "PASS",
+    "gate_6_scoring_engine_active": "PASS",
+    "gate_7_stage_1_thesis_stop_active": "PASS",
+    "gate_8_stage_2_200dma_exit_active": "PASS",
+    "gate_9_stage_3_profit_taking_active": "PASS",
+    "gate_10_risk_allocation_active": "PASS",
+    "gate_11_sixteen_topics_evaluated": "PASS",
+    "gate_12_sharpe_ge_0_80": "PASS",
+    "gate_13_max_dd_le_20pct": "PASS",
+    "gate_14_cagr_ge_15pct": "PASS",
+    "gate_15_sanity_cagr_ge_15pct": "PASS",
+    "gate_16_daily_excess_bootstrap_95_ci_low_positive": "PASS",
+    "gate_17_statistical_power_n_ge_30": "PASS",
+    "gate_18_benchmark_superiority_vs_baseline_no_exit_3y": "PASS",
+    "gate_19_benchmark_superiority_vs_nifty_tri": "PASS",
+    "gate_20_friction_stress_3x_resilience": "PASS",
+    "gate_21_placebo_circular_shift": "PASS",
+    "gate_22_fragility_sensitivity_ge_7_of_9_grid": "PASS"
+  },
+  "final_recommendation": "Approved for 6-12 month live forward paper period before promotion"
+}

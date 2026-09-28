@@ -13,8 +13,8 @@ Following full-universe backtesting across 10.75 years (2016–2026) covering 30
 
 1. **No Standalone "Value Gem" Dislocation Edge Exists in Indian Equities**:
    - A $25\%\text{--}45\%$ drawdown in a fundamental quality company is not an automatic value opportunity.
-   - In $>80\%$ of historical cases, price dislocations reflect ongoing or upcoming operational deterioration.
-   - Buying dislocations before confirmed technical/breakout recovery generates negative net expectancy ($-0.06\text{R}$ to $-0.08\text{R}$) after friction.
+   - **Working Hypothesis & Sample Observation**: In $>80\%$ of tested historical dislocation cases in mid/small-caps, price drawdowns reflected ongoing or upcoming operational deterioration (subject to future dedicated event study verification).
+   - Buying dislocations before confirmed technical/breakout recovery generates negative net expectancy ($-0.06\text{R}$ to $-0.08\text{R}$) after accounting for 15 bps round-trip transaction friction (7.5 bps entry / 7.5 bps exit).
 
 2. **The 2020–2021 COVID Recovery Distortion**:
    - The initial baseline (`VALUE_GEM_CORE_V1`) achieved positive training returns (+0.101 R) solely because $>90\%$ of profits came from the 2020–2021 post-COVID macro liquidity expansion.
@@ -22,6 +22,9 @@ Following full-universe backtesting across 10.75 years (2016–2026) covering 30
 
 3. **Cash-Flow Cheapness Filter Constraint**:
    - High FCF Yield ($>5\%$) combined with strict growth intact filters produces zero trades in practice ($N=0$). Indian equities do not present extreme cash flow cheapness alongside untouched high quality without severe corporate governance or structural distress.
+
+4. **Performance Metric Disconnect Note**:
+   - High trade-level R expectancy does not directly translate to high portfolio CAGR due to cash drag, low trade velocity, position sizing (5% equal weight), and slot capacity constraints. Future research frameworks will explicitly separate Track A (Trade Expectancy) from Track B (Portfolio Compounded Return).
 
 ---
 
@@ -36,6 +39,7 @@ PRODUCTION_STATE    : DECOMMISSIONED
 LIVE_ALERTS         : ZERO ALERTS / ZERO ROUTING
 SCHEDULING          : STOPPED
 AUDIT_TRAIL         : PRESERVED IN ARTIFACTS
+FRICTION ASSUMPTION : 15 BPS ROUND-TRIP TOTAL (7.5 BPS PER SIDE)
 ======================================================================
 ```
 

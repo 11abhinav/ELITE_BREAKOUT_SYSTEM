@@ -6670,6 +6670,141 @@ def api_admin_refresh_master_symbols():
         logger.exception("❌ Admin master symbols refresh error")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route("/api/v2_quality_compounder/alerts", methods=["GET"])
+@login_required
+def api_v2_quality_compounder_alerts():
+    """Returns candidate alerts and state transitions for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
+    try:
+        from database import get_connection, RealDictCursor, DummyConnection
+        status_filter = request.args.get("status")
+        state_filter = request.args.get("watchlist_state")
+        symbol_filter = request.args.get("symbol")
+        tier_filter = request.args.get("tier")
+
+        query = """
+            SELECT * FROM alerts
+            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+              AND (record_type = 'ALERT_EVENT' OR record_type IS NULL OR breakout_type = 'QUALITY_COMPOUNDER_V2')
+        """
+        params = []
+        if status_filter:
+            query += " AND status = %s"
+            params.append(status_filter.upper())
+        if state_filter:
+            query += " AND watchlist_state = %s"
+            params.append(state_filter.upper())
+        if symbol_filter:
+            query += " AND symbol = %s"
+            params.append(symbol_filter.strip().upper())
+        if tier_filter:
+            query += " AND tier = %s"
+            params.append(tier_filter.strip())
+
+        query += " ORDER BY alert_time DESC LIMIT 500"
+
+        alerts = []
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, tuple(params))
+                    alerts = [dict(r) for r in cur.fetchall()]
+
+        for a in alerts:
+            if a.get('alert_time') and hasattr(a['alert_time'], 'isoformat'):
+                a['alert_time'] = a['alert_time'].isoformat()
+            if a.get('closed_at') and hasattr(a['closed_at'], 'isoformat'):
+                a['closed_at'] = a['closed_at'].isoformat()
+            if a.get('created_at') and hasattr(a['created_at'], 'isoformat'):
+                a['created_at'] = a['created_at'].isoformat()
+
+        return jsonify({"success": True, "count": len(alerts), "alerts": alerts})
+    except Exception as e:
+        logger.exception("❌ Error fetching V2 Quality Compounder alerts")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/v2_quality_compounder/snapshots", methods=["GET"])
+@login_required
+def api_v2_quality_compounder_snapshots():
+    """Returns daily immutable scan snapshots for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
+    try:
+        from database import get_connection, RealDictCursor, DummyConnection
+        date_filter = request.args.get("scan_date")
+        symbol_filter = request.args.get("symbol")
+        status_filter = request.args.get("status")
+        limit = min(int(request.args.get("limit", 1000)), 5000)
+        offset = int(request.args.get("offset", 0))
+
+        query = """
+            SELECT * FROM alerts
+            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+              AND record_type = 'SCAN_SNAPSHOT'
+        """
+        params = []
+        if date_filter:
+            query += " AND alert_date = %s"
+            params.append(date_filter)
+        if symbol_filter:
+            query += " AND symbol = %s"
+            params.append(symbol_filter.strip().upper())
+        if status_filter:
+            query += " AND status = %s"
+            params.append(status_filter.upper())
+
+        query += " ORDER BY alert_date DESC, symbol ASC LIMIT %s OFFSET %s"
+        params.extend([limit, offset])
+
+        snapshots = []
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, tuple(params))
+                    snapshots = [dict(r) for r in cur.fetchall()]
+
+        for s in snapshots:
+            if s.get('alert_time') and hasattr(s['alert_time'], 'isoformat'):
+                s['alert_time'] = s['alert_time'].isoformat()
+
+        return jsonify({"success": True, "count": len(snapshots), "limit": limit, "offset": offset, "snapshots": snapshots})
+    except Exception as e:
+        logger.exception("❌ Error fetching V2 Quality Compounder snapshots")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/v2_quality_compounder/export", methods=["GET"])
+@login_required
+def api_v2_quality_compounder_export():
+    """Exports complete alert table prospective evaluation dataset for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
+    try:
+        from database import get_connection, RealDictCursor, DummyConnection
+        query = """
+            SELECT * FROM alerts
+            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+            ORDER BY alert_date ASC, alert_time ASC
+        """
+        records = []
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query)
+                    records = [dict(r) for r in cur.fetchall()]
+
+        for r in records:
+            for k, v in list(r.items()):
+                if hasattr(v, 'isoformat'):
+                    r[k] = v.isoformat()
+
+        return jsonify({
+            "strategy_id": "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+            "exported_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+            "total_records": len(records),
+            "records": records
+        })
+    except Exception as e:
+        logger.exception("❌ Error exporting V2 dataset")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ── Global Error Handlers ───────────────────────────────────────────────
 
 @app.errorhandler(500)

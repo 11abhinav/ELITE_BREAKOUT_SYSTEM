@@ -1,0 +1,51 @@
+{
+  "strategy_id": "BEAR_QUALITY_ACCUMULATION_V1",
+  "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
+  "predecessor": "VALUE_BUY_GEM / FUNDAMENTAL_RE_RATING_V1 (Decommissioned)",
+  "execution_mode": "ONE_SHOT_PREREGISTERED_TOURNAMENT",
+  "timestamp": "2026-09-28T11:07:26.681150",
+  "regime_scope": "BEAR_ONLY (Nifty 500 = BEAR)",
+  "friction": {
+    "entry_bps": 7.5,
+    "exit_bps": 7.5,
+    "total_round_trip_bps": 15.0
+  },
+  "quality_gate": {
+    "roce_min": 10.0,
+    "roe_min": 10.0,
+    "de_max": 1.5,
+    "ocf_positive": true
+  },
+  "attribution_engine": {
+    "max_drawdown_ratio_vs_market": 2.2,
+    "earnings_intact": true
+  },
+  "confirmation_arms": {
+    "CONFIRM_ARM_A": "Relative Strength Recovery (RS vs Nifty 500 > 1.02)",
+    "CONFIRM_ARM_B": "20-day High Price Breakout",
+    "CONFIRM_ARM_C": "Composite Recovery (RS > 1.01 AND Close > EMA50 AND Vol Accum > 1.10)"
+  },
+  "holding_arms": {
+    "NO_SL_WEALTH_HOLD": "Primary Model: No fixed SL, exit strictly on quality/thesis break",
+    "STRUCTURAL_EXIT_ARM": "Secondary Model: Exit when Weekly Close < 20W EMA OR Daily < SMA200"
+  },
+  "ex_ante_1r_formula": "max(Entry Price - SMA200_Entry, 0.10 * Entry Price)",
+  "temporal_cells": {
+    "CELL_1": [
+      "2016-01-01",
+      "2018-12-31"
+    ],
+    "CELL_2": [
+      "2019-01-01",
+      "2021-12-31"
+    ],
+    "CELL_3": [
+      "2022-01-01",
+      "2024-12-31"
+    ]
+  },
+  "locked_forward_period": [
+    "2025-01-01",
+    "2026-09-27"
+  ]
+}

@@ -1,0 +1,10 @@
+bear_dd_threshold,dwell_sessions,cagr_pct,max_dd_pct,calmar_ratio,beats_best_single_scanner
+0.12,8,19.23,8.74,2.1997,True
+0.12,10,19.29,8.74,2.206,True
+0.12,12,19.83,9.62,2.0619,True
+0.15,8,17.74,9.43,1.8806,False
+0.15,10,17.8,12.05,1.4769,False
+0.15,12,19.23,8.74,2.1994,True
+0.18,8,16.04,12.18,1.3167,False
+0.18,10,15.99,9.98,1.6019,False
+0.18,12,16.12,10.82,1.4893,False

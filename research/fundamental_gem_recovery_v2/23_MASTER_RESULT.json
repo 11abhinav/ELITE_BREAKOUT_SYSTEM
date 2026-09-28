@@ -1,0 +1,936 @@
+{
+  "strategy_id": "FUNDAMENTAL_GEM_RECOVERY_V2",
+  "governance_verdict": "REJECTED_OR_INCONCLUSIVE",
+  "execution_timestamp": "2026-09-28T16:40:22.127044",
+  "primary_arm": "PRIMARY_FUNDAMENTAL_GEM_HYBRID_EXIT",
+  "portfolio_metrics": {
+    "cagr_pct": 38.83,
+    "max_drawdown_pct": 7.35,
+    "sharpe_ratio": -0.1369,
+    "calmar_ratio": 5.2815,
+    "total_trades": 307
+  },
+  "benchmark_comparisons": {
+    "baseline_no_exit_3y_calmar": 4.0597,
+    "quality_only_same_exit_calmar": 5.2794,
+    "placebo_95th_calmar": 2.3062,
+    "primary_hybrid_exit_calmar": 5.2815
+  },
+  "diagnostic_metrics": {
+    "monthly_diagnostic": [
+      {
+        "date": "2016-01-01",
+        "layer_1_quality_count": 175,
+        "layer_2_forensic_count": 175,
+        "layer_3_valuation_count": 175,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-02-01",
+        "layer_1_quality_count": 173,
+        "layer_2_forensic_count": 173,
+        "layer_3_valuation_count": 173,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-03-01",
+        "layer_1_quality_count": 173,
+        "layer_2_forensic_count": 173,
+        "layer_3_valuation_count": 173,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-04-01",
+        "layer_1_quality_count": 173,
+        "layer_2_forensic_count": 173,
+        "layer_3_valuation_count": 173,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-05-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-06-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-07-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-08-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-09-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-10-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-11-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 0
+      },
+      {
+        "date": "2016-12-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2017-01-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 13
+      },
+      {
+        "date": "2017-02-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 5
+      },
+      {
+        "date": "2017-03-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 5
+      },
+      {
+        "date": "2017-04-01",
+        "layer_1_quality_count": 200,
+        "layer_2_forensic_count": 200,
+        "layer_3_valuation_count": 200,
+        "layer_4_dislocation_count": 2
+      },
+      {
+        "date": "2017-05-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 5
+      },
+      {
+        "date": "2017-06-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 5
+      },
+      {
+        "date": "2017-07-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2017-08-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 8
+      },
+      {
+        "date": "2017-09-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 10
+      },
+      {
+        "date": "2017-10-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2017-11-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 6
+      },
+      {
+        "date": "2017-12-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2018-01-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 6
+      },
+      {
+        "date": "2018-02-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2018-03-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 18
+      },
+      {
+        "date": "2018-04-01",
+        "layer_1_quality_count": 219,
+        "layer_2_forensic_count": 219,
+        "layer_3_valuation_count": 219,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2018-05-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 11
+      },
+      {
+        "date": "2018-06-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 10
+      },
+      {
+        "date": "2018-07-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 16
+      },
+      {
+        "date": "2018-08-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 17
+      },
+      {
+        "date": "2018-09-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 11
+      },
+      {
+        "date": "2018-10-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 21
+      },
+      {
+        "date": "2018-11-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 15
+      },
+      {
+        "date": "2018-12-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2019-01-01",
+        "layer_1_quality_count": 266,
+        "layer_2_forensic_count": 266,
+        "layer_3_valuation_count": 266,
+        "layer_4_dislocation_count": 15
+      },
+      {
+        "date": "2019-02-01",
+        "layer_1_quality_count": 267,
+        "layer_2_forensic_count": 267,
+        "layer_3_valuation_count": 267,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2019-03-01",
+        "layer_1_quality_count": 267,
+        "layer_2_forensic_count": 267,
+        "layer_3_valuation_count": 267,
+        "layer_4_dislocation_count": 19
+      },
+      {
+        "date": "2019-04-01",
+        "layer_1_quality_count": 267,
+        "layer_2_forensic_count": 267,
+        "layer_3_valuation_count": 267,
+        "layer_4_dislocation_count": 13
+      },
+      {
+        "date": "2019-05-01",
+        "layer_1_quality_count": 295,
+        "layer_2_forensic_count": 295,
+        "layer_3_valuation_count": 295,
+        "layer_4_dislocation_count": 17
+      },
+      {
+        "date": "2019-06-01",
+        "layer_1_quality_count": 295,
+        "layer_2_forensic_count": 295,
+        "layer_3_valuation_count": 295,
+        "layer_4_dislocation_count": 13
+      },
+      {
+        "date": "2019-07-01",
+        "layer_1_quality_count": 295,
+        "layer_2_forensic_count": 295,
+        "layer_3_valuation_count": 295,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2019-08-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2019-09-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 18
+      },
+      {
+        "date": "2019-10-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 13
+      },
+      {
+        "date": "2019-11-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2019-12-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2020-01-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2020-02-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 11
+      },
+      {
+        "date": "2020-03-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 15
+      },
+      {
+        "date": "2020-04-01",
+        "layer_1_quality_count": 296,
+        "layer_2_forensic_count": 296,
+        "layer_3_valuation_count": 296,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2020-05-01",
+        "layer_1_quality_count": 288,
+        "layer_2_forensic_count": 288,
+        "layer_3_valuation_count": 288,
+        "layer_4_dislocation_count": 11
+      },
+      {
+        "date": "2020-06-01",
+        "layer_1_quality_count": 288,
+        "layer_2_forensic_count": 288,
+        "layer_3_valuation_count": 288,
+        "layer_4_dislocation_count": 11
+      },
+      {
+        "date": "2020-07-01",
+        "layer_1_quality_count": 288,
+        "layer_2_forensic_count": 288,
+        "layer_3_valuation_count": 288,
+        "layer_4_dislocation_count": 18
+      },
+      {
+        "date": "2020-08-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2020-09-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2020-10-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2020-11-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2020-12-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2021-01-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2021-02-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 11
+      },
+      {
+        "date": "2021-03-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 6
+      },
+      {
+        "date": "2021-04-01",
+        "layer_1_quality_count": 287,
+        "layer_2_forensic_count": 287,
+        "layer_3_valuation_count": 287,
+        "layer_4_dislocation_count": 6
+      },
+      {
+        "date": "2021-05-01",
+        "layer_1_quality_count": 320,
+        "layer_2_forensic_count": 320,
+        "layer_3_valuation_count": 320,
+        "layer_4_dislocation_count": 5
+      },
+      {
+        "date": "2021-06-01",
+        "layer_1_quality_count": 320,
+        "layer_2_forensic_count": 320,
+        "layer_3_valuation_count": 320,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2021-07-01",
+        "layer_1_quality_count": 320,
+        "layer_2_forensic_count": 320,
+        "layer_3_valuation_count": 320,
+        "layer_4_dislocation_count": 3
+      },
+      {
+        "date": "2021-08-01",
+        "layer_1_quality_count": 321,
+        "layer_2_forensic_count": 321,
+        "layer_3_valuation_count": 321,
+        "layer_4_dislocation_count": 2
+      },
+      {
+        "date": "2021-09-01",
+        "layer_1_quality_count": 321,
+        "layer_2_forensic_count": 321,
+        "layer_3_valuation_count": 321,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2021-10-01",
+        "layer_1_quality_count": 321,
+        "layer_2_forensic_count": 321,
+        "layer_3_valuation_count": 321,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2021-11-01",
+        "layer_1_quality_count": 321,
+        "layer_2_forensic_count": 321,
+        "layer_3_valuation_count": 321,
+        "layer_4_dislocation_count": 17
+      },
+      {
+        "date": "2021-12-01",
+        "layer_1_quality_count": 321,
+        "layer_2_forensic_count": 321,
+        "layer_3_valuation_count": 321,
+        "layer_4_dislocation_count": 17
+      },
+      {
+        "date": "2022-01-01",
+        "layer_1_quality_count": 321,
+        "layer_2_forensic_count": 321,
+        "layer_3_valuation_count": 321,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2022-02-01",
+        "layer_1_quality_count": 323,
+        "layer_2_forensic_count": 323,
+        "layer_3_valuation_count": 323,
+        "layer_4_dislocation_count": 20
+      },
+      {
+        "date": "2022-03-01",
+        "layer_1_quality_count": 323,
+        "layer_2_forensic_count": 323,
+        "layer_3_valuation_count": 323,
+        "layer_4_dislocation_count": 23
+      },
+      {
+        "date": "2022-04-01",
+        "layer_1_quality_count": 323,
+        "layer_2_forensic_count": 323,
+        "layer_3_valuation_count": 323,
+        "layer_4_dislocation_count": 21
+      },
+      {
+        "date": "2022-05-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 18
+      },
+      {
+        "date": "2022-06-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 23
+      },
+      {
+        "date": "2022-07-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 25
+      },
+      {
+        "date": "2022-08-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 20
+      },
+      {
+        "date": "2022-09-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 19
+      },
+      {
+        "date": "2022-10-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 25
+      },
+      {
+        "date": "2022-11-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 21
+      },
+      {
+        "date": "2022-12-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 23
+      },
+      {
+        "date": "2023-01-01",
+        "layer_1_quality_count": 368,
+        "layer_2_forensic_count": 368,
+        "layer_3_valuation_count": 368,
+        "layer_4_dislocation_count": 23
+      },
+      {
+        "date": "2023-02-01",
+        "layer_1_quality_count": 370,
+        "layer_2_forensic_count": 370,
+        "layer_3_valuation_count": 370,
+        "layer_4_dislocation_count": 25
+      },
+      {
+        "date": "2023-03-01",
+        "layer_1_quality_count": 370,
+        "layer_2_forensic_count": 370,
+        "layer_3_valuation_count": 370,
+        "layer_4_dislocation_count": 20
+      },
+      {
+        "date": "2023-04-01",
+        "layer_1_quality_count": 370,
+        "layer_2_forensic_count": 370,
+        "layer_3_valuation_count": 370,
+        "layer_4_dislocation_count": 22
+      },
+      {
+        "date": "2023-05-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 18
+      },
+      {
+        "date": "2023-06-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 17
+      },
+      {
+        "date": "2023-07-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2023-08-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2023-09-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 10
+      },
+      {
+        "date": "2023-10-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2023-11-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 10
+      },
+      {
+        "date": "2023-12-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2024-01-01",
+        "layer_1_quality_count": 406,
+        "layer_2_forensic_count": 406,
+        "layer_3_valuation_count": 406,
+        "layer_4_dislocation_count": 5
+      },
+      {
+        "date": "2024-02-01",
+        "layer_1_quality_count": 407,
+        "layer_2_forensic_count": 407,
+        "layer_3_valuation_count": 407,
+        "layer_4_dislocation_count": 7
+      },
+      {
+        "date": "2024-03-01",
+        "layer_1_quality_count": 407,
+        "layer_2_forensic_count": 407,
+        "layer_3_valuation_count": 407,
+        "layer_4_dislocation_count": 10
+      },
+      {
+        "date": "2024-04-01",
+        "layer_1_quality_count": 407,
+        "layer_2_forensic_count": 407,
+        "layer_3_valuation_count": 407,
+        "layer_4_dislocation_count": 18
+      },
+      {
+        "date": "2024-05-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 12
+      },
+      {
+        "date": "2024-06-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 20
+      },
+      {
+        "date": "2024-07-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2024-08-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 9
+      },
+      {
+        "date": "2024-09-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 14
+      },
+      {
+        "date": "2024-10-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 19
+      },
+      {
+        "date": "2024-11-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 30
+      },
+      {
+        "date": "2024-12-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 33
+      },
+      {
+        "date": "2025-01-01",
+        "layer_1_quality_count": 436,
+        "layer_2_forensic_count": 436,
+        "layer_3_valuation_count": 436,
+        "layer_4_dislocation_count": 39
+      },
+      {
+        "date": "2025-02-01",
+        "layer_1_quality_count": 439,
+        "layer_2_forensic_count": 439,
+        "layer_3_valuation_count": 439,
+        "layer_4_dislocation_count": 59
+      },
+      {
+        "date": "2025-03-01",
+        "layer_1_quality_count": 439,
+        "layer_2_forensic_count": 439,
+        "layer_3_valuation_count": 439,
+        "layer_4_dislocation_count": 27
+      },
+      {
+        "date": "2025-04-01",
+        "layer_1_quality_count": 439,
+        "layer_2_forensic_count": 439,
+        "layer_3_valuation_count": 439,
+        "layer_4_dislocation_count": 32
+      },
+      {
+        "date": "2025-05-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 36
+      },
+      {
+        "date": "2025-06-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 38
+      },
+      {
+        "date": "2025-07-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 45
+      },
+      {
+        "date": "2025-08-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 47
+      },
+      {
+        "date": "2025-09-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 33
+      },
+      {
+        "date": "2025-10-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 36
+      },
+      {
+        "date": "2025-11-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 28
+      },
+      {
+        "date": "2025-12-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 29
+      },
+      {
+        "date": "2026-01-01",
+        "layer_1_quality_count": 457,
+        "layer_2_forensic_count": 457,
+        "layer_3_valuation_count": 457,
+        "layer_4_dislocation_count": 33
+      },
+      {
+        "date": "2026-02-01",
+        "layer_1_quality_count": 456,
+        "layer_2_forensic_count": 456,
+        "layer_3_valuation_count": 456,
+        "layer_4_dislocation_count": 46
+      },
+      {
+        "date": "2026-03-01",
+        "layer_1_quality_count": 456,
+        "layer_2_forensic_count": 456,
+        "layer_3_valuation_count": 456,
+        "layer_4_dislocation_count": 30
+      },
+      {
+        "date": "2026-04-01",
+        "layer_1_quality_count": 456,
+        "layer_2_forensic_count": 456,
+        "layer_3_valuation_count": 456,
+        "layer_4_dislocation_count": 36
+      },
+      {
+        "date": "2026-05-01",
+        "layer_1_quality_count": 470,
+        "layer_2_forensic_count": 470,
+        "layer_3_valuation_count": 470,
+        "layer_4_dislocation_count": 36
+      },
+      {
+        "date": "2026-06-01",
+        "layer_1_quality_count": 470,
+        "layer_2_forensic_count": 470,
+        "layer_3_valuation_count": 470,
+        "layer_4_dislocation_count": 26
+      }
+    ],
+    "average_layer_4_candidates_per_month": 15.452380952380953
+  },
+  "placebo_metrics": {
+    "placebo_95th_calmar": 2.3062,
+    "placebo_median_calmar": 1.0057,
+    "total_iterations": 1000
+  },
+  "gates_assessment": {
+    "gate_1_upstox_data_provenance": "PASS",
+    "gate_2_pit_causality_and_warmup": "PASS",
+    "gate_3_friction_15bps_enforced": "PASS",
+    "gate_4_candidate_count_diagnostic": "PASS",
+    "gate_5_pit_screening_funnel": "PASS",
+    "gate_6_scoring_engine_active": "PASS",
+    "gate_7_stage_1_thesis_stop_active": "PASS",
+    "gate_8_stage_2_200dma_exit_active": "PASS",
+    "gate_9_stage_3_profit_taking_active": "PASS",
+    "gate_10_risk_allocation_active": "PASS",
+    "gate_11_reentry_cooldown_active": "PASS",
+    "gate_12_sharpe_ge_0_80": "FAIL",
+    "gate_13_max_dd_le_20pct": "PASS",
+    "gate_14_cagr_ge_15pct": "PASS",
+    "gate_15_sanity_cagr_ge_15pct": "PASS",
+    "gate_16_daily_excess_bootstrap_95_ci_low_positive": "PASS",
+    "gate_17_statistical_power_n_ge_50": "PASS",
+    "gate_18_superiority_vs_baseline_no_exit_3y": "PASS",
+    "gate_19_superiority_vs_quality_only": "PASS",
+    "gate_20_placebo_superiority": "PASS",
+    "gate_21_friction_stress_3x_resilience": "FAIL",
+    "gate_22_fragility_sensitivity_ge_7_of_9_grid": "PASS"
+  },
+  "final_recommendation": "Keep in research backlog"
+}

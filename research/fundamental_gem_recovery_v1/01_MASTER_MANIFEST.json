@@ -1,0 +1,31 @@
+{
+  "strategy_id": "FUNDAMENTAL_GEM_RECOVERY_V1",
+  "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
+  "execution_mode": "ONE_SHOT_PREREGISTERED_PORTFOLIO_TOURNAMENT",
+  "timestamp": "2026-09-28T15:33:52.865674",
+  "friction": {
+    "entry_bps": 7.5,
+    "exit_bps": 7.5,
+    "total_round_trip_bps": 15.0
+  },
+  "idle_cash_yield_pct_pa": 6.0,
+  "risk_free_rate_pct_pa": 6.0,
+  "pit_fundamental_funnel": {
+    "layer_1_quality": "5Y Avg ROCE/ROE > 15.0%, 3Y/5Y Sales & Profit CAGR > 10.0%, 5Y CFO/PAT > 0.80, D/E < 0.50, Market Cap > 1,000 Cr",
+    "layer_2_accounting": "Reject if OCF negative with positive Net Profit for 2 consecutive years or Other Income > 25% PAT",
+    "layer_3_valuation": "PE or PB <= 0.75 x 5-Year Rolling Median PE/PB",
+    "layer_4_cheapness_attribution": "52W Price DD >= 25.0% AND TTM OPM/ROCE drop <= 15.0% from 3Y average"
+  },
+  "scoring_engine": "100-Point Composite (Quality 40, Valuation 30, Growth 20, Balance Sheet 10)",
+  "three_stage_exit_model": {
+    "stage_1_accumulation": "Thesis break (Profit/ROCE drop > 20%), Max Loss Stop (-25%), Time Stop (18 months / 450 sessions)",
+    "stage_2_trend_reclaim": "Weekly close above 200-DMA. Trail 200-DMA (weekly close below by > 5% or 2 consecutive weekly closes below)",
+    "stage_3_profit_taking": "At +50% gain, sell 50% shares. Trail remaining 50% shares using 50-DMA (weekly close below 50-DMA by > 3%)"
+  },
+  "tournament_arms": [
+    "PRIMARY_FUNDAMENTAL_GEM_HYBRID_EXIT",
+    "BASELINE_FUNDAMENTAL_GEM_NO_EXIT_3Y",
+    "BENCHMARK_NIFTY_500_TRI"
+  ],
+  "dataset_hash_sha256": "71083cfbd6c14b1543d5482cec6d846dedb2430f36fa80d464b4646232c7e0de"
+}

@@ -1,0 +1,50 @@
+{
+  "strategy_id": "BEAR_QUALITY_RECOVERY_V1",
+  "governance_verdict": "REJECTED_UNDER_GOVERNANCE_RULES",
+  "execution_timestamp": "2026-09-28T12:37:00.000000",
+  "primary_hypothesis": "PRIMARY_BEAR_RECOVERY",
+  "holdout_period": "2025-01-01 to 2026-12-31",
+  "holdout_metrics": {
+    "total_trades": 34,
+    "mean_net_r": 0.2789,
+    "bootstrap_95_ci": [
+      0.1421,
+      0.4211
+    ]
+  },
+  "forensic_audit": {
+    "control_5_total_trades": 13,
+    "control_5_holdout_trades": 10,
+    "control_5_unique_symbols": 3,
+    "control_5_symbol_breakdown": {
+      "ALKYLAMINE": 4,
+      "CRISIL": 3,
+      "VBL": 6
+    },
+    "control_5_dev_mean_net_r": -1.3373,
+    "control_5_holdout_mean_net_r": 0.9984,
+    "primary_no_sl_dev_mean_net_r": -2.3086,
+    "primary_no_sl_holdout_mean_net_r": 0.2789,
+    "statistical_power_n_eff_pass": false
+  },
+  "gates_assessment": {
+    "gate_1_upstox_data_provenance": "PASS",
+    "gate_2_point_in_time_causality": "PASS",
+    "gate_3_friction_15bps_enforced": "PASS",
+    "gate_4_quality_non_compensable": "PASS",
+    "gate_5_deterministic_bear_regime": "PASS",
+    "gate_6_positive_magnitude_bear_attribution": "PASS",
+    "gate_7_fundamental_integrity_test": "PASS",
+    "gate_8_recovery_confirmation_active": "PASS",
+    "gate_9_stale_signal_rule_active": "PASS",
+    "gate_10_no_fixed_price_sl_primary_model": "PASS",
+    "gate_11_time_to_thesis_evaluated": "PASS",
+    "gate_12_concentration_limits_passed": "FAIL (Concentrated in 3 symbols)",
+    "gate_13_dev_mean_net_r_positive": "FAIL",
+    "gate_14_holdout_mean_net_r_positive": "PASS",
+    "gate_15_holdout_95_ci_low_positive": "PASS",
+    "gate_16_validity_gate_n_eff_ge_30": "FAIL (N = 13 trades)",
+    "gate_17_placebo_falsification": "PASS"
+  },
+  "final_recommendation": "Strategy closed. Zero candidates approved for promotion. PRIMARY_BEAR_RECOVERY and CONTROL_5 both fail the pre-holdout development gate (Gate 13). CONTROL_5 fails statistical power (N_eff < 30) and shows extreme concentration across only 3 symbols."
+}

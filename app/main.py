@@ -835,6 +835,7 @@ def run_system_scheduler():
     last_technical_date = None
     last_technical_intraday_run = None
     last_wealth_daily_date = None
+    last_wealth_preclose_date = None
 
     def safe_run_daily_builder():
         """Helper to run the builder and update the memory cache."""
@@ -1289,24 +1290,30 @@ def run_system_scheduler():
                         daemon=True
                     ).start()
 
-                # 3. Wealth Engine Market Hours Loop (5-min Exit Monitor — non-blocking)
-                if not last_wealth_market_run or (now - last_wealth_market_run).total_seconds() >= 300:
-                    last_wealth_market_run = datetime.now(IST)  # set before thread start to prevent double-fire
+                # 3. Wealth Engine Pre-Close Guard Pulse (3:15 PM IST / 15:15 IST)
+                if now.hour == 15 and now.minute >= 15 and last_wealth_preclose_date != now.date():
+                    last_wealth_preclose_date = now.date()
+                    logger.info("🕒 SCHEDULER | [15:15 IST] Triggering 3:15 PM Pre-Close Exit Guard Pulse for Wealth Engine")
                     _threading.Thread(
                         target=_trigger_wealth_exit,
-                        name=f"WealthExit-{now.strftime('%H%M')}",
+                        name=f"WealthExit-1515-{now.strftime('%Y%m%d')}",
                         daemon=True
                     ).start()
 
                 check_scanner_staleness(now)
 
-            # 18:30 - Evening Daily Maintenance (Post-Bhavcopy Delivery)
+            # 18:30 - Evening Daily Maintenance (Post-Bhavcopy Delivery & 6:30 PM Exit Monitor Pulse)
             if (now.hour > 18 or (now.hour == 18 and now.minute >= 30)) and not evening_scanners_ran:
                 evening_scanners_ran = True
 
                 def _run_evening_batch_async():
                     wait_for_bhavcopy_or_fallback("EVENING_MAINTENANCE")
-                    logger.info("🛡️ [GOVERNANCE] Post-Bhavcopy evening cycle complete. Decommissioned scanners (ACCUMULATION, EOD, PULLBACK, REVERSAL) purged.")
+                    logger.info("🕒 SCHEDULER | [18:30 IST] Triggering 6:30 PM Evening Exit Monitor Pulse for Wealth Engine")
+                    try:
+                        _trigger_wealth_exit()
+                    except Exception as _e_exit:
+                        logger.error(f"❌ Evening WEALTH_EXIT run error: {_e_exit}")
+                    logger.info("🛡️ [GOVERNANCE] Post-Bhavcopy evening cycle complete.")
 
                 import threading
                 threading.Thread(target=_run_evening_batch_async, name="EveningMaintenance", daemon=True).start()
@@ -1808,6 +1815,11 @@ def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL", sessi
     logger.info(f"🚀 [SCANNER: WEALTH_ENGINE] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     from wealth_engine import run_wealth_scan
     run_wealth_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
+    try:
+        from live_fundamental_scanner import run_quality_compounder_v2_scan
+        run_quality_compounder_v2_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
+    except Exception as v2_err:
+        logger.error(f"❌ V2 Quality Compounder scan trigger failed: {v2_err}")
 
 # [DECOMMISSIONED] _trigger_multibagger() permanently removed.
 
@@ -1845,7 +1857,6 @@ def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session
         return {"total_count": 0, "processed_count": 0}
 
     logger.info(f"🚀 [SCANNER: FUNDAMENTAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
-    # Resilient import supporting container & root environments
     run_fn = None
     try:
         from live_fundamental_scanner import run_fundamental_scan
@@ -1875,7 +1886,6 @@ def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session
     return {"total_count": count, "processed_count": count}
 
 
-
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
 def _trigger_ai_worker():
     from database import is_scanner_stopped
@@ -1887,7 +1897,6 @@ def _trigger_ai_worker():
 
 
 def _trigger_earnings_calendar():
-    # Earnings Calendar removed — no-op stub retained to prevent KeyError in admin UI
     return {"total_count": 0, "processed_count": 0}
 
 def _trigger_performance_tracker():
@@ -1906,16 +1915,21 @@ def _trigger_performance_tracker():
         if _perf_tracker_lock.locked():
             _perf_tracker_lock.release()
 
-# [DECOMMISSIONED] _trigger_multibagger_exit() permanently removed.
 
-def _trigger_wealth_exit():
+def _trigger_wealth_exit(check_type="EOD"):
     from database import is_scanner_stopped
     if is_scanner_stopped("WEALTH_EXIT"):
         logger.info("⏸️ [WEALTH_EXIT] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
     from wealth_engine import run_wealth_intraday_update
     run_wealth_intraday_update()
+    try:
+        from live_wealth_monitor import run_v2_exit_check
+        run_v2_exit_check(check_type=check_type)
+    except Exception as v2_exit_err:
+        logger.error(f"❌ V2 Exit check trigger failed: {v2_exit_err}")
     return {"total_count": 1, "processed_count": 1}
+
 
 
 

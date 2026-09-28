@@ -1,0 +1,53 @@
+{
+  "strategy_id": "SCANNER_PORTFOLIO_ROUTER_V1",
+  "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
+  "execution_mode": "ONE_SHOT_PREREGISTERED_PORTFOLIO_TOURNAMENT",
+  "timestamp": "2026-09-28T13:37:34.232485",
+  "friction": {
+    "entry_bps": 7.5,
+    "exit_bps": 7.5,
+    "total_round_trip_bps": 15.0
+  },
+  "idle_cash_yield_pct_pa": 6.0,
+  "risk_free_rate_pct_pa": 6.0,
+  "regime_partition_rules": {
+    "BEAR": "DD_index_mag >= 0.15 OR (Close < SMA200 AND Slope20D < -0.005)",
+    "BULL": "Close >= SMA200 AND SMA50 >= SMA200 AND Slope20D > 0.002 AND DD_index_mag < 0.10",
+    "SIDEWAYS": "All remaining market states",
+    "fast_crash_overlay": "Crash_DD_15D >= 0.08 OR 5D_Return <= -7.0% -> FORCE BEAR (bypasses dwell). Extension on new trigger. Exit: Crash_DD_15D < 0.04 AND sessions >= 10.",
+    "min_dwell_hysteresis_sessions": 10
+  },
+  "open_position_transition_rule": "RUN_TO_NATURAL_EXIT",
+  "gross_exposure_ceilings": {
+    "BULL": 1.0,
+    "SIDEWAYS": 0.6,
+    "BEAR": 0.3
+  },
+  "regime_routing_map": {
+    "BULL": [
+      "EOD_BREAKOUT",
+      "MULTI_TF",
+      "PULLBACK"
+    ],
+    "SIDEWAYS": [
+      "PULLBACK",
+      "REVERSAL"
+    ],
+    "BEAR": [
+      "REVERSAL",
+      "ACCUMULATION"
+    ]
+  },
+  "portfolio_constraints": {
+    "initial_capital_inr": 10000000,
+    "max_portfolio_slots": 15,
+    "max_single_stock_pct": 10.0,
+    "max_sector_pct": 30.0
+  },
+  "router_arms": [
+    "BASELINE_EQUAL_WEIGHT",
+    "PRIMARY_ROUTER_DYNAMIC",
+    "ABLATION_REGIME_FILTER_ONLY"
+  ],
+  "dataset_hash_sha256": "800d955132944e48e5dbba8ee8a72ad1e56af2522218adf6e2ce30481b35ea55"
+}

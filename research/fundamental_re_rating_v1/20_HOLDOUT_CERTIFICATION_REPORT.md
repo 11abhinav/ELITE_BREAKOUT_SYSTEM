@@ -1,0 +1,5 @@
+# LOCKED HOLDOUT CERTIFICATION REPORT (2025-2026)
+
+Holdout Trade Count: 29607
+Holdout Mean Net R: -0.0198 R
+Holdout Decision: REJECTED
