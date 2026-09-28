@@ -1848,9 +1848,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     update_shadow_alert_outcome(t["id"], sh_status, sh_exit_p, sh_pnl)
             continue
 
-        # FIX: use `is None` (not falsy check) so ep=0.0 doesn't misfire.
-        # When ep is None we cannot compute any P&L — mark status and move on.
-        if ep is None:
+        # Guard: ep must be a positive number to compute any P&L.
+        # ep=None  → entry_price missing in DB.
+        # ep=0     → bad alert stored with zero entry_price (e.g. synthetic fallback run).
+        # Both cases must be skipped; division by zero would otherwise crash the tracker.
+        if not ep or ep <= 0:
             t["pnl_pct"] = None
             t["status"]  = _trade_status(None, t["days_held"], False, False)
             continue

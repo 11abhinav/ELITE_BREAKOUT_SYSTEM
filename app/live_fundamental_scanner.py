@@ -1888,12 +1888,20 @@ class QualityCompounderValueV2Scanner:
                     pass
             return {"status": "FAILED", "error": str(err)}
 
+
+
     def load_pit_dataset(self) -> Optional[pd.DataFrame]:
         """Load certified PIT dataset from statement filings and Daily Builder 2.0 master fundamentals."""
         # 1. Authoritative PIT statement filings (795 clean equities)
         p_path = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet")
         if not os.path.exists(p_path):
             p_path = os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet")
+
+        searched_paths = [
+            os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet"),
+            os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet"),
+            os.path.join(DATA_DIR, "daily_builder_master_v2.parquet"),
+        ]
 
         if os.path.exists(p_path):
             try:
@@ -1985,6 +1993,14 @@ class QualityCompounderValueV2Scanner:
             except Exception as e:
                 logger.warning(f"Failed loading daily_builder_master_v2.parquet: {e}")
 
+        # DATA_UNAVAILABLE — neither source found on this host.
+        # Per governance rules: do NOT substitute synthetic data. Fail closed.
+        logger.error(
+            "❌ [V2_FINAL] PIT dataset unavailable — DATA_UNAVAILABLE. "
+            f"Searched: {searched_paths}. "
+            "Ensure pit_fundamentals_v1.parquet is present in DATA_DIR on the production host, "
+            "or run the Daily Builder to regenerate it. Scan cannot proceed without real data."
+        )
         return None
 
 
