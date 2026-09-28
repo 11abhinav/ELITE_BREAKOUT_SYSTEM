@@ -442,7 +442,7 @@ class UpstoxProvider(ProviderInterface):
             if not candles:
                 return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 100), error=None)
                 
-            logger.info(f"🔍 [FORENSIC UPSTOX] {instrument_key} | {timeframe} | First candle length: {len(candles[0])} | Sample: {candles[0]}")
+            logger.info(f"🔍 [FORENSIC UPSTOX] {instrument_key} | {timeframe} | Total candles: {len(candles)} | Raw fields per candle: {len(candles[0])} | Sample: {candles[0]}")
                 
             df = self._build_ohlcv_df(candles, timeframe)
             
