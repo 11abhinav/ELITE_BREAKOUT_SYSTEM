@@ -1428,6 +1428,9 @@ class _LazyScannerProxy:
     def scan_candidate(self, *args, **kwargs):
         return get_live_fundamental_scanner().scan_candidate(*args, **kwargs)
 
+    def __call__(self, *args, **kwargs):
+        return get_live_fundamental_scanner().scan_universe(*args, **kwargs)
+
 live_fundamental_scanner = _LazyScannerProxy()
 
 def run_fundamental_scan(trigger_type: str = "MANUAL", scheduler_name: str = "MANUAL") -> Dict[str, Any]:

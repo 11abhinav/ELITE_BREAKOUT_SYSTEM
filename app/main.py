@@ -1863,29 +1863,30 @@ def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session
         return {"total_count": 0, "processed_count": 0}
 
     logger.info(f"🚀 [SCANNER: FUNDAMENTAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
+    
     run_fn = None
     try:
         from live_fundamental_scanner import run_fundamental_scan
         run_fn = run_fundamental_scan
-    except ImportError:
+    except (ImportError, AttributeError):
         try:
             from app.live_fundamental_scanner import run_fundamental_scan
             run_fn = run_fundamental_scan
-        except ImportError:
+        except (ImportError, AttributeError):
             try:
-                import live_fundamental_scanner as _mod
-                run_fn = getattr(_mod, "run_fundamental_scan", None)
-            except Exception:
-                import app.live_fundamental_scanner as _mod
-                run_fn = getattr(_mod, "run_fundamental_scan", None)
-
-    if run_fn is None:
-        try:
-            from live_fundamental_scanner import get_live_fundamental_scanner
-            run_fn = get_live_fundamental_scanner().scan_universe
-        except ImportError:
-            from app.live_fundamental_scanner import get_live_fundamental_scanner
-            run_fn = get_live_fundamental_scanner().scan_universe
+                from live_fundamental_scanner import get_live_fundamental_scanner
+                run_fn = get_live_fundamental_scanner().scan_universe
+            except (ImportError, AttributeError):
+                try:
+                    from app.live_fundamental_scanner import get_live_fundamental_scanner
+                    run_fn = get_live_fundamental_scanner().scan_universe
+                except (ImportError, AttributeError):
+                    try:
+                        from live_fundamental_scanner import live_fundamental_scanner
+                        run_fn = getattr(live_fundamental_scanner, "scan_universe", live_fundamental_scanner)
+                    except (ImportError, AttributeError):
+                        from app.live_fundamental_scanner import live_fundamental_scanner
+                        run_fn = getattr(live_fundamental_scanner, "scan_universe", live_fundamental_scanner)
 
     funnel = run_fn(trigger_type=trigger_type, scheduler_name=scheduler_name)
     count = funnel.get("scanned_count", 0) if isinstance(funnel, dict) else 0
