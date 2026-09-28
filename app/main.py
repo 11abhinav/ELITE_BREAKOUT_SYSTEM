@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 from database import upsert_scanner_health, insert_notification
 from config import DATA_DIR, WATCHLIST_PATH, SYSTEM_DEPLOYMENT_VERSION
+from live_fundamental_scanner import run_fundamental_scan as _run_fundamental_scan
 
 # Print high-visibility deployment version & process PID banner on startup
 try:
@@ -1853,42 +1854,18 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
     return {"total_count": count, "processed_count": count}
 
 def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
-    try:
-        from database import is_scanner_stopped
-    except ImportError:
-        from app.database import is_scanner_stopped
+    from database import is_scanner_stopped
 
     if is_scanner_stopped("FUNDAMENTAL"):
         logger.info("⏸️ [FUNDAMENTAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
 
     logger.info(f"🚀 [SCANNER: FUNDAMENTAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
-    
-    run_fn = None
-    try:
-        from live_fundamental_scanner import run_fundamental_scan
-        run_fn = run_fundamental_scan
-    except (ImportError, AttributeError):
-        try:
-            from app.live_fundamental_scanner import run_fundamental_scan
-            run_fn = run_fundamental_scan
-        except (ImportError, AttributeError):
-            try:
-                from live_fundamental_scanner import get_live_fundamental_scanner
-                run_fn = get_live_fundamental_scanner().scan_universe
-            except (ImportError, AttributeError):
-                try:
-                    from app.live_fundamental_scanner import get_live_fundamental_scanner
-                    run_fn = get_live_fundamental_scanner().scan_universe
-                except (ImportError, AttributeError):
-                    try:
-                        from live_fundamental_scanner import live_fundamental_scanner
-                        run_fn = getattr(live_fundamental_scanner, "scan_universe", live_fundamental_scanner)
-                    except (ImportError, AttributeError):
-                        from app.live_fundamental_scanner import live_fundamental_scanner
-                        run_fn = getattr(live_fundamental_scanner, "scan_universe", live_fundamental_scanner)
 
-    funnel = run_fn(trigger_type=trigger_type, scheduler_name=scheduler_name)
+    # _run_fundamental_scan is imported at module level from live_fundamental_scanner.
+    # Do NOT add fallback try/except chains here — if the module fails to load the
+    # error must be visible immediately, not silently swallowed.
+    funnel = _run_fundamental_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
     count = funnel.get("scanned_count", 0) if isinstance(funnel, dict) else 0
     return {"total_count": count, "processed_count": count}
 
