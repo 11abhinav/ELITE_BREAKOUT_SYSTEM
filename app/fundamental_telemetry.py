@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 from typing import Dict, List, Any, Optional, Tuple, Set
 from enum import Enum
 import numpy as np
+import pandas as pd
 
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("PRODUCTION_TELEMETRY")
@@ -404,10 +405,15 @@ class FundamentalScanTelemetry:
         sym = symbol.upper()
         disp = self.dispositions.get(sym, {})
         trace_id = disp.get("trace_id", f"FUND-{sym}")
-        roce = metrics.get("roce", 0.0)
-        roe = metrics.get("roe", 0.0)
-        ocf = metrics.get("operating_cash_flow", 0.0)
-        de = metrics.get("debt_equity", 0.0)
+        roce = metrics.get("roce")
+        roe = metrics.get("roe")
+        ocf = metrics.get("operating_cash_flow")
+        de = metrics.get("debt_equity")
+
+        roce_f = float(roce) if (roce is not None and not pd.isna(roce)) else None
+        roe_f = float(roe) if (roe is not None and not pd.isna(roe)) else None
+        ocf_f = float(ocf) if (ocf is not None and not pd.isna(ocf)) else None
+        de_f = float(de) if (de is not None and not pd.isna(de)) else None
 
         record = {
             "event_type": "FUNDAMENTAL_GATE",
@@ -415,10 +421,10 @@ class FundamentalScanTelemetry:
             "trace_id": trace_id,
             "symbol": sym,
             "timestamp": datetime.now(IST).isoformat(),
-            "roce": {"actual": roce, "threshold": 15.00, "operator": ">=", "result": "PASS" if roce >= 15.0 else "FAIL"},
-            "roe": {"actual": roe, "threshold": 12.00, "operator": ">=", "result": "PASS" if roe >= 12.0 else "FAIL"},
-            "ocf": {"actual": ocf, "threshold": 0.0, "operator": ">", "result": "PASS" if ocf > 0.0 else "FAIL"},
-            "debt_equity": {"actual": de, "threshold": 1.00, "operator": "<=", "result": "PASS" if de <= 1.0 else "FAIL"},
+            "roce": {"actual": roce_f, "threshold": 15.00, "operator": ">=", "result": "PASS" if (roce_f is not None and roce_f >= 15.0) else "FAIL"},
+            "roe": {"actual": roe_f, "threshold": 12.00, "operator": ">=", "result": "PASS" if (roe_f is not None and roe_f >= 12.0) else "FAIL"},
+            "ocf": {"actual": ocf_f, "threshold": 0.0, "operator": ">", "result": "PASS" if (ocf_f is not None and ocf_f > 0.0) else "FAIL"},
+            "debt_equity": {"actual": de_f, "threshold": 1.00, "operator": "<=", "result": "PASS" if (de_f is not None and de_f <= 1.0) else "FAIL"},
             "gate_result": "PASS" if passed else "FAIL",
             "failure_reasons": [normalize_reason_code(f) for f in failure_reasons]
         }
@@ -435,13 +441,24 @@ class FundamentalScanTelemetry:
         sym = symbol.upper()
         disp = self.dispositions.get(sym, {})
         trace_id = disp.get("trace_id", f"FUND-{sym}")
-        rev_l = metrics.get("rev_yoy_latest", 0.0)
-        rev_p = metrics.get("rev_yoy_prev", 0.0)
-        op_l = metrics.get("op_profit_yoy_latest", 0.0)
-        op_p = metrics.get("op_profit_yoy_prev", 0.0)
-        eps_l = metrics.get("eps_yoy_latest", 0.0)
-        eps_p = metrics.get("eps_yoy_prev", 0.0)
-        p_eps = metrics.get("prior_eps", 0.0)
+        rev_l = metrics.get("rev_yoy_latest")
+        rev_p = metrics.get("rev_yoy_prev")
+        op_l = metrics.get("op_profit_yoy_latest")
+        op_p = metrics.get("op_profit_yoy_prev")
+        eps_l = metrics.get("eps_yoy_latest")
+        eps_p = metrics.get("eps_yoy_prev")
+        p_eps = metrics.get("prior_eps")
+
+        def _to_f(v):
+            return float(v) if (v is not None and not pd.isna(v)) else None
+
+        rev_l_f = _to_f(rev_l)
+        rev_p_f = _to_f(rev_p)
+        op_l_f = _to_f(op_l)
+        op_p_f = _to_f(op_p)
+        eps_l_f = _to_f(eps_l)
+        eps_p_f = _to_f(eps_p)
+        p_eps_f = _to_f(p_eps)
 
         record = {
             "event_type": "EARNINGS_ACCELERATION_GATE",
@@ -449,16 +466,16 @@ class FundamentalScanTelemetry:
             "trace_id": trace_id,
             "symbol": sym,
             "timestamp": datetime.now(IST).isoformat(),
-            "revenue_yoy_current": rev_l,
-            "revenue_yoy_previous": rev_p,
-            "revenue_yoy_acceleration": {"actual": rev_l, "previous": rev_p, "operator": ">", "result": "PASS" if rev_l > rev_p else "FAIL"},
-            "operating_profit_yoy_current": op_l,
-            "operating_profit_yoy_previous": op_p,
-            "operating_profit_acceleration": {"actual": op_l, "previous": op_p, "operator": ">", "result": "PASS" if op_l > op_p else "FAIL"},
-            "eps_yoy_current": eps_l,
-            "eps_yoy_previous": eps_p,
-            "eps_acceleration": {"actual": eps_l, "previous": eps_p, "operator": ">", "result": "PASS" if eps_l > eps_p else "FAIL"},
-            "prior_comparable_eps": {"actual": p_eps, "threshold": 0.0, "operator": ">", "result": "PASS" if p_eps > 0.0 else "FAIL"},
+            "revenue_yoy_current": rev_l_f,
+            "revenue_yoy_previous": rev_p_f,
+            "revenue_yoy_acceleration": {"actual": rev_l_f, "previous": rev_p_f, "operator": ">", "result": "PASS" if (rev_l_f is not None and rev_p_f is not None and rev_l_f > rev_p_f) else "FAIL"},
+            "operating_profit_yoy_current": op_l_f,
+            "operating_profit_yoy_previous": op_p_f,
+            "operating_profit_acceleration": {"actual": op_l_f, "previous": op_p_f, "operator": ">", "result": "PASS" if (op_l_f is not None and op_p_f is not None and op_l_f > op_p_f) else "FAIL"},
+            "eps_yoy_current": eps_l_f,
+            "eps_yoy_previous": eps_p_f,
+            "eps_acceleration": {"actual": eps_l_f, "previous": eps_p_f, "operator": ">", "result": "PASS" if (eps_l_f is not None and eps_p_f is not None and eps_l_f > eps_p_f) else "FAIL"},
+            "prior_comparable_eps": {"actual": p_eps_f, "threshold": 0.0, "operator": ">", "result": "PASS" if (p_eps_f is not None and p_eps_f > 0.0) else "FAIL"},
             "gate_result": "PASS" if passed else "FAIL",
             "failure_reasons": [normalize_reason_code(f) for f in failure_reasons]
         }
@@ -705,21 +722,31 @@ class FundamentalScanTelemetry:
         roce = m.get("roce")
         roe = m.get("roe")
         de = m.get("debt_equity")
+        ocf = m.get("operating_cash_flow")
         rev_accel = m.get("rev_yoy_latest")
+        rev_p = m.get("rev_yoy_prev")
         op_accel = m.get("op_profit_yoy_latest")
+        op_p = m.get("op_profit_yoy_prev")
         eps_accel = m.get("eps_yoy_latest")
+        eps_p = m.get("eps_yoy_prev")
+        p_eps = m.get("prior_eps")
         close_val = m.get("close") or m.get("signal_close")
         vol_r = m.get("vol_ratio")
 
-        metrics_parts = []
-        if roce is not None: metrics_parts.append(f"roce={roce:.1f}%")
-        if roe is not None: metrics_parts.append(f"roe={roe:.1f}%")
-        if de is not None: metrics_parts.append(f"d/e={de:.2f}")
-        if rev_accel is not None: metrics_parts.append(f"rev_accel={rev_accel:.1f}%")
-        if op_accel is not None: metrics_parts.append(f"op_accel={op_accel:.1f}%")
-        if eps_accel is not None: metrics_parts.append(f"eps_accel={eps_accel:.1f}%")
-        if close_val is not None: metrics_parts.append(f"close={close_val:.2f}")
-        if vol_r is not None: metrics_parts.append(f"vol_ratio={vol_r:.2f}x")
+        metrics_parts = [
+            f"roce={f'{roce:.1f}%' if roce is not None else 'MISSING'}",
+            f"roe={f'{roe:.1f}%' if roe is not None else 'MISSING'}",
+            f"d/e={f'{de:.2f}' if de is not None else 'MISSING'}",
+            f"ocf={f'{ocf:.1f}' if ocf is not None else 'MISSING'}",
+            f"rev={f'{rev_accel:.1f}%' if rev_accel is not None else 'MISSING'}(prev={f'{rev_p:.1f}%' if rev_p is not None else 'MISSING'})",
+            f"op={f'{op_accel:.1f}%' if op_accel is not None else 'MISSING'}(prev={f'{op_p:.1f}%' if op_p is not None else 'MISSING'})",
+            f"eps={f'{eps_accel:.1f}%' if eps_accel is not None else 'MISSING'}(prev={f'{eps_p:.1f}%' if eps_p is not None else 'MISSING'})",
+            f"p_eps={f'{p_eps:.2f}' if p_eps is not None else 'MISSING'}"
+        ]
+        if close_val is not None:
+            metrics_parts.append(f"close={close_val:.2f}")
+        if vol_r is not None:
+            metrics_parts.append(f"vol_ratio={vol_r:.2f}x")
         metrics_str = ", ".join(metrics_parts)
 
         funnel_str = f"[fun:{fundamental_state} earn:{earnings_state} trap:{value_trap_state} trend:{trend_state} rs:{rs_state} cons:{consolidation_state} bo:{breakout_state}]"

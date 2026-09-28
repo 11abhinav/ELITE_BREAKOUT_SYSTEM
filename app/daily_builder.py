@@ -2452,16 +2452,110 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
             init_all_v2_schemas()
             current_macro_regime = get_current_macro_regime()
 
+            # Pre-load PIT DB fundamentals to enrich master records with audited ROCE/ROE and 4-period acceleration
+            pit_data = {}
+            pit_db_path = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.db")
+            if os.path.exists(pit_db_path):
+                try:
+                    import sqlite3
+                    con = sqlite3.connect(pit_db_path, timeout=30)
+                    q = """
+                    SELECT symbol, period_end_date, revenue, operating_profit, net_profit, eps,
+                           roce, roe, total_debt, total_equity, operating_cash_flow, free_cash_flow
+                    FROM pit_fundamentals_v1
+                    ORDER BY symbol, period_end_date DESC
+                    """
+                    df_pit = pd.read_sql(q, con)
+                    con.close()
+                    if not df_pit.empty:
+                        for sym_grp, grp in df_pit.groupby("symbol"):
+                            filings = grp.to_dict("records")
+                            if not filings:
+                                continue
+                            f0 = filings[0]
+                            roce_p = f0.get("roce")
+                            roe_p = f0.get("roe")
+                            tot_debt = f0.get("total_debt") or 0.0
+                            tot_eq = f0.get("total_equity") or 1.0
+                            de_p = tot_debt / tot_eq if tot_eq > 0 else 0.0
+                            ocf_p = f0.get("operating_cash_flow") or f0.get("free_cash_flow")
+
+                            rev_l, rev_p, op_l, op_p, eps_l, eps_p, p_eps = None, None, None, None, None, None, None
+                            if len(filings) >= 2:
+                                f1 = filings[1]
+                                rev0, rev1 = f0.get("revenue"), f1.get("revenue")
+                                op0, op1 = f0.get("operating_profit"), f1.get("operating_profit")
+                                eps0, eps1 = f0.get("eps"), f1.get("eps")
+                                if rev0 is not None and rev1 is not None and abs(rev1) > 1e-5:
+                                    rev_l = ((rev0 - rev1) / abs(rev1)) * 100.0
+                                if op0 is not None and op1 is not None and abs(op1) > 1e-5:
+                                    op_l = ((op0 - op1) / abs(op1)) * 100.0
+                                if eps0 is not None and eps1 is not None and abs(eps1) > 1e-5:
+                                    eps_l = ((eps0 - eps1) / abs(eps1)) * 100.0
+                                    p_eps = float(eps1)
+                            if len(filings) >= 3:
+                                f1, f2 = filings[1], filings[2]
+                                rev1, rev2 = f1.get("revenue"), f2.get("revenue")
+                                op1, op2 = f1.get("operating_profit"), f2.get("operating_profit")
+                                eps1, eps2 = f1.get("eps"), f2.get("eps")
+                                if rev1 is not None and rev2 is not None and abs(rev2) > 1e-5:
+                                    rev_p = ((rev1 - rev2) / abs(rev2)) * 100.0
+                                if op1 is not None and op2 is not None and abs(op2) > 1e-5:
+                                    op_p = ((op1 - op2) / abs(op2)) * 100.0
+                                if eps1 is not None and eps2 is not None and abs(eps2) > 1e-5:
+                                    eps_p = ((eps1 - eps2) / abs(eps2)) * 100.0
+
+                            pit_data[str(sym_grp).upper()] = {
+                                "roce": float(roce_p) if (roce_p is not None and not pd.isna(roce_p)) else None,
+                                "roe": float(roe_p) if (roe_p is not None and not pd.isna(roe_p)) else None,
+                                "debt_equity": float(de_p),
+                                "operating_cash_flow": float(ocf_p) if (ocf_p is not None and not pd.isna(ocf_p)) else None,
+                                "rev_yoy_latest": rev_l,
+                                "rev_yoy_prev": rev_p,
+                                "op_profit_yoy_latest": op_l,
+                                "op_profit_yoy_prev": op_p,
+                                "eps_yoy_latest": eps_l,
+                                "eps_yoy_prev": eps_p,
+                                "prior_eps": p_eps
+                            }
+                    logger.info(f"🧠 [DAILY BUILDER 2.0] Pre-loaded {len(pit_data)} audited PIT fundamental records for master synthesis.")
+                except Exception as pit_err:
+                    logger.warning(f"⚠️ [DAILY BUILDER 2.0] Could not pre-load PIT fundamentals: {pit_err}")
+
             master_records = []
             for _, r in final_df.iterrows():
                 sym = str(r.get("Stock", ""))
                 comp = str(r.get("Company", sym))
                 cmp_price = float(r.get("CMP", r.get("Close", 100.0)) or 100.0)
+                sym_up = sym.upper()
+                pit_rec = pit_data.get(sym_up, {})
+
+                # Sourcing priority: Watchlist -> PIT DB fallback for ROCE / ROE / Debt
+                roce_val = r.get("ROCE %")
+                if (roce_val is None or pd.isna(roce_val)) and pit_rec.get("roce") is not None:
+                    roce_val = pit_rec["roce"]
+
+                roe_val = r.get("ROE %")
+                if (roe_val is None or pd.isna(roe_val)) and pit_rec.get("roe") is not None:
+                    roe_val = pit_rec["roe"]
+
+                de_val = r.get("Debt/Equity")
+                if (de_val is None or pd.isna(de_val)) and pit_rec.get("debt_equity") is not None:
+                    de_val = pit_rec["debt_equity"]
+
+                # Sourcing priority: Audited PIT DB filings -> Watchlist proxy fallbacks
+                rev_l = pit_rec.get("rev_yoy_latest") if pit_rec.get("rev_yoy_latest") is not None else r.get("YOY Revenue %")
+                rev_p = pit_rec.get("rev_yoy_prev") if pit_rec.get("rev_yoy_prev") is not None else r.get("5Y Revenue %")
+                op_l = pit_rec.get("op_profit_yoy_latest") if pit_rec.get("op_profit_yoy_latest") is not None else r.get("YOY Profit %")
+                op_p = pit_rec.get("op_profit_yoy_prev") if pit_rec.get("op_profit_yoy_prev") is not None else r.get("5Y EPS %")
+                eps_l = pit_rec.get("eps_yoy_latest") if pit_rec.get("eps_yoy_latest") is not None else r.get("YOY Profit %")
+                eps_p = pit_rec.get("eps_yoy_prev") if pit_rec.get("eps_yoy_prev") is not None else r.get("5Y EPS %")
+                p_eps = pit_rec.get("prior_eps")
 
                 fund_data = {
-                    "roe": r.get("ROE %"),
-                    "roce": r.get("ROCE %"),
-                    "debt_equity": r.get("Debt/Equity"),
+                    "roe": roe_val,
+                    "roce": roce_val,
+                    "debt_equity": de_val,
                     "pe": r.get("PE Ratio"),
                     "pb": r.get("Price to Book"),
                     "peg": r.get("PEG Ratio"),
@@ -2471,7 +2565,14 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     "market_cap": (float(r.get("Market Cap Cr", 100.0) or 100.0)) * 1e7,
                     "op_margin": r.get("OPM %"),
                     "net_margin": r.get("YOY Profit %"),
-                    "interest_coverage": 6.0
+                    "interest_coverage": 6.0,
+                    "rev_yoy_latest": rev_l,
+                    "rev_yoy_prev": rev_p,
+                    "op_profit_yoy_latest": op_l,
+                    "op_profit_yoy_prev": op_p,
+                    "eps_yoy_latest": eps_l,
+                    "eps_yoy_prev": eps_p,
+                    "prior_eps": p_eps,
                 }
 
                 cat_str = str(r.get("Category", ""))

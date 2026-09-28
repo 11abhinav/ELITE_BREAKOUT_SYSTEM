@@ -161,29 +161,60 @@ class FundamentalQualityGate:
     @staticmethod
     def evaluate(fundamentals: Dict[str, Any]) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
         failures = []
+        sym = fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN"
         if not fundamentals:
+            logger.info(f"🔍 [GATE_EVAL:FQ] {sym} REJECTED: fundamentals record is missing or empty")
             return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
 
         roce = fundamentals.get("roce")
         roe = fundamentals.get("roe")
         ocf = fundamentals.get("operating_cash_flow", fundamentals.get("ocf"))
         debt_equity = fundamentals.get("debt_equity", fundamentals.get("debt_to_equity"))
+        is_trap = bool(fundamentals.get("is_value_trap", False) or (str(fundamentals.get("fundamental_category", "")).upper() == "VALUE_TRAP"))
+
+        roce_val = None
+        if roce is not None and not pd.isna(roce):
+            roce_val = float(roce)
+            if 0.0 < roce_val <= 1.0:
+                roce_val *= 100.0
+
+        roe_val = None
+        if roe is not None and not pd.isna(roe):
+            roe_val = float(roe)
+            if 0.0 < roe_val <= 1.0:
+                roe_val *= 100.0
+
+        ocf_val = float(ocf) if (ocf is not None and not pd.isna(ocf)) else None
+        de_val = float(debt_equity) if (debt_equity is not None and not pd.isna(debt_equity)) else None
+
+        metrics = {
+            "roce": round(roce_val, 2) if roce_val is not None else None,
+            "roe": round(roe_val, 2) if roe_val is not None else None,
+            "operating_cash_flow": round(ocf_val, 2) if ocf_val is not None else None,
+            "debt_equity": round(de_val, 2) if de_val is not None else None,
+            "is_value_trap": is_trap,
+            "fundamental_category": str(fundamentals.get("fundamental_category", "NONE")),
+            "quality_score": float(fundamentals.get("quality_score", 0.0) or 0.0),
+            "growth_score": float(fundamentals.get("growth_score", 0.0) or 0.0)
+        }
 
         # Check for missing values
-        if roce is None or roe is None or ocf is None or debt_equity is None:
-            return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
+        missing_fields = []
+        if roce_val is None: missing_fields.append("roce")
+        if roe_val is None: missing_fields.append("roe")
+        if ocf_val is None: missing_fields.append("ocf")
+        if de_val is None: missing_fields.append("debt_equity")
 
-        # Handle decimal vs percentage representation (e.g. 0.15 vs 15.0)
-        roce_val = float(roce)
-        if roce_val <= 1.0 and roce_val > 0.0:
-            roce_val *= 100.0
-
-        roe_val = float(roe)
-        if roe_val <= 1.0 and roe_val > 0.0:
-            roe_val *= 100.0
-
-        ocf_val = float(ocf)
-        de_val = float(debt_equity)
+        if missing_fields:
+            failures.append(RejectionReason.FUNDAMENTAL_DATA_MISSING)
+            logger.info(
+                f"🔍 [GATE_EVAL:FQ] {sym:<12} REJECTED (DATA_MISSING): missing={missing_fields} | "
+                f"roce={f'{roce_val:.1f}%' if roce_val is not None else 'MISSING'} | "
+                f"roe={f'{roe_val:.1f}%' if roe_val is not None else 'MISSING'} | "
+                f"ocf={f'{ocf_val:.1f}' if ocf_val is not None else 'MISSING'} | "
+                f"d/e={f'{de_val:.2f}' if de_val is not None else 'MISSING'}"
+            )
+            return False, failures, metrics
 
         if roce_val < 15.0:
             failures.append(RejectionReason.FAIL_ROCE)
@@ -193,22 +224,23 @@ class FundamentalQualityGate:
             failures.append(RejectionReason.FAIL_OCF)
         if de_val > 1.0:
             failures.append(RejectionReason.FAIL_DEBT_EQUITY)
-
-        # Daily Builder Value Trap Hard Block
-        is_trap = bool(fundamentals.get("is_value_trap", False) or (str(fundamentals.get("fundamental_category", "")).upper() == "VALUE_TRAP"))
         if is_trap:
             failures.append(RejectionReason.FAIL_VALUE_TRAP)
 
-        metrics = {
-            "roce": round(roce_val, 2),
-            "roe": round(roe_val, 2),
-            "operating_cash_flow": ocf_val,
-            "debt_equity": round(de_val, 2),
-            "is_value_trap": is_trap,
-            "fundamental_category": str(fundamentals.get("fundamental_category", "NONE")),
-            "quality_score": float(fundamentals.get("quality_score", 0.0) or 0.0),
-            "growth_score": float(fundamentals.get("growth_score", 0.0) or 0.0)
-        }
+        if failures:
+            logger.info(
+                f"🔍 [GATE_EVAL:FQ] {sym:<12} REJECTED (THRESHOLDS): "
+                f"roce={roce_val:.1f}% (>=15% {'PASS' if roce_val>=15.0 else 'FAIL'}) | "
+                f"roe={roe_val:.1f}% (>=12% {'PASS' if roe_val>=12.0 else 'FAIL'}) | "
+                f"ocf={ocf_val:.1f} (>0 {'PASS' if ocf_val>0 else 'FAIL'}) | "
+                f"d/e={de_val:.2f} (<=1.0 {'PASS' if de_val<=1.0 else 'FAIL'}) | "
+                f"trap={is_trap}"
+            )
+        else:
+            logger.info(
+                f"✨ [GATE_EVAL:FQ] {sym:<12} PASSED: "
+                f"roce={roce_val:.1f}% | roe={roe_val:.1f}% | ocf={ocf_val:.1f} | d/e={de_val:.2f}"
+            )
 
         return (len(failures) == 0), failures, metrics
 
@@ -228,7 +260,9 @@ class EarningsAccelerationGate:
     @staticmethod
     def evaluate(fundamentals: Dict[str, Any]) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
         failures = []
+        sym = fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN"
         if not fundamentals:
+            logger.info(f"🔍 [GATE_EVAL:EA] {sym} REJECTED: fundamentals record is missing or empty")
             return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
 
         rev_yoy_latest = fundamentals.get("rev_yoy_latest", fundamentals.get("yoy_revenue_pct"))
@@ -239,17 +273,47 @@ class EarningsAccelerationGate:
         eps_yoy_prev = fundamentals.get("eps_yoy_prev", fundamentals.get("yoy_eps_prev_pct"))
         prior_eps = fundamentals.get("prior_eps", fundamentals.get("prior_comparable_eps"))
 
-        # Check for missing values
-        if any(v is None for v in [rev_yoy_latest, rev_yoy_prev, op_yoy_latest, op_yoy_prev, eps_yoy_latest, eps_yoy_prev, prior_eps]):
-            return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
+        def _sf(v):
+            return float(v) if (v is not None and not pd.isna(v)) else None
 
-        rev_l = float(rev_yoy_latest)
-        rev_p = float(rev_yoy_prev)
-        op_l = float(op_yoy_latest)
-        op_p = float(op_yoy_prev)
-        eps_l = float(eps_yoy_latest)
-        eps_p = float(eps_yoy_prev)
-        p_eps = float(prior_eps)
+        rev_l = _sf(rev_yoy_latest)
+        rev_p = _sf(rev_yoy_prev)
+        op_l = _sf(op_yoy_latest)
+        op_p = _sf(op_yoy_prev)
+        eps_l = _sf(eps_yoy_latest)
+        eps_p = _sf(eps_yoy_prev)
+        p_eps = _sf(prior_eps)
+
+        metrics = {
+            "rev_yoy_latest": round(rev_l, 2) if rev_l is not None else None,
+            "rev_yoy_prev": round(rev_p, 2) if rev_p is not None else None,
+            "op_profit_yoy_latest": round(op_l, 2) if op_l is not None else None,
+            "op_profit_yoy_prev": round(op_p, 2) if op_p is not None else None,
+            "eps_yoy_latest": round(eps_l, 2) if eps_l is not None else None,
+            "eps_yoy_prev": round(eps_p, 2) if eps_p is not None else None,
+            "prior_eps": round(p_eps, 2) if p_eps is not None else None
+        }
+
+        # Check for missing values
+        missing_fields = []
+        if rev_l is None: missing_fields.append("rev_yoy_latest")
+        if rev_p is None: missing_fields.append("rev_yoy_prev")
+        if op_l is None: missing_fields.append("op_profit_yoy_latest")
+        if op_p is None: missing_fields.append("op_profit_yoy_prev")
+        if eps_l is None: missing_fields.append("eps_yoy_latest")
+        if eps_p is None: missing_fields.append("eps_yoy_prev")
+        if p_eps is None: missing_fields.append("prior_eps")
+
+        if missing_fields:
+            failures.append(RejectionReason.FUNDAMENTAL_DATA_MISSING)
+            logger.info(
+                f"🔍 [GATE_EVAL:EA] {sym:<12} REJECTED (DATA_MISSING): missing={missing_fields} | "
+                f"rev_l={f'{rev_l:.1f}%' if rev_l is not None else 'MISSING'} | rev_p={f'{rev_p:.1f}%' if rev_p is not None else 'MISSING'} | "
+                f"op_l={f'{op_l:.1f}%' if op_l is not None else 'MISSING'} | op_p={f'{op_p:.1f}%' if op_p is not None else 'MISSING'} | "
+                f"eps_l={f'{eps_l:.1f}%' if eps_l is not None else 'MISSING'} | eps_p={f'{eps_p:.1f}%' if eps_p is not None else 'MISSING'} | "
+                f"prior_eps={f'{p_eps:.2f}' if p_eps is not None else 'MISSING'}"
+            )
+            return False, failures, metrics
 
         if rev_l <= rev_p:
             failures.append(RejectionReason.FAIL_REVENUE_ACCELERATION)
@@ -260,15 +324,19 @@ class EarningsAccelerationGate:
         if p_eps <= 0.0:
             failures.append(RejectionReason.FAIL_PRIOR_EPS)
 
-        metrics = {
-            "rev_yoy_latest": round(rev_l, 2),
-            "rev_yoy_prev": round(rev_p, 2),
-            "op_profit_yoy_latest": round(op_l, 2),
-            "op_profit_yoy_prev": round(op_p, 2),
-            "eps_yoy_latest": round(eps_l, 2),
-            "eps_yoy_prev": round(eps_p, 2),
-            "prior_eps": round(p_eps, 2)
-        }
+        if failures:
+            logger.info(
+                f"🔍 [GATE_EVAL:EA] {sym:<12} REJECTED (DECELERATING): "
+                f"rev={rev_l:.1f}% vs prev={rev_p:.1f}% ({'PASS' if rev_l>rev_p else 'FAIL'}) | "
+                f"op={op_l:.1f}% vs prev={op_p:.1f}% ({'PASS' if op_l>op_p else 'FAIL'}) | "
+                f"eps={eps_l:.1f}% vs prev={eps_p:.1f}% ({'PASS' if eps_l>eps_p else 'FAIL'}) | "
+                f"prior_eps={p_eps:.2f} (>0 {'PASS' if p_eps>0.0 else 'FAIL'})"
+            )
+        else:
+            logger.info(
+                f"✨ [GATE_EVAL:EA] {sym:<12} PASSED: "
+                f"rev={rev_l:.1f}%>{rev_p:.1f}% | op={op_l:.1f}%>{op_p:.1f}% | eps={eps_l:.1f}%>{eps_p:.1f}% | prior_eps={p_eps:.2f}"
+            )
 
         return (len(failures) == 0), failures, metrics
 
@@ -504,12 +572,37 @@ class DailyBuilderFundamentalProvider:
                     need_fetch = True
                 else:
                     df_candidate = pd.read_parquet(path)
-                    if len(df_candidate) > 1 and "rev_yoy_latest" in df_candidate.columns and df_candidate["rev_yoy_latest"].notna().sum() > 50:
+                    # Validate: must have acceleration fields (including prior_eps) AND critical FQ fields (ROCE/ROE)
+                    # without >10% nulls. Daily Builder output has NaN ROCE for many stocks
+                    # and missing prior_eps if not re-hydrated, which causes DATA_MISSING.
+                    has_accel = (
+                        "rev_yoy_latest" in df_candidate.columns
+                        and "prior_eps" in df_candidate.columns
+                        and df_candidate["rev_yoy_latest"].notna().sum() > 50
+                        and df_candidate["prior_eps"].notna().sum() > 50
+                    )
+                    roce_col = next((c for c in ("ROCE", "roce") if c in df_candidate.columns), None)
+                    roce_null_frac = (df_candidate[roce_col].isna().sum() / max(len(df_candidate), 1)) if roce_col else 1.0
+                    has_valid_roce = roce_null_frac <= 0.10  # ≤10% nulls tolerated
+                    if len(df_candidate) > 1 and has_accel and has_valid_roce:
                         df = df_candidate
                         meta["freshness_status"] = "FRESH"
                         meta["provenance_status"] = "CERTIFIED_LOCAL_DAILY_BUILDER"
+                        logger.info(
+                            f"✅ [FUNDAMENTAL_CACHE] Loaded valid cache {path}: {len(df)} records | "
+                            f"ROCE valid={df[roce_col].notna().sum()}/{len(df)} | "
+                            f"rev_yoy valid={df['rev_yoy_latest'].notna().sum()}/{len(df)} | "
+                            f"prior_eps valid={df['prior_eps'].notna().sum()}/{len(df)}"
+                        )
                     else:
-                        logger.info(f"🔄 [FUNDAMENTAL_CACHE] Local cache {path} missing acceleration metrics. Triggering re-hydration...")
+                        prior_valid = df_candidate['prior_eps'].notna().sum() if 'prior_eps' in df_candidate.columns else 0
+                        rev_valid = df_candidate['rev_yoy_latest'].notna().sum() if 'rev_yoy_latest' in df_candidate.columns else 0
+                        logger.info(
+                            f"🔄 [FUNDAMENTAL_CACHE] Local cache {path} incomplete — "
+                            f"has_accel={has_accel} (rev_valid={rev_valid}, prior_valid={prior_valid}), "
+                            f"roce_null_frac={roce_null_frac:.2%}. "
+                            f"Triggering PIT DB re-hydration..."
+                        )
                         need_fetch = True
             except Exception as e:
                 logger.warning(f"Failed to read Daily Builder parquet {path}: {e}")
@@ -523,7 +616,11 @@ class DailyBuilderFundamentalProvider:
             if os.path.exists(pit_db):
                 try:
                     import sqlite3
-                    con = sqlite3.connect(pit_db)
+                    # timeout=30: wait up to 30s if another process holds a write-lock
+                    # (e.g. backtest script accessing pit_fundamentals_v1.db concurrently).
+                    # Without timeout, SQLite raises OperationalError immediately on lock,
+                    # causing fall-through to empty Postgres table → empty funds_map → DATA_MISSING.
+                    con = sqlite3.connect(pit_db, timeout=30)
                     query = """
                     SELECT symbol, period_end_date, revenue, operating_profit, net_profit, eps,
                            roce, roe, total_debt, total_equity, operating_cash_flow, free_cash_flow

@@ -497,7 +497,28 @@ def simulate_portfolio_equity_curve(df_trades: pd.DataFrame) -> pd.DataFrame:
 
 def compute_comprehensive_metrics(df_trades: pd.DataFrame, df_equity: pd.DataFrame, candidate_id: str) -> Dict[str, Any]:
     if df_trades.empty:
-        return {"candidate_id": candidate_id, "n": 0, "status": "NO_TRADES"}
+        return {
+            "candidate_id": candidate_id,
+            "n": 0,
+            "n_eff": 0,
+            "win_rate_pct": 0.0,
+            "mean_r": 0.0,
+            "median_r": 0.0,
+            "total_r": 0.0,
+            "profit_factor": 0.0,
+            "ci_95_low": 0.0,
+            "ci_95_high": 0.0,
+            "portfolio_cagr_pct": 0.0,
+            "max_drawdown_pct": 0.0,
+            "mean_mfe_pct": 0.0,
+            "mean_mae_pct": 0.0,
+            "outlier_top5_trade_share_pct": 0.0,
+            "train_mean_r": 0.0,
+            "holdout_n": 0,
+            "holdout_mean_r": 0.0,
+            "holdout_ci_95_low": 0.0,
+            "decision_state": "NO_TRADES"
+        }
 
     df_trades["year"] = pd.to_datetime(df_trades["entry_date"]).dt.year
     n = len(df_trades)
@@ -636,7 +657,14 @@ def main():
     print(f"{'CANDIDATE ID':<12} | {'N (TOTAL)':<9} | {'MEAN R':<9} | {'PORT CAGR%':<11} | {'MAX DD%':<9} | {'HOLDOUT N':<9} | {'HOLDOUT MEAN R':<14} | {'DECISION STATE':<20}")
     print("=" * 100)
     for cand_id, st in all_summaries.items():
-        print(f"{cand_id:<12} | {st['n']:<9} | {st['mean_r']:<9.3f} | {st['portfolio_cagr_pct']:<11.2f} | {st['max_drawdown_pct']:<9.2f} | {st['holdout_n']:<9} | {st['holdout_mean_r']:<14.3f} | {st['decision_state']:<20}")
+        n_val = st.get('n', 0)
+        mean_r_val = st.get('mean_r', 0.0)
+        cagr_val = st.get('portfolio_cagr_pct', 0.0)
+        max_dd_val = st.get('max_drawdown_pct', 0.0)
+        holdout_n_val = st.get('holdout_n', 0)
+        holdout_mean_r_val = st.get('holdout_mean_r', 0.0)
+        decision_val = st.get('decision_state', 'UNKNOWN')
+        print(f"{cand_id:<12} | {n_val:<9} | {mean_r_val:<9.3f} | {cagr_val:<11.2f} | {max_dd_val:<9.2f} | {holdout_n_val:<9} | {holdout_mean_r_val:<14.3f} | {decision_val:<20}")
     print("=" * 100)
 
 if __name__ == "__main__":

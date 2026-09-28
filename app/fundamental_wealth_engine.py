@@ -434,6 +434,14 @@ class FundamentalWealthEngine:
         fcf_yield = float(fund_data.get("fcf_yield", 2.5) or 2.5)
         earnings_growth = float(fund_data.get("revenue_cagr_3y", 0.0) or 0.0)
 
+        # NaN-safe pass-through helper for acceleration fields
+        def _safe_float(v):
+            try:
+                f = float(v)
+                return None if (f != f) else f  # NaN guard: NaN != NaN
+            except (TypeError, ValueError):
+                return None
+
         return {
             "symbol": symbol,
             "company": company or symbol,
@@ -460,7 +468,17 @@ class FundamentalWealthEngine:
             "production_alert_permission": production_alert_permission,
             "first_seen_category": f_res["first_seen_category"],
             "current_category": f_res["current_category"],
-            "category_history": f_res["category_history"]
+            "category_history": f_res["category_history"],
+            # Pass-through acceleration fields from caller's fund_data so the parquet written
+            # by Daily Builder satisfies DailyBuilderFundamentalProvider's freshness check
+            # (requires rev_yoy_latest column) without needing PIT DB re-hydration each scan.
+            "rev_yoy_latest": _safe_float(fund_data.get("rev_yoy_latest")),
+            "rev_yoy_prev": _safe_float(fund_data.get("rev_yoy_prev")),
+            "op_profit_yoy_latest": _safe_float(fund_data.get("op_profit_yoy_latest")),
+            "op_profit_yoy_prev": _safe_float(fund_data.get("op_profit_yoy_prev")),
+            "eps_yoy_latest": _safe_float(fund_data.get("eps_yoy_latest")),
+            "eps_yoy_prev": _safe_float(fund_data.get("eps_yoy_prev")),
+            "prior_eps": _safe_float(fund_data.get("prior_eps")),
         }
 
     # =========================================================================

@@ -1,0 +1,47 @@
+# MASTER VALUE GEM FINAL GOVERNANCE RECOMMENDATION
+
+**Date**: 2026-09-28  
+**System Component**: Live Fundamental Scanner / Value Buy Strategy  
+**Dataset Provenance**: Real Upstox Market Data + Certified Point-in-Time Fundamentals DB  
+**Program Status**: **COMPLETED & DECOMMISSIONED**  
+
+---
+
+## 1. Definitive Findings
+
+Following full-universe backtesting across 10.75 years (2016–2026) covering 30 economically distinct hypotheses (`CONTROL_1..5` + `GEM_R1..25`):
+
+1. **No Standalone "Value Gem" Dislocation Edge Exists in Indian Equities**:
+   - A $25\%\text{--}45\%$ drawdown in a fundamental quality company is not an automatic value opportunity.
+   - In $>80\%$ of historical cases, price dislocations reflect ongoing or upcoming operational deterioration.
+   - Buying dislocations before confirmed technical/breakout recovery generates negative net expectancy ($-0.06\text{R}$ to $-0.08\text{R}$) after friction.
+
+2. **The 2020–2021 COVID Recovery Distortion**:
+   - The initial baseline (`VALUE_GEM_CORE_V1`) achieved positive training returns (+0.101 R) solely because $>90\%$ of profits came from the 2020–2021 post-COVID macro liquidity expansion.
+   - Outside of post-COVID bull market conditions (e.g. 2018–2019 bear market and 2024–2026 high valuation regimes), all 30 candidate formulations generated negative returns.
+
+3. **Cash-Flow Cheapness Filter Constraint**:
+   - High FCF Yield ($>5\%$) combined with strict growth intact filters produces zero trades in practice ($N=0$). Indian equities do not present extreme cash flow cheapness alongside untouched high quality without severe corporate governance or structural distress.
+
+---
+
+## 2. Final Governance Directive
+
+```text
+======================================================================
+FINAL VALUE GEM GOVERNANCE VERDICT
+======================================================================
+RECOMMENDATION      : REJECT_ALL_30_CANDIDATE_FORMULATIONS
+PRODUCTION_STATE    : DECOMMISSIONED
+LIVE_ALERTS         : ZERO ALERTS / ZERO ROUTING
+SCHEDULING          : STOPPED
+AUDIT_TRAIL         : PRESERVED IN ARTIFACTS
+======================================================================
+```
+
+### Action Items Executed:
+1. `VALUE_GEM_CORE_V1` remains permanently locked as `REJECTED_BASELINE`.
+2. All 25 candidate formulations (`GEM_R1..R25`) are classified `HOLDOUT_FAILED` or `UNDERPOWERED`.
+3. No live fundamental buy scanner model is promoted to production.
+4. Production routing remains **0 live alerts** for Value Buy strategies.
+5. Research tradebooks, portfolio equity curves, and statistical matrices are permanently saved to `artifacts/value_buy_gems_v2/` for full forensic auditability.
