@@ -1514,15 +1514,67 @@ class QualityCompounderValueV2Scanner:
 
         logger.info(f"📡 [SCANNER: V2_FINAL] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
 
+        # Imports for DB execution tracking & health updates
+        try:
+            from database import (
+                create_scanner_execution_run,
+                complete_scanner_execution_run,
+                upsert_scanner_health,
+                save_v2_scan_snapshots,
+                save_v2_candidate_alert
+            )
+        except ImportError:
+            from app.database import (
+                create_scanner_execution_run,
+                complete_scanner_execution_run,
+                upsert_scanner_health,
+                save_v2_scan_snapshots,
+                save_v2_candidate_alert
+            )
+
+        # Record execution run start in scanner_execution_history and scanner_health
+        ctx = None
+        if create_scanner_execution_run is not None:
+            try:
+                ctx = create_scanner_execution_run(
+                    scanner_name="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    trigger_type=trigger_type,
+                    total_stocks=886,
+                    allow_concurrent=True
+                )
+            except Exception as e:
+                logger.debug(f"Execution history start warning: {e}")
+
+        if upsert_scanner_health is not None:
+            try:
+                upsert_scanner_health(
+                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    status="RUNNING",
+                    total_count=886,
+                    run_id=getattr(ctx, "run_id", None)
+                )
+            except Exception as e:
+                logger.debug(f"Scanner health RUNNING warning: {e}")
+
         # Load PIT fundamentals dataset
         pit_df = self.load_pit_dataset()
         if pit_df is None or pit_df.empty:
             logger.error("❌ [SCANNER: V2_FINAL] Failed to load PIT dataset — scan failed!")
-            try:
-                from database import upsert_scanner_health
-                upsert_scanner_health("Wealth Engine", status="DOWN", error_msg="PIT dataset unavailable")
-            except Exception:
-                pass
+            if complete_scanner_execution_run is not None and ctx and getattr(ctx, "run_id", None):
+                try:
+                    complete_scanner_execution_run(
+                        run_id=ctx.run_id,
+                        lifecycle_status="FAILED",
+                        quality_status="CRITICAL",
+                        summary_notes="PIT dataset unavailable"
+                    )
+                except Exception:
+                    pass
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", status="DOWN", error_msg="PIT dataset unavailable", run_id=getattr(ctx, "run_id", None))
+                except Exception:
+                    pass
             return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
 
         snapshot_records = []
@@ -1704,7 +1756,6 @@ class QualityCompounderValueV2Scanner:
 
         # Persist to SAME ALERT TABLE
         try:
-            from database import save_v2_scan_snapshots, save_v2_candidate_alert, upsert_scanner_health
             snapshots_inserted = save_v2_scan_snapshots(snapshot_records)
             candidates_inserted = 0
             for cand in candidate_records:
@@ -1712,15 +1763,35 @@ class QualityCompounderValueV2Scanner:
                 if ok: candidates_inserted += 1
 
             duration_sec = round(time.time() - start_ts, 2)
-            upsert_scanner_health(
-                "Wealth Engine",
-                status="OK",
-                today_alerts=candidate_count,
-                last_success=now_ist.isoformat(),
-                processed_count=total_scanned,
-                total_count=total_scanned,
-                duration_seconds=duration_sec
-            )
+            
+            # Record execution history completion
+            if complete_scanner_execution_run is not None and ctx and getattr(ctx, "run_id", None):
+                try:
+                    complete_scanner_execution_run(
+                        run_id=ctx.run_id,
+                        total_scanned=total_scanned,
+                        candidate_count=candidate_count,
+                        quality_status="HEALTHY",
+                        summary_notes=f"V2 Scan complete: Scanned={total_scanned}, QualityPass={quality_pass_count}, ValuePass={value_pass_count}, Candidates={candidate_count}"
+                    )
+                except Exception as e:
+                    logger.debug(f"Execution history completion warning: {e}")
+
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health(
+                        "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        status="OK",
+                        today_alerts=candidate_count,
+                        last_success=now_ist.isoformat(),
+                        processed_count=total_scanned,
+                        total_count=total_scanned,
+                        duration_seconds=duration_sec,
+                        run_id=getattr(ctx, "run_id", None)
+                    )
+                except Exception as e:
+                    logger.debug(f"Scanner health OK warning: {e}")
+
             logger.info(
                 f"✅ [SCANNER: V2_FINAL] 17:00 IST Scan Complete: Scanned={total_scanned}, "
                 f"QualityPass={quality_pass_count}, ValuePass={value_pass_count}, Candidates={candidate_count}, "
@@ -1738,10 +1809,30 @@ class QualityCompounderValueV2Scanner:
             }
         except Exception as err:
             logger.exception(f"❌ [SCANNER: V2_FINAL] Database persistence error: {err}")
+            if complete_scanner_execution_run is not None and ctx and getattr(ctx, "run_id", None):
+                try:
+                    complete_scanner_execution_run(
+                        run_id=ctx.run_id,
+                        lifecycle_status="FAILED",
+                        quality_status="CRITICAL",
+                        summary_notes=f"V2 Scan failed: {str(err)[:250]}"
+                    )
+                except Exception:
+                    pass
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health(
+                        "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        status="DOWN",
+                        error_msg=str(err)[:500],
+                        run_id=getattr(ctx, "run_id", None)
+                    )
+                except Exception:
+                    pass
             return {"status": "FAILED", "error": str(err)}
 
     def load_pit_dataset(self) -> Optional[pd.DataFrame]:
-        """Load certified PIT dataset from disk/cache."""
+        """Load certified PIT dataset from disk/cache with Daily Builder 2.0 fallback."""
         paths = [
             os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet"),
             os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet"),
@@ -1756,6 +1847,22 @@ class QualityCompounderValueV2Scanner:
                         return df
                 except Exception as e:
                     logger.warning(f"Failed loading parquet {p}: {e}")
+
+        # Daily Builder 2.0 fallback
+        try:
+            db_funds, _ = self.daily_builder_provider.load_master_fundamentals()
+            if db_funds:
+                rows = []
+                for sym, fdict in db_funds.items():
+                    r = dict(fdict)
+                    r['symbol'] = sym
+                    rows.append(r)
+                df = pd.DataFrame(rows)
+                logger.info(f"✅ Built PIT dataset from Daily Builder 2.0 ({len(df)} rows)")
+                return df
+        except Exception as e:
+            logger.warning(f"Failed to build PIT dataset from Daily Builder: {e}")
+
         return None
 
 

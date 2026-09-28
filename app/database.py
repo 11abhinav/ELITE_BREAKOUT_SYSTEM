@@ -4497,9 +4497,10 @@ def get_all_scanner_health() -> list[dict]:
         "DAILY_BUILDER": "Daily 05:00 IST",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
         "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
+        "QUALITY_COMPOUNDER_VALUE_V2_FINAL": "Daily 17:00 IST (Fundamental Quality Compounder V2 · ALL Regimes)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
-        "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
+        "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
         "Pledge Worker": "Continuous (Daily Refresh)",
         "AI Worker": "Continuous (Sat-Sun Active)",
     }
@@ -4752,6 +4753,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "WEALTH_EXIT_V1"
     elif upper in ["WEALTH_EXIT_V2", "WEALTH_V2_EXIT", "WEALTH_EXIT_V2_SHADOW"]:
         return "WEALTH_EXIT_V2"
+    elif upper in ["QUALITY_COMPOUNDER_VALUE_V2_FINAL", "QUALITY_COMPOUNDER_VALUE_V2", "QUALITY_COMPOUNDER_V2", "V2_QUALITY_COMPOUNDER", "QUALITY_VALUE_GEM"]:
+        return "QUALITY_COMPOUNDER_VALUE_V2_FINAL"
     elif upper in ["FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY", "FUNDAMENTAL_BUY", "FUNDAMENTAL_SCANNER", "FUNDAMENTAL_BUY_SCANNER"]:
         return "FUNDAMENTAL"
     elif upper in ["MULTIBAGGER"]:

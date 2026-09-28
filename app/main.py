@@ -1369,11 +1369,12 @@ def check_scanner_staleness(now):
     """
     # Expected max gap (in minutes) for each scanner before it's considered stale
     SCANNER_CADENCE = {
-        "TECHNICAL":           "DAILY",  # runs full scan once daily post-close at 18:15 IST
-        "PERFORMANCE_TRACKER": 15,       # runs every 5 min
-        "WEALTH_EXIT":         15,       # runs every 5 min during market hours
-        "Wealth Engine":       "DAILY",  # runs full scan once daily at 17:00 IST
-        "DAILY_BUILDER":       "DAILY",
+        "TECHNICAL":                          "DAILY",  # runs full scan once daily post-close at 18:15 IST
+        "PERFORMANCE_TRACKER":                15,       # runs every 5 min
+        "WEALTH_EXIT":                        15,       # runs every 5 min during market hours
+        "Wealth Engine":                      "DAILY",  # runs full scan once daily at 17:00 IST
+        "QUALITY_COMPOUNDER_VALUE_V2_FINAL":  "DAILY",  # runs full scan once daily at 17:00 IST
+        "DAILY_BUILDER":                      "DAILY",
     }
     
     # Throttle: only run this check every 15 minutes
@@ -1614,13 +1615,14 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     
     TRIGGER_MAP = {
         # Active production and operational workers
-        "DAILY_BUILDER":       _trigger_daily_builder,
-        "FUNDAMENTAL":         _trigger_fundamental,
-        "Wealth Engine":       _trigger_wealth_engine,
-        "AI Worker":           _trigger_ai_worker,
-        "PERFORMANCE_TRACKER": _trigger_performance_tracker,
-        "WEALTH_EXIT":         _trigger_wealth_exit,
-        "TECHNICAL":           _trigger_technical,
+        "DAILY_BUILDER":                      _trigger_daily_builder,
+        "FUNDAMENTAL":                        _trigger_fundamental,
+        "QUALITY_COMPOUNDER_VALUE_V2_FINAL": _trigger_quality_compounder_v2,
+        "Wealth Engine":                      _trigger_wealth_engine,
+        "AI Worker":                          _trigger_ai_worker,
+        "PERFORMANCE_TRACKER":                _trigger_performance_tracker,
+        "WEALTH_EXIT":                        _trigger_wealth_exit,
+        "TECHNICAL":                          _trigger_technical,
     }
     
     fn = TRIGGER_MAP.get(scanner_key) or TRIGGER_MAP.get(norm_key)
@@ -1629,13 +1631,14 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         
     # Check locks synchronously to return immediate HTTP JSON error
     LOCK_MAP = {
-        "DAILY_BUILDER":       lambda: __import__('daily_builder')._build_lock,
-        "FUNDAMENTAL":         lambda: None,
-        "Wealth Engine":       lambda: __import__('wealth_engine')._scan_lock,
-        "AI Worker":           lambda: __import__('ai_worker')._scan_lock,
-        "PERFORMANCE_TRACKER": lambda: _perf_tracker_lock,
-        "WEALTH_EXIT":         lambda: __import__('wealth_engine')._wealth_exit_lock,
-        "TECHNICAL":           lambda: __import__('technical_scanner')._scan_lock,
+        "DAILY_BUILDER":                      lambda: __import__('daily_builder')._build_lock,
+        "FUNDAMENTAL":                        lambda: None,
+        "QUALITY_COMPOUNDER_VALUE_V2_FINAL": lambda: None,
+        "Wealth Engine":                      lambda: __import__('wealth_engine')._scan_lock,
+        "AI Worker":                          lambda: __import__('ai_worker')._scan_lock,
+        "PERFORMANCE_TRACKER":                lambda: _perf_tracker_lock,
+        "WEALTH_EXIT":                        lambda: __import__('wealth_engine')._wealth_exit_lock,
+        "TECHNICAL":                          lambda: __import__('technical_scanner')._scan_lock,
     }
 
     
@@ -1815,11 +1818,14 @@ def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL", sessi
     logger.info(f"🚀 [SCANNER: WEALTH_ENGINE] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     from wealth_engine import run_wealth_scan
     run_wealth_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
-    try:
-        from live_fundamental_scanner import run_quality_compounder_v2_scan
-        run_quality_compounder_v2_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
-    except Exception as v2_err:
-        logger.error(f"❌ V2 Quality Compounder scan trigger failed: {v2_err}")
+def _trigger_quality_compounder_v2(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("QUALITY_COMPOUNDER_VALUE_V2_FINAL"):
+        logger.info("⏸️ [QUALITY_COMPOUNDER_VALUE_V2_FINAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
+    logger.info(f"🚀 [SCANNER: QUALITY_COMPOUNDER_VALUE_V2_FINAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
+    from live_fundamental_scanner import run_quality_compounder_v2_scan
+    return run_quality_compounder_v2_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
 
 # [DECOMMISSIONED] _trigger_multibagger() permanently removed.
 
