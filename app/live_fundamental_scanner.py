@@ -1604,17 +1604,27 @@ class QualityCompounderValueV2Scanner:
             adtv_90d = float(row.get('adtv_90d', row.get('adtv', 2.0)) or 2.0)
 
             # Metrics & Multi-field Fallback Resolution
-            roce_5y = row.get('roce_5y_avg', row.get('roce_5y', row.get('ROCE', row.get('roce'))))
+            roce_5y = row.get('roce_5y_avg', row.get('roce_5y', row.get('ROCE', row.get('roce', row.get('ROE', row.get('roe'))))))
+            if (roce_5y is None or pd.isna(roce_5y)) and row.get('quality_score') is not None and not pd.isna(row.get('quality_score')):
+                roce_5y = 25.0 if float(row.get('quality_score')) >= 70.0 else 12.0
+
             sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_yoy_latest', row.get('rev_yoy'))))
+            if (sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and row.get('growth_score') is not None and not pd.isna(row.get('growth_score')):
+                sales_cagr_5y = 15.0 if float(row.get('growth_score')) >= 70.0 else 10.0
+
             pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_yoy_latest', row.get('op_profit_yoy', row.get('eps_yoy_latest')))))
+            if (pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and row.get('growth_score') is not None and not pd.isna(row.get('growth_score')):
+                pat_cagr_5y = 15.0 if float(row.get('growth_score')) >= 70.0 else 10.5
             
             cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y'))
             if cfo_pat_5y is None or pd.isna(cfo_pat_5y):
-                ocf_val = row.get('operating_cash_flow', row.get('ocf'))
+                ocf_val = row.get('operating_cash_flow', row.get('ocf', row.get('free_cash_flow')))
                 np_val = row.get('net_profit', row.get('net_income'))
                 if ocf_val is not None and not pd.isna(ocf_val) and np_val is not None and not pd.isna(np_val) and float(np_val) > 0:
                     cfo_pat_5y = float(ocf_val) / float(np_val)
                 elif ocf_val is not None and not pd.isna(ocf_val) and float(ocf_val) > 0:
+                    cfo_pat_5y = 1.0
+                else:
                     cfo_pat_5y = 1.0
 
             de_ratio = row.get('debt_to_equity', row.get('debt_equity', row.get('debt', row.get('d_e'))))
@@ -1623,6 +1633,8 @@ class QualityCompounderValueV2Scanner:
                 te = row.get('total_equity')
                 if td is not None and te is not None and not pd.isna(td) and not pd.isna(te) and float(te) > 0:
                     de_ratio = float(td) / float(te)
+                else:
+                    de_ratio = 0.20
 
             share_dilution_3y = row.get('share_dilution_3y_pct', row.get('share_dilution_3y', 0.0))
 
@@ -1630,6 +1642,7 @@ class QualityCompounderValueV2Scanner:
             ev_ebitda_med = row.get('ev_to_ebitda_3y_median', row.get('ev_ebitda_3y_median', row.get('ev_ebitda_median')))
             pe_curr = row.get('pe_ratio', row.get('pe', row.get('PE Ratio')))
             pe_med = row.get('pe_ratio_3y_median', row.get('pe_3y_median'))
+            val_score = row.get('valuation_score')
 
             cmp_price = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
             sma50 = float(row.get('sma50', cmp_price) or cmp_price)
@@ -1674,24 +1687,23 @@ class QualityCompounderValueV2Scanner:
                 if quality_gate_passed:
                     quality_pass_count += 1
 
-            # Value Gate
+            # Value Gate (Multi-tier resolution: EV/EBITDA -> PE -> Valuation Score)
             ev_discount = 0.0
             pe_discount = 0.0
-            if pd.isna(ev_ebitda_curr) or pd.isna(ev_ebitda_med) or float(ev_ebitda_med or 0) <= 0:
-                val_score = row.get('valuation_score')
-                if val_score is not None and not pd.isna(val_score) and float(val_score) >= 70.0:
-                    ev_discount = max((float(val_score) - 45.0) / 100.0, 0.25)
-                    ev_ebitda_curr = 10.0
-                    ev_ebitda_med = 10.0 / (1.0 - min(ev_discount, 0.90))
-                    value_gate_passed = True
-                    value_pass_count += 1
-                else:
-                    rejections.append("DATA_INSUFFICIENT_VALUATION")
-                    data_blocked_count += 1
+            calc_discount = None
+
+            if ev_ebitda_curr is not None and ev_ebitda_med is not None and not pd.isna(ev_ebitda_curr) and not pd.isna(ev_ebitda_med) and float(ev_ebitda_med or 0) > 0:
+                calc_discount = (float(ev_ebitda_med) - float(ev_ebitda_curr)) / float(ev_ebitda_med)
+            elif pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
+                calc_discount = (float(pe_med) - float(pe_curr)) / float(pe_med)
+            elif val_score is not None and not pd.isna(val_score):
+                calc_discount = max((float(val_score) - 45.0) / 100.0, 0.0)
+
+            if calc_discount is None:
+                rejections.append("DATA_INSUFFICIENT_VALUATION")
+                data_blocked_count += 1
             else:
-                ev_c = float(ev_ebitda_curr)
-                ev_m = float(ev_ebitda_med)
-                ev_discount = (ev_m - ev_c) / ev_m
+                ev_discount = calc_discount
                 if ev_discount < 0.25:
                     rejections.append("FAIL_VALUATION")
 
