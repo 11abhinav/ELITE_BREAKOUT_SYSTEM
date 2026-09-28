@@ -3037,7 +3037,7 @@ function getEarningsBadgeHtml(item) {
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'TECHNICAL', 'FUNDAMENTAL', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'PERFORMANCE_TRACKER', 'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2', 'Pledge Worker', 'AI Worker', 'MULTI_TF', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Earnings Calendar'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
