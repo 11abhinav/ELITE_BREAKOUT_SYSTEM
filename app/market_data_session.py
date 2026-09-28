@@ -224,7 +224,7 @@ class MarketDataSession:
             pass
 
         logger.info(
-            f"🏗️  [SESSION:{session_id[:8]}] Building MarketDataSession for {ist_date} "
+            f"🏗️  [MARKET_DATA_SESSION] [SCANNER: {requester}] [SESSION:{session_id[:8]}] Building MarketDataSession for {ist_date} "
             f"| {len(symbols)} symbols"
         )
 
@@ -351,6 +351,8 @@ class MarketDataSession:
         """
         from price_cache import fetch_watchlist_data, _cache
         import pandas as pd
+
+        logger.info(f"📡 [MARKET_DATA_FETCH] [SCANNER: {requester}] Fetching 1D daily candle history for {len(symbols)} symbols...")
 
         # Estimate prior cached symbols for hit/miss delta
         cache_key = ("1d", "1y")

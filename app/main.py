@@ -1805,6 +1805,7 @@ def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL", sessi
     if is_scanner_stopped("Wealth Engine"):
         logger.info("⏸️ [Wealth Engine] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return
+    logger.info(f"🚀 [SCANNER: WEALTH_ENGINE] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     from wealth_engine import run_wealth_scan
     run_wealth_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
@@ -1828,6 +1829,7 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
         logger.info(f"⏭️ [TECHNICAL PRE-FLIGHT] Suppressed: TECHNICAL is certified exclusively in BULL regime (Current: {current_regime}). Skipping execution to conserve CPU.")
         return {"total_count": 0, "processed_count": 0, "status": "skipped", "reason": f"REGIME_NOT_CERTIFIED_{current_regime}"}
 
+    logger.info(f"🚀 [SCANNER: TECHNICAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     from technical_scanner import run_technical_scan
     count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx, session=session)
     return {"total_count": count, "processed_count": count}
@@ -1842,6 +1844,7 @@ def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session
         logger.info("⏸️ [FUNDAMENTAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
 
+    logger.info(f"🚀 [SCANNER: FUNDAMENTAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     # Resilient import supporting container & root environments
     run_fn = None
     try:

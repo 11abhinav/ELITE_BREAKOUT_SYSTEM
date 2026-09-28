@@ -1035,6 +1035,8 @@ class LiveFundamentalBuyScanner:
         start_ts = time.time()
         ctx = None
 
+        logger.info(f"📡 [SCANNER: FUNDAMENTAL] Fetching 1D market data & loading fundamentals (trigger={trigger_type}, scheduler={scheduler_name})...")
+
         # Authoritative Upstream Layer: Daily Builder 2.0
         db_funds, db_meta = self.daily_builder_provider.load_master_fundamentals()
         if fundamentals_map is None:
