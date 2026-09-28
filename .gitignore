@@ -35,6 +35,9 @@ data/*
 !data/v515_production_frozen_registry.json
 !data/pattern_confluence_golden_dataset.json
 *.parquet
+# ── Certified PIT datasets required by V2_FINAL scanner at runtime ──
+!data/pit_fundamentals_v1/pit_fundamentals_v1.parquet
+!data/daily_builder_master_v2.parquet
 *.feather
 *.pkl
 *.pickle
