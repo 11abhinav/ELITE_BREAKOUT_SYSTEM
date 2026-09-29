@@ -93,7 +93,8 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     roce = _parse_yoy_percent(fd, "roce", "ROCE %") or 0.0
     roe = _parse_yoy_percent(fd, "roe", "ROE %") or 0.0
 
-    debt_equity = _safe_num(fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity", 0.0))))
+    de_val_raw = fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity")))
+    debt_equity = float(de_val_raw) if (de_val_raw is not None and not pd.isna(de_val_raw) and de_val_raw != "") else None
     peg_val = fd.get("peg_ratio", fd.get("PEG Ratio", fd.get("peg")))
 
     yoy_sales_pct = _parse_yoy_percent(fd, "yoy_revenue", "YOY Revenue %")
@@ -113,6 +114,7 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
 
     buckets = []
     # 1. Core Compounder (Sector-aware D/E, Strict Trend, Strict PEG)
+    is_fin = ("bank" in sector or "financ" in sector)
     core_de_limit = 0.5
     if "tech" in sector or "consum" in sector:
         core_de_limit = 0.5
@@ -120,11 +122,12 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
         core_de_limit = 1.0
     elif "utilit" in sector:
         core_de_limit = 2.0
-    elif "bank" in sector or "financ" in sector:
+    elif is_fin:
         core_de_limit = 999.0 # D/E exempt for financials, CAR/ROE handles quality
 
     is_core_peg_ok = (peg_num is None or peg_num <= 2.0)
-    if roce >= 20.0 and roe >= 15.0 and debt_equity <= core_de_limit and is_trend_ok and is_core_peg_ok:
+    core_de_ok = True if is_fin else (debt_equity is not None and debt_equity <= core_de_limit)
+    if roce >= 20.0 and roe >= 15.0 and core_de_ok and is_trend_ok and is_core_peg_ok:
         buckets.append("Core Compounder")
 
     # 2. Growth Multiplier (YoY Sales >= 20%, YoY Profit >= 20%, ROCE >= 15%)
@@ -134,10 +137,8 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
         buckets.append("Growth Multiplier")
 
     # 3. Quality-On-Sale (ROCE >= 15%, D/E <= 1.0, Drop 52W High >= 10%)
-    # [FIX P5-12] Lowered drop threshold from 15%→10%. A 10% correction from 52W high
-    # is already meaningful for high-quality stocks. 15% was too deep and missed
-    # quality stocks that had healthy 10-14% pullbacks during consolidation.
-    if roce >= 15.0 and debt_equity <= 1.0 and drop_pct >= 10.0:
+    sale_de_ok = True if is_fin else (debt_equity is not None and debt_equity <= 1.0)
+    if roce >= 15.0 and sale_de_ok and drop_pct >= 10.0:
         buckets.append("Quality-On-Sale")
 
     # 4. Opportunistic (YoY Profit >= 40%)
@@ -490,26 +491,21 @@ def _parse_yoy_percent(fd: dict, ratio_key: str, percent_key: str) -> Optional[f
 # SHARED BUCKET PREDICATES
 # =====================================================================================
 
-def check_core_compounder_rules(score: float, mcap: float, roce: float, roe: float, de: float, is_fin: bool) -> bool:
+def check_core_compounder_rules(score: float, mcap: float, roce: float, roe: float, de: Optional[float], is_fin: bool) -> bool:
     """Core Compounder: ₹10,000 Cr+ mcap. Non-financials enforce D/E <= 0.50; Financials omit D/E ceiling."""
     prof_ok = (roe >= 15.0) if is_fin else (roce >= 20.0 and roe >= 15.0)
-    de_ok = True if is_fin else (de <= 0.50)
+    de_ok = True if is_fin else (de is not None and not pd.isna(de) and de <= 0.50)
     return score >= 65 and mcap >= 10000 and prof_ok and de_ok
 
 def check_growth_multiplier_rules(score: float, mcap: float, yoy_sales: float, yoy_profit: float, rs_6m, dist_52w: float) -> bool:
-    """
-    Growth Multiplier: ₹2,000 Cr+ emerging leaders.
-    [VERSION: WEALTH_RS_NONE_FIX_v1.0] rs_6m=None → UNKNOWN → benefit of doubt.
-    A new stock with insufficient history should not be blocked from this bucket solely
-    because relative strength cannot be computed yet. Score + growth evidence is sufficient.
-    """
-    rs_ok = (rs_6m is None) or (rs_6m >= 0)  # None = UNKNOWN = not actively underperforming
+    """Growth Multiplier: ₹2,000 Cr+ emerging leaders. Strictly requires confirmed relative strength (rs_6m >= 0)."""
+    rs_ok = (rs_6m is not None and not pd.isna(rs_6m) and rs_6m >= 0)
     return score >= 60 and mcap >= 2000 and yoy_sales >= 20.0 and yoy_profit >= 20.0 and rs_ok and dist_52w <= 15.0
 
-def check_quality_on_sale_rules(score: float, roce: float, roe: float, dist_52w: float, de: float, is_fin: bool) -> bool:
+def check_quality_on_sale_rules(score: float, roce: float, roe: float, dist_52w: float, de: Optional[float], is_fin: bool) -> bool:
     """Quality-On-Sale: score >= 50, dist_52w >= 10%. Financials omit D/E ceiling."""
     prof_ok = (roe >= 15.0) if is_fin else (roce >= 15.0)
-    de_ok = True if is_fin else (de <= 1.0)
+    de_ok = True if is_fin else (de is not None and not pd.isna(de) and de <= 1.0)
     return score >= 50 and prof_ok and dist_52w >= 10.0 and de_ok
 
 def check_opportunistic_rules(score: float, yoy_profit: float, rs_6m, cats: str) -> bool:
@@ -593,24 +589,24 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'reinvestment_rate': 0.50,            # Portfolio theory assumption — not a stock metric
         'peg': peg_val,
         'pe': pe,
-        'ev_ebitda': _safe_float(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA')), default=pe),
+        'ev_ebitda': _safe_float_allow_missing(raw_data.get('EV/EBITDA', raw_data.get('EV / EBITDA'))),
         'fcf_margin': _fcf_margin,            # None if absent — V5 pipeline handles UNKNOWN
-        'free_cash_flow': (eps * shares * 1.33 * 0.75) * (_safe_float(raw_data.get('FCF Margin %'), default=10.0) / 100.0), # Proxy FCF based on NOPAT and FCF Margin
+        'free_cash_flow': (eps * shares * 1.33 * 0.75 * _fcf_margin) if _fcf_margin is not None and eps > 0 and shares > 0 else None,
         'price_to_book': pb,
-        'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability'), default=5.0) / 100.0,
-        'asset_turnover': _safe_float(raw_data.get('asset_turnover'), default=1.0),
+        'gross_margin_stability': (_safe_float_allow_missing(raw_data.get('gross_margin_stability')) / 100.0) if _safe_float_allow_missing(raw_data.get('gross_margin_stability')) is not None else None,
+        'asset_turnover': _safe_float_allow_missing(raw_data.get('asset_turnover')),
 
         # Injected Reconstructed Fields for Valuation Models
         'eps': eps,
         'book_value_per_share': bvps,
         'shares_outstanding': shares,
-        'tt_indpe': pe,  # Proxy industry PE with trailing PE if missing
-        'ebit': (eps * shares * 1.33) if eps is not None and shares is not None else 0.0,  # Proxy NOPAT assuming 25% tax
+        'tt_indpe': _safe_float_allow_missing(raw_data.get('Industry PE', raw_data.get('industry_pe'))),
+        'ebit': (eps * shares * 1.33) if eps is not None and shares is not None and eps > 0 and shares > 0 else None,
 
         # Technical fields that might be passed from wealth_technicals
         'pct_from_52w_high': _safe_float(raw_data.get('dist_52w_high', 0.0)) / -100.0,
-        'rs_rating': _safe_float(raw_data.get('RS_Rating', 50.0)),
-        'relative_volume_10d': 1.0,  # Proxy default
+        'rs_rating': _safe_float_allow_missing(raw_data.get('RS_Rating')),
+        'relative_volume_10d': _safe_float_allow_missing(raw_data.get('relative_volume_10d')),
         'sector': str(raw_data.get('Sector', 'Unknown')),
         'category': str(raw_data.get('Category', 'Unknown')),
         'Path': 'Financial' if is_fin else 'Standard',
@@ -667,7 +663,8 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     mcap       = _safe_num(r.get("Market Cap Cr", 0))
     roce       = _safe_num(r.get("ROCE %", 0))
     roe        = _safe_num(r.get("ROE %", 0))
-    de         = _safe_num(r.get("Debt/Equity", 0))
+    de_raw     = r.get("Debt/Equity", r.get("debt_equity", r.get("debt_to_equity")))
+    de         = float(de_raw) if (de_raw is not None and not pd.isna(de_raw) and de_raw != "") else None
     yoy_sales  = _safe_num(r.get("YOY Revenue %", 0))
     yoy_profit = _safe_num(r.get("YOY Profit %", 0))
     # [VERSION: WEALTH_RS_NONE_FIX_v1.0] rs_6m propagated as None when absent.
@@ -1159,7 +1156,7 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
                 fcf_margin = r.get("FCF Margin %")
                 mom_conf = r.get("momentum_confidence", "")
 
-                fcf_ok = True if is_fin else (pd.isna(fcf_margin) or fcf_margin > 0)
+                fcf_ok = True if is_fin else (fcf_margin is not None and not pd.isna(fcf_margin) and fcf_margin > 0)
 
                 # Missing PEG policy: if PEG is missing, require val_score (RVS) >= 50
                 peg_raw = r.get("PEG Ratio", r.get("PEG"))
@@ -1382,15 +1379,15 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
         found_row_dict["Consistency_Score"] = scores.get("BQS", 0.0)
         found_row_dict["Reliability"] = scores.get("Reliability", 0.0)
 
-        # Determine RS_Rating if rs_6m present, else fallback to neutral 50.0
+        # Determine RS_Rating if rs_6m present (None if missing — no synthetic default)
         rs_6m_val = found_row_dict.get("rs_6m")
         if rs_6m_val is not None and not pd.isna(rs_6m_val):
             try:
                 found_row_dict["RS_Rating"] = max(0.0, min(100.0, 50.0 + float(rs_6m_val) * 1.5))
             except (ValueError, TypeError):
-                found_row_dict["RS_Rating"] = 50.0
+                found_row_dict["RS_Rating"] = None
         else:
-            found_row_dict["RS_Rating"] = 50.0
+            found_row_dict["RS_Rating"] = None
 
         try:
             from macro_utils import get_nifty_52w_dist
@@ -1400,7 +1397,8 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
 
         found_row_dict["Portfolio_Bucket"] = determine_portfolio_bucket(found_row_dict, nifty_dist)
         found_row_dict["orphan_enriched"] = True
-        logger.info(f"✅ [ORPHAN ENRICHMENT] Enriched {symbol} (FM_Score={found_row_dict['FM_Score']:.1f}, RS_Rating={found_row_dict['RS_Rating']:.1f}, Bucket={found_row_dict['Portfolio_Bucket']})")
+        rs_str = f"{found_row_dict['RS_Rating']:.1f}" if found_row_dict['RS_Rating'] is not None else "N/A"
+        logger.info(f"✅ [ORPHAN ENRICHMENT] Enriched {symbol} (FM_Score={found_row_dict['FM_Score']:.1f}, RS_Rating={rs_str}, Bucket={found_row_dict['Portfolio_Bucket']})")
         return found_row_dict
     except Exception as _se:
         logger.warning(f"⚠️ Scoring orphan {symbol} failed during enrichment: {_se}")
@@ -2132,12 +2130,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         if global_fetched_count < required_count:
             exact_reason = ""
             try:
-                from data_providers.fyers_fetcher import _fyers_circuit_breaker
-                from data_provider import _price_provider
-                if _fyers_circuit_breaker.is_open:
-                    exact_reason += "Fyers Circuit Breaker OPEN. "
-                if _price_provider.cooldown_until > time.time():
-                    exact_reason += f"YFinance Circuit Breaker OPEN ({int(_price_provider.cooldown_until - time.time())}s). "
+                from data_providers.unified_fetcher import fetcher
+                if hasattr(fetcher, "get_status"):
+                    exact_reason += f"UnifiedFetcher: {fetcher.get_status()}. "
             except Exception:
                 pass
 

@@ -380,9 +380,8 @@ class TechnicalTrendGate:
             if ret_3m_stock <= bm_ret_3m or ret_6m_stock <= bm_ret_6m:
                 failures.append(RejectionReason.FAIL_RELATIVE_STRENGTH)
         else:
-            # Fallback benchmark baseline: positive absolute alpha (stock return > 0)
-            if ret_3m_stock <= 0.0 or ret_6m_stock <= 0.0:
-                failures.append(RejectionReason.FAIL_RELATIVE_STRENGTH)
+            # Benchmark unavailable: fail closed per strict data integrity protocol
+            failures.append(RejectionReason.FAIL_RELATIVE_STRENGTH)
 
         metrics = {
             "sma50": round(sma50, 2),
@@ -649,7 +648,8 @@ class DailyBuilderFundamentalProvider:
                             tot_debt = f0.get("total_debt")
                             tot_eq = f0.get("total_equity")
                             de_val = (float(tot_debt) / float(tot_eq)) if tot_debt is not None and tot_eq is not None and float(tot_eq) > 0 else (0.0 if tot_debt == 0 else None)
-                            ocf_val = f0.get("operating_cash_flow") if f0.get("operating_cash_flow") is not None else f0.get("free_cash_flow")
+                            ocf_raw = f0.get("operating_cash_flow")
+                            ocf_val = float(ocf_raw) if (ocf_raw is not None and not pd.isna(ocf_raw)) else None
 
                             rev_l, rev_p, op_l, op_p, eps_l, eps_p, p_eps = None, None, None, None, None, None, None
 
@@ -783,12 +783,8 @@ class DailyBuilderFundamentalProvider:
             debt_raw = r.get("debt", r.get("debt_equity", r.get("Debt/Equity", r.get("debt_to_equity_fq"))))
             debt_val = float(debt_raw) if (debt_raw is not None and not pd.isna(debt_raw)) else None
 
-            fcf_raw = r.get("FCF_yield", r.get("fcf_yield", r.get("FCF Margin %", r.get("free_cash_flow_margin_ttm"))))
-            if fcf_raw is not None and not pd.isna(fcf_raw):
-                ocf_val = float(fcf_raw)
-            else:
-                raw_ocf = r.get("operating_cash_flow")
-                ocf_val = float(raw_ocf) if (raw_ocf is not None and not pd.isna(raw_ocf)) else None
+            raw_ocf = r.get("operating_cash_flow", r.get("ocf"))
+            ocf_val = float(raw_ocf) if (raw_ocf is not None and not pd.isna(raw_ocf)) else None
 
             fund_cat = str(r.get("fundamental_category", r.get("Category", "NONE")))
             is_trap = (fund_cat == "VALUE_TRAP") or bool(r.get("is_value_trap", False)) or (str(r.get("Forensic_Risk_Tier", "")).upper() == "HIGH")
@@ -1085,13 +1081,31 @@ class LiveFundamentalBuyScanner:
         if market_data_map is None:
             market_data_map = {}
             history_dir = os.path.join(DATA_DIR, "history", "1d")
-            target_symbols = self.universe_registry.approved_symbols
+            target_symbols = list(self.universe_registry.approved_symbols)
+
+            # Live quote warmup for accurate intraday breakout evaluation
+            live_quotes = {}
+            try:
+                from live_prices import get_live_prices
+                live_quotes = get_live_prices(target_symbols, purpose="FUNDAMENTAL_SCAN")
+            except Exception as _lpe:
+                logger.debug(f"Live quote fetch notice: {_lpe}")
+
             for sym in target_symbols:
                 p_path = os.path.join(history_dir, f"{sym}.parquet")
                 if os.path.exists(p_path):
                     try:
                         df_bar = pd.read_parquet(p_path)
                         if not df_bar.empty and len(df_bar) >= 50:
+                            lp = live_quotes.get(sym)
+                            if lp and float(lp) > 0:
+                                df_bar = df_bar.copy()
+                                c_col = 'Close' if 'Close' in df_bar.columns else ('close' if 'close' in df_bar.columns else None)
+                                h_col = 'High' if 'High' in df_bar.columns else ('high' if 'high' in df_bar.columns else None)
+                                if c_col:
+                                    df_bar.loc[df_bar.index[-1], c_col] = float(lp)
+                                if h_col and float(lp) > float(df_bar[h_col].iloc[-1]):
+                                    df_bar.loc[df_bar.index[-1], h_col] = float(lp)
                             market_data_map[sym] = df_bar
                     except Exception as e:
                         logger.debug(f"Failed to load daily candle for {sym}: {e}")
@@ -1547,8 +1561,8 @@ class QualityCompounderValueV2Scanner:
         roce_pts = 25.0 * min(max((roce_val - 15.0) / 25.0, 0.0), 1.0)
         # 3. PE Discount Depth (0% to 40% => 0 to 20 pts)
         pe_pts = 20.0 * min(max(pe_discount / 0.40, 0.0), 1.0)
-        # 4. CFO / PAT Ratio (0.80 to 1.50 => 0 to 15 pts)
-        cfo_pat_val = float(row_dict.get("cfo_pat_5y_ratio", 0.80) or 0.80)
+        cfo_pat_raw = row_dict.get("cfo_pat_5y_ratio")
+        cfo_pat_val = float(cfo_pat_raw) if (cfo_pat_raw is not None and not pd.isna(cfo_pat_raw)) else 0.0
         cfo_pts = 15.0 * min(max((cfo_pat_val - 0.80) / 0.70, 0.0), 1.0)
         # 5. Residual Drawdown Bonus (Res_DD <= 10% gets full 10 pts)
         if res_dd <= 0.10:
@@ -1673,8 +1687,29 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"✅ [V2_FINAL] PRE-FLIGHT GATE: Full-universe valuation health verified ({_val_available}/{_total_univ} symbols, {_val_cov_pct:.1f}% coverage). Proceeding.")
         # ─────────────────────────────────────────────────────────────────────────
 
-        # ── BULK LIVE PRICE WARMUP ────────────────────────────────────────────────
-        universe_symbols = [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
+        # ── REAL BENCHMARK DRAWDOWN (NIFTY 50) ───────────────────────────────────
+        bm_dd = None
+        for bm_f in ["NIFTY 50.parquet", "NIFTY50.parquet", "^NSEI.parquet"]:
+            bm_p = os.path.join(DATA_DIR, "history", "1d", bm_f)
+            if os.path.exists(bm_p):
+                try:
+                    df_bm = pd.read_parquet(bm_p)
+                    bc = 'Close' if 'Close' in df_bm.columns else ('close' if 'close' in df_bm.columns else None)
+                    bh = 'High' if 'High' in df_bm.columns else ('high' if 'high' in df_bm.columns else None)
+                    if bc and bh and not df_bm.empty:
+                        n_cmp = float(df_bm[bc].iloc[-1])
+                        n_h252 = float(df_bm[bh].tail(252).max())
+                        if n_h252 > 0:
+                            bm_dd = max(0.0, (n_h252 - n_cmp) / n_h252)
+                            break
+                except Exception:
+                    pass
+        dd_nifty = bm_dd if bm_dd is not None else 0.0
+        # ─────────────────────────────────────────────────────────────────────────
+
+        # ── BULK LIVE PRICE WARMUP (ALL APPROVED UNIVERSE SYMBOLS) ───────────────
+        approved_univ = sorted(list(self.universe_registry.approved_symbols))
+        universe_symbols = approved_univ if approved_univ else [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
         live_prices_map = {}
         try:
             from live_prices import get_live_prices
@@ -1689,17 +1724,87 @@ class QualityCompounderValueV2Scanner:
                 logger.debug(f"Live price batch fetch notice: {_lp_err2}")
         # ─────────────────────────────────────────────────────────────────────────
 
-        for _, row in pit_df.iterrows():
+        pit_records_map = {str(r['symbol']).strip().upper(): r for _, r in pit_df.iterrows()}
+
+        for sym in universe_symbols:
             total_scanned += 1
-            sym = str(row['symbol']).strip().upper()
+            cmp_price = float(live_prices_map.get(sym, 0.0) or 0.0)
+            price_source = "LIVE_QUOTE" if cmp_price > 0 else "UNRESOLVED"
+
+            # Check if certified 1D history candle is available locally
+            df_px = None
+            for _cdir in [DATA_DIR, os.path.join(BASE_DIR, "data"), os.path.join(os.getcwd(), "data"), "/app/data"]:
+                p_path = os.path.join(_cdir, "history", "1d", f"{sym}.parquet")
+                if os.path.exists(p_path):
+                    try:
+                        df_px = pd.read_parquet(p_path)
+                        if not df_px.empty:
+                            break
+                    except Exception:
+                        pass
+
+            if cmp_price <= 0.0 and df_px is not None and not df_px.empty:
+                c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                if c_col:
+                    cmp_price = float(df_px[c_col].iloc[-1])
+                    price_source = "HISTORICAL_1D_PARQUET"
+
+            # 100% UNIVERSE AUDITABILITY: Handle symbols missing from PIT filings
+            if sym not in pit_records_map:
+                quality_data_blocked_count += 1
+                data_blocked_count += 1
+                rejections = ["DATA_MISSING_PIT_FILINGS"]
+                logger.info(
+                    f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status=REJECTED  | "
+                    f"FailedAt=DATA_MISSING_PIT_FILINGS    | Rejections={rejections} | "
+                    f"CMP=₹{cmp_price:<8.2f} (Source={price_source}) | "
+                    f"RequiredToPass=['Filing history in pit_fundamentals_v1']"
+                )
+                snapshot_records.append({
+                    "strategy_id": self.strategy_id,
+                    "symbol": sym,
+                    "scan_timestamp": now_ist.isoformat(),
+                    "scan_date": today_str,
+                    "current_price": cmp_price,
+                    "overall_candidate_status": "REJECTED",
+                    "watchlist_state": "REJECTED",
+                    "rejection_reason": "DATA_MISSING_PIT_FILINGS",
+                    "quality_gate_status": "FAIL",
+                    "value_gate_status": "FAIL",
+                    "tier": "Tier B",
+                    "ranking_score": 0.0,
+                    "context": {
+                        "strategy_id": self.strategy_id,
+                        "symbol": sym,
+                        "scan_date": today_str,
+                        "current_price": cmp_price,
+                        "price_source": price_source,
+                        "data_status": "DATA_MISSING_PIT_FILINGS"
+                    }
+                })
+                continue
+
+            row = pit_records_map[sym]
             industry = str(row.get('industry', 'Unknown'))
-            mcap = float(row.get('market_cap', row.get('mcap', 1000.0)) or 1000.0)
-            adtv_90d = float(row.get('adtv_90d', row.get('adtv', 2.0)) or 2.0)
+
+            # Real market cap: shares * cmp_price / 1e7, or PIT market cap
+            _sh = row.get('shares_outstanding')
+            if _sh is not None and not pd.isna(_sh) and float(_sh) > 0 and cmp_price > 0:
+                mcap = (float(_sh) * cmp_price) / 1e7
+            else:
+                mcap_raw = row.get('market_cap', row.get('mcap'))
+                mcap = float(mcap_raw) if (mcap_raw is not None and not pd.isna(mcap_raw) and float(mcap_raw) > 0) else None
+
+            # Real ADTV 90D from 1D history volume * close (no hardcoded 2.0)
+            adtv_raw = row.get('adtv_90d', row.get('adtv'))
+            adtv_90d = float(adtv_raw) if (adtv_raw is not None and not pd.isna(adtv_raw) and float(adtv_raw) > 0) else None
+            if adtv_90d is None and df_px is not None and not df_px.empty:
+                v_col = 'Volume' if 'Volume' in df_px.columns else ('volume' if 'volume' in df_px.columns else None)
+                c_col = 'Close' if 'Close' in df_px.columns else ('close' if 'close' in df_px.columns else None)
+                if v_col and c_col and len(df_px) >= 20:
+                    adtv_90d = float((df_px[v_col].tail(90) * df_px[c_col].tail(90)).mean() / 1e7)
 
             # Metrics & Multi-field Real Resolution (NO SYNTHETIC FALLBACKS)
-            # B5 fix: roce_5y must NEVER fall back to 'ROE' or 'roe' — ROCE and ROE are independent
-            # frozen hard gates. If roce_5y_avg is absent from the pit dataset record, it stays None
-            # and the quality gate marks the stock DATA_MISSING on ROCE.
             roce_5y = row.get('roce_5y_avg', row.get('roce_5y', row.get('ROCE', row.get('roce'))))
             sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_cagr', row.get('revenue_cagr_3y'))))
             pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_cagr')))
@@ -1719,49 +1824,8 @@ class QualityCompounderValueV2Scanner:
             financial_periods_used = row.get('financial_periods_used')
             roce_periods_used = row.get('roce_periods_used')
 
-            cmp_price = 0.0
-            price_source = "UNRESOLVED"
-
-            # 1. Primary: live quote from live_prices_map
-            if sym in live_prices_map and live_prices_map[sym] is not None and float(live_prices_map[sym]) > 0:
-                cmp_price = float(live_prices_map[sym])
-                price_source = "LIVE_QUOTE"
-            else:
-                try:
-                    from live_prices import get_cached_live_price
-                    _ram_px = get_cached_live_price(sym)
-                    if _ram_px and float(_ram_px) > 0:
-                        cmp_price = float(_ram_px)
-                        price_source = "RAM_CACHE"
-                except Exception:
-                    pass
-
-            # 2. Secondary: row['current_price'] or row['close']
-            if cmp_price <= 0.0:
-                _row_px = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
-                if _row_px > 0.0:
-                    cmp_price = _row_px
-                    price_source = "PIT_DATASET"
-
-            # 3. Tertiary: certified local 1d history parquet
-            if cmp_price <= 0.0:
-                for _cdir in [DATA_DIR, os.path.join(BASE_DIR, "data"), os.path.join(os.getcwd(), "data"), "/app/data"]:
-                    p_path = os.path.join(_cdir, "history", "1d", f"{sym}.parquet")
-                    if os.path.exists(p_path):
-                        try:
-                            df_px = pd.read_parquet(p_path)
-                            if not df_px.empty:
-                                c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
-                                if c_col:
-                                    cmp_price = float(df_px[c_col].iloc[-1])
-                                    price_source = "HISTORICAL_1D_PARQUET"
-                                    break
-                        except Exception:
-                            pass
-
             # Dynamic real-time calculation from CMP + statement filings if multiples were not pre-calculated
             if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and cmp_price > 0:
-                _sh = row.get('shares_outstanding')
                 _eb = row.get('ebitda')
                 _d = float(row.get('total_debt', 0.0) or 0.0)
                 _c = float(row.get('cash_and_equivalents', 0.0) or 0.0)
@@ -1775,9 +1839,28 @@ class QualityCompounderValueV2Scanner:
                 if _ep is not None and not pd.isna(_ep) and float(_ep) > 0:
                     pe_curr = round(cmp_price / float(_ep), 2)
 
-            sma50 = float(row.get('sma50', cmp_price) or cmp_price)
-            sma100 = float(row.get('sma100', cmp_price) or cmp_price)
-            sma200 = float(row.get('sma200', cmp_price) or cmp_price)
+            # Real Technical Moving Averages from certified 1D history (no fallback to cmp_price)
+            c_col = 'Close' if (df_px is not None and 'Close' in df_px.columns) else ('close' if (df_px is not None and 'close' in df_px.columns) else None)
+            if df_px is not None and c_col and len(df_px) >= 50:
+                sma50 = float(df_px[c_col].tail(50).mean())
+                sma100 = float(df_px[c_col].tail(100).mean()) if len(df_px) >= 100 else None
+                sma200 = float(df_px[c_col].tail(200).mean()) if len(df_px) >= 200 else None
+            else:
+                sma50 = float(row.get('sma50')) if (row.get('sma50') is not None and not pd.isna(row.get('sma50'))) else None
+                sma100 = float(row.get('sma100')) if (row.get('sma100') is not None and not pd.isna(row.get('sma100'))) else None
+                sma200 = float(row.get('sma200')) if (row.get('sma200') is not None and not pd.isna(row.get('sma200'))) else None
+
+            # Real 252D Drawdown from historical highs (no hardcoded 0.15)
+            h_col = 'High' if (df_px is not None and 'High' in df_px.columns) else ('high' if (df_px is not None and 'high' in df_px.columns) else None)
+            if df_px is not None and h_col and len(df_px) >= 20 and cmp_price > 0:
+                h252 = float(df_px[h_col].tail(252).max())
+                dd_stock = max(0.0, (h252 - cmp_price) / h252) if h252 > 0 else 0.0
+            else:
+                dd_stock_raw = row.get('drawdown_252d')
+                dd_stock = float(dd_stock_raw) if (dd_stock_raw is not None and not pd.isna(dd_stock_raw)) else 0.0
+
+            res_dd = max(dd_stock - dd_nifty, 0.0) if (dd_stock is not None and dd_nifty is not None) else 0.0
+            tier = "Tier A" if res_dd <= 0.10 else "Tier B"
 
             # Evaluate Gates
             rejections = []
@@ -1787,9 +1870,9 @@ class QualityCompounderValueV2Scanner:
             # Financial Sector exclusion from primary EV/EBITDA pipeline
             if self.is_financial_sector(industry):
                 rejections.append("FAIL_UNIVERSE_FINANCIAL_SECTOR")
-            if mcap < 1000.0:
+            if mcap is None or mcap < 1000.0:
                 rejections.append("FAIL_UNIVERSE_MARKET_CAP")
-            if adtv_90d < 2.0:
+            if adtv_90d is None or adtv_90d < 2.0:
                 rejections.append("FAIL_LIQUIDITY")
 
             # Missing Price Check — HARD BLOCK for candidate selection
@@ -1855,12 +1938,7 @@ class QualityCompounderValueV2Scanner:
             # Count symbol as data-blocked ONCE (if ANY quality, valuation, OR price data missing)
             if quality_data_missing or valuation_data_missing or price_data_missing:
                 data_blocked_count += 1
-
-            # Drawdown & Tiering
-            dd_stock = float(row.get('drawdown_252d', 0.15) or 0.15)
-            dd_nifty = float(row.get('nifty_drawdown_252d', 0.10) or 0.10)
-            res_dd = max(dd_stock - dd_nifty, 0.0)
-            tier = "Tier A" if res_dd <= 0.10 else "Tier B"
+            # Residual drawdown and tiering were calculated dynamically above from 252D historical high and benchmark
 
             score_100 = self.compute_100pt_score(row.to_dict(), ev_discount, pe_discount, res_dd)
 
@@ -1942,9 +2020,9 @@ class QualityCompounderValueV2Scanner:
                 "current_pe": round(float(pe_curr), 2) if pe_curr is not None and not pd.isna(pe_curr) else None,
                 "pe_3y_median": round(float(pe_med), 2) if pe_med is not None and not pd.isna(pe_med) else None,
                 "pe_discount_pct": round(pe_discount * 100, 1) if pe_discount is not None else None,
-                "sma50": round(sma50, 2),
-                "sma100": round(sma100, 2),
-                "sma200": round(sma200, 2),
+                "sma50": round(sma50, 2) if sma50 is not None else None,
+                "sma100": round(sma100, 2) if sma100 is not None else None,
+                "sma200": round(sma200, 2) if sma200 is not None else None,
                 "res_dd_pct": round(res_dd * 100, 1),
                 "tier": tier,
                 "score_100": score_100,
