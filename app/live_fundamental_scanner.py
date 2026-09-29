@@ -1903,7 +1903,7 @@ class QualityCompounderValueV2Scanner:
                 }
                 candidate_records.append(candidate_rec)
 
-        # Persist to SAME ALERT TABLE
+        # Persist ONLY genuine candidate alerts to alerts table
         try:
             snapshots_inserted = save_v2_scan_snapshots(snapshot_records)
             candidates_inserted = 0

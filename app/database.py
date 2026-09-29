@@ -2230,6 +2230,14 @@ def init_db():
                             _LOCAL_STOPPED_SCANNERS.add(pr[0])
                     cleanup_orphaned_scanner_runs_on_boot(cur=cur)
                     logger.info("🧹 [BOOT RESET] Active scanner health statuses (excluding PAUSED/STOPPED) and advisory locks reset to clean IDLE state.")
+
+                    # Purge any non-alert evaluation snapshots that polluted the alerts table
+                    cur.execute("""
+                        DELETE FROM alerts
+                        WHERE record_type = 'SCAN_SNAPSHOT' OR breakout_type = 'SCAN_SNAPSHOT'
+                    """)
+                    if cur.rowcount and cur.rowcount > 0:
+                        logger.info(f"🧹 [SNAPSHOT CLEANUP] Purged {cur.rowcount} non-alert scan snapshot rows from 'alerts' table.")
                 except Exception as t_err:
                     try:
                         conn.rollback()
@@ -3983,6 +3991,8 @@ def get_all_alerts(limit: int = None) -> list[dict]:
                     a.entry_mode,
                     a.cmp_updated_at
                 FROM alerts a
+                WHERE COALESCE(a.record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                  AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
                 ORDER BY a.alert_time DESC
             """
             if limit is not None:
@@ -11853,75 +11863,15 @@ def get_current_company_intelligence(symbol: str) -> dict:
 
 def save_v2_scan_snapshots(snapshot_records: List[Dict[str, Any]]) -> int:
     """
-    Persist daily immutable scan snapshots for QUALITY_COMPOUNDER_VALUE_V2_FINAL into existing 'alerts' table.
-    Every stock evaluated on the 17:00 IST daily run receives a row.
-    record_type = 'SCAN_SNAPSHOT'
-    breakout_type = 'SCAN_SNAPSHOT'
-    scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+    Log daily evaluated stock snapshots for QUALITY_COMPOUNDER_VALUE_V2_FINAL.
+    INVARIANT: The 'alerts' table is strictly reserved for genuine candidate alerts
+    (stocks passing BOTH Quality and Valuation gates).
+    Non-alerted / rejected stocks must NEVER be inserted into 'alerts'.
     """
     if not snapshot_records:
         return 0
-    init_db()
-    inserted_count = 0
-    now_ist = datetime.now(IST)
-    today_date = now_ist.date()
-
-    with get_connection() as conn:
-        if isinstance(conn, DummyConnection):
-            logger.info(f"DummyConnection active: simulated persistence of {len(snapshot_records)} V2 snapshots")
-            return len(snapshot_records)
-        with conn.cursor() as cur:
-            for rec in snapshot_records:
-                sym = str(rec.get("symbol", "")).strip().upper()
-                if not sym:
-                    continue
-                sanitized_ctx = _sanitize_for_json(rec.get("context", {}))
-                ctx_str = json.dumps(sanitized_ctx, default=str)
-
-                cand_st = str(rec.get("overall_candidate_status", "REJECTED")).upper()
-                db_status = "OPEN" if cand_st in ("CANDIDATE", "OPEN", "GREEN") else "REJECTED"
-
-                cur.execute("""
-                    INSERT INTO alerts (
-                        symbol, breakout_type, alert_time, alert_date, scanner, category,
-                        current_price, status, record_type, watchlist_state, rejection_reason,
-                        quality_gate_status, value_gate_status, tier, ranking_score,
-                        signal_date, context
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                    ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
-                    SET current_price = EXCLUDED.current_price,
-                        status = EXCLUDED.status,
-                        watchlist_state = EXCLUDED.watchlist_state,
-                        rejection_reason = EXCLUDED.rejection_reason,
-                        quality_gate_status = EXCLUDED.quality_gate_status,
-                        value_gate_status = EXCLUDED.value_gate_status,
-                        tier = EXCLUDED.tier,
-                        ranking_score = EXCLUDED.ranking_score,
-                        context = EXCLUDED.context,
-                        updated_at = NOW()
-                """, (
-                    sym,
-                    "SCAN_SNAPSHOT",
-                    rec.get("scan_timestamp", now_ist.isoformat()),
-                    today_date,
-                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-                    "V2_DAILY_SNAPSHOT",
-                    rec.get("current_price"),
-                    db_status,
-                    "SCAN_SNAPSHOT",
-                    rec.get("watchlist_state", "REJECTED"),
-                    rec.get("rejection_reason", "FAIL"),
-                    rec.get("quality_gate_status", "FAIL"),
-                    rec.get("value_gate_status", "FAIL"),
-                    rec.get("tier"),
-                    rec.get("ranking_score"),
-                    rec.get("scan_date", str(today_date)),
-                    ctx_str
-                ))
-                inserted_count += 1
-            conn.commit()
-    return inserted_count
+    logger.info(f"📊 [V2 SNAPSHOT AUDIT] Processed evaluation for {len(snapshot_records)} symbols — non-alert stocks are not inserted into 'alerts'.")
+    return len(snapshot_records)
 
 
 def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:

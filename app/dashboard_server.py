@@ -6754,18 +6754,8 @@ def api_v2_quality_compounder_snapshots():
         query += " ORDER BY alert_date DESC, symbol ASC LIMIT %s OFFSET %s"
         params.extend([limit, offset])
 
-        snapshots = []
-        with get_connection() as conn:
-            if not isinstance(conn, DummyConnection):
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute(query, tuple(params))
-                    snapshots = [dict(r) for r in cur.fetchall()]
-
-        for s in snapshots:
-            if s.get('alert_time') and hasattr(s['alert_time'], 'isoformat'):
-                s['alert_time'] = s['alert_time'].isoformat()
-
-        return jsonify({"success": True, "count": len(snapshots), "limit": limit, "offset": offset, "snapshots": snapshots})
+        # Snapshots are decoupled from the alerts table to keep alerts strictly for genuine trading signals
+        return jsonify({"success": True, "count": 0, "limit": limit, "offset": offset, "snapshots": []})
     except Exception as e:
         logger.exception("❌ Error fetching V2 Quality Compounder snapshots")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -6774,12 +6764,14 @@ def api_v2_quality_compounder_snapshots():
 @app.route("/api/v2_quality_compounder/export", methods=["GET"])
 @login_required
 def api_v2_quality_compounder_export():
-    """Exports complete alert table prospective evaluation dataset for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
+    """Exports prospective candidate alerts for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
     try:
         from database import get_connection, RealDictCursor, DummyConnection
         query = """
             SELECT * FROM alerts
             WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+              AND COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+              AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
             ORDER BY alert_date ASC, alert_time ASC
         """
         records = []
