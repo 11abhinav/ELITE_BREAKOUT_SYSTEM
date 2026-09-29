@@ -1555,7 +1555,6 @@ class QualityCompounderValueV2Scanner:
                 upsert_scanner_health(
                     "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                     status="RUNNING",
-                    total_count=886,
                     run_id=getattr(exec_run_ctx, "run_id", None)
                 )
             except Exception as e:
@@ -1589,7 +1588,7 @@ class QualityCompounderValueV2Scanner:
         quality_pass_count = 0
         value_pass_count = 0
         candidate_count = 0
-        data_blocked_count = 0
+        data_blocked_count = 0        # unique symbols blocked (counted once per symbol, not per gate)
 
         # Filter to latest PIT record per symbol on or before today
         if 'filing_date' in pit_df.columns:
@@ -1635,9 +1634,9 @@ class QualityCompounderValueV2Scanner:
                 rejections.append("FAIL_LIQUIDITY")
 
             # Missing Quality Data check — STOPS candidate from passing if any real fundamental metric is missing
-            if any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio]):
+            quality_data_missing = any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio])
+            if quality_data_missing:
                 rejections.append("DATA_INSUFFICIENT_QUALITY")
-                data_blocked_count += 1
             else:
                 roce_val = float(roce_5y)
                 sales_val = float(sales_cagr_5y)
@@ -1669,9 +1668,9 @@ class QualityCompounderValueV2Scanner:
             elif pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
                 calc_discount = (float(pe_med) - float(pe_curr)) / float(pe_med)
 
-            if calc_discount is None:
+            valuation_data_missing = (calc_discount is None)
+            if valuation_data_missing:
                 rejections.append("DATA_INSUFFICIENT_VALUATION")
-                data_blocked_count += 1
             else:
                 ev_discount = calc_discount
                 if ev_discount < 0.25:
@@ -1685,6 +1684,10 @@ class QualityCompounderValueV2Scanner:
                 value_gate_passed = (ev_discount >= 0.25)
                 if value_gate_passed:
                     value_pass_count += 1
+
+            # Count symbol as data-blocked ONCE (even if both quality and valuation data are missing)
+            if quality_data_missing or valuation_data_missing:
+                data_blocked_count += 1
 
             # Drawdown & Tiering
             dd_stock = float(row.get('drawdown_252d', 0.15) or 0.15)
@@ -1807,7 +1810,7 @@ class QualityCompounderValueV2Scanner:
 
             duration_sec = round(time.time() - start_ts, 2)
             
-            # Record execution history completion
+            # Record execution history completion — pass full breakdown so history card shows quality/value/blocked/candidates
             if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
                 try:
                     complete_scanner_execution_run(
@@ -1815,7 +1818,13 @@ class QualityCompounderValueV2Scanner:
                         total_scanned=total_scanned,
                         candidate_count=candidate_count,
                         quality_status="HEALTHY",
-                        summary_notes=f"V2 Scan complete: Scanned={total_scanned}, QualityPass={quality_pass_count}, ValuePass={value_pass_count}, Candidates={candidate_count}"
+                        summary_notes=(
+                            f"Evaluated={total_scanned} | "
+                            f"QualityPass={quality_pass_count} | "
+                            f"ValuationPass={value_pass_count} | "
+                            f"DataBlocked={data_blocked_count} | "
+                            f"Candidates={candidate_count}"
+                        )
                     )
                 except Exception as e:
                     logger.debug(f"Execution history completion warning: {e}")
@@ -1825,10 +1834,10 @@ class QualityCompounderValueV2Scanner:
                     upsert_scanner_health(
                         "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                         status="OK",
-                        today_alerts=candidate_count,
+                        today_alerts=candidate_count,          # 0 when no candidates — health card: alerts/evaluated
                         last_success=now_ist.isoformat(),
-                        processed_count=total_scanned,
-                        total_count=total_scanned,
+                        processed_count=candidate_count,       # numerator = alerts generated
+                        total_count=total_scanned,             # denominator = equities evaluated
                         duration_seconds=duration_sec,
                         run_id=getattr(exec_run_ctx, "run_id", None)
                     )
@@ -1836,21 +1845,25 @@ class QualityCompounderValueV2Scanner:
                     logger.debug(f"Scanner health OK warning: {e}")
 
             # Structured End-of-Scan Telemetry Summary Report
+            data_good_count = total_scanned - data_blocked_count
             logger.info("=" * 80)
             logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
             logger.info("=" * 80)
             logger.info(f"  • Total Equities Evaluated : {total_scanned}")
-            logger.info(f"  • Quality Gate Passed     : {quality_pass_count}")
-            logger.info(f"  • Valuation Gate Passed   : {value_pass_count}")
-            logger.info(f"  • Candidates Selected     : {candidate_count}")
-            logger.info(f"  • Data Blocked Count      : {data_blocked_count}")
-            logger.info(f"  • Snapshots Saved in DB   : {snapshots_inserted}")
-            logger.info(f"  • Candidate Alerts Saved  : {candidates_inserted}")
-            logger.info(f"  • Duration (Seconds)      : {duration_sec}s")
+            logger.info(f"  • Data Complete (all fields): {data_good_count}  ({round(data_good_count/max(total_scanned,1)*100,1)}%)")
+            logger.info(f"  • Data Blocked (any missing): {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}%) — unique symbols with ≥1 missing field")
+            logger.info(f"  • Quality Gate Passed      : {quality_pass_count}  (of {data_good_count} data-complete stocks)")
+            logger.info(f"  • Valuation Gate Passed    : {value_pass_count}")
+            logger.info(f"  • Candidates Selected      : {candidate_count}  ← BUY ALERTS")
+            logger.info(f"  • Snapshots Saved in DB    : {snapshots_inserted}")
+            logger.info(f"  • Candidate Alerts Saved   : {candidates_inserted}")
+            logger.info(f"  • Duration (Seconds)       : {duration_sec}s")
             logger.info("-" * 80)
             logger.info(f"🎯 GENERATED BUY CANDIDATE ALERTS ({len(candidate_records)} STOCKS):")
             for idx, cand in enumerate(candidate_records, 1):
                 logger.info(f"  [{idx:02d}] {cand['symbol']:<12} | Tier={cand['tier']} | Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} | SignalDate={cand['signal_date']}")
+            if not candidate_records:
+                logger.info("  (none — no stocks met all quality + valuation gates today)")
             logger.info("=" * 80)
 
             return {
