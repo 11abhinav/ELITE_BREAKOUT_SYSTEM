@@ -980,7 +980,8 @@ class LiveFundamentalBuyScanner:
                     {"bars_len": len(df_bars) if df_bars is not None else 0},
                     [RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK.value]
                 )
-                telemetry.record_symbol_final_decision(sym, False, [e.value for e in rejections], RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK.value)
+                primary_err = rejections[0].value if rejections else RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK.value
+                telemetry.record_symbol_final_decision(sym, False, [e.value for e in rejections], primary_err)
             return self._build_result(sym, False, rejections, gate_metrics)
 
         if telemetry is not None:
@@ -1083,6 +1084,7 @@ class LiveFundamentalBuyScanner:
         if market_data_map is None:
             market_data_map = {}
             history_dir = os.path.join(DATA_DIR, "history", "1d")
+            os.makedirs(history_dir, exist_ok=True)
 
             # Live quote warmup for accurate intraday breakout evaluation
             live_quotes = {}
@@ -1092,28 +1094,61 @@ class LiveFundamentalBuyScanner:
             except Exception as _lpe:
                 logger.debug(f"Live quote fetch notice: {_lpe}")
 
+            # Pass 1: Load existing valid 1D parquets from disk
+            missing_or_short = []
             for sym in target_symbols:
                 p_path = os.path.join(history_dir, f"{sym}.parquet")
                 if os.path.exists(p_path):
                     try:
                         df_bar = pd.read_parquet(p_path)
-                        if not df_bar.empty and len(df_bar) >= 50:
-                            lp = live_quotes.get(sym)
-                            if lp and float(lp) > 0:
-                                df_bar = df_bar.copy()
-                                c_col = 'Close' if 'Close' in df_bar.columns else ('close' if 'close' in df_bar.columns else None)
-                                h_col = 'High' if 'High' in df_bar.columns else ('high' if 'high' in df_bar.columns else None)
-                                if c_col:
-                                    if df_bar[c_col].dtype != 'float64':
-                                        df_bar[c_col] = df_bar[c_col].astype(float)
-                                    df_bar.loc[df_bar.index[-1], c_col] = float(lp)
-                                if h_col and float(lp) > float(df_bar[h_col].iloc[-1]):
-                                    if df_bar[h_col].dtype != 'float64':
-                                        df_bar[h_col] = df_bar[h_col].astype(float)
-                                    df_bar.loc[df_bar.index[-1], h_col] = float(lp)
+                        if not df_bar.empty and len(df_bar) >= 200:
                             market_data_map[sym] = df_bar
+                        else:
+                            missing_or_short.append(sym)
                     except Exception as e:
                         logger.debug(f"Failed to load daily candle for {sym}: {e}")
+                        missing_or_short.append(sym)
+                else:
+                    missing_or_short.append(sym)
+
+            # Pass 2: Fetch missing or short (<200 candles) symbols via UnifiedFetcher
+            if missing_or_short:
+                logger.info(f"📥 [FUNDAMENTAL_SCAN] Fetching missing/short 1D history for {len(missing_or_short)} symbols via UnifiedFetcher...")
+                try:
+                    from price_cache import fetch_unified_historical
+                    for i in range(0, len(missing_or_short), 100):
+                        batch = missing_or_short[i:i + 100]
+                        fetched = fetch_unified_historical(batch, period="1y", interval="1d", requester="FUNDAMENTAL_SCAN")
+                        if fetched:
+                            for sym, df_bar in fetched.items():
+                                if df_bar is not None and not df_bar.empty and len(df_bar) >= 50:
+                                    market_data_map[sym] = df_bar
+
+                    # Persist newly fetched 1d parquet files to DB history bundle in background
+                    try:
+                        from database import upload_history_bundle_to_db, submit_background_upload
+                        submit_background_upload(lambda: upload_history_bundle_to_db("1d", force=True))
+                    except Exception as _ube:
+                        logger.debug(f"History bundle upload dispatch notice: {_ube}")
+                except Exception as fe:
+                    logger.warning(f"⚠️ [FUNDAMENTAL_SCAN] Failed to fetch missing 1D history: {fe}")
+
+            # Pass 3: Overlay live quote onto the latest daily candle
+            for sym, df_bar in market_data_map.items():
+                lp = live_quotes.get(sym)
+                if lp and float(lp) > 0:
+                    df_bar = df_bar.copy()
+                    c_col = 'Close' if 'Close' in df_bar.columns else ('close' if 'close' in df_bar.columns else None)
+                    h_col = 'High' if 'High' in df_bar.columns else ('high' if 'high' in df_bar.columns else None)
+                    if c_col:
+                        if df_bar[c_col].dtype != 'float64':
+                            df_bar[c_col] = df_bar[c_col].astype(float)
+                        df_bar.loc[df_bar.index[-1], c_col] = float(lp)
+                    if h_col and float(lp) > float(df_bar[h_col].iloc[-1]):
+                        if df_bar[h_col].dtype != 'float64':
+                            df_bar[h_col] = df_bar[h_col].astype(float)
+                        df_bar.loc[df_bar.index[-1], h_col] = float(lp)
+                    market_data_map[sym] = df_bar
 
         if benchmark_closes is None:
             history_dir = os.path.join(DATA_DIR, "history", "1d")
@@ -1236,8 +1271,8 @@ class LiveFundamentalBuyScanner:
                 res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes, telemetry=telemetry)
                 # Track data freshness per-symbol in the run context
                 if ctx is not None:
-                    if funds.get("upstream_provider") == "DATA_UNAVAILABLE" or df_bars is None or len(df_bars) < 200:
-                        ctx.mark_incomplete()   # no real fundamentals data or insufficient technical lookback
+                    if df_bars is None or df_bars.empty:
+                        ctx.mark_incomplete()   # broker/exchange data completely unavailable
                     elif db_meta.get("freshness_status", "FRESH") == "STALE":
                         ctx.mark_stale()        # data exists but is stale
                     else:
@@ -1432,16 +1467,24 @@ class LiveFundamentalBuyScanner:
                     di = funnel["data_insufficient_count"]
                     dm = funnel["data_missing_count"]
                     pf = funnel["provider_failure_count"]
-                    data_gaps = (
-                        funnel["scanned_count"] < len(target_symbols) or
-                        di > 0 or dm > 0 or pf > 0 or
-                        (ctx is not None and getattr(ctx, "quality", "") == "PARTIAL")
-                    )
-                    health_status = "DEGRADED" if data_gaps else "OK"
-                    health_outcome = "PARTIAL" if data_gaps else "SUCCESS"
+                    total_symbols_cnt = len(target_symbols)
+
+                    # Scanner is degraded only if there is an actual system/broker outage:
+                    # 1. Scanned fewer symbols than approved universe (crashed early)
+                    # 2. Broker provider failures exceed 5% of universe
+                    # 3. Technical lookback insufficiency exceeds 10% of universe (>35 symbols, indicating bundle/cache loss)
+                    # 4. Context lifecycle failed
+                    is_crashed = funnel["scanned_count"] < total_symbols_cnt
+                    high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))
+                    high_insufficient = di > max(35, int(total_symbols_cnt * 0.10))
+                    context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
+
+                    is_degraded = is_crashed or high_provider_failure or high_insufficient or context_failed
+                    health_status = "DEGRADED" if is_degraded else "OK"
+                    health_outcome = "PARTIAL" if is_degraded else "SUCCESS"
                     gap_msg = None
-                    if data_gaps:
-                        gap_msg = f"Data gaps: {di} insufficient technicals, {dm} missing fundamentals, {pf} provider failures of {len(target_symbols)} approved"
+                    if is_degraded:
+                        gap_msg = f"Data gaps: {di} insufficient technicals, {dm} missing fundamentals, {pf} provider failures of {total_symbols_cnt} approved"
 
                     upsert_scanner_health(
                         "FUNDAMENTAL",
@@ -1451,7 +1494,7 @@ class LiveFundamentalBuyScanner:
                         today_alerts=funnel["buy_alerts_count"],
                         last_success=datetime.now(IST).isoformat(),
                         processed_count=funnel["scanned_count"],
-                        total_count=len(target_symbols),
+                        total_count=total_symbols_cnt,
                         duration_seconds=duration_sec,
                         run_id=getattr(ctx, "run_id", None)
                     )
