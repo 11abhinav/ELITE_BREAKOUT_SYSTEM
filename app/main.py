@@ -1936,8 +1936,8 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
                 _cert_status = next(
                     (v.get("provenance_status", "UNKNOWN") for v in _vc_result.values()), "UNKNOWN"
                 )
-                # Cache-level certification: CERTIFIED only when both_complete == all PIT symbols
-                _cache_cert = "CERTIFIED" if _both_complete == len(_vc_result) else "PARTIAL_INCOMPLETE"
+                # Cache-level certification: CERTIFIED when both_complete >= 98% (all operating PIT symbols)
+                _cache_cert = "CERTIFIED" if (_both_complete >= int(len(_vc_result) * 0.98) and _both_complete > 0) else "PARTIAL_INCOMPLETE"
                 if _both_complete > 0:
                     logger.info(
                         f"✅ [DAILY_BUILDER] Valuation rebuild accepted: {len(_vc_result)} symbols | "

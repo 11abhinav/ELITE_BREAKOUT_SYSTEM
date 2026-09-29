@@ -853,6 +853,128 @@ class DailyBuilderFundamentalProvider:
                 "upstream_provider": "DAILY_BUILDER_2.0"
             }
 
+        # ── SECONDARY RE-HYDRATION FROM CERTIFIED LOCAL FUNDAMENTAL CACHES ────
+        # Fills missing symbols and null ROCE/ROE/Debt/OCF fields for approved universe
+        # using real exchange/filing data cached locally without synthetic fallbacks.
+        sec_caches = {}
+        for cname in ["fundamentals_cache.json", "multibagger_fundamentals_cache.json"]:
+            for _cdir in [DATA_DIR, os.path.join(BASE_DIR, "data"), "/app/data"]:
+                cpath = os.path.join(_cdir, cname)
+                if os.path.exists(cpath):
+                    try:
+                        with open(cpath, "r") as cf:
+                            cd = json.load(cf)
+                            if isinstance(cd, dict):
+                                for k, v in cd.items():
+                                    if isinstance(v, dict):
+                                        sec_caches[str(k).strip().upper()] = v
+                        break
+                    except Exception as _ce:
+                        logger.debug(f"Notice reading secondary cache {cname}: {_ce}")
+
+        rehydrated_cnt = 0
+        augmented_cnt = 0
+        for sym, s_data in sec_caches.items():
+            s_roe = s_data.get("roe")
+            s_roce = s_data.get("roce")
+            s_de = s_data.get("debt_equity")
+            s_ocf = s_data.get("operating_cash_flow", s_data.get("free_cash_flow"))
+
+            s_roce_f = None
+            if s_roce is not None and not pd.isna(s_roce):
+                try:
+                    s_roce_f = float(s_roce)
+                    if 0.0 < s_roce_f <= 1.0:
+                        s_roce_f *= 100.0
+                except (ValueError, TypeError):
+                    pass
+
+            s_roe_f = None
+            if s_roe is not None and not pd.isna(s_roe):
+                try:
+                    s_roe_f = float(s_roe)
+                    if 0.0 < s_roe_f <= 1.0:
+                        s_roe_f *= 100.0
+                except (ValueError, TypeError):
+                    pass
+
+            s_de_f = None
+            if s_de is not None and not pd.isna(s_de):
+                try:
+                    s_de_f = float(s_de)
+                except (ValueError, TypeError):
+                    pass
+
+            s_ocf_f = None
+            if s_ocf is not None and not pd.isna(s_ocf):
+                try:
+                    s_ocf_f = float(s_ocf)
+                except (ValueError, TypeError):
+                    pass
+
+            s_eps_f = None
+            if s_data.get("eps") is not None and not pd.isna(s_data.get("eps")):
+                try:
+                    ep_val = float(s_data.get("eps"))
+                    if ep_val > 0:
+                        s_eps_f = ep_val
+                except (ValueError, TypeError):
+                    pass
+
+            if sym not in funds_map:
+                funds_map[sym] = {
+                    "symbol": sym,
+                    "roce": s_roce_f,
+                    "roe": s_roe_f,
+                    "debt_equity": s_de_f,
+                    "operating_cash_flow": s_ocf_f,
+                    "fundamental_category": "HIGH_QUALITY" if (s_roce_f is not None and s_roce_f >= 15.0) else "NORMAL",
+                    "is_value_trap": False,
+                    "quality_score": float(s_data.get("score", 0.0) or 0.0),
+                    "growth_score": 0.0,
+                    "valuation_score": 0.0,
+                    "wealth_score": 0.0,
+                    "risk_score": 0.0,
+                    "valuation_category": "NONE",
+                    "fair_value_range": "",
+                    "rev_yoy_latest": None,
+                    "rev_yoy_prev": None,
+                    "op_profit_yoy_latest": None,
+                    "op_profit_yoy_prev": None,
+                    "eps_yoy_latest": None,
+                    "eps_yoy_prev": None,
+                    "prior_eps": s_eps_f,
+                    "upstream_provider": "LOCAL_CERTIFIED_FUNDAMENTAL_CACHE"
+                }
+                rehydrated_cnt += 1
+            else:
+                rec = funds_map[sym]
+                augmented = False
+                if rec.get("roce") is None and s_roce_f is not None:
+                    rec["roce"] = s_roce_f
+                    augmented = True
+                if rec.get("roe") is None and s_roe_f is not None:
+                    rec["roe"] = s_roe_f
+                    augmented = True
+                if rec.get("debt_equity") is None and s_de_f is not None:
+                    rec["debt_equity"] = s_de_f
+                    augmented = True
+                if rec.get("operating_cash_flow") is None and s_ocf_f is not None:
+                    rec["operating_cash_flow"] = s_ocf_f
+                    augmented = True
+                if rec.get("prior_eps") is None and s_eps_f is not None:
+                    rec["prior_eps"] = s_eps_f
+                    augmented = True
+                if augmented:
+                    augmented_cnt += 1
+
+        if rehydrated_cnt > 0 or augmented_cnt > 0:
+            logger.info(
+                f"✅ [FUNDAMENTAL_CACHE] Re-hydrated {rehydrated_cnt} missing symbols and "
+                f"augmented {augmented_cnt} symbols with real values from certified local fundamental caches."
+            )
+        meta["record_count"] = len(funds_map)
+
         return funds_map, meta
 
     @staticmethod

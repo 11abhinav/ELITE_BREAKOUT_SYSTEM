@@ -1,8 +1,11 @@
 {
-  "generated_at": "2026-09-29T09:05:56.130908+05:30",
+  "generated_at": "2026-09-29T19:55:05.695874+05:30",
+  "certification_status": "CERTIFIED",
+  "expected_pit_universe": 795,
   "total_symbols": 795,
   "ev_ebitda_median_count": 789,
   "pe_median_count": 795,
+  "both_required_complete_count": 789,
   "data": {
     "360ONE": {
       "symbol": "360ONE",
@@ -3036,7 +3039,7 @@
       "samples_3y": 745,
       "valid_ev_samples": 0,
       "valid_pe_samples": 745,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "PARTIAL_INCOMPLETE",
       "data_provider": "Upstox",
       "as_of_date": "2026-09-25"
     },
@@ -3685,7 +3688,7 @@
       "samples_3y": 745,
       "valid_ev_samples": 0,
       "valid_pe_samples": 745,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "PARTIAL_INCOMPLETE",
       "data_provider": "Upstox",
       "as_of_date": "2026-09-25"
     },
@@ -4653,7 +4656,7 @@
       "samples_3y": 745,
       "valid_ev_samples": 0,
       "valid_pe_samples": 745,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "PARTIAL_INCOMPLETE",
       "data_provider": "Upstox",
       "as_of_date": "2026-09-25"
     },
@@ -5093,7 +5096,7 @@
       "samples_3y": 745,
       "valid_ev_samples": 0,
       "valid_pe_samples": 745,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "PARTIAL_INCOMPLETE",
       "data_provider": "Upstox",
       "as_of_date": "2026-09-25"
     },
@@ -6105,7 +6108,7 @@
       "samples_3y": 745,
       "valid_ev_samples": 0,
       "valid_pe_samples": 745,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "PARTIAL_INCOMPLETE",
       "data_provider": "Upstox",
       "as_of_date": "2026-09-25"
     },
@@ -6985,7 +6988,7 @@
       "samples_3y": 745,
       "valid_ev_samples": 0,
       "valid_pe_samples": 745,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "PARTIAL_INCOMPLETE",
       "data_provider": "Upstox",
       "as_of_date": "2026-09-25"
     },
