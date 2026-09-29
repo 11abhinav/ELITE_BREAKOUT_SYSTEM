@@ -1684,6 +1684,17 @@ class QualityCompounderValueV2Scanner:
             pe_med = row.get('pe_3y_median', row.get('pe_ratio_3y_median'))
 
             cmp_price = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
+            if cmp_price <= 0.0:
+                p_path = os.path.join(DATA_DIR, "history", "1d", f"{sym}.parquet")
+                if os.path.exists(p_path):
+                    try:
+                        df_px = pd.read_parquet(p_path)
+                        if not df_px.empty:
+                            c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                            if c_col:
+                                cmp_price = float(df_px[c_col].iloc[-1])
+                    except Exception:
+                        pass
             sma50 = float(row.get('sma50', cmp_price) or cmp_price)
             sma100 = float(row.get('sma100', cmp_price) or cmp_price)
             sma200 = float(row.get('sma200', cmp_price) or cmp_price)
@@ -2047,6 +2058,25 @@ class QualityCompounderValueV2Scanner:
                             except Exception:
                                 pass
 
+                    # Load certified PIT valuation medians cache (3Y EV/EBITDA & 3Y PE medians from Upstox + PIT)
+                    pit_val_cache = {}
+                    try:
+                        from app.pit_valuation_history_builder import load_or_build_pit_valuation_cache
+                        pit_val_cache = load_or_build_pit_valuation_cache()
+                    except Exception:
+                        try:
+                            from pit_valuation_history_builder import load_or_build_pit_valuation_cache
+                            pit_val_cache = load_or_build_pit_valuation_cache()
+                        except Exception as p_err:
+                            logger.debug(f"PIT valuation builder import notice: {p_err}")
+                            v_pit_path = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
+                            if os.path.exists(v_pit_path):
+                                try:
+                                    with open(v_pit_path) as f:
+                                        pit_val_cache = json.load(f).get("data", {})
+                                except Exception:
+                                    pass
+
                     records = []
                     for sym, g in raw_df.groupby('symbol'):
                         g = g.sort_values('period_end_date')
@@ -2082,12 +2112,12 @@ class QualityCompounderValueV2Scanner:
                         # ── VALUATION MULTIPLES ─────────────────────────────────────────────
                         # Current multiples from cache snapshot
                         v_data = val_cache.get(sym, {})
+                        pit_val = pit_val_cache.get(sym, {})
                         pe_curr = v_data.get('pe_fallback') or v_data.get('pe')   # current-period PE from cache
-                        pe_med  = v_data.get('pe_3y_median')                      # None — not in cache yet
+                        pe_med  = pit_val.get('pe_3y_median') or v_data.get('pe_3y_median')
 
                         # Current EV/EBITDA: computed from PIT native fields + cache market_cap.
                         # Formula: EV = Market Cap + Total Debt − Cash; EBITDA = Operating Profit + D&A
-                        # This is the ONLY valuation multiple computable without historical prices.
                         _mcap   = v_data.get('market_cap')   # Crores, from cache snapshot
                         _td     = latest_filing.get('total_debt')
                         _cash   = latest_filing.get('cash_and_equivalents')
@@ -2095,36 +2125,37 @@ class QualityCompounderValueV2Scanner:
                         _da     = latest_filing.get('depreciation_amortization')
 
                         _mcap_f = float(_mcap) if _mcap is not None and pd.notna(_mcap) and float(_mcap) > 0 else None
+                        # Convert raw INR market_cap (>1e6) to INR Crores to match statement financials in Crores
+                        _mcap_cr = (_mcap_f / 1e7) if (_mcap_f is not None and _mcap_f > 1e6) else _mcap_f
                         _td_f   = float(_td)   if _td   is not None and pd.notna(_td)   else 0.0
                         _cash_f = float(_cash) if _cash  is not None and pd.notna(_cash)  else 0.0
                         _op_f   = float(_op)   if _op   is not None and pd.notna(_op)   else None
                         _da_f   = float(_da)   if _da   is not None and pd.notna(_da)   else 0.0
 
                         ev_curr = None
-                        if _mcap_f is not None and _op_f is not None:
+                        if _mcap_cr is not None and _op_f is not None:
                             _ebitda = _op_f + _da_f
                             if _ebitda > 0:
-                                _ev = _mcap_f + _td_f - _cash_f
+                                _ev = _mcap_cr + _td_f - _cash_f
                                 ev_curr = round(_ev / _ebitda, 2)
 
-                        # 3Y EV/EBITDA median: REQUIRES historical share prices from Upstox.
-                        # Cannot be computed from PIT parquet alone — None until the
-                        # pit_valuation_history_builder pipeline is run.
-                        ev_med  = v_data.get('ev_ebitda_3y_median')              # None — pipeline not yet built
+                        # 3Y EV/EBITDA median: sourced from certified PIT valuation pipeline
+                        ev_med  = pit_val.get('ev_ebitda_3y_median') or v_data.get('ev_ebitda_3y_median')
 
                         records.append({
                             'symbol': sym,
                             'filing_date': str(latest_filing.get('filing_date'))[:10],
                             'financial_period_end': str(latest_filing.get('period_end_date'))[:10],
+                            'market_cap': _mcap_cr,
                             'roce_5y_avg': roce_eff,
                             'sales_cagr_5y': rev_cagr,
                             'pat_cagr_5y': pat_cagr,
                             'cfo_pat_5y_ratio': cfo_pat,
                             'debt_to_equity': de,
                             'current_pe': pe_curr,
-                            'pe_3y_median': pe_med,        # None — requires Upstox historical prices
-                            'current_ev_ebitda': ev_curr,  # Real computed value from PIT + cache market_cap
-                            'ev_ebitda_3y_median': ev_med, # None — requires Upstox historical prices
+                            'pe_3y_median': pe_med,
+                            'current_ev_ebitda': ev_curr,
+                            'ev_ebitda_3y_median': ev_med,
                             'provenance_status': 'CERTIFIED_PIT_STATEMENT_CALCULATED'
                         })
 
@@ -2137,10 +2168,8 @@ class QualityCompounderValueV2Scanner:
                     _with_pe_med  = int(pit_df['pe_3y_median'].notna().sum())
                     logger.info(
                         f"✅ Loaded and calculated certified PIT dataset from statement filings ({_n} symbols) | "
-                        f"CurrentEV/EBITDA: {_with_ev_curr}/{_n} | EV/EBITDA_3YMedian: {_with_ev_med}/{_n} "
-                        f"[REQUIRES Upstox historical prices] | "
-                        f"CurrentPE: {_with_pe_curr}/{_n} | PE_3YMedian: {_with_pe_med}/{_n} "
-                        f"[REQUIRES Upstox historical prices]"
+                        f"CurrentEV/EBITDA: {_with_ev_curr}/{_n} | EV/EBITDA_3YMedian: {_with_ev_med}/{_n} | "
+                        f"CurrentPE: {_with_pe_curr}/{_n} | PE_3YMedian: {_with_pe_med}/{_n}"
                     )
                     if _with_ev_med == 0 and _with_pe_med == 0:
                         logger.error(

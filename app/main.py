@@ -513,6 +513,27 @@ def verify_watchlist_is_pristine() -> bool:
             except Exception:
                 pass
 
+        # Restore certified PIT valuation history cache from DB if missing locally
+        pit_val_json = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
+        pit_val_parquet = os.path.join(DATA_DIR, "pit_valuation_history_cache.parquet")
+        if not os.path.exists(pit_val_json) or os.path.getsize(pit_val_json) == 0:
+            try:
+                if download_parquet_from_db_today("pit_valuation_history_cache", pit_val_parquet) or download_parquet_from_db("pit_valuation_history_cache", pit_val_parquet):
+                    import pandas as _pd
+                    _df_vc = _pd.read_parquet(pit_val_parquet)
+                    if not _df_vc.empty and "symbol" in _df_vc.columns:
+                        _vc_dict = {r["symbol"]: r for r in _df_vc.to_dict(orient="records")}
+                        with open(pit_val_json, "w") as _f_vc:
+                            json.dump({"total_symbols": len(_vc_dict), "data": _vc_dict}, _f_vc, indent=2)
+                        logger.info(f"✅ [DB] Restored {len(_vc_dict)} PIT valuation medians from database")
+            except Exception as _vc_err:
+                logger.debug(f"PIT valuation DB restore notice: {_vc_err}")
+        elif os.path.exists(pit_val_parquet) and os.path.getsize(pit_val_parquet) > 0:
+            try:
+                upload_parquet_to_db("pit_valuation_history_cache", pit_val_parquet)
+            except Exception:
+                pass
+
         if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH) or download_parquet_from_db("daily_builder", WATCHLIST_PATH):
             if os.path.exists(WATCHLIST_PATH):
                 logger.info(f"✅ [DB] Watchlist successfully restored from DB to local disk.")
