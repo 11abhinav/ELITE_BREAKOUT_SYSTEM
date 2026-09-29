@@ -6735,25 +6735,6 @@ def api_v2_quality_compounder_snapshots():
         limit = min(int(request.args.get("limit", 1000)), 5000)
         offset = int(request.args.get("offset", 0))
 
-        query = """
-            SELECT * FROM alerts
-            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
-              AND record_type = 'SCAN_SNAPSHOT'
-        """
-        params = []
-        if date_filter:
-            query += " AND alert_date = %s"
-            params.append(date_filter)
-        if symbol_filter:
-            query += " AND symbol = %s"
-            params.append(symbol_filter.strip().upper())
-        if status_filter:
-            query += " AND status = %s"
-            params.append(status_filter.upper())
-
-        query += " ORDER BY alert_date DESC, symbol ASC LIMIT %s OFFSET %s"
-        params.extend([limit, offset])
-
         # Snapshots are decoupled from the alerts table to keep alerts strictly for genuine trading signals
         return jsonify({"success": True, "count": 0, "limit": limit, "offset": offset, "snapshots": []})
     except Exception as e:
