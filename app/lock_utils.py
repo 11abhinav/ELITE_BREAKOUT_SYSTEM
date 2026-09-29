@@ -110,18 +110,60 @@ def print_scanner_start_banner(scanner_key: str, queued_at: float = None, run_id
     return time.monotonic()
 
 
-def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = None, status: str = None, error_msg: str = None) -> None:
+def print_scanner_end_banner(
+        scanner_key: str,
+        start_mono: float,
+        run_id: str = None,
+        status: str = None,
+        error_msg: str = None,
+        override_status: str = None,
+        start_wall_ts: float = None
+) -> None:
     """
     Print a vivid END banner for the given scanner and update scanner_health to OK/DOWN in DB.
     Must be called BEFORE releasing any locks so log order is guaranteed.
+
+    Args:
+        override_status: If set, this health status is written unconditionally (before paused-guard).
+                         Use this when the scanner body has already computed the real health state
+                         (e.g. DEGRADED, DATA_BLOCKED) but the DB upsert inside the try-block may
+                         have been silently rejected by the execution-ownership guard, leaving the
+                         scanner stuck in RUNNING in the DB.  Passing override_status here ensures
+                         the end-banner always persists the correct final state.
+        start_wall_ts:  Optional wall-clock time.time() at scan start.  Used as a sanity guard: if
+                         time.monotonic() - start_mono is negative (which happens when start_mono
+                         accidentally received a time.time() value), we fall back to
+                         time.time() - start_wall_ts instead and emit a warning.
     """
+    import time as _time_mod
     emoji, display, db_name = _resolve_scanner_identity(scanner_key)
     star_bar = "********************************************************************************"
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
-    runtime = time.monotonic() - start_mono
+    raw_runtime = _time_mod.monotonic() - start_mono
+    if raw_runtime < 0:
+        # start_mono was likely set to time.time() instead of time.monotonic()
+        # (e.g. _scan_start = start_ts before print_scanner_start_banner overwrites it)
+        if start_wall_ts is not None:
+            runtime = max(0.1, round(_time_mod.time() - start_wall_ts, 1))
+            logger.warning(
+                f"⚠️ [{display}] DURATION_BUG DETECTED: monotonic diff={raw_runtime:.1f}s (negative — start_mono was wall-clock?). "
+                f"Using wall-clock fallback: {runtime:.1f}s"
+            )
+        else:
+            runtime = 0.1
+            logger.warning(
+                f"⚠️ [{display}] DURATION_BUG DETECTED: monotonic diff={raw_runtime:.1f}s (negative). "
+                f"No start_wall_ts provided. Reporting 0.1s placeholder."
+            )
+    else:
+        runtime = raw_runtime
     logger.info(star_bar)
     logger.info(f"🏁 ******* FINISHED SCANNER: {display} — {ts} | Duration: {runtime:.1f}s *******")
     logger.info(star_bar)
+
+    # Statuses that reflect real degradation/failure: always preserve in DB,
+    # never let the end-banner silently downgrade them to OK.
+    _DEGRADE_PRESERVE = {"DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "DATA_BLOCKED", "IDLE", "ERROR", "FAILED"}
 
     try:
         try:
@@ -135,12 +177,18 @@ def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = 
             curr_status = current_health.get("status") if current_health else "OK"
             if curr_status in ("PAUSED", "STOPPED"):
                 final_status = curr_status
+            elif override_status is not None:
+                # Caller explicitly computed the correct health state (e.g. DEGRADED / DATA_BLOCKED).
+                # Honor it unconditionally rather than re-reading the DB (which may still show RUNNING
+                # if the scanner body's upsert was silently rejected by the ownership guard).
+                final_status = override_status
             else:
-                final_status = status if status is not None else (curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "IDLE", "ERROR", "FAILED") else "OK")
+                final_status = status if status is not None else (curr_status if curr_status in _DEGRADE_PRESERVE else "OK")
             upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
             logger.info(f"✅ [{display}] Status updated: {final_status} (Completed in {runtime:.0f}s)")
     except Exception as _e:
         logger.warning(f"⚠️ Could not update scanner status: {_e}")
+
 
 _process_locks = {}
 _process_locks_guard = threading.Lock()

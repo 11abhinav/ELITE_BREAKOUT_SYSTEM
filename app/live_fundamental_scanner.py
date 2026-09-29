@@ -1076,7 +1076,8 @@ class LiveFundamentalBuyScanner:
         ctx = None
         acquired_scan = False
         acquired_global = False
-        _scan_start = start_ts
+        _scan_start = time.monotonic()  # must be monotonic — print_scanner_end_banner computes time.monotonic() - start_mono
+        _computed_health_status = None   # set after health classification; passed to end banner as override_status
 
         # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
         if not _fundamental_scan_lock.acquire(blocking=False):
@@ -1535,6 +1536,7 @@ class LiveFundamentalBuyScanner:
 
                     is_degraded = is_crashed or high_provider_failure or high_insufficient or high_missing or context_failed
                     health_status = "DEGRADED" if is_degraded else "OK"
+                    _computed_health_status = health_status  # propagate to end banner override
                     health_outcome = "PARTIAL" if is_degraded else "SUCCESS"
                     gap_msg = None
                     if is_degraded:
@@ -1581,7 +1583,9 @@ class LiveFundamentalBuyScanner:
             print_scanner_end_banner(
                 "FUNDAMENTAL",
                 start_mono=_scan_start,
-                run_id=getattr(ctx, "run_id", None)
+                run_id=getattr(ctx, "run_id", None),
+                override_status=_computed_health_status,
+                start_wall_ts=start_ts
             )
             if acquired_global:
                 try:
@@ -1731,6 +1735,7 @@ class QualityCompounderValueV2Scanner:
         import time
         start_ts = time.time()
         _scan_start = time.monotonic()  # must be monotonic — print_scanner_end_banner computes time.monotonic() - start_mono
+        _computed_v2_health_status = None   # set by _scan_universe_core via exec_run_ctx_holder; passed to end banner
         acquired_scan = False
         acquired_global = False
         exec_run_ctx_holder = [None]
@@ -1776,20 +1781,29 @@ class QualityCompounderValueV2Scanner:
         else:
             acquired_global = True
 
+        _core_result_holder = [None]
         try:
-            return self._scan_universe_core(
+            _core_result_holder[0] = self._scan_universe_core(
                 trigger_type=trigger_type,
                 scheduler_name=scheduler_name,
                 queued_at=queued_at,
                 start_ts=start_ts,
                 exec_run_ctx_holder=exec_run_ctx_holder
             )
+            return _core_result_holder[0]
         finally:
             run_id = getattr(exec_run_ctx_holder[0], "run_id", None) if exec_run_ctx_holder[0] else None
+            # Propagate _health_status from _scan_universe_core return dict to override_status.
+            # This ensures the end-banner always persists the real health, even when the body's
+            # upsert_scanner_health was silently rejected by the execution-ownership guard.
+            if _core_result_holder[0] and isinstance(_core_result_holder[0], dict):
+                _computed_v2_health_status = _core_result_holder[0].get("status") or _computed_v2_health_status
             print_scanner_end_banner(
                 "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                 start_mono=_scan_start,
-                run_id=run_id
+                run_id=run_id,
+                override_status=_computed_v2_health_status,
+                start_wall_ts=start_ts
             )
             if acquired_global:
                 try:

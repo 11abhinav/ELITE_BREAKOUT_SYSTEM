@@ -265,17 +265,37 @@ def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[s
         if download_parquet_from_db("pit_valuation_history_cache", temp_parquet):
             df_cache = pd.read_parquet(temp_parquet)
             if not df_cache.empty and "symbol" in df_cache.columns:
-                records = df_cache.to_dict(orient="records")
-                data = {r["symbol"]: r for r in records}
-                # Also save to local json
-                with open(VALUATION_CACHE_PATH, "w") as f:
-                    json.dump({
-                        "generated_at": datetime.now(IST).isoformat(),
-                        "total_symbols": len(data),
-                        "data": data
-                    }, f, indent=2)
-                logger.info(f"✅ Restored {len(data)} certified PIT valuation medians from database")
-                return data
+                # [FIX: VALUATION_FIELD_COMPLETENESS_GATE]
+                # Validate that the restored cache actually contains usable 3Y medians.
+                # A cache with N rows but 0 valid medians is a broken cache — row presence
+                # alone is NOT sufficient to certify the cache.
+                _restored_ev = int(df_cache["ev_ebitda_3y_median"].notna().sum()) if "ev_ebitda_3y_median" in df_cache.columns else 0
+                _restored_pe = int(df_cache["pe_3y_median"].notna().sum()) if "pe_3y_median" in df_cache.columns else 0
+                if _restored_ev == 0 and _restored_pe == 0:
+                    logger.error(
+                        f"❌ [VALUATION_CACHE] DB_RESTORE_REJECTED: restored {len(df_cache)} rows but "
+                        f"EV/EBITDA medians={_restored_ev}/{len(df_cache)}, PE medians={_restored_pe}/{len(df_cache)}. "
+                        f"Cache has rows but NO valid medians — rejecting stale/broken DB cache. "
+                        f"Falling through to fresh build from 1D history + PIT filings."
+                    )
+                    # Fall through to fresh build below
+                else:
+                    records = df_cache.to_dict(orient="records")
+                    data = {r["symbol"]: r for r in records}
+                    # Also save to local json
+                    with open(VALUATION_CACHE_PATH, "w") as f:
+                        json.dump({
+                            "generated_at": datetime.now(IST).isoformat(),
+                            "total_symbols": len(data),
+                            "ev_ebitda_median_count": _restored_ev,
+                            "pe_median_count": _restored_pe,
+                            "data": data
+                        }, f, indent=2)
+                    logger.info(
+                        f"✅ Restored {len(data)} certified PIT valuation medians from database "
+                        f"(EV/EBITDA: {_restored_ev}, PE: {_restored_pe})"
+                    )
+                    return data
     except Exception as e:
         logger.debug(f"DB restore check note: {e}")
 
