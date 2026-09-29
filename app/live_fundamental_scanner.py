@@ -1835,6 +1835,7 @@ class QualityCompounderValueV2Scanner:
                 f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status={telemetry_status:<9} | "
                 f"FailedAt={primary_rejection:<28} | Rejections={rejections} | "
                 f"Metrics=[roce={roce_5y}, sales_cagr={sales_cagr_5y}, pat_cagr={pat_cagr_5y}, cfo_pat={cfo_pat_5y}, d_e={de_ratio}, ev_discount={ev_disc_str}] | "
+                f"ValuationDetails=[EV_curr={ev_ebitda_curr}, EV_3Y_med={ev_ebitda_med}, PE_curr={pe_curr}, PE_3Y_med={pe_med}] | "
                 f"RequiredToPass={required_improvements if required_improvements else ['NONE (PASSING CANDIDATE)']}"
             )
 

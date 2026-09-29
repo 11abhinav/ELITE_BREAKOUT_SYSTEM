@@ -339,34 +339,8 @@ class UnifiedFetcher:
 
 
 
-        if pending:
-            try:
-                from database import get_connection
-                with get_connection() as conn:
-                    with conn.cursor() as cur:
-                        for orig in list(pending):
-                            clean_orig = orig.replace(".NS", "").replace(".BO", "")
-                            cur.execute("""
-                                SELECT val FROM (
-                                    SELECT cmp AS val, 1 AS prio FROM stock_analysis_master WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
-                                    UNION ALL
-                                    SELECT latest_price AS val, 2 AS prio FROM watchlist WHERE (symbol = %s OR symbol = %s) AND latest_price IS NOT NULL AND latest_price > 0
-                                    UNION ALL
-                                    SELECT COALESCE(current_price, entry_price) AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND (current_price > 0 OR entry_price > 0)
-                                ) sub ORDER BY prio LIMIT 1;
-                            """, (orig, clean_orig, orig, clean_orig, orig, clean_orig))
-                            row = cur.fetchone()
-                            if row and row[0]:
-                                val_flt = float(row[0])
-                                results[orig] = {"v": {"cmd": {"c": val_flt}}}
-                                results[clean_orig] = {"v": {"cmd": {"c": val_flt}}}
-                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
-                                pending.discard(orig)
-                                pending.discard(clean_orig)
-                                pending.discard(clean_orig + ".NS")
-                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved fallback quote for {orig} from stock_analysis_master: ₹{val_flt:.2f}")
-            except Exception as db_err:
-                logger.warning(f"⚠️ DB CMP Fallback failed: {db_err}")
+        # MANDATORY ZERO-SYNTHETIC-FALLBACK: Never substitute stale DB prices when live quotes fail.
+        # Fail closed: un-fetched symbols remain None so scanners block safely instead of using stale quotes.
 
         if pending:
             logger.warning(f"⚠️ Live quotes unavailable from providers for ({len(pending)}): {sorted(list(pending))}")
