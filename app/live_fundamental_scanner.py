@@ -1487,7 +1487,14 @@ class QualityCompounderValueV2Scanner:
         return any(kw in ind_upper for kw in financial_keywords)
 
     @staticmethod
-    def compute_100pt_score(row_dict: dict, ev_discount: float, pe_discount: float, res_dd: float) -> float:
+    def compute_100pt_score(row_dict: dict, ev_discount, pe_discount, res_dd: float) -> float:
+        """Score is only meaningful when valuation data is available. Returns 0.0 when either
+        discount is None (valuation data unavailable) — caller should not use score for ranking
+        when valuation is missing."""
+        if ev_discount is None:
+            ev_discount = 0.0   # safety: score = 0 when valuation unavailable
+        if pe_discount is None:
+            pe_discount = 0.0
         # 1. EV/EBITDA Discount Depth (0.25 to 0.50 => 0 to 30 pts)
         ev_pts = 30.0 * min(max((ev_discount - 0.25) / 0.25, 0.0), 1.0)
         # 2. 5Y ROCE (15% to 40% => 0 to 25 pts)
@@ -1544,7 +1551,6 @@ class QualityCompounderValueV2Scanner:
                 exec_run_ctx = create_scanner_execution_run(
                     scanner_name="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                     trigger_type=trigger_type,
-                    total_stocks=886,
                     allow_concurrent=True
                 )
             except Exception as e:
@@ -1588,12 +1594,39 @@ class QualityCompounderValueV2Scanner:
         quality_pass_count = 0
         value_pass_count = 0
         candidate_count = 0
-        data_blocked_count = 0        # unique symbols blocked (counted once per symbol, not per gate)
+        quality_data_blocked_count = 0    # unique symbols with missing quality fields
+        valuation_data_blocked_count = 0  # unique symbols with missing valuation fields
+        data_blocked_count = 0            # unique symbols with ANY missing field (quality OR valuation)
 
         # Filter to latest PIT record per symbol on or before today
         if 'filing_date' in pit_df.columns:
             pit_df['filing_date'] = pd.to_datetime(pit_df['filing_date'])
             pit_df = pit_df[pit_df['filing_date'] <= pd.to_datetime(today_str)].sort_values('filing_date').groupby('symbol').last().reset_index()
+
+        # ── PRE-FLIGHT VALUATION HEALTH GATE ──────────────────────────────────────
+        # Sample up to 30 symbols from the PIT dataset to check if valuation data
+        # (pe_3y_median or ev_ebitda_3y_median) is actually populated.
+        # If ZERO of the sampled symbols have any valuation, the valuation provider
+        # is completely unavailable and we must flag this before the main loop.
+        _sample_size = min(30, len(pit_df))
+        _val_available = 0
+        for _, _row in pit_df.head(_sample_size).iterrows():
+            _ev_med = _row.get('ev_ebitda_3y_median', _row.get('ev_to_ebitda_3y_median', _row.get('ev_ebitda_median')))
+            _pe_med = _row.get('pe_3y_median', _row.get('pe_ratio_3y_median'))
+            if (_ev_med is not None and not pd.isna(_ev_med) and float(_ev_med) > 0) or \
+               (_pe_med is not None and not pd.isna(_pe_med) and float(_pe_med) > 0):
+                _val_available += 1
+        _valuation_provider_healthy = (_val_available > 0)
+        if not _valuation_provider_healthy:
+            logger.error(
+                f"❌ [V2_FINAL] PRE-FLIGHT GATE: VALUATION_DATA_UNAVAILABLE — "
+                f"0/{_sample_size} sampled symbols have pe_3y_median or ev_ebitda_3y_median. "
+                f"Continuing quality scan for telemetry but NO BUY alerts can be generated. "
+                f"Required: real 3Y EV/EBITDA or PE median per symbol from the valuation pipeline."
+            )
+        else:
+            logger.info(f"✅ [V2_FINAL] PRE-FLIGHT GATE: Valuation data available ({_val_available}/{_sample_size} sampled symbols). Proceeding.")
+        # ─────────────────────────────────────────────────────────────────────────
 
         for _, row in pit_df.iterrows():
             total_scanned += 1
@@ -1658,9 +1691,12 @@ class QualityCompounderValueV2Scanner:
                 if quality_gate_passed:
                     quality_pass_count += 1
 
-            # Value Gate (Continuous discounts strictly calculated from actual multiples — NO DISCRETE SCORE BRACKETS)
-            ev_discount = 0.0
-            pe_discount = 0.0
+            # ── VALUE GATE ────────────────────────────────────────────────────────
+            # ev_discount = None means the required data is MISSING.
+            # NEVER use 0.0 as a sentinel for missing valuation — 0.0 means "current
+            # multiple equals the historical median", which is a valid real measurement.
+            ev_discount = None   # None = valuation data unavailable (DATA_INSUFFICIENT)
+            pe_discount = None   # None = PE comparison data unavailable
             calc_discount = None
 
             if ev_ebitda_curr is not None and ev_ebitda_med is not None and not pd.isna(ev_ebitda_curr) and not pd.isna(ev_ebitda_med) and float(ev_ebitda_med or 0) > 0:
@@ -1671,12 +1707,13 @@ class QualityCompounderValueV2Scanner:
             valuation_data_missing = (calc_discount is None)
             if valuation_data_missing:
                 rejections.append("DATA_INSUFFICIENT_VALUATION")
+                valuation_data_blocked_count += 1
             else:
                 ev_discount = calc_discount
                 if ev_discount < 0.25:
                     rejections.append("FAIL_VALUATION")
 
-                if not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
+                if pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
                     pe_c = float(pe_curr)
                     pe_m = float(pe_med)
                     pe_discount = max((pe_m - pe_c) / pe_m, 0.0)
@@ -1720,15 +1757,19 @@ class QualityCompounderValueV2Scanner:
                 required_improvements.append(f"CFO/PAT >= 0.80 (Current: {cur_v})")
             if de_ratio is not None and not pd.isna(de_ratio) and float(de_ratio) > 0.50:
                 required_improvements.append(f"Debt/Equity <= 0.50 (Current: {float(de_ratio):.2f})")
-            if ev_discount < 0.25:
+            # Valuation: None means DATA_INSUFFICIENT, not a failed discount
+            if ev_discount is None:
+                required_improvements.append("EV/EBITDA Discount >= 25% (Current: N/A — valuation data missing)")
+            elif ev_discount < 0.25:
                 required_improvements.append(f"EV/EBITDA Discount >= 25% (Current: {ev_discount*100:.1f}%)")
 
             # Per-Stock Complete Telemetry Logging
+            ev_disc_str = f"{ev_discount*100:.1f}%" if ev_discount is not None else "N/A (DATA_INSUFFICIENT)"
             telemetry_status = "CANDIDATE" if is_candidate else "REJECTED"
             logger.info(
                 f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status={telemetry_status:<9} | "
                 f"FailedAt={primary_rejection:<28} | Rejections={rejections} | "
-                f"Metrics=[roce={roce_5y}, sales_cagr={sales_cagr_5y}, pat_cagr={pat_cagr_5y}, cfo_pat={cfo_pat_5y}, d_e={de_ratio}, ev_discount={ev_discount*100:.1f}%] | "
+                f"Metrics=[roce={roce_5y}, sales_cagr={sales_cagr_5y}, pat_cagr={pat_cagr_5y}, cfo_pat={cfo_pat_5y}, d_e={de_ratio}, ev_discount={ev_disc_str}] | "
                 f"RequiredToPass={required_improvements if required_improvements else ['NONE (PASSING CANDIDATE)']}"
             )
 
@@ -1749,10 +1790,11 @@ class QualityCompounderValueV2Scanner:
                 "share_dilution_3y_pct": round(float(share_dilution_3y), 2) if share_dilution_3y is not None and not pd.isna(share_dilution_3y) else None,
                 "current_ev_ebitda": round(float(ev_ebitda_curr), 2) if ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr) else None,
                 "ev_ebitda_3y_median": round(float(ev_ebitda_med), 2) if ev_ebitda_med is not None and not pd.isna(ev_ebitda_med) else None,
-                "ev_ebitda_discount_pct": round(ev_discount * 100, 1),
+                "ev_ebitda_discount_pct": round(ev_discount * 100, 1) if ev_discount is not None else None,
+                "valuation_status": "DATA_AVAILABLE" if ev_discount is not None else "DATA_INSUFFICIENT",
                 "current_pe": round(float(pe_curr), 2) if pe_curr is not None and not pd.isna(pe_curr) else None,
                 "pe_3y_median": round(float(pe_med), 2) if pe_med is not None and not pd.isna(pe_med) else None,
-                "pe_discount_pct": round(pe_discount * 100, 1),
+                "pe_discount_pct": round(pe_discount * 100, 1) if pe_discount is not None else None,
                 "sma50": round(sma50, 2),
                 "sma100": round(sma100, 2),
                 "sma200": round(sma200, 2),
@@ -1829,49 +1871,85 @@ class QualityCompounderValueV2Scanner:
                 except Exception as e:
                     logger.debug(f"Execution history completion warning: {e}")
 
+            # ── POST-SCAN HEALTH STATUS ───────────────────────────────────────────
+            # Distinguish execution health (did the code run?) from strategy health
+            # (did the strategy have its required data?)
+            # Rule: if valuation data was unavailable for >= 95% of evaluated stocks,
+            # the scanner is DATA_BLOCKED, not OK.
+            _val_block_pct = valuation_data_blocked_count / max(total_scanned, 1)
+            _health_status = "OK" if (_val_block_pct < 0.95 and candidate_count >= 0) else "DATA_BLOCKED"
+            _health_error = None
+            if _health_status == "DATA_BLOCKED":
+                _health_error = (
+                    f"VALUATION_DATA_UNAVAILABLE: {valuation_data_blocked_count}/{total_scanned} symbols "
+                    f"have missing pe_3y_median and ev_ebitda_3y_median. "
+                    f"V2 strategy decision engine is BLOCKED — 0 genuine valuation passes possible. "
+                    f"Action required: populate valuation history in the PIT pipeline."
+                )
+                logger.error(f"🚫 [V2_FINAL] STRATEGY STATUS=BLOCKED_DATA | {_health_error}")
+
             if upsert_scanner_health is not None:
                 try:
                     upsert_scanner_health(
                         "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-                        status="OK",
-                        today_alerts=candidate_count,          # 0 when no candidates — health card: alerts/evaluated
-                        last_success=now_ist.isoformat(),
-                        processed_count=candidate_count,       # numerator = alerts generated
-                        total_count=total_scanned,             # denominator = equities evaluated
+                        status=_health_status,
+                        today_alerts=candidate_count,          # 0 when no candidates
+                        last_success=now_ist.isoformat() if _health_status == "OK" else None,
+                        processed_count=candidate_count,       # alerts generated
+                        total_count=total_scanned,             # equities evaluated
                         duration_seconds=duration_sec,
+                        error_msg=_health_error,
                         run_id=getattr(exec_run_ctx, "run_id", None)
                     )
                 except Exception as e:
-                    logger.debug(f"Scanner health OK warning: {e}")
+                    logger.debug(f"Scanner health update warning: {e}")
 
             # Structured End-of-Scan Telemetry Summary Report
             data_good_count = total_scanned - data_blocked_count
+            _val_status_str = "DATA_AVAILABLE" if _valuation_provider_healthy else "DATA_BLOCKED — VALUATION_UNAVAILABLE"
             logger.info("=" * 80)
             logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
             logger.info("=" * 80)
-            logger.info(f"  • Total Equities Evaluated : {total_scanned}")
-            logger.info(f"  • Data Complete (all fields): {data_good_count}  ({round(data_good_count/max(total_scanned,1)*100,1)}%)")
-            logger.info(f"  • Data Blocked (any missing): {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}%) — unique symbols with ≥1 missing field")
-            logger.info(f"  • Quality Gate Passed      : {quality_pass_count}  (of {data_good_count} data-complete stocks)")
-            logger.info(f"  • Valuation Gate Passed    : {value_pass_count}")
-            logger.info(f"  • Candidates Selected      : {candidate_count}  ← BUY ALERTS")
-            logger.info(f"  • Snapshots Saved in DB    : {snapshots_inserted}")
-            logger.info(f"  • Candidate Alerts Saved   : {candidates_inserted}")
-            logger.info(f"  • Duration (Seconds)       : {duration_sec}s")
+            logger.info(f"  • Total Equities Evaluated       : {total_scanned}")
+            logger.info(f"  • Data Complete (any field OK)   : {data_good_count}  ({round(data_good_count/max(total_scanned,1)*100,1)}%)")
+            logger.info(f"  • Quality Data Blocked           : {quality_data_blocked_count}  (missing ROCE/CAGR/CFO/D_E)")
+            logger.info(f"  • Valuation Data Blocked         : {valuation_data_blocked_count}  (missing pe_3y_median + ev_ebitda_3y_median)")
+            logger.info(f"  • Any Data Blocked (unique syms) : {data_blocked_count}")
+            logger.info(f"  • Quality Gate Passed            : {quality_pass_count}  (of {data_good_count} data-complete stocks)")
+            logger.info(f"  • Valuation Provider Status      : {_val_status_str}")
+            logger.info(f"  • Valuation Gate Passed          : {value_pass_count}  ({'genuine passes' if _valuation_provider_healthy else 'N/A — valuation data missing for all'})")
+            logger.info(f"  • Candidates Selected            : {candidate_count}  ← BUY ALERTS")
+            logger.info(f"  • Snapshots Saved in DB          : {snapshots_inserted}")
+            logger.info(f"  • Candidate Alerts Saved         : {candidates_inserted}")
+            logger.info(f"  • Scanner Health Status          : {_health_status}")
+            logger.info(f"  • Duration (Seconds)             : {duration_sec}s")
             logger.info("-" * 80)
+            if not _valuation_provider_healthy:
+                logger.error(
+                    "🚫 [V2_FINAL] ZERO CANDIDATES IS NOT A VALID MARKET SIGNAL — "
+                    "It is a DATA FAILURE. V2 cannot make the BUY decision without real "
+                    "3Y EV/EBITDA or PE median per stock. Required action: populate "
+                    "ev_ebitda_3y_median / pe_3y_median in the PIT fundamentals pipeline."
+                )
             logger.info(f"🎯 GENERATED BUY CANDIDATE ALERTS ({len(candidate_records)} STOCKS):")
             for idx, cand in enumerate(candidate_records, 1):
                 logger.info(f"  [{idx:02d}] {cand['symbol']:<12} | Tier={cand['tier']} | Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} | SignalDate={cand['signal_date']}")
             if not candidate_records:
-                logger.info("  (none — no stocks met all quality + valuation gates today)")
+                _zero_reason = "no stocks met all quality + valuation gates" if _valuation_provider_healthy else "valuation data unavailable for all stocks"
+                logger.info(f"  (none — {_zero_reason})")
             logger.info("=" * 80)
 
             return {
-                "status": "SUCCESS",
+                "status": _health_status,
+                "execution": "SUCCESS",
+                "strategy_status": "BLOCKED_DATA" if not _valuation_provider_healthy else ("OK" if candidate_count > 0 else "SCARCITY"),
+                "valuation_provider_healthy": _valuation_provider_healthy,
                 "total_scanned": total_scanned,
                 "quality_pass_count": quality_pass_count,
                 "value_pass_count": value_pass_count,
                 "candidate_count": candidate_count,
+                "quality_data_blocked_count": quality_data_blocked_count,
+                "valuation_data_blocked_count": valuation_data_blocked_count,
                 "data_blocked_count": data_blocked_count,
                 "snapshots_inserted": snapshots_inserted,
                 "candidates_inserted": candidates_inserted,
@@ -1966,12 +2044,38 @@ class QualityCompounderValueV2Scanner:
                         te = latest_filing.get('total_equity') if pd.notna(latest_filing.get('total_equity')) else None
                         de = (float(td) / float(te)) if te is not None and float(te) > 0 else (0.0 if float(td) == 0 else None)
 
-                        # Continuous valuation metrics from cache
+                        # ── VALUATION MULTIPLES ─────────────────────────────────────────────
+                        # Current multiples from cache snapshot
                         v_data = val_cache.get(sym, {})
-                        pe_curr = v_data.get('pe_fallback') or v_data.get('pe')
-                        pe_med = v_data.get('pe_3y_median')
-                        ev_curr = v_data.get('ev_ebitda')
-                        ev_med = v_data.get('ev_ebitda_3y_median')
+                        pe_curr = v_data.get('pe_fallback') or v_data.get('pe')   # current-period PE from cache
+                        pe_med  = v_data.get('pe_3y_median')                      # None — not in cache yet
+
+                        # Current EV/EBITDA: computed from PIT native fields + cache market_cap.
+                        # Formula: EV = Market Cap + Total Debt − Cash; EBITDA = Operating Profit + D&A
+                        # This is the ONLY valuation multiple computable without historical prices.
+                        _mcap   = v_data.get('market_cap')   # Crores, from cache snapshot
+                        _td     = latest_filing.get('total_debt')
+                        _cash   = latest_filing.get('cash_and_equivalents')
+                        _op     = latest_filing.get('operating_profit')
+                        _da     = latest_filing.get('depreciation_amortization')
+
+                        _mcap_f = float(_mcap) if _mcap is not None and pd.notna(_mcap) and float(_mcap) > 0 else None
+                        _td_f   = float(_td)   if _td   is not None and pd.notna(_td)   else 0.0
+                        _cash_f = float(_cash) if _cash  is not None and pd.notna(_cash)  else 0.0
+                        _op_f   = float(_op)   if _op   is not None and pd.notna(_op)   else None
+                        _da_f   = float(_da)   if _da   is not None and pd.notna(_da)   else 0.0
+
+                        ev_curr = None
+                        if _mcap_f is not None and _op_f is not None:
+                            _ebitda = _op_f + _da_f
+                            if _ebitda > 0:
+                                _ev = _mcap_f + _td_f - _cash_f
+                                ev_curr = round(_ev / _ebitda, 2)
+
+                        # 3Y EV/EBITDA median: REQUIRES historical share prices from Upstox.
+                        # Cannot be computed from PIT parquet alone — None until the
+                        # pit_valuation_history_builder pipeline is run.
+                        ev_med  = v_data.get('ev_ebitda_3y_median')              # None — pipeline not yet built
 
                         records.append({
                             'symbol': sym,
@@ -1983,14 +2087,33 @@ class QualityCompounderValueV2Scanner:
                             'cfo_pat_5y_ratio': cfo_pat,
                             'debt_to_equity': de,
                             'current_pe': pe_curr,
-                            'pe_3y_median': pe_med,
-                            'current_ev_ebitda': ev_curr,
-                            'ev_ebitda_3y_median': ev_med,
+                            'pe_3y_median': pe_med,        # None — requires Upstox historical prices
+                            'current_ev_ebitda': ev_curr,  # Real computed value from PIT + cache market_cap
+                            'ev_ebitda_3y_median': ev_med, # None — requires Upstox historical prices
                             'provenance_status': 'CERTIFIED_PIT_STATEMENT_CALCULATED'
                         })
 
                     pit_df = pd.DataFrame(records)
-                    logger.info(f"✅ Loaded and calculated certified PIT dataset from statement filings ({len(pit_df)} symbols)")
+                    # Valuation coverage report — logged at dataset build time
+                    _n = len(pit_df)
+                    _with_ev_curr = int(pit_df['current_ev_ebitda'].notna().sum())
+                    _with_ev_med  = int(pit_df['ev_ebitda_3y_median'].notna().sum())
+                    _with_pe_curr = int(pit_df['current_pe'].notna().sum())
+                    _with_pe_med  = int(pit_df['pe_3y_median'].notna().sum())
+                    logger.info(
+                        f"✅ Loaded and calculated certified PIT dataset from statement filings ({_n} symbols) | "
+                        f"CurrentEV/EBITDA: {_with_ev_curr}/{_n} | EV/EBITDA_3YMedian: {_with_ev_med}/{_n} "
+                        f"[REQUIRES Upstox historical prices] | "
+                        f"CurrentPE: {_with_pe_curr}/{_n} | PE_3YMedian: {_with_pe_med}/{_n} "
+                        f"[REQUIRES Upstox historical prices]"
+                    )
+                    if _with_ev_med == 0 and _with_pe_med == 0:
+                        logger.error(
+                            f"❌ [V2_FINAL] VALUATION_DATA_UNAVAILABLE: ev_ebitda_3y_median and pe_3y_median are "
+                            f"missing for ALL {_n} symbols. The valuation gate will block all stocks. "
+                            f"Action: run pit_valuation_history_builder.py to fetch Upstox historical prices "
+                            f"and compute 3Y median multiples per symbol."
+                        )
                     return pit_df
             except Exception as e:
                 logger.warning(f"Failed to process pit_fundamentals_v1.parquet: {e}")
