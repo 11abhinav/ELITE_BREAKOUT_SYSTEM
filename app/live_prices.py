@@ -196,4 +196,16 @@ def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[st
             cache[s] = time.time()
             logger.warning(f"🚫 Marking {s} as completely DEAD for 24h (failed across all configured providers).")
 
-    return prices
+    # Filter output dictionary strictly to requested input symbols (1-to-1 mapping, no duplicate alias inflation)
+    output_prices = {}
+    for s in symbols:
+        if not s or not isinstance(s, str):
+            continue
+        clean_s = str(s).replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
+        val = prices.get(s)
+        if val is None or float(val or 0) <= 0:
+            val = prices.get(clean_s)
+        if val is not None and float(val) > 0:
+            output_prices[s] = float(val)
+
+    return output_prices

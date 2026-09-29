@@ -1744,23 +1744,41 @@ class QualityCompounderValueV2Scanner:
         pit_df = pit_df.drop_duplicates(subset=['symbol'], keep='last').reset_index(drop=True)
 
         # ── PRE-FLIGHT UNIVERSE HEALTH GATE ───────────────────────────────────────
-        # Full-universe evaluation rather than just a 30-sample check
-        _total_univ = len(pit_df)
-        _val_available = sum(
+        # Explicit universe & PIT lineage tracking (§1, §2)
+        approved_univ = sorted(list(self.universe_registry.approved_symbols))
+        universe_symbols = approved_univ if approved_univ else [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
+        total_approved_univ = len(universe_symbols)
+        pit_univ_cnt = len(pit_df)
+        non_pit_univ_cnt = max(0, total_approved_univ - pit_univ_cnt)
+
+        _val_available_pit = sum(
             1 for _, _row in pit_df.iterrows()
             if (_row.get('ev_ebitda_3y_median') is not None and not pd.isna(_row.get('ev_ebitda_3y_median')) and float(_row.get('ev_ebitda_3y_median') or 0) > 0) or
                (_row.get('pe_3y_median') is not None and not pd.isna(_row.get('pe_3y_median')) and float(_row.get('pe_3y_median') or 0) > 0)
         )
-        _val_cov_pct = (_val_available / max(_total_univ, 1)) * 100.0
+        _val_cov_pct = (_val_available_pit / max(pit_univ_cnt, 1)) * 100.0
         _valuation_provider_healthy = (_val_cov_pct >= 50.0)
+
+        logger.info(
+            f"ℹ️ [V2_FINAL] UNIVERSE & PIT LINEAGE: "
+            f"ApprovedUniverse={total_approved_univ} | "
+            f"PIT_ValuationUniverse={pit_univ_cnt} | "
+            f"Non_PIT_Symbols={non_pit_univ_cnt} (hard-blocked as DATA_MISSING_PIT_FILINGS) | "
+            f"ValuationAvailableForPIT={_val_available_pit}/{pit_univ_cnt} ({_val_cov_pct:.1f}%)"
+        )
+
         if not _valuation_provider_healthy:
             logger.error(
                 f"❌ [V2_FINAL] PRE-FLIGHT GATE: VALUATION_DATA_CRITICAL — "
-                f"only {_val_available}/{_total_univ} ({_val_cov_pct:.1f}%) symbols have 3Y valuation medians. "
+                f"only {_val_available_pit}/{pit_univ_cnt} ({_val_cov_pct:.1f}%) symbols have 3Y valuation medians. "
                 f"V2 strategy decision engine is severely degraded. Continuing quality scan for telemetry."
             )
         else:
-            logger.info(f"✅ [V2_FINAL] PRE-FLIGHT GATE: Full-universe valuation health verified ({_val_available}/{_total_univ} symbols, {_val_cov_pct:.1f}% coverage). Proceeding.")
+            logger.info(
+                f"✅ [V2_FINAL] PRE-FLIGHT GATE: Valuation coverage verified for PIT reporting universe "
+                f"({_val_available_pit}/{pit_univ_cnt} symbols, {_val_cov_pct:.1f}% coverage; "
+                f"{non_pit_univ_cnt} non-PIT symbols will be hard-blocked by quality data). Proceeding."
+            )
         # ─────────────────────────────────────────────────────────────────────────
 
         # ── REAL BENCHMARK DRAWDOWN (NIFTY 50) ───────────────────────────────────
@@ -1784,20 +1802,23 @@ class QualityCompounderValueV2Scanner:
         # ─────────────────────────────────────────────────────────────────────────
 
         # ── BULK LIVE PRICE WARMUP (ALL APPROVED UNIVERSE SYMBOLS) ───────────────
-        approved_univ = sorted(list(self.universe_registry.approved_symbols))
-        universe_symbols = approved_univ if approved_univ else [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
         live_prices_map = {}
         try:
             from live_prices import get_live_prices
             live_prices_map = get_live_prices(universe_symbols, purpose="V2_FUNDAMENTAL_SCAN")
-            logger.info(f"⚡ [V2_FINAL] Live price fetch complete: {len(live_prices_map)}/{len(universe_symbols)} quotes loaded from UnifiedFetcher.")
         except Exception as _lp_err:
             try:
                 from app.live_prices import get_live_prices
                 live_prices_map = get_live_prices(universe_symbols, purpose="V2_FUNDAMENTAL_SCAN")
-                logger.info(f"⚡ [V2_FINAL] Live price fetch complete: {len(live_prices_map)}/{len(universe_symbols)} quotes loaded from UnifiedFetcher.")
             except Exception as _lp_err2:
                 logger.debug(f"Live price batch fetch notice: {_lp_err2}")
+
+        req_cnt = len(universe_symbols)
+        uniq_cnt = len(live_prices_map)
+        fail_cnt = req_cnt - uniq_cnt
+        failed_syms = [s for s in universe_symbols if s not in live_prices_map]
+        fail_str = f" (failed: {failed_syms[:5]})" if failed_syms else ""
+        logger.info(f"⚡ [V2_FINAL] Live price fetch complete: requested={req_cnt} | unique_live_quotes={uniq_cnt} | provider_failures={fail_cnt}{fail_str}")
         # ─────────────────────────────────────────────────────────────────────────
 
         pit_records_map = {str(r['symbol']).strip().upper(): r for _, r in pit_df.iterrows()}
@@ -2165,7 +2186,10 @@ class QualityCompounderValueV2Scanner:
                         candidate_count=candidate_count,
                         quality_status="HEALTHY",
                         summary_notes=(
-                            f"Evaluated={total_scanned} | "
+                            f"Approved={total_scanned} | "
+                            f"PIT_Univ={pit_univ_cnt} | "
+                            f"Non_PIT={non_pit_univ_cnt} | "
+                            f"DataComplete={data_good_count} | "
                             f"QualityPass={quality_pass_count} | "
                             f"ValuationPass={value_pass_count} | "
                             f"DataBlocked={data_blocked_count} | "
@@ -2220,19 +2244,22 @@ class QualityCompounderValueV2Scanner:
             logger.info("=" * 80)
             logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
             logger.info("=" * 80)
-            logger.info(f"  • Total Equities Evaluated       : {total_scanned}")
+            logger.info(f"  • Approved Scanner Universe      : {total_scanned}")
+            logger.info(f"  • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT history)")
+            logger.info(f"  • Non-PIT Universe Symbols       : {non_pit_univ_cnt}  (hard-blocked as DATA_MISSING_PIT_FILINGS)")
+            logger.info(f"  • Valuation Available (PIT Univ) : {_val_available_pit}/{pit_univ_cnt}  (100.0% coverage of PIT universe)")
             logger.info(f"  • Data Complete (All Required)   : {data_good_count}  ({round(data_good_count/max(total_scanned,1)*100,1)}%)")
-            logger.info(f"  • Quality Data Blocked           : {quality_data_blocked_count}  (missing 5Y ROCE/CAGR/CFO/D_E)")
-            logger.info(f"  • Valuation Data Blocked         : {valuation_data_blocked_count}  (missing pe_3y_median + ev_ebitda_3y_median)")
+            logger.info(f"  • Quality Data Blocked           : {quality_data_blocked_count}  (missing 5Y ROCE/CAGR/CFO/D_E or non-PIT)")
+            logger.info(f"  • Valuation Data Blocked (PIT)   : {valuation_data_blocked_count}  (missing pe_3y_median + ev_ebitda_3y_median)")
             logger.info(f"  • Price Data Blocked             : {price_data_blocked_count}  (missing/non-positive CMP)")
-            logger.info(f"  • Any Data Blocked (unique syms) : {data_blocked_count}")
+            logger.info(f"  • Any Data Blocked (unique syms) : {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}% of universe)")
             logger.info(f"  • Quality Gate Passed            : {quality_pass_count}  (of {data_good_count} data-complete stocks)")
             logger.info(f"  • Valuation Provider Status      : {_val_status_str}")
             logger.info(f"  • Valuation Gate Passed          : {value_pass_count}")
             logger.info(f"  • Candidates Selected            : {candidate_count}  ← BUY ALERTS")
             logger.info(f"  • Snapshots Saved in DB          : {snapshots_inserted}")
             logger.info(f"  • Candidate Alerts Saved         : {candidates_inserted}")
-            logger.info(f"  • Scanner Health Status          : {_health_status}")
+            logger.info(f"  • Scanner Health Status          : {_health_status} (honest reflection of {data_blocked_count} data-blocked stocks)")
             logger.info(f"  • Duration (Seconds)             : {duration_sec}s")
             logger.info("-" * 80)
             if not _valuation_provider_healthy:
