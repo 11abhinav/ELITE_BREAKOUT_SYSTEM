@@ -458,7 +458,7 @@ def build_pit_valuation_history(
 
 def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[str, Any]]:
     """
-    Loads certified PIT valuation medians cache from local disk, restores from database if missing,
+    Loads PIT valuation medians cache from local disk, restores from database if missing,
     or builds it on-the-fly from Upstox historical candles + PIT filings.
 
     Certification gate: a loaded or restored cache is only returned when
@@ -493,9 +493,12 @@ def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[s
                             f"Falling through to DB restore or fresh build."
                         )
                         continue  # Try next candidate path
+                    _cert_status = payload.get("certification_status") or ("CERTIFIED" if both_complete == len(data) and len(data) > 0 else "PARTIAL_INCOMPLETE")
+                    _cert_icon = "✅" if _cert_status == "CERTIFIED" else "⚠️"
                     logger.info(
-                        f"⚡ Loaded {len(data)} certified PIT valuation medians from local cache ({c_path}) "
-                        f"| Both-required={both_complete}/{len(data)} | EV={ev_count} | PE={pe_count}"
+                        f"{_cert_icon} Loaded PIT valuation cache from {c_path} "
+                        f"| certification_status={_cert_status} | "
+                        f"both_required={both_complete}/{len(data)} | EV={ev_count} | PE={pe_count}"
                     )
                     return data
             except Exception as e:
@@ -522,20 +525,24 @@ def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[s
                     )
                     # Fall through to fresh build below
                 else:
+                    _cert_status = "CERTIFIED" if both_complete == _n and _n > 0 else "PARTIAL_INCOMPLETE"
                     records = df_cache.to_dict(orient="records")
                     data = {r["symbol"]: r for r in records}
                     with open(VALUATION_CACHE_PATH, "w") as f:
                         json.dump({
                             "generated_at": datetime.now(IST).isoformat(),
+                            "certification_status": _cert_status,
                             "total_symbols": len(data),
                             "ev_ebitda_median_count": _ev,
                             "pe_median_count": _pe,
                             "both_required_complete_count": both_complete,
                             "data": data
                         }, f, indent=2)
+                    _cert_icon = "✅" if _cert_status == "CERTIFIED" else "⚠️"
                     logger.info(
-                        f"✅ Restored {len(data)} certified PIT valuation medians from database "
-                        f"| Both-required={both_complete}/{_n} | EV={_ev} | PE={_pe}"
+                        f"{_cert_icon} Restored PIT valuation cache from database "
+                        f"| certification_status={_cert_status} | "
+                        f"both_required={both_complete}/{_n} | EV={_ev} | PE={_pe}"
                     )
                     return data
     except Exception as e:

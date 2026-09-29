@@ -513,7 +513,7 @@ def verify_watchlist_is_pristine() -> bool:
             except Exception:
                 pass
 
-        # Restore certified PIT valuation history cache from DB if missing locally
+        # Restore PIT valuation history cache from DB if missing locally
         pit_val_json = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
         pit_val_parquet = os.path.join(DATA_DIR, "pit_valuation_history_cache.parquet")
         if not os.path.exists(pit_val_json) or os.path.getsize(pit_val_json) == 0:
@@ -523,9 +523,17 @@ def verify_watchlist_is_pristine() -> bool:
                     _df_vc = _pd.read_parquet(pit_val_parquet)
                     if not _df_vc.empty and "symbol" in _df_vc.columns:
                         _vc_dict = {r["symbol"]: r for r in _df_vc.to_dict(orient="records")}
+                        _b_c = sum(1 for r in _vc_dict.values() if (r.get('ev_ebitda_3y_median') is not None and not pd.isna(r.get('ev_ebitda_3y_median')) and float(r.get('ev_ebitda_3y_median') or 0) > 0) and (r.get('pe_3y_median') is not None and not pd.isna(r.get('pe_3y_median')) and float(r.get('pe_3y_median') or 0) > 0))
+                        _c_st = "CERTIFIED" if _b_c == len(_vc_dict) and len(_vc_dict) > 0 else "PARTIAL_INCOMPLETE"
                         with open(pit_val_json, "w") as _f_vc:
-                            json.dump({"total_symbols": len(_vc_dict), "data": _vc_dict}, _f_vc, indent=2)
-                        logger.info(f"✅ [DB] Restored {len(_vc_dict)} PIT valuation medians from database")
+                            json.dump({
+                                "total_symbols": len(_vc_dict),
+                                "both_required_complete_count": _b_c,
+                                "certification_status": _c_st,
+                                "data": _vc_dict
+                            }, _f_vc, indent=2)
+                        _c_icon = "✅" if _c_st == "CERTIFIED" else "⚠️"
+                        logger.info(f"{_c_icon} [DB] Restored {len(_vc_dict)} PIT valuation medians from database | certification_status={_c_st} | both_required={_b_c}/{len(_vc_dict)}")
             except Exception as _vc_err:
                 logger.debug(f"PIT valuation DB restore notice: {_vc_err}")
         elif os.path.exists(pit_val_parquet) and os.path.getsize(pit_val_parquet) > 0:

@@ -2126,13 +2126,16 @@ class QualityCompounderValueV2Scanner:
         _pe_curr_cnt = int(pit_df['current_pe'].notna().sum()) if 'current_pe' in pit_df.columns else 0
         _pe_med_cnt  = int(pit_df['pe_3y_median'].notna().sum()) if 'pe_3y_median' in pit_df.columns else 0
 
-        _val_available_pit = sum(
+        # Authoritative both-required completeness (EV 3Y median > 0 AND PE 3Y median > 0)
+        _both_complete_pit = sum(
             1 for _, _row in pit_df.iterrows()
-            if (_row.get('ev_ebitda_3y_median') is not None and not pd.isna(_row.get('ev_ebitda_3y_median')) and float(_row.get('ev_ebitda_3y_median') or 0) > 0) or
+            if (_row.get('ev_ebitda_3y_median') is not None and not pd.isna(_row.get('ev_ebitda_3y_median')) and float(_row.get('ev_ebitda_3y_median') or 0) > 0) and
                (_row.get('pe_3y_median') is not None and not pd.isna(_row.get('pe_3y_median')) and float(_row.get('pe_3y_median') or 0) > 0)
         )
-        _val_cov_pct = (_val_available_pit / max(pit_univ_cnt, 1)) * 100.0
-        _valuation_provider_healthy = (_val_cov_pct >= 50.0)
+        _val_missing_both_cnt = max(0, pit_univ_cnt - _both_complete_pit)
+        _both_cov_pct = (_both_complete_pit / max(pit_univ_cnt, 1)) * 100.0
+        _valuation_cache_cert_status = "CERTIFIED" if _both_complete_pit == pit_univ_cnt and pit_univ_cnt > 0 else "PARTIAL_INCOMPLETE"
+        _valuation_provider_healthy = (_both_cov_pct >= 50.0)
 
         logger.info(
             f"ℹ️ [V2_FINAL] UNIVERSE & PIT LINEAGE: "
@@ -2145,19 +2148,23 @@ class QualityCompounderValueV2Scanner:
             f"current_ev_ebitda={_ev_curr_cnt}/{pit_univ_cnt} ({_ev_curr_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
             f"ev_ebitda_3y_med={_ev_med_cnt}/{pit_univ_cnt} ({_ev_med_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
             f"current_pe={_pe_curr_cnt}/{pit_univ_cnt} ({_pe_curr_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
-            f"pe_3y_med={_pe_med_cnt}/{pit_univ_cnt} ({_pe_med_cnt/max(pit_univ_cnt,1)*100:.1f}%)"
+            f"pe_3y_med={_pe_med_cnt}/{pit_univ_cnt} ({_pe_med_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
+            f"Both_Required={_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%) | "
+            f"Cache_Status={_valuation_cache_cert_status}"
         )
 
         if not _valuation_provider_healthy:
             logger.error(
                 f"❌ [V2_FINAL] PRE-FLIGHT GATE: VALUATION_DATA_CRITICAL — "
-                f"only {_val_available_pit}/{pit_univ_cnt} ({_val_cov_pct:.1f}%) symbols have 3Y valuation medians. "
+                f"only {_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%) symbols have both required 3Y valuation medians. "
                 f"V2 strategy decision engine is severely degraded. Continuing quality scan for telemetry."
             )
         else:
             logger.info(
                 f"✅ [V2_FINAL] PRE-FLIGHT GATE: PIT DATASET PRESENT = {pit_univ_cnt}/{pit_univ_cnt} | "
-                f"VALUATION 3Y MEDIAN AVAILABILITY = {_val_available_pit}/{pit_univ_cnt} ({_val_cov_pct:.1f}%); "
+                f"VALUATION 3Y BOTH-REQUIRED AVAILABILITY = {_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%); "
+                f"VAL_MISSING_FOR_BOTH_REQUIRED = {_val_missing_both_cnt}; "
+                f"CERTIFICATION_STATUS = {_valuation_cache_cert_status}; "
                 f"{non_pit_univ_cnt} non-PIT symbols will be hard-blocked by data gate. Proceeding."
             )
         # ─────────────────────────────────────────────────────────────────────────
@@ -2639,18 +2646,18 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"     • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT statement history)")
             logger.info(f"     • Non-PIT / Missing PIT Filings  : {non_pit_blocked_count}  (hard-blocked as DATA_MISSING_PIT_FILINGS)")
             logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]")
-            logger.info(f"     • PIT Field Completeness         : EV/EBITDA_curr={_ev_curr_cnt}/{pit_univ_cnt}, EV/EBITDA_3Ymed={_ev_med_cnt}/{pit_univ_cnt}, PE_curr={_pe_curr_cnt}/{pit_univ_cnt}, PE_3Ymed={_pe_med_cnt}/{pit_univ_cnt}")
+            logger.info(f"     • PIT Field Completeness         : EV/EBITDA_curr={_ev_curr_cnt}/{pit_univ_cnt}, EV/EBITDA_3Ymed={_ev_med_cnt}/{pit_univ_cnt}, PE_curr={_pe_curr_cnt}/{pit_univ_cnt}, PE_3Ymed={_pe_med_cnt}/{pit_univ_cnt}, Both_Required={_both_complete_pit}/{pit_univ_cnt} (Cache: {_valuation_cache_cert_status})")
             logger.info("  2. DATA COMPLETENESS & BLOCKING RECONCILIATION:")
             logger.info(f"     • Complete Required Quality Data : {data_complete_count}  ({round(data_complete_count/max(total_scanned,1)*100,1)}% of universe — requires quality + valuation + price all present)")
             logger.info(f"     • Total Data Blocked             : {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}% of universe)")
             logger.info(f"       ├─ Non-PIT (no filing history) : {non_pit_blocked_count}")
             logger.info(f"       └─ PIT blocked (any required field missing) : {pit_univ_cnt - data_complete_count}  of {pit_univ_cnt} PIT symbols")
             logger.info(f"           ├─ Incomplete Quality History : {incomplete_quality_count}  (missing 5Y ROCE/CAGR/CFO/D_E)")
-            logger.info(f"           ├─ Valuation Data Unavailable : {valuation_data_blocked_count}  (missing 3Y EV/EBITDA & PE medians)")
+            logger.info(f"           ├─ Valuation Missing Both-Req : {_val_missing_both_cnt}  (lacks both 3Y EV/EBITDA + PE medians; {_both_complete_pit}/{pit_univ_cnt} complete)")
             logger.info(f"           └─ Price Data Missing         : {price_data_blocked_count}  (missing/non-positive CMP)")
             logger.info(f"       [Universe: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved]")
             logger.info(f"       [PIT Quality: {pit_univ_cnt - incomplete_quality_count} Quality-complete + {incomplete_quality_count} Quality-incomplete = {pit_univ_cnt} PIT]")
-            logger.info(f"       [PIT Valuation: {pit_univ_cnt - valuation_data_blocked_count} Valuation-available + {valuation_data_blocked_count} Valuation-missing = {pit_univ_cnt} PIT]")
+            logger.info(f"       [PIT Valuation: {_both_complete_pit} Valuation-available + {_val_missing_both_cnt} Valuation-missing = {pit_univ_cnt} PIT | Status: {_valuation_cache_cert_status}]")
             logger.info(f"       [Note: Valuation and Quality dimensions overlap — total-blocked is NOT their sum]")
             _quality_evaluated = pit_univ_cnt - incomplete_quality_count  # PIT symbols that had enough quality data to evaluate
             logger.info("  3. STRATEGY FILTER FUNNEL RECONCILIATION:")
@@ -2791,7 +2798,9 @@ class QualityCompounderValueV2Scanner:
                                         _j = json.load(f)
                                         pit_val_cache = _j.get("data", _j)
                                     if pit_val_cache:
-                                        logger.info(f"⚡ Loaded {len(pit_val_cache)} PIT valuation medians directly from {_cp}")
+                                        _both_c = sum(1 for r in pit_val_cache.values() if (r.get('ev_ebitda_3y_median') is not None and not pd.isna(r.get('ev_ebitda_3y_median')) and float(r.get('ev_ebitda_3y_median') or 0) > 0) and (r.get('pe_3y_median') is not None and not pd.isna(r.get('pe_3y_median')) and float(r.get('pe_3y_median') or 0) > 0))
+                                        _c_stat = _j.get("certification_status") or ("CERTIFIED" if _both_c == len(pit_val_cache) and len(pit_val_cache) > 0 else "PARTIAL_INCOMPLETE")
+                                        logger.info(f"⚡ Loaded {len(pit_val_cache)} PIT valuation medians directly from {_cp} | certification_status={_c_stat} | both_required={_both_c}/{len(pit_val_cache)}")
                                         break
                                 except Exception:
                                     pass
@@ -2804,7 +2813,9 @@ class QualityCompounderValueV2Scanner:
                                 _df_v = pd.read_parquet(_temp_p)
                                 if not _df_v.empty and "symbol" in _df_v.columns:
                                     pit_val_cache = {r["symbol"]: r for r in _df_v.to_dict(orient="records")}
-                                    logger.info(f"✅ Loaded {len(pit_val_cache)} PIT valuation medians from database")
+                                    _both_c = sum(1 for r in pit_val_cache.values() if (r.get('ev_ebitda_3y_median') is not None and not pd.isna(r.get('ev_ebitda_3y_median')) and float(r.get('ev_ebitda_3y_median') or 0) > 0) and (r.get('pe_3y_median') is not None and not pd.isna(r.get('pe_3y_median')) and float(r.get('pe_3y_median') or 0) > 0))
+                                    _c_stat = "CERTIFIED" if _both_c == len(pit_val_cache) and len(pit_val_cache) > 0 else "PARTIAL_INCOMPLETE"
+                                    logger.info(f"✅ Loaded {len(pit_val_cache)} PIT valuation medians from database | certification_status={_c_stat} | both_required={_both_c}/{len(pit_val_cache)}")
                         except Exception as _dbe:
                             logger.debug(f"DB valuation download notice: {_dbe}")
 
