@@ -1685,16 +1685,35 @@ class QualityCompounderValueV2Scanner:
 
             cmp_price = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
             if cmp_price <= 0.0:
-                p_path = os.path.join(DATA_DIR, "history", "1d", f"{sym}.parquet")
-                if os.path.exists(p_path):
-                    try:
-                        df_px = pd.read_parquet(p_path)
-                        if not df_px.empty:
-                            c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
-                            if c_col:
-                                cmp_price = float(df_px[c_col].iloc[-1])
-                    except Exception:
-                        pass
+                for _cdir in [DATA_DIR, os.path.join(BASE_DIR, "data"), os.path.join(os.getcwd(), "data"), "/app/data"]:
+                    p_path = os.path.join(_cdir, "history", "1d", f"{sym}.parquet")
+                    if os.path.exists(p_path):
+                        try:
+                            df_px = pd.read_parquet(p_path)
+                            if not df_px.empty:
+                                c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                                if c_col:
+                                    cmp_price = float(df_px[c_col].iloc[-1])
+                                    break
+                        except Exception:
+                            pass
+
+            # Dynamic real-time calculation from CMP + statement filings if multiples were not pre-calculated
+            if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and cmp_price > 0:
+                _sh = row.get('shares_outstanding')
+                _eb = row.get('ebitda')
+                _d = float(row.get('total_debt', 0.0) or 0.0)
+                _c = float(row.get('cash_and_equivalents', 0.0) or 0.0)
+                if _sh is not None and not pd.isna(_sh) and float(_sh) > 0 and _eb is not None and not pd.isna(_eb) and float(_eb) > 0:
+                    _mc = (float(_sh) * cmp_price) / 1e7
+                    _ev = _mc + _d - _c
+                    if _ev > 0:
+                        ev_ebitda_curr = round(_ev / float(_eb), 2)
+            if (pe_curr is None or pd.isna(pe_curr)) and cmp_price > 0:
+                _ep = row.get('eps')
+                if _ep is not None and not pd.isna(_ep) and float(_ep) > 0:
+                    pe_curr = round(cmp_price / float(_ep), 2)
+
             sma50 = float(row.get('sma50', cmp_price) or cmp_price)
             sma100 = float(row.get('sma100', cmp_price) or cmp_price)
             sma200 = float(row.get('sma200', cmp_price) or cmp_price)
@@ -2047,35 +2066,64 @@ class QualityCompounderValueV2Scanner:
                     raw_df['period_end_date'] = pd.to_datetime(raw_df['period_end_date'])
                     raw_df['filing_date'] = pd.to_datetime(raw_df['filing_date'])
 
-                    # Load valuation cache for continuous multiples
+                    # Load valuation cache for continuous multiples across candidate paths
                     val_cache = {}
-                    for v_name in ["multibagger_fundamentals_cache.json", "fundamentals_cache.json"]:
-                        v_path = os.path.join(DATA_DIR, v_name)
-                        if os.path.exists(v_path):
-                            try:
-                                with open(v_path) as f:
-                                    val_cache.update(json.load(f))
-                            except Exception:
-                                pass
+                    _val_cache_files = ["multibagger_fundamentals_cache.json", "fundamentals_cache.json"]
+                    _candidate_dirs = [
+                        DATA_DIR,
+                        os.path.join(BASE_DIR, "data"),
+                        os.path.join(os.getcwd(), "data"),
+                        "/app/data",
+                        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"
+                    ]
+                    for _cdir in _candidate_dirs:
+                        if not os.path.exists(_cdir):
+                            continue
+                        for v_name in _val_cache_files:
+                            v_path = os.path.join(_cdir, v_name)
+                            if os.path.exists(v_path):
+                                try:
+                                    with open(v_path) as f:
+                                        val_cache.update(json.load(f))
+                                except Exception:
+                                    pass
 
                     # Load certified PIT valuation medians cache (3Y EV/EBITDA & 3Y PE medians from Upstox + PIT)
                     pit_val_cache = {}
-                    try:
-                        from app.pit_valuation_history_builder import load_or_build_pit_valuation_cache
-                        pit_val_cache = load_or_build_pit_valuation_cache()
-                    except Exception:
+                    for _mod_name in ["app.pit_valuation_history_builder", "pit_valuation_history_builder"]:
                         try:
-                            from pit_valuation_history_builder import load_or_build_pit_valuation_cache
-                            pit_val_cache = load_or_build_pit_valuation_cache()
-                        except Exception as p_err:
-                            logger.debug(f"PIT valuation builder import notice: {p_err}")
-                            v_pit_path = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
-                            if os.path.exists(v_pit_path):
+                            _mod = __import__(_mod_name, fromlist=["load_or_build_pit_valuation_cache"])
+                            pit_val_cache = _mod.load_or_build_pit_valuation_cache()
+                            if pit_val_cache:
+                                break
+                        except Exception as _b_err:
+                            logger.debug(f"Builder import failed for {_mod_name}: {_b_err}")
+
+                    if not pit_val_cache:
+                        for _cdir in _candidate_dirs:
+                            _cp = os.path.join(_cdir, "pit_valuation_history_cache.json")
+                            if os.path.exists(_cp):
                                 try:
-                                    with open(v_pit_path) as f:
-                                        pit_val_cache = json.load(f).get("data", {})
+                                    with open(_cp) as f:
+                                        _j = json.load(f)
+                                        pit_val_cache = _j.get("data", _j)
+                                    if pit_val_cache:
+                                        logger.info(f"⚡ Loaded {len(pit_val_cache)} PIT valuation medians directly from {_cp}")
+                                        break
                                 except Exception:
                                     pass
+
+                    if not pit_val_cache:
+                        try:
+                            from database import download_parquet_from_db
+                            _temp_p = os.path.join(DATA_DIR, "pit_valuation_history_cache.parquet")
+                            if download_parquet_from_db("pit_valuation_history_cache", _temp_p):
+                                _df_v = pd.read_parquet(_temp_p)
+                                if not _df_v.empty and "symbol" in _df_v.columns:
+                                    pit_val_cache = {r["symbol"]: r for r in _df_v.to_dict(orient="records")}
+                                    logger.info(f"✅ Loaded {len(pit_val_cache)} PIT valuation medians from database")
+                        except Exception as _dbe:
+                            logger.debug(f"DB valuation download notice: {_dbe}")
 
                     records = []
                     for sym, g in raw_df.groupby('symbol'):
@@ -2109,38 +2157,60 @@ class QualityCompounderValueV2Scanner:
                         te = latest_filing.get('total_equity') if pd.notna(latest_filing.get('total_equity')) else None
                         de = (float(td) / float(te)) if te is not None and float(te) > 0 else (0.0 if float(td) == 0 else None)
 
+                        # Statement fundamentals for dynamic valuation
+                        _shares = latest_filing.get('shares_outstanding')
+                        _shares_f = float(_shares) if _shares is not None and pd.notna(_shares) and float(_shares) > 0 else None
+                        _eps = latest_filing.get('eps')
+                        _eps_f = float(_eps) if _eps is not None and pd.notna(_eps) and float(_eps) > 0 else None
+                        _net_p = latest_filing.get('net_profit')
+                        _net_p_f = float(_net_p) if _net_p is not None and pd.notna(_net_p) else None
+                        _op     = latest_filing.get('operating_profit')
+                        _da     = latest_filing.get('depreciation_amortization')
+                        _op_f   = float(_op)   if _op   is not None and pd.notna(_op)   else None
+                        _da_f   = float(_da)   if _da   is not None and pd.notna(_da)   else 0.0
+                        _td_f   = float(td)    if td    is not None and pd.notna(td)    else 0.0
+                        _cash   = latest_filing.get('cash_and_equivalents')
+                        _cash_f = float(_cash) if _cash  is not None and pd.notna(_cash)  else 0.0
+                        _ebitda_f = (_op_f + _da_f) if (_op_f is not None) else None
+
                         # ── VALUATION MULTIPLES ─────────────────────────────────────────────
-                        # Current multiples from cache snapshot
                         v_data = val_cache.get(sym, {})
                         pit_val = pit_val_cache.get(sym, {})
                         pe_curr = v_data.get('pe_fallback') or v_data.get('pe')   # current-period PE from cache
                         pe_med  = pit_val.get('pe_3y_median') or v_data.get('pe_3y_median')
+                        ev_med  = pit_val.get('ev_ebitda_3y_median') or v_data.get('ev_ebitda_3y_median')
 
-                        # Current EV/EBITDA: computed from PIT native fields + cache market_cap.
-                        # Formula: EV = Market Cap + Total Debt − Cash; EBITDA = Operating Profit + D&A
-                        _mcap   = v_data.get('market_cap')   # Crores, from cache snapshot
-                        _td     = latest_filing.get('total_debt')
-                        _cash   = latest_filing.get('cash_and_equivalents')
-                        _op     = latest_filing.get('operating_profit')
-                        _da     = latest_filing.get('depreciation_amortization')
-
+                        # Current Market Cap: from cache or fallback to latest 1D history Close
+                        _mcap = v_data.get('market_cap')
                         _mcap_f = float(_mcap) if _mcap is not None and pd.notna(_mcap) and float(_mcap) > 0 else None
-                        # Convert raw INR market_cap (>1e6) to INR Crores to match statement financials in Crores
                         _mcap_cr = (_mcap_f / 1e7) if (_mcap_f is not None and _mcap_f > 1e6) else _mcap_f
-                        _td_f   = float(_td)   if _td   is not None and pd.notna(_td)   else 0.0
-                        _cash_f = float(_cash) if _cash  is not None and pd.notna(_cash)  else 0.0
-                        _op_f   = float(_op)   if _op   is not None and pd.notna(_op)   else None
-                        _da_f   = float(_da)   if _da   is not None and pd.notna(_da)   else 0.0
+
+                        if _mcap_cr is None or pe_curr is None:
+                            for _cdir in _candidate_dirs:
+                                p_path = os.path.join(_cdir, "history", "1d", f"{sym}.parquet")
+                                if os.path.exists(p_path):
+                                    try:
+                                        df_px = pd.read_parquet(p_path)
+                                        if not df_px.empty:
+                                            c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                                            if c_col:
+                                                _px = float(df_px[c_col].iloc[-1])
+                                                if _mcap_cr is None and _px > 0:
+                                                    if _shares_f:
+                                                        _mcap_cr = (_shares_f * _px) / 1e7
+                                                    elif _net_p_f and _eps_f and _eps_f > 0:
+                                                        _mcap_cr = _net_p_f * (_px / _eps_f)
+                                                if pe_curr is None and _eps_f and _eps_f > 0 and _px > 0:
+                                                    pe_curr = round(_px / _eps_f, 2)
+                                        break
+                                    except Exception:
+                                        pass
 
                         ev_curr = None
-                        if _mcap_cr is not None and _op_f is not None:
-                            _ebitda = _op_f + _da_f
-                            if _ebitda > 0:
-                                _ev = _mcap_cr + _td_f - _cash_f
-                                ev_curr = round(_ev / _ebitda, 2)
-
-                        # 3Y EV/EBITDA median: sourced from certified PIT valuation pipeline
-                        ev_med  = pit_val.get('ev_ebitda_3y_median') or v_data.get('ev_ebitda_3y_median')
+                        if _mcap_cr is not None and _ebitda_f is not None and _ebitda_f > 0:
+                            _ev = _mcap_cr + _td_f - _cash_f
+                            if _ev > 0:
+                                ev_curr = round(_ev / _ebitda_f, 2)
 
                         records.append({
                             'symbol': sym,
@@ -2152,6 +2222,11 @@ class QualityCompounderValueV2Scanner:
                             'pat_cagr_5y': pat_cagr,
                             'cfo_pat_5y_ratio': cfo_pat,
                             'debt_to_equity': de,
+                            'shares_outstanding': _shares_f,
+                            'eps': _eps_f,
+                            'ebitda': _ebitda_f,
+                            'total_debt': _td_f,
+                            'cash_and_equivalents': _cash_f,
                             'current_pe': pe_curr,
                             'pe_3y_median': pe_med,
                             'current_ev_ebitda': ev_curr,

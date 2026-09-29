@@ -222,17 +222,25 @@ def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[s
     Loads certified PIT valuation medians cache from local disk, restores from database if missing,
     or builds it on-the-fly from Upstox historical candles + PIT filings.
     """
-    # 1. Try local cache
-    if os.path.exists(VALUATION_CACHE_PATH):
-        try:
-            with open(VALUATION_CACHE_PATH, "r") as f:
-                payload = json.load(f)
-            data = payload.get("data", {})
-            if data and len(data) > 0:
-                logger.info(f"⚡ Loaded {len(data)} certified PIT valuation medians from local cache ({VALUATION_CACHE_PATH})")
-                return data
-        except Exception as e:
-            logger.warning(f"Error loading local valuation cache: {e}")
+    # 1. Try local cache across candidate directories
+    candidate_paths = [
+        VALUATION_CACHE_PATH,
+        os.path.join(REPO_ROOT, "data", "pit_valuation_history_cache.json"),
+        os.path.join(os.getcwd(), "data", "pit_valuation_history_cache.json"),
+        "/app/data/pit_valuation_history_cache.json",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_valuation_history_cache.json"
+    ]
+    for c_path in candidate_paths:
+        if os.path.exists(c_path):
+            try:
+                with open(c_path, "r") as f:
+                    payload = json.load(f)
+                data = payload.get("data", {})
+                if data and len(data) > 0:
+                    logger.info(f"⚡ Loaded {len(data)} certified PIT valuation medians from local cache ({c_path})")
+                    return data
+            except Exception as e:
+                logger.warning(f"Error loading local valuation cache from {c_path}: {e}")
 
     # 2. Try DB restore
     try:
