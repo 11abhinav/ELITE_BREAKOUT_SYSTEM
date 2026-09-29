@@ -1631,41 +1631,57 @@ class QualityCompounderValueV2Scanner:
         candidate_count = 0
         quality_data_blocked_count = 0    # unique symbols with missing quality fields
         valuation_data_blocked_count = 0  # unique symbols with missing valuation fields
-        data_blocked_count = 0            # unique symbols with ANY missing field (quality OR valuation)
+        price_data_blocked_count = 0      # unique symbols with missing or non-positive price
+        data_blocked_count = 0            # unique symbols with ANY missing required field (quality, valuation, OR price)
 
         # Filter to latest PIT record per symbol on or before today
         if 'filing_date' in pit_df.columns:
             pit_df['filing_date'] = pd.to_datetime(pit_df['filing_date'])
             pit_df = pit_df[pit_df['filing_date'] <= pd.to_datetime(today_str)].sort_values('filing_date').groupby('symbol').last().reset_index()
 
-        # ── PRE-FLIGHT VALUATION HEALTH GATE ──────────────────────────────────────
-        # Sample up to 30 symbols from the PIT dataset to check if valuation data
-        # (pe_3y_median or ev_ebitda_3y_median) is actually populated.
-        # If ZERO of the sampled symbols have any valuation, the valuation provider
-        # is completely unavailable and we must flag this before the main loop.
-        _sample_size = min(30, len(pit_df))
-        _val_available = 0
-        for _, _row in pit_df.head(_sample_size).iterrows():
-            _ev_med = _row.get('ev_ebitda_3y_median', _row.get('ev_to_ebitda_3y_median', _row.get('ev_ebitda_median')))
-            _pe_med = _row.get('pe_3y_median', _row.get('pe_ratio_3y_median'))
-            if (_ev_med is not None and not pd.isna(_ev_med) and float(_ev_med) > 0) or \
-               (_pe_med is not None and not pd.isna(_pe_med) and float(_pe_med) > 0):
-                _val_available += 1
-        _valuation_provider_healthy = (_val_available > 0)
+        # Deduplicate and canonicalize symbols
+        pit_df['symbol'] = pit_df['symbol'].astype(str).str.strip().str.upper()
+        pit_df = pit_df.drop_duplicates(subset=['symbol'], keep='last').reset_index(drop=True)
+
+        # ── PRE-FLIGHT UNIVERSE HEALTH GATE ───────────────────────────────────────
+        # Full-universe evaluation rather than just a 30-sample check
+        _total_univ = len(pit_df)
+        _val_available = sum(
+            1 for _, _row in pit_df.iterrows()
+            if (_row.get('ev_ebitda_3y_median') is not None and not pd.isna(_row.get('ev_ebitda_3y_median')) and float(_row.get('ev_ebitda_3y_median') or 0) > 0) or
+               (_row.get('pe_3y_median') is not None and not pd.isna(_row.get('pe_3y_median')) and float(_row.get('pe_3y_median') or 0) > 0)
+        )
+        _val_cov_pct = (_val_available / max(_total_univ, 1)) * 100.0
+        _valuation_provider_healthy = (_val_cov_pct >= 50.0)
         if not _valuation_provider_healthy:
             logger.error(
-                f"❌ [V2_FINAL] PRE-FLIGHT GATE: VALUATION_DATA_UNAVAILABLE — "
-                f"0/{_sample_size} sampled symbols have pe_3y_median or ev_ebitda_3y_median. "
-                f"Continuing quality scan for telemetry but NO BUY alerts can be generated. "
-                f"Required: real 3Y EV/EBITDA or PE median per symbol from the valuation pipeline."
+                f"❌ [V2_FINAL] PRE-FLIGHT GATE: VALUATION_DATA_CRITICAL — "
+                f"only {_val_available}/{_total_univ} ({_val_cov_pct:.1f}%) symbols have 3Y valuation medians. "
+                f"V2 strategy decision engine is severely degraded. Continuing quality scan for telemetry."
             )
         else:
-            logger.info(f"✅ [V2_FINAL] PRE-FLIGHT GATE: Valuation data available ({_val_available}/{_sample_size} sampled symbols). Proceeding.")
+            logger.info(f"✅ [V2_FINAL] PRE-FLIGHT GATE: Full-universe valuation health verified ({_val_available}/{_total_univ} symbols, {_val_cov_pct:.1f}% coverage). Proceeding.")
+        # ─────────────────────────────────────────────────────────────────────────
+
+        # ── BULK LIVE PRICE WARMUP ────────────────────────────────────────────────
+        universe_symbols = [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
+        live_prices_map = {}
+        try:
+            from live_prices import get_live_prices
+            live_prices_map = get_live_prices(universe_symbols, purpose="V2_FUNDAMENTAL_SCAN")
+            logger.info(f"⚡ [V2_FINAL] Live price fetch complete: {len(live_prices_map)}/{len(universe_symbols)} quotes loaded from UnifiedFetcher.")
+        except Exception as _lp_err:
+            try:
+                from app.live_prices import get_live_prices
+                live_prices_map = get_live_prices(universe_symbols, purpose="V2_FUNDAMENTAL_SCAN")
+                logger.info(f"⚡ [V2_FINAL] Live price fetch complete: {len(live_prices_map)}/{len(universe_symbols)} quotes loaded from UnifiedFetcher.")
+            except Exception as _lp_err2:
+                logger.debug(f"Live price batch fetch notice: {_lp_err2}")
         # ─────────────────────────────────────────────────────────────────────────
 
         for _, row in pit_df.iterrows():
             total_scanned += 1
-            sym = str(row['symbol']).upper()
+            sym = str(row['symbol']).strip().upper()
             industry = str(row.get('industry', 'Unknown'))
             mcap = float(row.get('market_cap', row.get('mcap', 1000.0)) or 1000.0)
             adtv_90d = float(row.get('adtv_90d', row.get('adtv', 2.0)) or 2.0)
@@ -1683,7 +1699,38 @@ class QualityCompounderValueV2Scanner:
             pe_curr = row.get('current_pe', row.get('pe_ratio', row.get('pe', row.get('pe_fallback'))))
             pe_med = row.get('pe_3y_median', row.get('pe_ratio_3y_median'))
 
-            cmp_price = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
+            # Provenance tracking from statement calculations
+            growth_start_period = row.get('growth_start_period')
+            growth_end_period = row.get('growth_end_period')
+            growth_years_elapsed = row.get('growth_years_elapsed')
+            financial_periods_used = row.get('financial_periods_used')
+            roce_periods_used = row.get('roce_periods_used')
+
+            cmp_price = 0.0
+            price_source = "UNRESOLVED"
+
+            # 1. Primary: live quote from live_prices_map
+            if sym in live_prices_map and live_prices_map[sym] is not None and float(live_prices_map[sym]) > 0:
+                cmp_price = float(live_prices_map[sym])
+                price_source = "LIVE_QUOTE"
+            else:
+                try:
+                    from live_prices import get_cached_live_price
+                    _ram_px = get_cached_live_price(sym)
+                    if _ram_px and float(_ram_px) > 0:
+                        cmp_price = float(_ram_px)
+                        price_source = "RAM_CACHE"
+                except Exception:
+                    pass
+
+            # 2. Secondary: row['current_price'] or row['close']
+            if cmp_price <= 0.0:
+                _row_px = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
+                if _row_px > 0.0:
+                    cmp_price = _row_px
+                    price_source = "PIT_DATASET"
+
+            # 3. Tertiary: certified local 1d history parquet
             if cmp_price <= 0.0:
                 for _cdir in [DATA_DIR, os.path.join(BASE_DIR, "data"), os.path.join(os.getcwd(), "data"), "/app/data"]:
                     p_path = os.path.join(_cdir, "history", "1d", f"{sym}.parquet")
@@ -1694,6 +1741,7 @@ class QualityCompounderValueV2Scanner:
                                 c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
                                 if c_col:
                                     cmp_price = float(df_px[c_col].iloc[-1])
+                                    price_source = "HISTORICAL_1D_PARQUET"
                                     break
                         except Exception:
                             pass
@@ -1731,10 +1779,17 @@ class QualityCompounderValueV2Scanner:
             if adtv_90d < 2.0:
                 rejections.append("FAIL_LIQUIDITY")
 
+            # Missing Price Check — HARD BLOCK for candidate selection
+            price_data_missing = (cmp_price is None or cmp_price <= 0.0)
+            if price_data_missing:
+                rejections.append("DATA_INSUFFICIENT_PRICE")
+                price_data_blocked_count += 1
+
             # Missing Quality Data check — STOPS candidate from passing if any real fundamental metric is missing
             quality_data_missing = any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio])
             if quality_data_missing:
                 rejections.append("DATA_INSUFFICIENT_QUALITY")
+                quality_data_blocked_count += 1
             else:
                 roce_val = float(roce_5y)
                 sales_val = float(sales_cagr_5y)
@@ -1757,9 +1812,6 @@ class QualityCompounderValueV2Scanner:
                     quality_pass_count += 1
 
             # ── VALUE GATE ────────────────────────────────────────────────────────
-            # ev_discount = None means the required data is MISSING.
-            # NEVER use 0.0 as a sentinel for missing valuation — 0.0 means "current
-            # multiple equals the historical median", which is a valid real measurement.
             ev_discount = None   # None = valuation data unavailable (DATA_INSUFFICIENT)
             pe_discount = None   # None = PE comparison data unavailable
             calc_discount = None
@@ -1787,8 +1839,8 @@ class QualityCompounderValueV2Scanner:
                 if value_gate_passed:
                     value_pass_count += 1
 
-            # Count symbol as data-blocked ONCE (even if both quality and valuation data are missing)
-            if quality_data_missing or valuation_data_missing:
+            # Count symbol as data-blocked ONCE (if ANY quality, valuation, OR price data missing)
+            if quality_data_missing or valuation_data_missing or price_data_missing:
                 data_blocked_count += 1
 
             # Drawdown & Tiering
@@ -1799,7 +1851,14 @@ class QualityCompounderValueV2Scanner:
 
             score_100 = self.compute_100pt_score(row.to_dict(), ev_discount, pe_discount, res_dd)
 
-            is_candidate = quality_gate_passed and value_gate_passed and len(rejections) == 0
+            # Strict Invariant: Candidate must satisfy quality, value, AND have valid live/verifiable CMP > 0
+            is_candidate = (
+                quality_gate_passed and 
+                value_gate_passed and 
+                not price_data_missing and 
+                cmp_price > 0.0 and 
+                len(rejections) == 0
+            )
             if is_candidate:
                 candidate_count += 1
 
@@ -1808,18 +1867,20 @@ class QualityCompounderValueV2Scanner:
 
             # Gap Analysis: What exact data/metrics are needed for this stock to pass and trigger an alert?
             required_improvements = []
+            if price_data_missing:
+                required_improvements.append(f"CMP > 0.0 (Current: ₹{cmp_price:.2f} — source: {price_source})")
             if roce_5y is None or pd.isna(roce_5y) or float(roce_5y) < 15.0:
                 cur_v = f"{float(roce_5y):.1f}%" if roce_5y is not None and not pd.isna(roce_5y) else "N/A"
-                required_improvements.append(f"ROCE >= 15.0% (Current: {cur_v})")
+                required_improvements.append(f"5Y Avg ROCE >= 15.0% (Current: {cur_v})")
             if sales_cagr_5y is None or pd.isna(sales_cagr_5y) or float(sales_cagr_5y) < 10.0:
                 cur_v = f"{float(sales_cagr_5y):.1f}%" if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else "N/A"
-                required_improvements.append(f"Sales CAGR >= 10.0% (Current: {cur_v})")
+                required_improvements.append(f"5Y Sales CAGR >= 10.0% (Current: {cur_v})")
             if pat_cagr_5y is None or pd.isna(pat_cagr_5y) or float(pat_cagr_5y) < 10.0:
                 cur_v = f"{float(pat_cagr_5y):.1f}%" if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else "N/A"
-                required_improvements.append(f"PAT CAGR >= 10.0% (Current: {cur_v})")
+                required_improvements.append(f"5Y PAT CAGR >= 10.0% (Current: {cur_v})")
             if cfo_pat_5y is None or pd.isna(cfo_pat_5y) or float(cfo_pat_5y) < 0.80:
                 cur_v = f"{float(cfo_pat_5y):.2f}" if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else "N/A"
-                required_improvements.append(f"CFO/PAT >= 0.80 (Current: {cur_v})")
+                required_improvements.append(f"5Y Cum CFO/PAT >= 0.80 (Current: {cur_v})")
             if de_ratio is not None and not pd.isna(de_ratio) and float(de_ratio) > 0.50:
                 required_improvements.append(f"Debt/Equity <= 0.50 (Current: {float(de_ratio):.2f})")
             # Valuation: None means DATA_INSUFFICIENT, not a failed discount
@@ -1834,7 +1895,8 @@ class QualityCompounderValueV2Scanner:
             logger.info(
                 f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status={telemetry_status:<9} | "
                 f"FailedAt={primary_rejection:<28} | Rejections={rejections} | "
-                f"Metrics=[roce={roce_5y}, sales_cagr={sales_cagr_5y}, pat_cagr={pat_cagr_5y}, cfo_pat={cfo_pat_5y}, d_e={de_ratio}, ev_discount={ev_disc_str}] | "
+                f"CMP=₹{cmp_price:<8.2f} (Source={price_source}) | "
+                f"Metrics=[roce_5y={roce_5y}, sales_cagr_5y={sales_cagr_5y}, pat_cagr_5y={pat_cagr_5y}, cfo_pat_5y={cfo_pat_5y}, d_e={de_ratio}, ev_discount={ev_disc_str}] | "
                 f"ValuationDetails=[EV_curr={ev_ebitda_curr}, EV_3Y_med={ev_ebitda_med}, PE_curr={pe_curr}, PE_3Y_med={pe_med}] | "
                 f"RequiredToPass={required_improvements if required_improvements else ['NONE (PASSING CANDIDATE)']}"
             )
@@ -1848,6 +1910,12 @@ class QualityCompounderValueV2Scanner:
                 "market_cap_cr": round(mcap, 2),
                 "adtv_90d_cr": round(adtv_90d, 2),
                 "current_price": round(cmp_price, 2),
+                "price_source": price_source,
+                "growth_start_period": growth_start_period,
+                "growth_end_period": growth_end_period,
+                "growth_years_elapsed": growth_years_elapsed,
+                "financial_periods_used": financial_periods_used,
+                "roce_periods_used": roce_periods_used,
                 "roce_5y_avg": round(float(roce_5y), 2) if roce_5y is not None and not pd.isna(roce_5y) else None,
                 "sales_cagr_5y": round(float(sales_cagr_5y), 2) if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else None,
                 "pat_cagr_5y": round(float(pat_cagr_5y), 2) if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else None,
@@ -1891,17 +1959,20 @@ class QualityCompounderValueV2Scanner:
             snapshot_records.append(snapshot_rec)
 
             if is_candidate:
-                candidate_rec = {
-                    "symbol": sym,
-                    "entry_price": cmp_price,
-                    "current_price": cmp_price,
-                    "watchlist_state": "GREEN",
-                    "tier": tier,
-                    "ranking_score": score_100,
-                    "signal_date": today_str,
-                    "context": ctx
-                }
-                candidate_records.append(candidate_rec)
+                if cmp_price <= 0.0:
+                    logger.error(f"❌ [ZERO_PRICE_GUARD_BLOCKED] {sym} met gates but CMP is ₹{cmp_price:.2f} — BUY alert generation BLOCKED.")
+                else:
+                    candidate_rec = {
+                        "symbol": sym,
+                        "entry_price": cmp_price,
+                        "current_price": cmp_price,
+                        "watchlist_state": "GREEN",
+                        "tier": tier,
+                        "ranking_score": score_100,
+                        "signal_date": today_str,
+                        "context": ctx
+                    }
+                    candidate_records.append(candidate_rec)
 
         # Persist ONLY genuine candidate alerts to alerts table
         try:
@@ -1913,7 +1984,7 @@ class QualityCompounderValueV2Scanner:
                     candidates_inserted += 1
                     logger.info(
                         f"🚀 [BUY_ALERT: V2] {cand['symbol']:<12} | Tier={cand['tier']} | "
-                        f"Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} | Status={msg}"
+                        f"Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} (Source={cand['context'].get('price_source', 'UNKNOWN')}) | Status={msg}"
                     )
 
             duration_sec = round(time.time() - start_ts, 2)
@@ -1938,21 +2009,27 @@ class QualityCompounderValueV2Scanner:
                     logger.debug(f"Execution history completion warning: {e}")
 
             # ── POST-SCAN HEALTH STATUS ───────────────────────────────────────────
-            # Distinguish execution health (did the code run?) from strategy health
-            # (did the strategy have its required data?)
-            # Rule: if valuation data was unavailable for >= 95% of evaluated stocks,
-            # the scanner is DATA_BLOCKED, not OK.
-            _val_block_pct = valuation_data_blocked_count / max(total_scanned, 1)
-            _health_status = "OK" if (_val_block_pct < 0.95 and candidate_count >= 0) else "DATA_BLOCKED"
-            _health_error = None
-            if _health_status == "DATA_BLOCKED":
-                _health_error = (
-                    f"VALUATION_DATA_UNAVAILABLE: {valuation_data_blocked_count}/{total_scanned} symbols "
-                    f"have missing pe_3y_median and ev_ebitda_3y_median. "
-                    f"V2 strategy decision engine is BLOCKED — 0 genuine valuation passes possible. "
-                    f"Action required: populate valuation history in the PIT pipeline."
-                )
-                logger.error(f"🚫 [V2_FINAL] STRATEGY STATUS=BLOCKED_DATA | {_health_error}")
+            # Health reflects real data completeness and candidate integrity:
+            # 1. Any candidate created with CMP <= 0 -> BLOCKED (Defect)
+            # 2. Valuation unavailable for >= 50% -> DATA_BLOCKED
+            # 3. Data blocked ratio > 15% -> DEGRADED
+            # 4. Otherwise -> OK
+            zero_price_candidates = [c for c in candidate_records if float(c.get("current_price", 0) or 0) <= 0]
+            if zero_price_candidates:
+                _health_status = "BLOCKED"
+                _health_error = f"ZERO_PRICE_CANDIDATE_DEFECT: {len(zero_price_candidates)} candidates produced with CMP <= 0"
+            elif valuation_data_blocked_count / max(total_scanned, 1) >= 0.50:
+                _health_status = "DATA_BLOCKED"
+                _health_error = f"VALUATION_DATA_UNAVAILABLE: {valuation_data_blocked_count}/{total_scanned} symbols missing 3Y medians"
+            elif data_blocked_count / max(total_scanned, 1) > 0.15:
+                _health_status = "DEGRADED"
+                _health_error = f"DATA_DEGRADED: {data_blocked_count}/{total_scanned} ({data_blocked_count/max(total_scanned,1)*100:.1f}%) symbols data-blocked"
+            else:
+                _health_status = "OK"
+                _health_error = None
+
+            if _health_error:
+                logger.warning(f"⚠️ [V2_FINAL] SCANNER HEALTH: {_health_status} | {_health_error}")
 
             if upsert_scanner_health is not None:
                 try:
@@ -1960,7 +2037,7 @@ class QualityCompounderValueV2Scanner:
                         "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                         status=_health_status,
                         today_alerts=candidate_count,          # 0 when no candidates
-                        last_success=now_ist.isoformat() if _health_status == "OK" else None,
+                        last_success=now_ist.isoformat() if _health_status in ("OK", "DEGRADED") else None,
                         processed_count=candidate_count,       # alerts generated
                         total_count=total_scanned,             # equities evaluated
                         duration_seconds=duration_sec,
@@ -1977,13 +2054,14 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
             logger.info("=" * 80)
             logger.info(f"  • Total Equities Evaluated       : {total_scanned}")
-            logger.info(f"  • Data Complete (any field OK)   : {data_good_count}  ({round(data_good_count/max(total_scanned,1)*100,1)}%)")
-            logger.info(f"  • Quality Data Blocked           : {quality_data_blocked_count}  (missing ROCE/CAGR/CFO/D_E)")
+            logger.info(f"  • Data Complete (All Required)   : {data_good_count}  ({round(data_good_count/max(total_scanned,1)*100,1)}%)")
+            logger.info(f"  • Quality Data Blocked           : {quality_data_blocked_count}  (missing 5Y ROCE/CAGR/CFO/D_E)")
             logger.info(f"  • Valuation Data Blocked         : {valuation_data_blocked_count}  (missing pe_3y_median + ev_ebitda_3y_median)")
+            logger.info(f"  • Price Data Blocked             : {price_data_blocked_count}  (missing/non-positive CMP)")
             logger.info(f"  • Any Data Blocked (unique syms) : {data_blocked_count}")
             logger.info(f"  • Quality Gate Passed            : {quality_pass_count}  (of {data_good_count} data-complete stocks)")
             logger.info(f"  • Valuation Provider Status      : {_val_status_str}")
-            logger.info(f"  • Valuation Gate Passed          : {value_pass_count}  ({'genuine passes' if _valuation_provider_healthy else 'N/A — valuation data missing for all'})")
+            logger.info(f"  • Valuation Gate Passed          : {value_pass_count}")
             logger.info(f"  • Candidates Selected            : {candidate_count}  ← BUY ALERTS")
             logger.info(f"  • Snapshots Saved in DB          : {snapshots_inserted}")
             logger.info(f"  • Candidate Alerts Saved         : {candidates_inserted}")
@@ -1999,7 +2077,7 @@ class QualityCompounderValueV2Scanner:
                 )
             logger.info(f"🎯 GENERATED BUY CANDIDATE ALERTS ({len(candidate_records)} STOCKS):")
             for idx, cand in enumerate(candidate_records, 1):
-                logger.info(f"  [{idx:02d}] {cand['symbol']:<12} | Tier={cand['tier']} | Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} | SignalDate={cand['signal_date']}")
+                logger.info(f"  [{idx:02d}] {cand['symbol']:<12} | Tier={cand['tier']} | Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} (Source={cand['context'].get('price_source', 'UNKNOWN')}) | SignalDate={cand['signal_date']}")
             if not candidate_records:
                 _zero_reason = "no stocks met all quality + valuation gates" if _valuation_provider_healthy else "valuation data unavailable for all stocks"
                 logger.info(f"  (none — {_zero_reason})")
@@ -2016,6 +2094,7 @@ class QualityCompounderValueV2Scanner:
                 "candidate_count": candidate_count,
                 "quality_data_blocked_count": quality_data_blocked_count,
                 "valuation_data_blocked_count": valuation_data_blocked_count,
+                "price_data_blocked_count": price_data_blocked_count,
                 "data_blocked_count": data_blocked_count,
                 "snapshots_inserted": snapshots_inserted,
                 "candidates_inserted": candidates_inserted,
@@ -2128,30 +2207,58 @@ class QualityCompounderValueV2Scanner:
 
                     records = []
                     for sym, g in raw_df.groupby('symbol'):
+                        clean_sym = str(sym).strip().upper()
                         g = g.sort_values('period_end_date')
                         n = len(g)
                         latest_filing = g.iloc[-1]
 
-                        # ROCE / ROE
-                        roce = latest_filing.get('roce') if pd.notna(latest_filing.get('roce')) else None
-                        roe = latest_filing.get('roe') if pd.notna(latest_filing.get('roe')) else None
-                        roce_eff = roce if roce is not None else roe
+                        # ── 1. 5Y AVERAGE ROCE / ROE (Mean of trailing up to 5 annual filings) ──
+                        roce_series = g['roce'].dropna()
+                        trailing_roce = [float(x) for x in roce_series][-5:]
+                        roce_eff = None
+                        roce_periods_used = 0
+                        if trailing_roce:
+                            roce_eff = round(sum(trailing_roce) / len(trailing_roce), 2)
+                            roce_periods_used = len(trailing_roce)
+                        else:
+                            roe_series = g['roe'].dropna()
+                            trailing_roe = [float(x) for x in roe_series][-5:]
+                            if trailing_roe:
+                                roce_eff = round(sum(trailing_roe) / len(trailing_roe), 2)
+                                roce_periods_used = len(trailing_roe)
 
-                        # Multi-year Revenue CAGR & PAT CAGR
+                        # ── 2. 5Y CUMULATIVE CFO / PAT RATIO (Trailing up to 5 annual filings) ──
+                        trailing_g = g.iloc[-5:] if n >= 5 else g
+                        sum_cfo = trailing_g['operating_cash_flow'].dropna().sum()
+                        sum_pat = trailing_g['net_profit'].dropna().sum()
+                        cfo_pat = None
+                        if sum_pat is not None and not pd.isna(sum_pat) and float(sum_pat) > 0 and len(trailing_g) >= 1:
+                            cfo_pat = round(float(sum_cfo) / float(sum_pat), 2)
+
+                        # ── 3. 5Y CAGR (Sales CAGR & PAT CAGR across trailing up to 5 years) ──
+                        k_cagr = min(5, n - 1)
                         rev_cagr, pat_cagr = None, None
-                        if n >= 2:
-                            r0, r1 = g['revenue'].iloc[0], g['revenue'].iloc[-1]
-                            p0, p1 = g['net_profit'].iloc[0], g['net_profit'].iloc[-1]
-                            yrs = max(1.0, (g['period_end_date'].iloc[-1] - g['period_end_date'].iloc[0]).days / 365.25)
-                            if r0 and r0 > 0 and r1 and r1 > 0:
-                                rev_cagr = (pow(r1 / r0, 1.0 / yrs) - 1.0) * 100.0
-                            if p0 and p0 > 0 and p1 and p1 > 0:
-                                pat_cagr = (pow(p1 / p0, 1.0 / yrs) - 1.0) * 100.0
+                        growth_start_period, growth_end_period = None, None
+                        growth_yrs = 0.0
+                        if k_cagr >= 2:
+                            start_row = g.iloc[-k_cagr - 1]
+                            end_row = g.iloc[-1]
+                            start_date = pd.to_datetime(start_row['period_end_date'])
+                            end_date = pd.to_datetime(end_row['period_end_date'])
+                            growth_yrs = max(1.0, (end_date - start_date).days / 365.25)
+                            growth_start_period = str(start_date)[:10]
+                            growth_end_period = str(end_date)[:10]
 
-                        # CFO / PAT Ratio
-                        ocf = latest_filing.get('operating_cash_flow') if pd.notna(latest_filing.get('operating_cash_flow')) else None
-                        pat = latest_filing.get('net_profit') if pd.notna(latest_filing.get('net_profit')) else None
-                        cfo_pat = (float(ocf) / float(pat)) if ocf is not None and pat is not None and float(pat) > 0 else None
+                            r0 = float(start_row.get('revenue', 0.0) or 0.0)
+                            r1 = float(end_row.get('revenue', 0.0) or 0.0)
+                            p0 = float(start_row.get('net_profit', 0.0) or 0.0)
+                            p1 = float(end_row.get('net_profit', 0.0) or 0.0)
+
+                            # Denominator guards: CAGR is mathematically undefined over non-positive base
+                            if r0 > 0 and r1 > 0:
+                                rev_cagr = round((pow(r1 / r0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
+                            if p0 > 0 and p1 > 0:
+                                pat_cagr = round((pow(p1 / p0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
 
                         # Debt to Equity
                         td = latest_filing.get('total_debt') if pd.notna(latest_filing.get('total_debt')) else 0.0
@@ -2175,8 +2282,8 @@ class QualityCompounderValueV2Scanner:
                         _ebitda_f = (_op_f + _da_f) if (_op_f is not None) else None
 
                         # ── VALUATION MULTIPLES ─────────────────────────────────────────────
-                        v_data = val_cache.get(sym, {})
-                        pit_val = pit_val_cache.get(sym, {})
+                        v_data = val_cache.get(clean_sym, val_cache.get(sym, {}))
+                        pit_val = pit_val_cache.get(clean_sym, pit_val_cache.get(sym, {}))
                         pe_curr = v_data.get('pe_fallback') or v_data.get('pe')   # current-period PE from cache
                         pe_med  = pit_val.get('pe_3y_median') or v_data.get('pe_3y_median')
                         ev_med  = pit_val.get('ev_ebitda_3y_median') or v_data.get('ev_ebitda_3y_median')
@@ -2188,7 +2295,7 @@ class QualityCompounderValueV2Scanner:
 
                         if _mcap_cr is None or pe_curr is None:
                             for _cdir in _candidate_dirs:
-                                p_path = os.path.join(_cdir, "history", "1d", f"{sym}.parquet")
+                                p_path = os.path.join(_cdir, "history", "1d", f"{clean_sym}.parquet")
                                 if os.path.exists(p_path):
                                     try:
                                         df_px = pd.read_parquet(p_path)
@@ -2214,7 +2321,7 @@ class QualityCompounderValueV2Scanner:
                                 ev_curr = round(_ev / _ebitda_f, 2)
 
                         records.append({
-                            'symbol': sym,
+                            'symbol': clean_sym,
                             'filing_date': str(latest_filing.get('filing_date'))[:10],
                             'financial_period_end': str(latest_filing.get('period_end_date'))[:10],
                             'market_cap': _mcap_cr,
@@ -2223,6 +2330,11 @@ class QualityCompounderValueV2Scanner:
                             'pat_cagr_5y': pat_cagr,
                             'cfo_pat_5y_ratio': cfo_pat,
                             'debt_to_equity': de,
+                            'growth_start_period': growth_start_period,
+                            'growth_end_period': growth_end_period,
+                            'growth_years_elapsed': round(growth_yrs, 2),
+                            'financial_periods_used': k_cagr + 1 if k_cagr >= 2 else n,
+                            'roce_periods_used': roce_periods_used,
                             'shares_outstanding': _shares_f,
                             'eps': _eps_f,
                             'ebitda': _ebitda_f,
