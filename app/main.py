@@ -1099,6 +1099,89 @@ def run_system_scheduler():
         except Exception as hb_err:
             logger.debug(f"History bundle restore check at boot: {hb_err}")
 
+        # ── PIT FUNDAMENTALS + VALUATION CACHE BOOT SEEDING ───────────────────
+        # [FIX: VALUATION_DATA_UNAVAILABLE] The valuation cache restore was previously
+        # buried inside verify_watchlist_is_pristine() which is skipped on a fresh-watchlist
+        # boot, so the production container never received pe_3y_median / ev_ebitda_3y_median.
+        # This block runs unconditionally at every boot, independent of watchlist state.
+        try:
+            from database import upload_parquet_to_db, download_parquet_from_db, download_parquet_from_db_today
+            pit_parquet_dir = os.path.join(DATA_DIR, "pit_fundamentals_v1")
+            pit_parquet_path = os.path.join(pit_parquet_dir, "pit_fundamentals_v1.parquet")
+
+            # Step 1: If pit_fundamentals_v1.parquet exists locally → upload to DB so containers can restore it
+            if os.path.exists(pit_parquet_path) and os.path.getsize(pit_parquet_path) > 0:
+                try:
+                    upload_parquet_to_db("pit_fundamentals_v1", pit_parquet_path)
+                    logger.info("⚡ [PIT BOOT] Uploaded pit_fundamentals_v1.parquet to DB parquet_cache")
+                except Exception as _pit_up_err:
+                    logger.debug(f"PIT fundamentals DB upload notice: {_pit_up_err}")
+            else:
+                # Step 2: Not local → restore from DB so the valuation builder can run
+                try:
+                    os.makedirs(pit_parquet_dir, exist_ok=True)
+                    if download_parquet_from_db("pit_fundamentals_v1", pit_parquet_path):
+                        logger.info("✅ [PIT BOOT] Restored pit_fundamentals_v1.parquet from DB")
+                    else:
+                        logger.warning("⚠️ [PIT BOOT] pit_fundamentals_v1.parquet not in DB — valuation builder will be limited")
+                except Exception as _pit_dl_err:
+                    logger.debug(f"PIT fundamentals DB restore notice: {_pit_dl_err}")
+
+            # Step 3: Restore or on-fly-build pit_valuation_history_cache
+            pit_val_json = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
+            pit_val_parquet = os.path.join(DATA_DIR, "pit_valuation_history_cache.parquet")
+            cache_missing = not os.path.exists(pit_val_json) or os.path.getsize(pit_val_json) == 0
+
+            if not cache_missing:
+                # Cache exists locally → upload to DB so containers can restore it
+                import json as _json
+                try:
+                    with open(pit_val_json) as _f_vc:
+                        _vc_payload = _json.load(_f_vc)
+                    _vc_data = _vc_payload.get("data", {})
+                    if _vc_data:
+                        import pandas as _pd_vc
+                        _df_vc_up = _pd_vc.DataFrame(list(_vc_data.values()))
+                        _df_vc_up.to_parquet(pit_val_parquet, index=False)
+                        upload_parquet_to_db("pit_valuation_history_cache", pit_val_parquet)
+                        logger.info(f"⚡ [PIT BOOT] Uploaded {len(_vc_data)} valuation medians to DB parquet_cache")
+                except Exception as _vc_up_err:
+                    logger.debug(f"Valuation cache upload notice: {_vc_up_err}")
+            else:
+                # Cache missing locally → try DB restore first
+                db_restored = False
+                try:
+                    if download_parquet_from_db_today("pit_valuation_history_cache", pit_val_parquet) or \
+                       download_parquet_from_db("pit_valuation_history_cache", pit_val_parquet):
+                        import pandas as _pd_vc
+                        import json as _json
+                        _df_vc = _pd_vc.read_parquet(pit_val_parquet)
+                        if not _df_vc.empty and "symbol" in _df_vc.columns:
+                            _vc_dict = {r["symbol"]: r for r in _df_vc.to_dict(orient="records")}
+                            with open(pit_val_json, "w") as _f_vc:
+                                _json.dump({"generated_at": datetime.now(IST).isoformat(),
+                                            "total_symbols": len(_vc_dict), "data": _vc_dict}, _f_vc, indent=2)
+                            logger.info(f"✅ [PIT BOOT] Restored {len(_vc_dict)} valuation medians from DB")
+                            db_restored = True
+                except Exception as _vc_dl_err:
+                    logger.debug(f"Valuation cache DB restore notice: {_vc_dl_err}")
+
+                if not db_restored:
+                    # DB also empty → build from 1D history + PIT filings (self-healing)
+                    try:
+                        from pit_valuation_history_builder import build_pit_valuation_history
+                        logger.info("🔧 [PIT BOOT] Cache missing in DB — building from 1D history + PIT filings (self-heal)...")
+                        _vc_built = build_pit_valuation_history(save_cache=True, upload_db=True)
+                        if _vc_built:
+                            logger.info(f"✅ [PIT BOOT] Self-healed: built {len(_vc_built)} valuation medians and uploaded to DB")
+                        else:
+                            logger.warning("⚠️ [PIT BOOT] Self-heal build returned empty — pit_fundamentals_v1.parquet or 1D history may be missing")
+                    except Exception as _vc_build_err:
+                        logger.warning(f"⚠️ [PIT BOOT] Self-heal build failed: {_vc_build_err}")
+        except Exception as _pit_boot_err:
+            logger.warning(f"⚠️ [PIT BOOT] Valuation cache boot seeding error: {_pit_boot_err}")
+        # ── END PIT FUNDAMENTALS + VALUATION CACHE BOOT SEEDING ───────────────
+
         # 1. Verify Watchlist (with full date-aware cache/DB/rebuild logic)
         logger.info(f"🕒 SCHEDULER | Step 1: Verifying watchlist freshness for {today_str}")
         if not verify_watchlist_is_pristine():
@@ -1834,6 +1917,20 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
             run_ctx.fresh_count = len(wl)
             complete_scanner_execution_run(run_ctx)
         upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
+
+        # [FIX: VALUATION_DATA_UNAVAILABLE] Rebuild and upload valuation cache after each
+        # daily_builder run so the production container always has fresh pe_3y_median /
+        # ev_ebitda_3y_median in DB. Without this, the cache goes stale every container restart.
+        try:
+            from pit_valuation_history_builder import build_pit_valuation_history
+            logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build...")
+            _vc_result = build_pit_valuation_history(save_cache=True, upload_db=True)
+            if _vc_result:
+                logger.info(f"✅ [DAILY_BUILDER] Valuation cache rebuilt: {len(_vc_result)} symbols | uploaded to DB")
+            else:
+                logger.warning("⚠️ [DAILY_BUILDER] Valuation cache rebuild returned empty — check 1D history and PIT parquet")
+        except Exception as _vc_rebuild_err:
+            logger.warning(f"⚠️ [DAILY_BUILDER] Valuation cache post-build refresh failed: {_vc_rebuild_err}")
     except Exception as exc:
         if run_ctx:
             complete_scanner_execution_run(run_ctx, exception=exc)
