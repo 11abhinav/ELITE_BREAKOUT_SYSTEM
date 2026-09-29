@@ -236,7 +236,10 @@ class FundamentalScanTelemetry:
             "buy_alerts_suppressed": 0,
             "duplicates": 0,
             "rejected": 0,
-            "errors": 0
+            "errors": 0,
+            "data_insufficient": 0,
+            "data_missing": 0,
+            "provider_failure": 0
         }
 
         # Rejection Reasons Frequency
@@ -694,6 +697,12 @@ class FundamentalScanTelemetry:
             disp["rejections"] = norm_rejections
             disp["primary_reason"] = primary_norm
             self.funnel_counts["rejected"] += 1
+            if any("INSUFFICIENT" in r.upper() for r in norm_rejections) or "INSUFFICIENT" in primary_norm.upper():
+                self.funnel_counts["data_insufficient"] += 1
+            elif any("MISSING" in r.upper() for r in norm_rejections) or "MISSING" in primary_norm.upper():
+                self.funnel_counts["data_missing"] += 1
+            elif any("PROVIDER" in r.upper() for r in norm_rejections) or "PROVIDER" in primary_norm.upper():
+                self.funnel_counts["provider_failure"] += 1
 
         decision_record = {
             "event_type": "SYMBOL_FINAL_DECISION",
@@ -847,12 +856,57 @@ class FundamentalScanTelemetry:
         if self.stage_latencies_ms:
             slowest_stage = max(self.stage_latencies_ms.items(), key=lambda x: x[1])[0]
 
-        # Mathematical Reconciliation Check (§5)
-        reconciled = (
-            self.funnel_counts["buy_eligible"] == (self.funnel_counts["buy_alerts_created"] + self.funnel_counts["buy_alerts_suppressed"])
-            and evaluated_count == (self.funnel_counts["rejected"] + self.funnel_counts["buy_eligible"])
-        )
-        reconciliation_status = "PASS" if reconciled else "FAIL"
+        # Mathematical Reconciliation Check (§5) - Strictly enforces complete universe coverage
+        universe_reconciled = (self.universe_counts["eligible_count"] == 0 or evaluated_count == self.universe_counts["eligible_count"])
+        decisions_reconciled = (evaluated_count == (self.funnel_counts["rejected"] + self.funnel_counts["buy_eligible"]))
+        alerts_reconciled = (self.funnel_counts["buy_eligible"] == (self.funnel_counts["buy_alerts_created"] + self.funnel_counts["buy_alerts_suppressed"]))
+
+        reconciled = universe_reconciled and decisions_reconciled and alerts_reconciled
+        if not universe_reconciled:
+            reconciliation_status = f"FAIL (MISSING_UNIVERSE_STOCKS: {self.universe_counts['eligible_count'] - evaluated_count} un-evaluated)"
+        elif not decisions_reconciled:
+            reconciliation_status = "FAIL (DECISION_MISMATCH)"
+        elif not alerts_reconciled:
+            reconciliation_status = "FAIL (ALERT_PERSISTENCE_MISMATCH)"
+        else:
+            reconciliation_status = "PASS"
+
+        # Compute Sequential Eligibility Funnel (Strict Cumulative Cascade)
+        cum_fq, cum_ea, cum_trap, cum_trend, cum_rs, cum_cons, cum_bo = 0, 0, 0, 0, 0, 0, 0
+        for disp in self.dispositions.values():
+            gates = disp.get("gates", {})
+            if not gates.get("FUNDAMENTAL_QUALITY", {}).get("passed", False):
+                continue
+            cum_fq += 1
+            if not gates.get("EARNINGS_ACCELERATION", {}).get("passed", False):
+                continue
+            cum_ea += 1
+            if not gates.get("VALUE_TRAP", {}).get("passed", False):
+                continue
+            cum_trap += 1
+            if not gates.get("TECHNICAL_TREND", {}).get("passed", False):
+                continue
+            cum_trend += 1
+            if not gates.get("RELATIVE_STRENGTH", {}).get("passed", False):
+                continue
+            cum_rs += 1
+            if not gates.get("CONSOLIDATION", {}).get("passed", False):
+                continue
+            cum_cons += 1
+            if not gates.get("BREAKOUT", {}).get("passed", False):
+                continue
+            cum_bo += 1
+
+        eligibility_funnel = {
+            "stage_0_approved_universe": evaluated_count,
+            "stage_1_fundamental_quality": cum_fq,
+            "stage_2_earnings_acceleration": cum_ea,
+            "stage_3_value_trap_clear": cum_trap,
+            "stage_4_technical_trend": cum_trend,
+            "stage_5_relative_strength": cum_rs,
+            "stage_6_consolidation": cum_cons,
+            "stage_7_breakout_buy_eligible": cum_bo
+        }
 
         # Build exact ASCII banner (§17)
         top_reasons_str = ""
@@ -878,17 +932,29 @@ evaluated={evaluated_count}
 rejected={self.funnel_counts['rejected']}
 buy_alerts={self.funnel_counts['buy_alerts_created']}
 data_insufficient={self.funnel_counts.get('data_insufficient', 0)}
+data_missing={self.funnel_counts.get('data_missing', 0)}
+provider_failure={self.funnel_counts.get('provider_failure', 0)}
 errors={self.funnel_counts['errors']}
 duplicates={self.funnel_counts['duplicates']}
 
-FUNNEL
-fundamental_pass={self.funnel_counts['fundamental_pass']}
-earnings_pass={self.funnel_counts['earnings_pass']}
+GATE DIAGNOSTICS (Independent Evaluation Pass Counts)
+fundamental_quality_pass={self.funnel_counts['fundamental_pass']}
+earnings_acceleration_pass={self.funnel_counts['earnings_pass']}
 value_trap_pass={self.funnel_counts['value_trap_pass']}
 trend_pass={self.funnel_counts['trend_pass']}
 rs_pass={self.funnel_counts['relative_strength_pass']}
 consolidation_pass={self.funnel_counts['consolidation_pass']}
 breakout_pass={self.funnel_counts['breakout_pass']}
+
+SEQUENTIAL ELIGIBILITY FUNNEL (Strict Cumulative Cascade)
+stage_0_approved_universe={evaluated_count}
+stage_1_fundamental_quality={cum_fq}
+stage_2_earnings_acceleration={cum_ea}
+stage_3_value_trap_clear={cum_trap}
+stage_4_technical_trend={cum_trend}
+stage_5_relative_strength={cum_rs}
+stage_6_consolidation={cum_cons}
+stage_7_breakout_buy_eligible={cum_bo}
 
 TOP REJECTION REASONS
 {top_reasons_str.strip()}
@@ -923,10 +989,21 @@ TELEMETRY_INTEGRITY={'PASS' if reconciled else 'FAIL'}
                 "rejected": self.funnel_counts["rejected"],
                 "buy_alerts": self.funnel_counts["buy_alerts_created"],
                 "data_insufficient": self.funnel_counts.get("data_insufficient", 0),
+                "data_missing": self.funnel_counts.get("data_missing", 0),
+                "provider_failure": self.funnel_counts.get("provider_failure", 0),
                 "errors": self.funnel_counts["errors"],
                 "duplicates": self.funnel_counts["duplicates"]
             },
-            "funnel": self.funnel_counts,
+            "gate_diagnostics": {
+                "fundamental_pass": self.funnel_counts["fundamental_pass"],
+                "earnings_pass": self.funnel_counts["earnings_pass"],
+                "value_trap_pass": self.funnel_counts["value_trap_pass"],
+                "trend_pass": self.funnel_counts["trend_pass"],
+                "rs_pass": self.funnel_counts["relative_strength_pass"],
+                "consolidation_pass": self.funnel_counts["consolidation_pass"],
+                "breakout_pass": self.funnel_counts["breakout_pass"]
+            },
+            "eligibility_funnel": eligibility_funnel,
             "top_rejection_reasons": dict(sorted(self.rejection_frequencies.items(), key=lambda x: x[1], reverse=True)[:12]),
             "performance": {
                 "total_runtime_ms": total_time_ms,
@@ -963,6 +1040,10 @@ TELEMETRY_INTEGRITY={'PASS' if reconciled else 'FAIL'}
         )
         if not reconciled:
             failures.append(f"Funnel reconciliation failed: eligible={self.funnel_counts['buy_eligible']} != created+suppressed")
+
+        # Verify complete coverage of approved universe (NO SILENT SKIPS)
+        if self.universe_counts["eligible_count"] > 0 and len(self.dispositions) != self.universe_counts["eligible_count"]:
+            failures.append(f"Approved universe coverage incomplete: evaluated={len(self.dispositions)} != approved={self.universe_counts['eligible_count']}")
 
         passed = (len(failures) == 0)
         logger.info(f"🛡️ [TELEMETRY_INTEGRITY_CHECK] result={'PASS' if passed else 'FAIL'}")

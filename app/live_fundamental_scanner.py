@@ -1078,10 +1078,11 @@ class LiveFundamentalBuyScanner:
                         if k not in f_data or f_data[k] is None:
                             f_data[k] = v
 
+        target_symbols = list(self.universe_registry.approved_symbols)
+
         if market_data_map is None:
             market_data_map = {}
             history_dir = os.path.join(DATA_DIR, "history", "1d")
-            target_symbols = list(self.universe_registry.approved_symbols)
 
             # Live quote warmup for accurate intraday breakout evaluation
             live_quotes = {}
@@ -1147,7 +1148,7 @@ class LiveFundamentalBuyScanner:
                 ctx = create_scanner_execution_run(
                     scanner_name="FUNDAMENTAL",
                     trigger_type=trigger_type,
-                    total_stocks=len(market_data_map),
+                    total_stocks=len(target_symbols),
                     allow_concurrent=True
                 )
             except Exception as e:
@@ -1158,7 +1159,7 @@ class LiveFundamentalBuyScanner:
                 upsert_scanner_health(
                     "FUNDAMENTAL",
                     status="RUNNING",
-                    total_count=len(market_data_map),
+                    total_count=len(target_symbols),
                     run_id=getattr(ctx, "run_id", None)
                 )
             except Exception as e:
@@ -1197,13 +1198,18 @@ class LiveFundamentalBuyScanner:
             "consolidation_pass_count": 0,
             "breakout_pass_count": 0,
             "buy_alerts_count": 0,
+            "data_insufficient_count": 0,
+            "data_missing_count": 0,
+            "provider_failure_count": 0,
             "rejection_summary": {},
             "buy_candidates": []
         }
 
         try:
-            for sym, df_bars in market_data_map.items():
+            # Audit EVERY approved symbol in the clean universe (strictly 886 / 886 — NO SILENT SKIPS)
+            for sym in target_symbols:
                 funnel["scanned_count"] += 1
+                df_bars = market_data_map.get(sym)
                 funds = fundamentals_map.get(sym)
                 if not funds:
                     funds = {
@@ -1230,8 +1236,8 @@ class LiveFundamentalBuyScanner:
                 res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes, telemetry=telemetry)
                 # Track data freshness per-symbol in the run context
                 if ctx is not None:
-                    if funds.get("upstream_provider") == "DATA_UNAVAILABLE":
-                        ctx.mark_incomplete()   # no real fundamentals data for this symbol
+                    if funds.get("upstream_provider") == "DATA_UNAVAILABLE" or df_bars is None or len(df_bars) < 200:
+                        ctx.mark_incomplete()   # no real fundamentals data or insufficient technical lookback
                     elif db_meta.get("freshness_status", "FRESH") == "STALE":
                         ctx.mark_stale()        # data exists but is stale
                     else:
@@ -1392,6 +1398,13 @@ class LiveFundamentalBuyScanner:
                         except Exception as al_err:
                             logger.debug(f"Save alert warning for {sym}: {al_err}")
                 else:
+                    if any("INSUFFICIENT" in str(r).upper() for r in res["rejection_reasons"]):
+                        funnel["data_insufficient_count"] += 1
+                    if any("MISSING" in str(r).upper() for r in res["rejection_reasons"]):
+                        funnel["data_missing_count"] += 1
+                    if any("PROVIDER" in str(r).upper() for r in res["rejection_reasons"]):
+                        funnel["provider_failure_count"] += 1
+
                     for r in res["rejection_reasons"]:
                         r_key = r.value if hasattr(r, "value") else str(r)
                         funnel["rejection_summary"][r_key] = funnel["rejection_summary"].get(r_key, 0) + 1
@@ -1416,18 +1429,34 @@ class LiveFundamentalBuyScanner:
 
             if upsert_scanner_health is not None:
                 try:
+                    di = funnel["data_insufficient_count"]
+                    dm = funnel["data_missing_count"]
+                    pf = funnel["provider_failure_count"]
+                    data_gaps = (
+                        funnel["scanned_count"] < len(target_symbols) or
+                        di > 0 or dm > 0 or pf > 0 or
+                        (ctx is not None and getattr(ctx, "quality", "") == "PARTIAL")
+                    )
+                    health_status = "DEGRADED" if data_gaps else "OK"
+                    health_outcome = "PARTIAL" if data_gaps else "SUCCESS"
+                    gap_msg = None
+                    if data_gaps:
+                        gap_msg = f"Data gaps: {di} insufficient technicals, {dm} missing fundamentals, {pf} provider failures of {len(target_symbols)} approved"
+
                     upsert_scanner_health(
                         "FUNDAMENTAL",
-                        status="OK",
+                        status=health_status,
+                        outcome=health_outcome,
+                        error_msg=gap_msg,
                         today_alerts=funnel["buy_alerts_count"],
                         last_success=datetime.now(IST).isoformat(),
                         processed_count=funnel["scanned_count"],
-                        total_count=len(market_data_map),
+                        total_count=len(target_symbols),
                         duration_seconds=duration_sec,
                         run_id=getattr(ctx, "run_id", None)
                     )
                 except Exception as he_err:
-                    logger.debug(f"Scanner health OK warning: {he_err}")
+                    logger.debug(f"Scanner health update warning: {he_err}")
 
         except Exception as scan_err:
             logger.exception(f"❌ scan_universe failed: {scan_err}")
