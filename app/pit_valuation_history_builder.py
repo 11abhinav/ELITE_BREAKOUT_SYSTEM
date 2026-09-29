@@ -389,31 +389,28 @@ def build_pit_valuation_history(
 
     # ── GATE 3: CERTIFICATION CLASSIFICATION ─────────────────────────────────
     # Determine whether this rebuild is CERTIFIED (complete) or PARTIAL_INCOMPLETE.
-    # CERTIFIED requires both_required_complete == expected_pit_universe.
-    # A partial rebuild is still written to disk/DB (it passed gates 1 and 2)
-    # but the payload and logs are explicitly tagged PARTIAL_INCOMPLETE so
-    # downstream consumers can detect and handle the gap.
+    # Certification Invariant:
+    #   CERTIFIED requires BOTH_REQUIRED_COMPLETE == EXPECTED_PIT_UNIVERSE (100% complete).
+    #   If both_complete_count < expected_pit_universe (e.g. 789/795), status is strictly
+    #   PARTIAL_INCOMPLETE (NOT CERTIFIED).
+    # NEVER_DOWNGRADE and CERTIFIED are two different concepts:
+    #   - NEVER_DOWNGRADE protects transaction safety (prevents silent loss of valid records).
+    #   - CERTIFIED confirms full universe completeness (zero missing medians).
     expected_pit_universe = len(target_symbols)
-    # Acknowledge that banks/NBFCs legitimately do not have operating profit / EBITDA.
-    # >= 98% coverage of PIT universe constitutes a complete certified build (e.g. >= 780 of 795).
-    is_certified = (both_complete_count >= int(expected_pit_universe * 0.98)) and (both_complete_count > 0)
+    is_certified = (both_complete_count == expected_pit_universe) and (both_complete_count > 0)
     if is_certified:
         cache_certification_status = "CERTIFIED"
         logger.info(
             f"✅ [VALUATION_BUILDER] CACHE_CERTIFICATION_STATUS = CERTIFIED: "
-            f"both_required_complete={both_complete_count}/{expected_pit_universe} "
-            f"({(both_complete_count/max(expected_pit_universe,1))*100:.1f}% coverage; "
-            f"{expected_pit_universe - both_complete_count} banking/negative-EBITDA PIT symbols handled via P/E)"
+            f"both_required_complete={both_complete_count}/{expected_pit_universe} (100.0% coverage)"
         )
     else:
         cache_certification_status = "PARTIAL_INCOMPLETE"
         logger.warning(
-            f"⚠️ [VALUATION_BUILDER] CACHE_CERTIFICATION_STATUS = PARTIAL_INCOMPLETE: "
+            f"⚠️ [VALUATION_BUILDER] CACHE_CERTIFICATION_STATUS = PARTIAL_INCOMPLETE (NOT CERTIFIED): "
             f"both_required_complete={both_complete_count}/{expected_pit_universe}. "
-            f"{expected_pit_universe - both_complete_count} PIT symbols are missing at least one "
-            f"3Y valuation median. Cache will be written to disk/DB but is NOT fully certified. "
-            f"V2 will block valuation decisions for the {expected_pit_universe - both_complete_count} "
-            f"incomplete symbols. Full certification requires both_complete >= 98% of expected universe."
+            f"{expected_pit_universe - both_complete_count} PIT symbols lack complete 3Y valuation medians. "
+            f"Invariant enforced: Full certification requires strictly {expected_pit_universe}/{expected_pit_universe}."
         )
 
     # ── PROMOTE: WRITE CACHE ─────────────────────────────────────────────────
