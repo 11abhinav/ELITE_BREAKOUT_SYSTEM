@@ -794,22 +794,28 @@ class DailyBuilderFundamentalProvider:
             is_trap = (fund_cat == "VALUE_TRAP") or bool(r.get("is_value_trap", False)) or (str(r.get("Forensic_Risk_Tier", "")).upper() == "HIGH")
 
             # Acceleration fields (ZERO SYNTHETIC CONSTANTS: missing values must stay None to fail closed)
+            # EA LATEST-period: allow YoY proxies from daily builder if specific field absent
             rev_l = r.get("rev_yoy_latest", r.get("total_revenue_yoy_growth_ttm", r.get("YOY Revenue %")))
             rev_l = float(rev_l) if (rev_l is not None and not pd.isna(rev_l)) else None
 
-            rev_p = r.get("rev_yoy_prev", r.get("total_revenue_5y_growth", r.get("5Y Revenue %")))
+            # EA PREV-period: ONLY from PIT-sourced parquet field. NEVER fall back to 5Y CAGR or
+            # any cross-metric proxy. A 5-year CAGR is NOT a prior-year YoY rate.
+            # B4 fix: rev_yoy_prev must NEVER fall back to 'total_revenue_5y_growth' or '5Y Revenue %'
+            rev_p = r.get("rev_yoy_prev")  # None if absent → DATA_MISSING in EA gate
             rev_p = float(rev_p) if (rev_p is not None and not pd.isna(rev_p)) else None
 
             op_l = r.get("op_profit_yoy_latest", r.get("gross_profit_yoy_growth_ttm", r.get("YOY Profit %")))
             op_l = float(op_l) if (op_l is not None and not pd.isna(op_l)) else None
 
-            op_p = r.get("op_profit_yoy_prev")
+            # B4 fix: op_profit_yoy_prev NEVER falls back to any proxy
+            op_p = r.get("op_profit_yoy_prev")  # None if absent → DATA_MISSING in EA gate
             op_p = float(op_p) if (op_p is not None and not pd.isna(op_p)) else None
 
-            eps_l = r.get("eps_yoy_latest", r.get("earnings_per_share_diluted_yoy_growth_ttm", r.get("5Y EPS %")))
+            eps_l = r.get("eps_yoy_latest", r.get("earnings_per_share_diluted_yoy_growth_ttm", r.get("YOY Profit %")))
             eps_l = float(eps_l) if (eps_l is not None and not pd.isna(eps_l)) else None
 
-            eps_p = r.get("eps_yoy_prev", r.get("earnings_per_share_basic_5y_growth"))
+            # B4 fix: eps_yoy_prev must NEVER fall back to 'earnings_per_share_basic_5y_growth' (CAGR ≠ prior-year YoY)
+            eps_p = r.get("eps_yoy_prev")  # None if absent → DATA_MISSING in EA gate
             eps_p = float(eps_p) if (eps_p is not None and not pd.isna(eps_p)) else None
 
             p_eps = r.get("prior_eps", r.get("earnings_per_share_basic_ttm"))
@@ -1533,7 +1539,11 @@ class QualityCompounderValueV2Scanner:
         # 1. EV/EBITDA Discount Depth (0.25 to 0.50 => 0 to 30 pts)
         ev_pts = 30.0 * min(max((ev_discount - 0.25) / 0.25, 0.0), 1.0)
         # 2. 5Y ROCE (15% to 40% => 0 to 25 pts)
-        roce_val = float(row_dict.get("roce_5y_avg", 15.0) or 15.0)
+        # B5 fix: Do NOT default to 15.0 (the exact threshold) when roce_5y_avg is missing.
+        # A missing ROCE means we have no evidence — the stock scores 0 pts on this dimension,
+        # not a synthetic pass at the gate boundary.
+        roce_val_raw = row_dict.get("roce_5y_avg")
+        roce_val = float(roce_val_raw) if (roce_val_raw is not None and not pd.isna(roce_val_raw)) else 0.0
         roce_pts = 25.0 * min(max((roce_val - 15.0) / 25.0, 0.0), 1.0)
         # 3. PE Discount Depth (0% to 40% => 0 to 20 pts)
         pe_pts = 20.0 * min(max(pe_discount / 0.40, 0.0), 1.0)
@@ -1687,7 +1697,10 @@ class QualityCompounderValueV2Scanner:
             adtv_90d = float(row.get('adtv_90d', row.get('adtv', 2.0)) or 2.0)
 
             # Metrics & Multi-field Real Resolution (NO SYNTHETIC FALLBACKS)
-            roce_5y = row.get('roce_5y_avg', row.get('roce_5y', row.get('ROCE', row.get('roce', row.get('ROE', row.get('roe'))))))
+            # B5 fix: roce_5y must NEVER fall back to 'ROE' or 'roe' — ROCE and ROE are independent
+            # frozen hard gates. If roce_5y_avg is absent from the pit dataset record, it stays None
+            # and the quality gate marks the stock DATA_MISSING on ROCE.
+            roce_5y = row.get('roce_5y_avg', row.get('roce_5y', row.get('ROCE', row.get('roce'))))
             sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_cagr', row.get('revenue_cagr_3y'))))
             pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_cagr')))
             cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y', row.get('cfo_pat')))
@@ -2212,7 +2225,11 @@ class QualityCompounderValueV2Scanner:
                         n = len(g)
                         latest_filing = g.iloc[-1]
 
-                        # ── 1. 5Y AVERAGE ROCE / ROE (Mean of trailing up to 5 annual filings) ──
+                        # ── 1. 5Y AVERAGE ROCE (Mean of trailing up to 5 annual filings) ──
+                        # B5 fix: ROCE is an independent frozen hard gate. ROE is a DIFFERENT metric.
+                        # If the 'roce' column is absent or empty for this symbol, roce_eff stays None.
+                        # The downstream scanner will then mark the stock DATA_MISSING on ROCE and
+                        # block it. We do NOT substitute ROE as a proxy for ROCE under any circumstance.
                         roce_series = g['roce'].dropna()
                         trailing_roce = [float(x) for x in roce_series][-5:]
                         roce_eff = None
@@ -2220,12 +2237,7 @@ class QualityCompounderValueV2Scanner:
                         if trailing_roce:
                             roce_eff = round(sum(trailing_roce) / len(trailing_roce), 2)
                             roce_periods_used = len(trailing_roce)
-                        else:
-                            roe_series = g['roe'].dropna()
-                            trailing_roe = [float(x) for x in roe_series][-5:]
-                            if trailing_roe:
-                                roce_eff = round(sum(trailing_roe) / len(trailing_roe), 2)
-                                roce_periods_used = len(trailing_roe)
+                        # (No ROE fallback — ROCE unavailable → roce_eff = None → DATA_MISSING)
 
                         # ── 2. 5Y CUMULATIVE CFO / PAT RATIO (Trailing up to 5 annual filings) ──
                         trailing_g = g.iloc[-5:] if n >= 5 else g

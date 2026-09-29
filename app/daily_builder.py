@@ -2544,12 +2544,21 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     de_val = pit_rec["debt_equity"]
 
                 # Sourcing priority: Audited PIT DB filings -> Watchlist proxy fallbacks
+                # EA latest-period fields: allow watchlist YoY proxies (single-year, same semantic meaning)
                 rev_l = pit_rec.get("rev_yoy_latest") if pit_rec.get("rev_yoy_latest") is not None else r.get("YOY Revenue %")
-                rev_p = pit_rec.get("rev_yoy_prev") if pit_rec.get("rev_yoy_prev") is not None else r.get("5Y Revenue %")
                 op_l = pit_rec.get("op_profit_yoy_latest") if pit_rec.get("op_profit_yoy_latest") is not None else r.get("YOY Profit %")
-                op_p = pit_rec.get("op_profit_yoy_prev") if pit_rec.get("op_profit_yoy_prev") is not None else r.get("5Y EPS %")
                 eps_l = pit_rec.get("eps_yoy_latest") if pit_rec.get("eps_yoy_latest") is not None else r.get("YOY Profit %")
-                eps_p = pit_rec.get("eps_yoy_prev") if pit_rec.get("eps_yoy_prev") is not None else r.get("5Y EPS %")
+                # EA PREV-period fields: ONLY sourced from PIT DB. Must NEVER fall back to 5Y CAGR
+                # or any composite/cross-metric proxy. A missing prev-period value must produce None
+                # so the EarningsAccelerationGate fails with DATA_MISSING rather than making a
+                # semantically invalid comparison (5Y Revenue CAGR ≠ prior-year YoY, 5Y EPS CAGR
+                # ≠ prior-year operating-profit YoY, etc.).
+                # B1 fix: rev_yoy_prev NEVER falls back to '5Y Revenue %'
+                rev_p = pit_rec.get("rev_yoy_prev")  # None if PIT absent → DATA_MISSING in EA gate
+                # B2 fix: op_profit_yoy_prev NEVER falls back to '5Y EPS %' (wrong metric entirely)
+                op_p = pit_rec.get("op_profit_yoy_prev")  # None if PIT absent → DATA_MISSING in EA gate
+                # B3 fix: eps_yoy_prev NEVER falls back to '5Y EPS %' (CAGR ≠ prior-year YoY)
+                eps_p = pit_rec.get("eps_yoy_prev")  # None if PIT absent → DATA_MISSING in EA gate
                 p_eps = pit_rec.get("prior_eps")
 
                 fund_data = {
