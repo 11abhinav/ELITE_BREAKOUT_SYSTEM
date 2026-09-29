@@ -252,7 +252,8 @@ def build_pit_valuation_history(
             "samples_3y": int(len(df_3y)),
             "valid_ev_samples": valid_ev_count,
             "valid_pe_samples": valid_pe_count,
-            "provenance_status": "CERTIFIED",
+            # per-symbol provenance_status reflects whether THIS symbol has both required medians
+            "provenance_status": "CERTIFIED" if (med_ev is not None and med_pe is not None) else "PARTIAL_INCOMPLETE",
             "data_provider": "Upstox",
             "as_of_date": str(max_dt)[:10]
         }
@@ -317,12 +318,39 @@ def build_pit_valuation_history(
                 f"Promoting new cache with both_complete={both_complete_count}."
             )
 
-    # ── PROMOTE: WRITE CACHE ────────────────────────────────────────────────
+    # ── GATE 3: CERTIFICATION CLASSIFICATION ─────────────────────────────────
+    # Determine whether this rebuild is CERTIFIED (complete) or PARTIAL_INCOMPLETE.
+    # CERTIFIED requires both_required_complete == expected_pit_universe.
+    # A partial rebuild is still written to disk/DB (it passed gates 1 and 2)
+    # but the payload and logs are explicitly tagged PARTIAL_INCOMPLETE so
+    # downstream consumers can detect and handle the gap.
+    expected_pit_universe = len(target_symbols)
+    if both_complete_count == expected_pit_universe:
+        cache_certification_status = "CERTIFIED"
+        logger.info(
+            f"✅ [VALUATION_BUILDER] CACHE_CERTIFICATION_STATUS = CERTIFIED: "
+            f"both_required_complete={both_complete_count}/{expected_pit_universe} "
+            f"(all PIT symbols have both EV+PE 3Y medians)"
+        )
+    else:
+        cache_certification_status = "PARTIAL_INCOMPLETE"
+        logger.warning(
+            f"⚠️ [VALUATION_BUILDER] CACHE_CERTIFICATION_STATUS = PARTIAL_INCOMPLETE: "
+            f"both_required_complete={both_complete_count}/{expected_pit_universe}. "
+            f"{expected_pit_universe - both_complete_count} PIT symbols are missing at least one "
+            f"3Y valuation median. Cache will be written to disk/DB but is NOT fully certified. "
+            f"V2 will block valuation decisions for the {expected_pit_universe - both_complete_count} "
+            f"incomplete symbols. Full certification requires both_complete={expected_pit_universe}/{expected_pit_universe}."
+        )
+
+    # ── PROMOTE: WRITE CACHE ─────────────────────────────────────────────────
     if save_cache and results:
         os.makedirs(os.path.dirname(VALUATION_CACHE_PATH), exist_ok=True)
         try:
             cache_payload = {
                 "generated_at": datetime.now(IST).isoformat(),
+                "certification_status": cache_certification_status,
+                "expected_pit_universe": expected_pit_universe,
                 "total_symbols": total_processed,
                 "ev_ebitda_median_count": ev_count,
                 "pe_median_count": pe_count,
@@ -331,9 +359,11 @@ def build_pit_valuation_history(
             }
             with open(VALUATION_CACHE_PATH, "w") as f:
                 json.dump(cache_payload, f, indent=2)
+            _cert_icon = "✅" if cache_certification_status == "CERTIFIED" else "⚠️"
             logger.info(
-                f"💾 Saved certified valuation cache to {VALUATION_CACHE_PATH} "
-                f"({both_complete_count}/{total_processed} symbols with both EV+PE medians)"
+                f"{_cert_icon} [VALUATION_BUILDER] Cache written to {VALUATION_CACHE_PATH} | "
+                f"certification_status={cache_certification_status} | "
+                f"both_required_complete={both_complete_count}/{expected_pit_universe}"
             )
         except Exception as e:
             logger.warning(f"Failed to write valuation cache: {e}")
@@ -346,8 +376,9 @@ def build_pit_valuation_history(
                 df_cache.to_parquet(temp_parquet, index=False)
                 upload_parquet_to_db("pit_valuation_history_cache", temp_parquet)
                 logger.info(
-                    f"⚡ Uploaded pit_valuation_history_cache to database parquet_cache "
-                    f"({both_complete_count}/{total_processed} symbols both-complete)"
+                    f"⚡ Uploaded pit_valuation_history_cache to DB | "
+                    f"certification_status={cache_certification_status} | "
+                    f"both_complete={both_complete_count}/{expected_pit_universe}"
                 )
             except Exception as e:
                 logger.debug(f"DB cache upload optional notice: {e}")

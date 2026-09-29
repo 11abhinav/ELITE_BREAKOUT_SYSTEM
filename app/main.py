@@ -1922,32 +1922,43 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
         # daily_builder run so the production container always has fresh pe_3y_median /
         # ev_ebitda_3y_median in DB. Without this, the cache goes stale every container restart.
         try:
-            from pit_valuation_history_builder import build_pit_valuation_history
+            from pit_valuation_history_builder import build_pit_valuation_history, _count_both_complete_from_dict
             logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build...")
             _vc_result = build_pit_valuation_history(save_cache=True, upload_db=True)
             if _vc_result:
-                # Guard: only treat rebuild as successful if it produced at least some valid medians.
-                # A rebuild with 0 ev/pe medians must NOT overwrite a working cache.
+                # Secondary audit: use the same row-level both-field completeness metric as the builder.
+                # build_pit_valuation_history() enforces gates 1-3 internally and rejects bad rebuilds.
+                # This log surfaces the final outcome for DAILY_BUILDER telemetry.
+                _both_complete = _count_both_complete_from_dict(_vc_result)
                 _ev_valid = sum(1 for v in _vc_result.values() if v.get("ev_ebitda_3y_median") is not None)
                 _pe_valid = sum(1 for v in _vc_result.values() if v.get("pe_3y_median") is not None)
-                if _ev_valid > 0 or _pe_valid > 0:
+                # Read certification_status from any symbol's record (set by builder on each symbol)
+                _cert_status = next(
+                    (v.get("provenance_status", "UNKNOWN") for v in _vc_result.values()), "UNKNOWN"
+                )
+                # Cache-level certification: CERTIFIED only when both_complete == all PIT symbols
+                _cache_cert = "CERTIFIED" if _both_complete == len(_vc_result) else "PARTIAL_INCOMPLETE"
+                if _both_complete > 0:
                     logger.info(
-                        f"✅ [DAILY_BUILDER] Valuation cache rebuilt: {len(_vc_result)} symbols | "
-                        f"EV/EBITDA medians: {_ev_valid} | PE medians: {_pe_valid} | uploaded to DB"
+                        f"✅ [DAILY_BUILDER] Valuation rebuild accepted: {len(_vc_result)} symbols | "
+                        f"EV/EBITDA: {_ev_valid} | PE: {_pe_valid} | "
+                        f"Both-required (EV∩PE): {_both_complete}/{len(_vc_result)} | "
+                        f"cache_certification={_cache_cert}"
                     )
                 else:
-                    # Rebuild produced only null medians — this would clobber a working cache.
-                    # Reject the result and preserve the existing cache.
+                    # both_complete == 0 means build_pit_valuation_history blocked the write internally.
+                    # The return value is the diagnostic-only result; the certified cache is unchanged.
                     logger.error(
                         f"❌ [DAILY_BUILDER] VALUATION_CACHE_REBUILD_REJECTED: build returned {len(_vc_result)} symbols "
-                        f"but EV/EBITDA medians=0/{len(_vc_result)} and PE medians=0/{len(_vc_result)}. "
-                        f"Existing cache preserved. Root cause: 1D history parquet missing or "
-                        f"shares_outstanding/operating_profit fields absent in PIT filings after merge."
+                        f"but Both-required={_both_complete}/{len(_vc_result)} (EV={_ev_valid}, PE={_pe_valid}). "
+                        f"Existing certified cache preserved by BOTH_COMPLETE_ZERO_BLOCKED gate. "
+                        f"Root cause: 1D history parquet missing or field columns absent in PIT filings."
                     )
             else:
                 logger.warning("⚠️ [DAILY_BUILDER] Valuation cache rebuild returned empty — check 1D history and PIT parquet")
         except Exception as _vc_rebuild_err:
             logger.warning(f"⚠️ [DAILY_BUILDER] Valuation cache post-build refresh failed: {_vc_rebuild_err}")
+
     except Exception as exc:
         if run_ctx:
             complete_scanner_execution_run(run_ctx, exception=exc)
