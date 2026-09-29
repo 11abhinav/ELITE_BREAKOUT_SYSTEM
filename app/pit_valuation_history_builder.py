@@ -122,12 +122,12 @@ def _count_both_complete_from_df(df: pd.DataFrame) -> int:
     return int((ev_ok & pe_ok).sum())
 
 
-def _load_current_certified_completeness() -> Tuple[int, str]:
+def _load_current_cache_completeness() -> Tuple[int, str]:
     """
-    Read the current certified local cache (if it exists) and return:
+    Read the current local cache baseline (if it exists) and return:
       (both_complete_count, source_path)
 
-    Returns (0, "NONE") if no certified cache is found or it fails the gate.
+    Returns (0, "NONE") if no cache is found or it fails the gate.
     Used to enforce the never-downgrade invariant before cache promotion.
     """
     candidate_paths = [
@@ -359,31 +359,31 @@ def build_pit_valuation_history(
         return results  # Caller must not treat as certified
 
     # ── GATE 2: NEVER-DOWNGRADE (TRANSACTIONAL PROMOTION) ──────────────────
-    # Before overwriting the certified cache, compare new rebuild’s
-    # completeness against the current certified cache.
+    # Before overwriting the cache on disk/DB, compare new rebuild’s
+    # completeness against the current active cache baseline.
     # A rebuild that is LESS complete is rejected — cache promotion is
     # monotonically non-decreasing in both_required_complete.
     if save_cache or upload_db:
-        current_both_complete, current_cache_path = _load_current_certified_completeness()
-        if current_both_complete > 0 and both_complete_count < current_both_complete:
+        current_cache_both_complete, current_cache_path = _load_current_cache_completeness()
+        if current_cache_both_complete > 0 and both_complete_count < current_cache_both_complete:
             logger.error(
                 f"❌ [VALUATION_BUILDER] NEVER_DOWNGRADE_BLOCKED: rebuild produced "
                 f"both_complete={both_complete_count} (symbols with EV+PE medians), "
-                f"which is LESS THAN current certified cache "
-                f"both_complete={current_both_complete} from '{current_cache_path}'. "
-                f"Certified cache preserved unchanged. "
+                f"which is LESS THAN current cache baseline "
+                f"both_complete={current_cache_both_complete} from '{current_cache_path}'. "
+                f"Active cache preserved unchanged. "
                 f"Returning incomplete rebuild for diagnostics only — NOT for production use."
             )
-            return results  # Certified cache on disk/DB unchanged
-        if current_both_complete > 0:
+            return results  # Active cache on disk/DB unchanged
+        if current_cache_both_complete > 0:
             logger.info(
                 f"✅ [VALUATION_BUILDER] NEVER_DOWNGRADE CHECK PASSED: "
-                f"rebuild both_complete={both_complete_count} >= current_certified={current_both_complete}. "
+                f"rebuild both_complete={both_complete_count} >= current_cache_baseline={current_cache_both_complete}. "
                 f"Promoting new cache."
             )
         else:
             logger.info(
-                f"✅ [VALUATION_BUILDER] No prior certified cache found (current_both_complete=0). "
+                f"✅ [VALUATION_BUILDER] No prior cache baseline found (current_cache_both_complete=0). "
                 f"Promoting new cache with both_complete={both_complete_count}."
             )
 
