@@ -549,6 +549,13 @@ class DailyBuilderFundamentalProvider:
         path = parquet_path or os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
         if not os.path.exists(path) and os.path.exists(cls.MASTER_PARQUET):
             path = cls.MASTER_PARQUET
+        if not os.path.exists(path):
+            try:
+                from database import download_parquet_from_db_today, download_parquet_from_db
+                download_parquet_from_db_today("daily_builder_master_v2", path) or download_parquet_from_db("daily_builder_master_v2", path)
+            except Exception as _dbe:
+                logger.debug(f"DB download attempt for daily_builder_master_v2 failed: {_dbe}")
+
         meta: Dict[str, Any] = {
             "source": "DAILY_BUILDER_2.0",
             "loaded_at": datetime.now(IST).isoformat(),
@@ -734,6 +741,26 @@ class DailyBuilderFundamentalProvider:
                 logger.warning(f"Failed to query DB {cls.MASTER_TABLE}: {e}")
 
         if df is None or df.empty:
+            # Check watchlist parquet (restored from DB parquet_cache on boot)
+            wl_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
+            if not os.path.exists(wl_path):
+                try:
+                    from database import download_parquet_from_db_today, download_parquet_from_db
+                    download_parquet_from_db_today("daily_builder", wl_path) or download_parquet_from_db("daily_builder", wl_path)
+                except Exception:
+                    pass
+            if os.path.exists(wl_path):
+                try:
+                    df = pd.read_parquet(wl_path)
+                    if not df.empty:
+                        meta["freshness_status"] = "FRESH"
+                        meta["provenance_status"] = "CERTIFIED_DAILY_BUILDER_WATCHLIST"
+                        meta["source"] = "DAILY_BUILDER_WATCHLIST"
+                        logger.info(f"✅ [FUNDAMENTAL_CACHE] Loaded {len(df)} records from {wl_path}")
+                except Exception as e:
+                    logger.debug(f"Failed reading {wl_path}: {e}")
+
+        if df is None or df.empty:
             meta["freshness_status"] = "MISSING"
             return {}, meta
 
@@ -743,74 +770,73 @@ class DailyBuilderFundamentalProvider:
 
         funds_map: Dict[str, Dict[str, Any]] = {}
         for _, r in df.iterrows():
-            sym = str(r.get("symbol", "")).upper()
+            sym = str(r.get("symbol", r.get("Stock", ""))).upper()
             if not sym:
                 continue
 
-            roce_val = r.get("ROCE", r.get("roce"))
-            roe_val = r.get("ROE", r.get("roe", r.get("return_on_equity_fy")))
-            debt_val = r.get("debt", r.get("debt_equity", r.get("Debt/Equity", r.get("debt_to_equity_fq"))))
-            fcf_yield = r.get("FCF_yield", r.get("fcf_yield", r.get("FCF Margin %", r.get("free_cash_flow_margin_ttm"))))
-            ocf_val = fcf_yield if (fcf_yield is not None and not pd.isna(fcf_yield)) else r.get("operating_cash_flow", 1.0)
-            fund_cat = str(r.get("fundamental_category", "NONE"))
-            is_trap = (fund_cat == "VALUE_TRAP") or bool(r.get("is_value_trap", False))
+            roce_raw = r.get("ROCE", r.get("roce", r.get("ROCE %")))
+            roce_val = float(roce_raw) if (roce_raw is not None and not pd.isna(roce_raw)) else None
 
-            # Defensive fallbacks if ROCE / ROE / Debt / OCF are missing
-            if (roce_val is None or pd.isna(roce_val)) and roe_val is not None and not pd.isna(roe_val):
-                roce_val = float(roe_val) * 1.15
-            if (roe_val is None or pd.isna(roe_val)) and roce_val is not None and not pd.isna(roce_val):
-                roe_val = float(roce_val) * 0.85
-            if debt_val is None or pd.isna(debt_val):
-                debt_val = 0.2
-            if ocf_val is None or pd.isna(ocf_val):
-                ocf_val = 1.0
+            roe_raw = r.get("ROE", r.get("roe", r.get("ROE %", r.get("return_on_equity_fy"))))
+            roe_val = float(roe_raw) if (roe_raw is not None and not pd.isna(roe_raw)) else None
 
-            # Acceleration fields with TradingView & estimation fallbacks
-            rev_l = r.get("rev_yoy_latest", r.get("total_revenue_yoy_growth_ttm"))
-            rev_p = r.get("rev_yoy_prev", r.get("total_revenue_5y_growth"))
-            op_l = r.get("op_profit_yoy_latest", r.get("gross_profit_yoy_growth_ttm"))
+            debt_raw = r.get("debt", r.get("debt_equity", r.get("Debt/Equity", r.get("debt_to_equity_fq"))))
+            debt_val = float(debt_raw) if (debt_raw is not None and not pd.isna(debt_raw)) else None
+
+            fcf_raw = r.get("FCF_yield", r.get("fcf_yield", r.get("FCF Margin %", r.get("free_cash_flow_margin_ttm"))))
+            if fcf_raw is not None and not pd.isna(fcf_raw):
+                ocf_val = float(fcf_raw)
+            else:
+                raw_ocf = r.get("operating_cash_flow")
+                ocf_val = float(raw_ocf) if (raw_ocf is not None and not pd.isna(raw_ocf)) else None
+
+            fund_cat = str(r.get("fundamental_category", r.get("Category", "NONE")))
+            is_trap = (fund_cat == "VALUE_TRAP") or bool(r.get("is_value_trap", False)) or (str(r.get("Forensic_Risk_Tier", "")).upper() == "HIGH")
+
+            # Acceleration fields (ZERO SYNTHETIC CONSTANTS: missing values must stay None to fail closed)
+            rev_l = r.get("rev_yoy_latest", r.get("total_revenue_yoy_growth_ttm", r.get("YOY Revenue %")))
+            rev_l = float(rev_l) if (rev_l is not None and not pd.isna(rev_l)) else None
+
+            rev_p = r.get("rev_yoy_prev", r.get("total_revenue_5y_growth", r.get("5Y Revenue %")))
+            rev_p = float(rev_p) if (rev_p is not None and not pd.isna(rev_p)) else None
+
+            op_l = r.get("op_profit_yoy_latest", r.get("gross_profit_yoy_growth_ttm", r.get("YOY Profit %")))
+            op_l = float(op_l) if (op_l is not None and not pd.isna(op_l)) else None
+
             op_p = r.get("op_profit_yoy_prev")
-            eps_l = r.get("eps_yoy_latest", r.get("earnings_per_share_diluted_yoy_growth_ttm"))
-            eps_p = r.get("eps_yoy_prev", r.get("earnings_per_share_basic_5y_growth"))
-            p_eps = r.get("prior_eps", r.get("earnings_per_share_basic_ttm"))
+            op_p = float(op_p) if (op_p is not None and not pd.isna(op_p)) else None
 
-            if rev_l is None or pd.isna(rev_l):
-                rev_l = 10.0
-            if rev_p is None or pd.isna(rev_p):
-                rev_p = float(rev_l) * 0.8
-            if op_l is None or pd.isna(op_l):
-                op_l = float(rev_l) * 1.05
-            if op_p is None or pd.isna(op_p):
-                op_p = float(op_l) * 0.8
-            if eps_l is None or pd.isna(eps_l):
-                eps_l = float(op_l) * 1.05
-            if eps_p is None or pd.isna(eps_p):
-                eps_p = float(eps_l) * 0.8
-            if p_eps is None or pd.isna(p_eps) or float(p_eps) <= 0:
-                p_eps = 10.0
+            eps_l = r.get("eps_yoy_latest", r.get("earnings_per_share_diluted_yoy_growth_ttm", r.get("5Y EPS %")))
+            eps_l = float(eps_l) if (eps_l is not None and not pd.isna(eps_l)) else None
+
+            eps_p = r.get("eps_yoy_prev", r.get("earnings_per_share_basic_5y_growth"))
+            eps_p = float(eps_p) if (eps_p is not None and not pd.isna(eps_p)) else None
+
+            p_eps = r.get("prior_eps", r.get("earnings_per_share_basic_ttm"))
+            p_eps = float(p_eps) if (p_eps is not None and not pd.isna(p_eps) and float(p_eps) > 0) else None
 
             funds_map[sym] = {
                 "symbol": sym,
-                "roce": float(roce_val) if roce_val is not None and not pd.isna(roce_val) else 16.0,
-                "roe": float(roe_val) if roe_val is not None and not pd.isna(roe_val) else 14.0,
-                "debt_equity": float(debt_val) if debt_val is not None and not pd.isna(debt_val) else 0.2,
-                "operating_cash_flow": float(ocf_val) if ocf_val is not None and not pd.isna(ocf_val) else 1.0,
+                "roce": roce_val,
+                "roe": roe_val,
+                "debt_equity": debt_val,
+                "operating_cash_flow": ocf_val,
                 "fundamental_category": fund_cat,
                 "is_value_trap": is_trap,
-                "quality_score": float(r.get("quality_score", 0.0) or 75.0),
-                "growth_score": float(r.get("growth_score", 0.0) or 70.0),
-                "valuation_score": float(r.get("valuation_score", 0.0) or 70.0),
-                "wealth_score": float(r.get("wealth_score", 0.0) or 70.0),
+                "quality_score": float(r.get("quality_score", 0.0) or 0.0),
+                "growth_score": float(r.get("growth_score", 0.0) or 0.0),
+                "valuation_score": float(r.get("valuation_score", 0.0) or 0.0),
+                "wealth_score": float(r.get("wealth_score", 0.0) or 0.0),
                 "risk_score": float(r.get("risk_score", 0.0) or 0.0),
                 "valuation_category": str(r.get("valuation_category", "NONE")),
                 "fair_value_range": str(r.get("fair_value_range", "")),
-                "rev_yoy_latest": float(rev_l),
-                "rev_yoy_prev": float(rev_p),
-                "op_profit_yoy_latest": float(op_l),
-                "op_profit_yoy_prev": float(op_p),
-                "eps_yoy_latest": float(eps_l),
-                "eps_yoy_prev": float(eps_p),
-                "prior_eps": float(p_eps),
+                "rev_yoy_latest": rev_l,
+                "rev_yoy_prev": rev_p,
+                "op_profit_yoy_latest": op_l,
+                "op_profit_yoy_prev": op_p,
+                "eps_yoy_latest": eps_l,
+                "eps_yoy_prev": eps_p,
+                "prior_eps": p_eps,
                 "upstream_provider": "DAILY_BUILDER_2.0"
             }
 
@@ -1158,29 +1184,29 @@ class LiveFundamentalBuyScanner:
                 if not funds:
                     funds = {
                         "symbol": sym,
-                        "roce": 18.0,
-                        "roe": 15.0,
-                        "debt_equity": 0.2,
-                        "operating_cash_flow": 1.0,
-                        "fundamental_category": "NORMAL",
+                        "roce": None,
+                        "roe": None,
+                        "debt_equity": None,
+                        "operating_cash_flow": None,
+                        "fundamental_category": "NONE",
                         "is_value_trap": False,
-                        "quality_score": 75.0,
-                        "growth_score": 70.0,
-                        "valuation_score": 70.0,
-                        "wealth_score": 70.0,
-                        "rev_yoy_latest": 12.0,
-                        "rev_yoy_prev": 10.0,
-                        "op_profit_yoy_latest": 15.0,
-                        "op_profit_yoy_prev": 12.0,
-                        "eps_yoy_latest": 18.0,
-                        "eps_yoy_prev": 14.0,
-                        "prior_eps": 10.0,
-                        "upstream_provider": "APPROVED_UNIVERSE_BASELINE_FALLBACK"
+                        "quality_score": 0.0,
+                        "growth_score": 0.0,
+                        "valuation_score": 0.0,
+                        "wealth_score": 0.0,
+                        "rev_yoy_latest": None,
+                        "rev_yoy_prev": None,
+                        "op_profit_yoy_latest": None,
+                        "op_profit_yoy_prev": None,
+                        "eps_yoy_latest": None,
+                        "eps_yoy_prev": None,
+                        "prior_eps": None,
+                        "upstream_provider": "DATA_UNAVAILABLE"
                     }
                 res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes, telemetry=telemetry)
                 # Track data freshness per-symbol in the run context
                 if ctx is not None:
-                    if funds.get("upstream_provider") == "APPROVED_UNIVERSE_BASELINE_FALLBACK":
+                    if funds.get("upstream_provider") == "DATA_UNAVAILABLE":
                         ctx.mark_incomplete()   # no real fundamentals data for this symbol
                     elif db_meta.get("freshness_status", "FRESH") == "STALE":
                         ctx.mark_stale()        # data exists but is stale

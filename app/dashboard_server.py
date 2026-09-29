@@ -6310,7 +6310,7 @@ def _run_deep_analysis_bg(sym, uid):
 
         # Fetch live CMP in background thread
         try:
-            live_map = get_live_prices([sym])
+            live_map = get_live_prices([sym], purpose="MANUAL_USER_ANALYSIS")
             if live_map and sym in live_map and float(live_map[sym] or 0) > 0:
                 bulk_update_cmp({sym: float(live_map[sym])})
         except Exception as _pe:

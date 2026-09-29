@@ -500,7 +500,19 @@ def verify_watchlist_is_pristine() -> bool:
         logger.warning(f"⚠️ [CACHE] Local disk missing/invalid watchlist. Checking DB for latest watchlist data...")
         
         # STEP 2: Restore latest watchlist from DB (today first, then fallback to most recent)
-        from database import download_parquet_from_db_today, download_parquet_from_db
+        from database import download_parquet_from_db_today, download_parquet_from_db, upload_parquet_to_db
+        db_master_v2 = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+        if not os.path.exists(db_master_v2):
+            try:
+                download_parquet_from_db_today("daily_builder_master_v2", db_master_v2) or download_parquet_from_db("daily_builder_master_v2", db_master_v2)
+            except Exception:
+                pass
+        elif os.path.exists(db_master_v2) and os.path.getsize(db_master_v2) > 0:
+            try:
+                upload_parquet_to_db("daily_builder_master_v2", db_master_v2)
+            except Exception:
+                pass
+
         if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH) or download_parquet_from_db("daily_builder", WATCHLIST_PATH):
             if os.path.exists(WATCHLIST_PATH):
                 logger.info(f"✅ [DB] Watchlist successfully restored from DB to local disk.")

@@ -9,6 +9,7 @@
 venv/
 .venv/
 data/*.parquet
+!data/daily_builder_master_v2.parquet
 data/*.db
 artifacts/
 scratch/

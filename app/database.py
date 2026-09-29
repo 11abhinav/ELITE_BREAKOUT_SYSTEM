@@ -7552,8 +7552,8 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
     # [FIX] Force fetch live price for accurate entry price in wealth engine
     try:
         from live_prices import get_live_prices
-        prices = get_live_prices([symbol])
-        if symbol in prices:
+        prices = get_live_prices([symbol], purpose="ALERT_PERSISTENCE")
+        if symbol in prices and prices[symbol] is not None:
             alert_price = float(prices[symbol])
     except Exception:
         pass
