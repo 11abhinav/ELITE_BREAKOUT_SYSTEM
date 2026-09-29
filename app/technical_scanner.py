@@ -1595,7 +1595,21 @@ def run_technical_scan(
     acquired_scan = False
     _scan_start = None
     start_time = time.monotonic()
-    real_run_ctx = run_ctx
+    # Pre-flight regime gate: TECHNICAL is certified exclusively for BULL regime
+    try:
+        from engine.production.governance_registry import get_current_macro_regime
+        current_regime = get_current_macro_regime()
+    except Exception as e:
+        logger.warning(f"⚠️ [TECHNICAL PRE-FLIGHT] Could not resolve current macro regime ({e}); defaulting to BULL")
+        current_regime = "BULL"
+
+    if current_regime != "BULL":
+        logger.info(f"⏭️ [TECHNICAL PRE-FLIGHT] Suppressed: TECHNICAL is certified exclusively in BULL regime (Current: {current_regime}). Skipping execution to conserve CPU.")
+        try:
+            upsert_scanner_health("TECHNICAL", status="IDLE", error_msg=f"Suppressed: certified exclusively in BULL (Current: {current_regime})")
+        except Exception:
+            pass
+        return 0
 
     try:
         if not _scan_lock.acquire(blocking=False):

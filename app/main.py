@@ -807,6 +807,13 @@ def run_all_seven_scanners_non_market_boot():
                         fn()
                     dur = round(time.time() - start_t, 1)
                     logger.info(f"✅ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} completed in {format_duration(dur)}.")
+                    try:
+                        from database import get_scanner_health
+                        curr_h = get_scanner_health(name)
+                        if curr_h and str(curr_h.get("status", "")).startswith("QUEUED"):
+                            upsert_scanner_health(name, status="IDLE", error_msg=None)
+                    except Exception:
+                        pass
                 except Exception as exc:
                     dur = round(time.time() - start_t, 1)
                     logger.exception(f"❌ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} failed after {format_duration(dur)}: {exc}")
@@ -1926,46 +1933,40 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
             complete_scanner_execution_run(run_ctx)
         upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
 
-        # [FIX: VALUATION_DATA_UNAVAILABLE] Rebuild and upload valuation cache after each
-        # daily_builder run so the production container always has fresh pe_3y_median /
-        # ev_ebitda_3y_median in DB. Without this, the cache goes stale every container restart.
-        try:
-            from pit_valuation_history_builder import build_pit_valuation_history, _count_both_complete_from_dict
-            logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build...")
-            _vc_result = build_pit_valuation_history(save_cache=True, upload_db=True)
-            if _vc_result:
-                # Secondary audit: use the same row-level both-field completeness metric as the builder.
-                # build_pit_valuation_history() enforces gates 1-3 internally and rejects bad rebuilds.
-                # This log surfaces the final outcome for DAILY_BUILDER telemetry.
-                _both_complete = _count_both_complete_from_dict(_vc_result)
-                _ev_valid = sum(1 for v in _vc_result.values() if v.get("ev_ebitda_3y_median") is not None)
-                _pe_valid = sum(1 for v in _vc_result.values() if v.get("pe_3y_median") is not None)
-                # Read certification_status from any symbol's record (set by builder on each symbol)
-                _cert_status = next(
-                    (v.get("provenance_status", "UNKNOWN") for v in _vc_result.values()), "UNKNOWN"
-                )
-                # Cache-level certification: strictly CERTIFIED only when both_complete == expected universe (100%)
-                _cache_cert = "CERTIFIED" if (_both_complete == len(_vc_result) and _both_complete > 0) else "PARTIAL_INCOMPLETE"
-                if _both_complete > 0:
-                    logger.info(
-                        f"✅ [DAILY_BUILDER] Valuation rebuild accepted: {len(_vc_result)} symbols | "
-                        f"EV/EBITDA: {_ev_valid} | PE: {_pe_valid} | "
-                        f"Both-required (EV∩PE): {_both_complete}/{len(_vc_result)} | "
-                        f"cache_certification={_cache_cert}"
-                    )
+        # [FIX: VALUATION_DATA_UNAVAILABLE] Rebuild and upload valuation cache asynchronously in background
+        # so it does not block the orchestrator or downstream scanners in the boot batch.
+        def _bg_rebuild_valuation():
+            try:
+                from pit_valuation_history_builder import build_pit_valuation_history, _count_both_complete_from_dict
+                logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build in background...")
+                _vc_result = build_pit_valuation_history(save_cache=True, upload_db=True)
+                if _vc_result:
+                    # Secondary audit: use the same row-level both-field completeness metric as the builder.
+                    _both_complete = _count_both_complete_from_dict(_vc_result)
+                    _ev_valid = sum(1 for v in _vc_result.values() if v.get("ev_ebitda_3y_median") is not None)
+                    _pe_valid = sum(1 for v in _vc_result.values() if v.get("pe_3y_median") is not None)
+                    _cache_cert = "CERTIFIED" if (_both_complete == len(_vc_result) and _both_complete > 0) else "PARTIAL_INCOMPLETE"
+                    if _both_complete > 0:
+                        logger.info(
+                            f"✅ [DAILY_BUILDER] Background valuation rebuild accepted: {len(_vc_result)} symbols | "
+                            f"EV/EBITDA: {_ev_valid} | PE: {_pe_valid} | "
+                            f"Both-required (EV∩PE): {_both_complete}/{len(_vc_result)} | "
+                            f"cache_certification={_cache_cert}"
+                        )
+                    else:
+                        logger.error(
+                            f"❌ [DAILY_BUILDER] VALUATION_CACHE_REBUILD_REJECTED: build returned {len(_vc_result)} symbols "
+                            f"but Both-required={_both_complete}/{len(_vc_result)} (EV={_ev_valid}, PE={_pe_valid}). "
+                            f"Existing certified cache preserved by BOTH_COMPLETE_ZERO_BLOCKED gate."
+                        )
                 else:
-                    # both_complete == 0 means build_pit_valuation_history blocked the write internally.
-                    # The return value is the diagnostic-only result; the certified cache is unchanged.
-                    logger.error(
-                        f"❌ [DAILY_BUILDER] VALUATION_CACHE_REBUILD_REJECTED: build returned {len(_vc_result)} symbols "
-                        f"but Both-required={_both_complete}/{len(_vc_result)} (EV={_ev_valid}, PE={_pe_valid}). "
-                        f"Existing certified cache preserved by BOTH_COMPLETE_ZERO_BLOCKED gate. "
-                        f"Root cause: 1D history parquet missing or field columns absent in PIT filings."
-                    )
-            else:
-                logger.warning("⚠️ [DAILY_BUILDER] Valuation cache rebuild returned empty — check 1D history and PIT parquet")
-        except Exception as _vc_rebuild_err:
-            logger.warning(f"⚠️ [DAILY_BUILDER] Valuation cache post-build refresh failed: {_vc_rebuild_err}")
+                    logger.warning("⚠️ [DAILY_BUILDER] Valuation cache rebuild returned empty — check 1D history and PIT parquet")
+            except Exception as _vc_rebuild_err:
+                logger.warning(f"⚠️ [DAILY_BUILDER] Valuation cache post-build refresh failed: {_vc_rebuild_err}")
+
+        import threading
+        t_vc = threading.Thread(target=_bg_rebuild_valuation, name="PITValuationRebuilder", daemon=True)
+        t_vc.start()
 
     except Exception as exc:
         if run_ctx:
@@ -2012,6 +2013,11 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
 
     if current_regime != "BULL":
         logger.info(f"⏭️ [TECHNICAL PRE-FLIGHT] Suppressed: TECHNICAL is certified exclusively in BULL regime (Current: {current_regime}). Skipping execution to conserve CPU.")
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health("TECHNICAL", status="IDLE", error_msg=f"Suppressed: certified exclusively in BULL (Current: {current_regime})")
+        except Exception:
+            pass
         return {"total_count": 0, "processed_count": 0, "status": "skipped", "reason": f"REGIME_NOT_CERTIFIED_{current_regime}"}
 
     logger.info(f"🚀 [SCANNER: TECHNICAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
