@@ -5039,6 +5039,8 @@ def get_scanner_today_trades(scanner_name: str, today_str: str) -> list[dict]:
                     FROM alerts
                     WHERE scanner    = %s
                     AND alert_date = %s
+                    AND COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                    AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
                     ORDER BY alert_time DESC
                 """, (scanner_name, today_str))
                 return [dict(row) for row in cur.fetchall()]
@@ -5069,6 +5071,8 @@ def get_all_scanners_today_trades(today_str: str) -> dict:
                         exit_price, closed_at, exit_signal
                     FROM alerts
                     WHERE alert_date = %s
+                      AND COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                      AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
                     UNION ALL
                     SELECT
                         'ACCUMULATION' AS scanner,
@@ -5152,6 +5156,8 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                         COALESCE(a.last_event_type, 'NEW_ENTRY')                 AS last_event_type
                     FROM alerts a
                     WHERE a.alert_date = %s
+                      AND COALESCE(a.record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                      AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
                     UNION ALL
                     SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
                         NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares, w.entry_signal as signals, w.fm_score::int as score,
@@ -5212,6 +5218,8 @@ def get_alert_by_symbol(symbol: str) -> Optional[Dict[str, Any]]:
                            a.execution_state, a.execution_status, a.entry_mode
                     FROM alerts a
                     WHERE UPPER(a.symbol) = %s
+                      AND COALESCE(a.record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                      AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
                     ORDER BY a.id DESC LIMIT 1
                 """, (sym_clean,))
                 row = cur.fetchone()
@@ -5358,6 +5366,8 @@ def get_alerts_for_symbol(symbol: str) -> list[dict]:
                            a.execution_state, a.execution_status, a.entry_mode
                     FROM alerts a
                     WHERE UPPER(a.symbol) = %s
+                      AND COALESCE(a.record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                      AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
                     ORDER BY a.id DESC LIMIT 20
                 """, (sym_clean,))
                 return [dict(r) for r in cur.fetchall()]
