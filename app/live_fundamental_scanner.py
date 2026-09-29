@@ -2477,7 +2477,7 @@ class QualityCompounderValueV2Scanner:
                 "quality_pass_count": quality_pass_count,
                 "value_pass_count": value_pass_count,
                 "candidate_count": candidate_count,
-                "quality_data_blocked_count": quality_data_blocked_count,
+                "quality_data_blocked_count": incomplete_quality_count,
                 "valuation_data_blocked_count": valuation_data_blocked_count,
                 "price_data_blocked_count": price_data_blocked_count,
                 "data_blocked_count": data_blocked_count,
