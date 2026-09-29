@@ -12,7 +12,7 @@ GOVERNANCE & REAL-MARKET-DATA COMPLIANCE:
    - Zero lookahead, zero future revisions, zero synthetic fallbacks.
 4. Valuation Formulas:
    - MCAP_t = (shares_outstanding * Close_t) / 1e7 (INR Crores)
-              OR net_profit * (Close_t / eps_t)
+               OR net_profit * (Close_t / eps_t)
    - EV_t = MCAP_t + total_debt - cash_and_equivalents
    - EBITDA_t = operating_profit + depreciation_amortization
    - EV/EBITDA_t = EV_t / EBITDA_t (when EBITDA_t > 0 and EV_t > 0)
@@ -24,6 +24,19 @@ GOVERNANCE & REAL-MARKET-DATA COMPLIANCE:
 6. Output:
    - Local JSON Cache: data/pit_valuation_history_cache.json
    - Database Cache: table parquet_cache (key 'pit_valuation_history_cache')
+
+CACHE CERTIFICATION RULES:
+   A. The authoritative completeness metric is "both_required_complete":
+      the count of symbols for which BOTH ev_ebitda_3y_median AND pe_3y_median
+      are non-null and > 0. A symbol with only one field populated is NOT
+      strategy-ready for V2.
+   B. A restored or rebuilt cache is accepted ONLY when both_required_complete > 0.
+   C. NEVER-DOWNGRADE invariant: a rebuild that produces fewer both_complete rows
+      than the currently certified cache is rejected. The certified cache is
+      preserved and the incomplete rebuild is returned to the caller for
+      diagnostics only.
+   D. The same row-level gate applies to all three ingestion paths:
+      local JSON load, DB restore, and fresh build.
 """
 
 import os
@@ -33,7 +46,7 @@ import time
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -51,6 +64,71 @@ DATA_DIR = os.path.join(REPO_ROOT, "data")
 PIT_PARQUET_PATH = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet")
 HISTORY_1D_DIR = os.path.join(DATA_DIR, "history", "1d")
 VALUATION_CACHE_PATH = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
+
+
+# ── SHARED COMPLETENESS HELPERS ────────────────────────────────────────────────
+
+def _count_both_complete_from_dict(data: Dict[str, Dict[str, Any]]) -> int:
+    """
+    Count symbols whose record has BOTH ev_ebitda_3y_median AND pe_3y_median
+    as non-None, non-NaN, positive values.
+
+    This is the single authoritative completeness metric used across every
+    ingestion path (local load, DB restore, fresh build).
+
+    A symbol with only one field populated is NOT strategy-ready for V2.
+    """
+    count = 0
+    for rec in data.values():
+        ev = rec.get("ev_ebitda_3y_median")
+        pe = rec.get("pe_3y_median")
+        ev_ok = ev is not None and not (isinstance(ev, float) and (ev != ev)) and float(ev) > 0
+        pe_ok = pe is not None and not (isinstance(pe, float) and (pe != pe)) and float(pe) > 0
+        if ev_ok and pe_ok:
+            count += 1
+    return count
+
+
+def _count_both_complete_from_df(df: pd.DataFrame) -> int:
+    """
+    Count rows in a DataFrame that have BOTH ev_ebitda_3y_median AND pe_3y_median
+    as valid positive values.
+    """
+    if df.empty:
+        return 0
+    ev_col = "ev_ebitda_3y_median"
+    pe_col = "pe_3y_median"
+    ev_ok = (df[ev_col].notna() & (df[ev_col].astype(float) > 0)) if ev_col in df.columns else pd.Series(False, index=df.index)
+    pe_ok = (df[pe_col].notna() & (df[pe_col].astype(float) > 0)) if pe_col in df.columns else pd.Series(False, index=df.index)
+    return int((ev_ok & pe_ok).sum())
+
+
+def _load_current_certified_completeness() -> Tuple[int, str]:
+    """
+    Read the current certified local cache (if it exists) and return:
+      (both_complete_count, source_path)
+
+    Returns (0, "NONE") if no certified cache is found or it fails the gate.
+    Used to enforce the never-downgrade invariant before cache promotion.
+    """
+    candidate_paths = [
+        VALUATION_CACHE_PATH,
+        os.path.join(REPO_ROOT, "data", "pit_valuation_history_cache.json"),
+        os.path.join(os.getcwd(), "data", "pit_valuation_history_cache.json"),
+        "/app/data/pit_valuation_history_cache.json",
+    ]
+    for c_path in candidate_paths:
+        if os.path.exists(c_path):
+            try:
+                with open(c_path, "r") as f:
+                    payload = json.load(f)
+                data = payload.get("data", {})
+                if data and len(data) > 0:
+                    return _count_both_complete_from_dict(data), c_path
+            except Exception:
+                pass
+    return 0, "NONE"
+
 
 
 def build_pit_valuation_history(
@@ -181,27 +259,65 @@ def build_pit_valuation_history(
 
     duration = round(time.time() - start_ts, 2)
     total_processed = len(results)
+
+    # ── ROW-LEVEL COMPLETENESS AUDIT ─────────────────────────────────────────
+    # The authoritative metric is both_required_complete: count of symbols
+    # where BOTH ev_ebitda_3y_median AND pe_3y_median are non-null and > 0.
+    # Per-column counts (ev_count, pe_count) are informational only — two
+    # different disjoint subsets can each be non-zero while both_complete = 0.
+    both_complete_count = _count_both_complete_from_dict(results)
+
     logger.info(
-        f"✅ Completed PIT 3Y valuation calculations: {total_processed}/{len(target_symbols)} symbols in {duration}s | "
-        f"EV/EBITDA medians: {ev_count}/{total_processed} | PE medians: {pe_count}/{total_processed}"
+        f"📊 [VALUATION_BUILDER] Build summary: {total_processed}/{len(target_symbols)} symbols processed "
+        f"in {duration}s | EV/EBITDA: {ev_count}/{total_processed} | PE: {pe_count}/{total_processed} | "
+        f"Both-required (EV∩PE): {both_complete_count}/{total_processed}"
     )
 
-    # Guard: never overwrite an existing working cache with a null rebuild.
-    # If ev_count + pe_count == 0, all medians are null — the computation failed
-    # (most likely cause: 1D history parquet missing, or shares_outstanding /
-    # operating_profit column absent after PIT merge_asof).
-    if ev_count == 0 and pe_count == 0 and total_processed > 0:
+    # ── GATE 1: ROW-LEVEL COMPLETENESS ────────────────────────────────────────
+    # Reject any rebuild that produced 0 symbols with both required fields.
+    if both_complete_count == 0 and total_processed > 0:
         logger.error(
-            f"❌ [VALUATION_BUILDER] NULL_REBUILD_BLOCKED: processed {total_processed} symbols but "
-            f"produced 0 valid EV/EBITDA medians and 0 valid PE medians. "
-            f"Existing cache NOT overwritten. "
-            f"Diagnostic: check (1) data/history/1d/{{symbol}}.parquet files exist and are non-empty, "
+            f"❌ [VALUATION_BUILDER] BOTH_COMPLETE_ZERO_BLOCKED: processed {total_processed} symbols "
+            f"but produced 0 symbols with BOTH ev_ebitda_3y_median AND pe_3y_median. "
+            f"(EV only: {ev_count}, PE only: {pe_count}). "
+            f"Existing certified cache NOT overwritten. "
+            f"Diagnostic: (1) data/history/1d/{{symbol}}.parquet must exist and be non-empty, "
             f"(2) pit_fundamentals_v1 columns 'shares_outstanding', 'operating_profit', "
-            f"'depreciation_amortization', 'eps', 'total_debt', 'cash_and_equivalents' are populated, "
-            f"(3) merge_asof alignment between price dates and conservative_availability_timestamp."
+            f"'depreciation_amortization', 'eps', 'total_debt', 'cash_and_equivalents' must be populated, "
+            f"(3) merge_asof requires conservative_availability_timestamp <= candle_date."
         )
-        return results  # Return null results; caller must handle
+        return results  # Caller must not treat as certified
 
+    # ── GATE 2: NEVER-DOWNGRADE (TRANSACTIONAL PROMOTION) ──────────────────
+    # Before overwriting the certified cache, compare new rebuild’s
+    # completeness against the current certified cache.
+    # A rebuild that is LESS complete is rejected — cache promotion is
+    # monotonically non-decreasing in both_required_complete.
+    if save_cache or upload_db:
+        current_both_complete, current_cache_path = _load_current_certified_completeness()
+        if current_both_complete > 0 and both_complete_count < current_both_complete:
+            logger.error(
+                f"❌ [VALUATION_BUILDER] NEVER_DOWNGRADE_BLOCKED: rebuild produced "
+                f"both_complete={both_complete_count} (symbols with EV+PE medians), "
+                f"which is LESS THAN current certified cache "
+                f"both_complete={current_both_complete} from '{current_cache_path}'. "
+                f"Certified cache preserved unchanged. "
+                f"Returning incomplete rebuild for diagnostics only — NOT for production use."
+            )
+            return results  # Certified cache on disk/DB unchanged
+        if current_both_complete > 0:
+            logger.info(
+                f"✅ [VALUATION_BUILDER] NEVER_DOWNGRADE CHECK PASSED: "
+                f"rebuild both_complete={both_complete_count} >= current_certified={current_both_complete}. "
+                f"Promoting new cache."
+            )
+        else:
+            logger.info(
+                f"✅ [VALUATION_BUILDER] No prior certified cache found (current_both_complete=0). "
+                f"Promoting new cache with both_complete={both_complete_count}."
+            )
+
+    # ── PROMOTE: WRITE CACHE ────────────────────────────────────────────────
     if save_cache and results:
         os.makedirs(os.path.dirname(VALUATION_CACHE_PATH), exist_ok=True)
         try:
@@ -210,23 +326,29 @@ def build_pit_valuation_history(
                 "total_symbols": total_processed,
                 "ev_ebitda_median_count": ev_count,
                 "pe_median_count": pe_count,
+                "both_required_complete_count": both_complete_count,
                 "data": results
             }
             with open(VALUATION_CACHE_PATH, "w") as f:
                 json.dump(cache_payload, f, indent=2)
-            logger.info(f"💾 Saved valuation medians cache to {VALUATION_CACHE_PATH}")
+            logger.info(
+                f"💾 Saved certified valuation cache to {VALUATION_CACHE_PATH} "
+                f"({both_complete_count}/{total_processed} symbols with both EV+PE medians)"
+            )
         except Exception as e:
             logger.warning(f"Failed to write valuation cache: {e}")
 
         if upload_db:
             try:
                 from database import upload_parquet_to_db
-                # Upload cache payload as parquet or JSON representation
                 df_cache = pd.DataFrame(list(results.values()))
                 temp_parquet = VALUATION_CACHE_PATH.replace(".json", ".parquet")
                 df_cache.to_parquet(temp_parquet, index=False)
                 upload_parquet_to_db("pit_valuation_history_cache", temp_parquet)
-                logger.info("⚡ Uploaded pit_valuation_history_cache to database parquet_cache")
+                logger.info(
+                    f"⚡ Uploaded pit_valuation_history_cache to database parquet_cache "
+                    f"({both_complete_count}/{total_processed} symbols both-complete)"
+                )
             except Exception as e:
                 logger.debug(f"DB cache upload optional notice: {e}")
 
@@ -237,6 +359,11 @@ def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[s
     """
     Loads certified PIT valuation medians cache from local disk, restores from database if missing,
     or builds it on-the-fly from Upstox historical candles + PIT filings.
+
+    Certification gate: a loaded or restored cache is only returned when
+    both_required_complete > 0 (at least one symbol has BOTH ev_ebitda_3y_median
+    AND pe_3y_median populated). Caches that fail this gate fall through to the
+    next path.
     """
     # 1. Try local cache across candidate directories
     candidate_paths = [
@@ -253,7 +380,22 @@ def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[s
                     payload = json.load(f)
                 data = payload.get("data", {})
                 if data and len(data) > 0:
-                    logger.info(f"⚡ Loaded {len(data)} certified PIT valuation medians from local cache ({c_path})")
+                    # [CERT GATE] Row-level completeness: both fields per symbol
+                    both_complete = _count_both_complete_from_dict(data)
+                    ev_count = sum(1 for r in data.values() if r.get("ev_ebitda_3y_median") is not None)
+                    pe_count = sum(1 for r in data.values() if r.get("pe_3y_median") is not None)
+                    if both_complete == 0:
+                        logger.error(
+                            f"❌ [VALUATION_CACHE] LOCAL_CACHE_REJECTED ({c_path}): "
+                            f"{len(data)} rows but EV={ev_count}, PE={pe_count}, "
+                            f"Both-required={both_complete}/{len(data)}. "
+                            f"Falling through to DB restore or fresh build."
+                        )
+                        continue  # Try next candidate path
+                    logger.info(
+                        f"⚡ Loaded {len(data)} certified PIT valuation medians from local cache ({c_path}) "
+                        f"| Both-required={both_complete}/{len(data)} | EV={ev_count} | PE={pe_count}"
+                    )
                     return data
             except Exception as e:
                 logger.warning(f"Error loading local valuation cache from {c_path}: {e}")
@@ -265,42 +407,41 @@ def load_or_build_pit_valuation_cache(max_age_days: int = 7) -> Dict[str, Dict[s
         if download_parquet_from_db("pit_valuation_history_cache", temp_parquet):
             df_cache = pd.read_parquet(temp_parquet)
             if not df_cache.empty and "symbol" in df_cache.columns:
-                # [FIX: VALUATION_FIELD_COMPLETENESS_GATE]
-                # Validate that the restored cache actually contains usable 3Y medians.
-                # A cache with N rows but 0 valid medians is a broken cache — row presence
-                # alone is NOT sufficient to certify the cache.
-                _restored_ev = int(df_cache["ev_ebitda_3y_median"].notna().sum()) if "ev_ebitda_3y_median" in df_cache.columns else 0
-                _restored_pe = int(df_cache["pe_3y_median"].notna().sum()) if "pe_3y_median" in df_cache.columns else 0
-                if _restored_ev == 0 and _restored_pe == 0:
+                # [CERT GATE] Row-level completeness: both fields per symbol
+                both_complete = _count_both_complete_from_df(df_cache)
+                _n = len(df_cache)
+                _ev = int(df_cache["ev_ebitda_3y_median"].notna().sum()) if "ev_ebitda_3y_median" in df_cache.columns else 0
+                _pe = int(df_cache["pe_3y_median"].notna().sum()) if "pe_3y_median" in df_cache.columns else 0
+                if both_complete == 0:
                     logger.error(
-                        f"❌ [VALUATION_CACHE] DB_RESTORE_REJECTED: restored {len(df_cache)} rows but "
-                        f"EV/EBITDA medians={_restored_ev}/{len(df_cache)}, PE medians={_restored_pe}/{len(df_cache)}. "
-                        f"Cache has rows but NO valid medians — rejecting stale/broken DB cache. "
+                        f"❌ [VALUATION_CACHE] DB_RESTORE_REJECTED: restored {_n} rows but "
+                        f"EV={_ev}/{_n}, PE={_pe}/{_n}, Both-required={both_complete}/{_n}. "
+                        f"No symbols have BOTH required medians — rejecting stale/broken DB cache. "
                         f"Falling through to fresh build from 1D history + PIT filings."
                     )
                     # Fall through to fresh build below
                 else:
                     records = df_cache.to_dict(orient="records")
                     data = {r["symbol"]: r for r in records}
-                    # Also save to local json
                     with open(VALUATION_CACHE_PATH, "w") as f:
                         json.dump({
                             "generated_at": datetime.now(IST).isoformat(),
                             "total_symbols": len(data),
-                            "ev_ebitda_median_count": _restored_ev,
-                            "pe_median_count": _restored_pe,
+                            "ev_ebitda_median_count": _ev,
+                            "pe_median_count": _pe,
+                            "both_required_complete_count": both_complete,
                             "data": data
                         }, f, indent=2)
                     logger.info(
                         f"✅ Restored {len(data)} certified PIT valuation medians from database "
-                        f"(EV/EBITDA: {_restored_ev}, PE: {_restored_pe})"
+                        f"| Both-required={both_complete}/{_n} | EV={_ev} | PE={_pe}"
                     )
                     return data
     except Exception as e:
         logger.debug(f"DB restore check note: {e}")
 
     # 3. Build on the fly from local Upstox candles + PIT filings
-    logger.info("ℹ️ Valuation cache missing or empty. Building from Upstox candles + PIT filings...")
+    logger.info("ℹ️ Valuation cache missing or does not meet certification gate. Building from Upstox candles + PIT filings...")
     results = build_pit_valuation_history(save_cache=True, upload_db=True)
     return results
 

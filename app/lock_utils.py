@@ -124,12 +124,18 @@ def print_scanner_end_banner(
     Must be called BEFORE releasing any locks so log order is guaranteed.
 
     Args:
-        override_status: If set, this health status is written unconditionally (before paused-guard).
-                         Use this when the scanner body has already computed the real health state
-                         (e.g. DEGRADED, DATA_BLOCKED) but the DB upsert inside the try-block may
-                         have been silently rejected by the execution-ownership guard, leaving the
-                         scanner stuck in RUNNING in the DB.  Passing override_status here ensures
-                         the end-banner always persists the correct final state.
+        override_status: If set, this is the health status computed by the scanner body.
+                         It is used AFTER the PAUSED/STOPPED guard, not before it.
+                         Precedence order (highest to lowest):
+                           1. PAUSED / STOPPED (admin-controlled state — always preserved)
+                           2. override_status  (scanner-computed runtime health)
+                           3. status           (explicit caller argument)
+                           4. curr_status      (DB re-read fallback, only if in _DEGRADE_PRESERVE)
+                           5. "OK"             (default)
+                         Use override_status when the scanner body has already computed the
+                         real health state (DEGRADED, DATA_BLOCKED) but the DB upsert inside
+                         the try-block may have been silently rejected by the execution-
+                         ownership guard, leaving the scanner stuck in RUNNING in the DB.
         start_wall_ts:  Optional wall-clock time.time() at scan start.  Used as a sanity guard: if
                          time.monotonic() - start_mono is negative (which happens when start_mono
                          accidentally received a time.time() value), we fall back to
@@ -140,6 +146,7 @@ def print_scanner_end_banner(
     star_bar = "********************************************************************************"
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     raw_runtime = _time_mod.monotonic() - start_mono
+    _SANE_RUNTIME_UPPER_BOUND_S = 7200  # 2 hours; any scan taking longer is a bug
     if raw_runtime < 0:
         # start_mono was likely set to time.time() instead of time.monotonic()
         # (e.g. _scan_start = start_ts before print_scanner_start_banner overwrites it)
@@ -155,14 +162,32 @@ def print_scanner_end_banner(
                 f"⚠️ [{display}] DURATION_BUG DETECTED: monotonic diff={raw_runtime:.1f}s (negative). "
                 f"No start_wall_ts provided. Reporting 0.1s placeholder."
             )
+    elif raw_runtime > _SANE_RUNTIME_UPPER_BOUND_S:
+        runtime = raw_runtime
+        logger.warning(
+            f"⚠️ [{display}] DURATION_INVARIANT_VIOLATION: runtime={raw_runtime:.0f}s exceeds "
+            f"sane upper bound of {_SANE_RUNTIME_UPPER_BOUND_S}s (2h). "
+            f"start_mono={start_mono:.3f} may be stale or from a prior process lifecycle."
+        )
     else:
         runtime = raw_runtime
     logger.info(star_bar)
     logger.info(f"🏁 ******* FINISHED SCANNER: {display} — {ts} | Duration: {runtime:.1f}s *******")
     logger.info(star_bar)
 
-    # Statuses that reflect real degradation/failure: always preserve in DB,
-    # never let the end-banner silently downgrade them to OK.
+    # Admin-controlled states (PAUSED/STOPPED) take highest priority — they must
+    # never be overwritten by an automated scanner finalizer, regardless of what
+    # override_status says.  A scanner body can set override_status=DEGRADED but
+    # if an admin had paused it in the meantime, PAUSED is preserved.
+    #
+    # Precedence (highest first):
+    #   1. PAUSED / STOPPED (from is_scanner_stopped() OR curr_status read)
+    #   2. override_status  (scanner-computed runtime health)
+    #   3. status           (explicit caller kwarg)
+    #   4. curr_status      (DB re-read, only if in _DEGRADE_PRESERVE)
+    #   5. "OK"             (default)
+    # Statuses that reflect real degradation/failure: preserved by the fallback
+    # chain (level 4) when neither override_status nor explicit status is set.
     _DEGRADE_PRESERVE = {"DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "DATA_BLOCKED", "IDLE", "ERROR", "FAILED"}
 
     try:
@@ -171,23 +196,31 @@ def print_scanner_end_banner(
         except ImportError:
             from app.database import upsert_scanner_health, get_scanner_health, is_scanner_stopped
         if is_scanner_stopped(db_name):
-            logger.info(f"⏸️ [{display}] Scanner is PAUSED/STOPPED — preserving PAUSED state on end banner")
+            # Level 1a: is_scanner_stopped() returns True for PAUSED and STOPPED
+            logger.info(f"⏸️ [{display}] Scanner is PAUSED/STOPPED — preserving admin state on end banner")
+
         else:
             current_health = get_scanner_health(db_name)
             curr_status = current_health.get("status") if current_health else "OK"
             if curr_status in ("PAUSED", "STOPPED"):
+                # Level 1b: DB read confirms admin state — preserve unconditionally
                 final_status = curr_status
+                upsert_scanner_health(db_name, status=final_status, duration_seconds=runtime, run_id=run_id)
+                logger.info(f"⏸️ [{display}] DB shows {curr_status} — preserving admin state (override_status={override_status!r} ignored)")
             elif override_status is not None:
-                # Caller explicitly computed the correct health state (e.g. DEGRADED / DATA_BLOCKED).
-                # Honor it unconditionally rather than re-reading the DB (which may still show RUNNING
-                # if the scanner body's upsert was silently rejected by the ownership guard).
+                # Level 2: scanner-computed runtime health (DATA_BLOCKED, DEGRADED, OK, etc.)
+                # Safe to apply only because level-1 checks above cleared PAUSED/STOPPED.
                 final_status = override_status
+                upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
+                logger.info(f"✅ [{display}] Status updated: {final_status} via override (Completed in {runtime:.0f}s)")
             else:
+                # Levels 3-5: fallback chain
                 final_status = status if status is not None else (curr_status if curr_status in _DEGRADE_PRESERVE else "OK")
-            upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
-            logger.info(f"✅ [{display}] Status updated: {final_status} (Completed in {runtime:.0f}s)")
+                upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
+                logger.info(f"✅ [{display}] Status updated: {final_status} (Completed in {runtime:.0f}s)")
     except Exception as _e:
         logger.warning(f"⚠️ Could not update scanner status: {_e}")
+
 
 
 _process_locks = {}

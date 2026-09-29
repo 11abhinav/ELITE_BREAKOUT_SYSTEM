@@ -1078,6 +1078,13 @@ class LiveFundamentalBuyScanner:
         acquired_global = False
         _scan_start = time.monotonic()  # must be monotonic — print_scanner_end_banner computes time.monotonic() - start_mono
         _computed_health_status = None   # set after health classification; passed to end banner as override_status
+        # Invariant: verify _scan_start is a valid monotonic value, not a wall-clock timestamp.
+        # time.monotonic() on any modern system is O(thousands) of seconds, never O(billions).
+        assert _scan_start > 0, f"FUNDAMENTAL _scan_start={_scan_start} must be positive"
+        assert _scan_start < 1e9, (
+            f"FUNDAMENTAL _scan_start={_scan_start:.0f} looks like time.time() (wall-clock), "
+            f"not time.monotonic(). Duration will be negative in end banner."
+        )
 
         # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
         if not _fundamental_scan_lock.acquire(blocking=False):
@@ -1736,6 +1743,12 @@ class QualityCompounderValueV2Scanner:
         start_ts = time.time()
         _scan_start = time.monotonic()  # must be monotonic — print_scanner_end_banner computes time.monotonic() - start_mono
         _computed_v2_health_status = None   # set by _scan_universe_core via exec_run_ctx_holder; passed to end banner
+        # Invariant: verify _scan_start is a valid monotonic value, not a wall-clock timestamp.
+        assert _scan_start > 0, f"V2_FINAL _scan_start={_scan_start} must be positive"
+        assert _scan_start < 1e9, (
+            f"V2_FINAL _scan_start={_scan_start:.0f} looks like time.time() (wall-clock), "
+            f"not time.monotonic(). Duration will be negative in end banner."
+        )
         acquired_scan = False
         acquired_global = False
         exec_run_ctx_holder = [None]
