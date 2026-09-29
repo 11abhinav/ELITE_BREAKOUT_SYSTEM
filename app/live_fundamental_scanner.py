@@ -72,6 +72,7 @@ class RejectionReason(str, Enum):
     # Universe
     EXCLUDED_UNAPPROVED_UNIVERSE = "EXCLUDED_UNAPPROVED_UNIVERSE"
     EXCLUDED_QUARANTINED_ANOMALY = "EXCLUDED_QUARANTINED_ANOMALY"
+    FAIL_UNIVERSE_FINANCIAL_SECTOR = "FAIL_UNIVERSE_FINANCIAL_SECTOR"
     # Data Quality & Provenance
     FUNDAMENTAL_DATA_MISSING = "FUNDAMENTAL_DATA_MISSING"
     FUNDAMENTAL_DATA_STALE = "FUNDAMENTAL_DATA_STALE"
@@ -84,11 +85,14 @@ class RejectionReason(str, Enum):
     FAIL_OCF = "FAIL_OCF"
     FAIL_DEBT_EQUITY = "FAIL_DEBT_EQUITY"
     FAIL_VALUE_TRAP = "FAIL_VALUE_TRAP"
+    FAIL_QUALITY_METRICS_INCOMPLETE = "FAIL_QUALITY_METRICS_INCOMPLETE"
     # Earnings Acceleration Gate
     FAIL_REVENUE_ACCELERATION = "FAIL_REVENUE_ACCELERATION"
     FAIL_OP_PROFIT_ACCELERATION = "FAIL_OP_PROFIT_ACCELERATION"
     FAIL_EPS_ACCELERATION = "FAIL_EPS_ACCELERATION"
     FAIL_PRIOR_EPS = "FAIL_PRIOR_EPS"
+    FAIL_EARNINGS_ACCELERATION = "FAIL_EARNINGS_ACCELERATION"
+    FAIL_GROWTH_DATA_INSUFFICIENT = "FAIL_GROWTH_DATA_INSUFFICIENT"
     # Technical Trend & Relative Strength Gate
     FAIL_TREND = "FAIL_TREND"
     FAIL_RELATIVE_STRENGTH = "FAIL_RELATIVE_STRENGTH"
@@ -101,6 +105,39 @@ class RejectionReason(str, Enum):
     FAIL_BREAKOUT_PRICE = "FAIL_BREAKOUT_PRICE"
     FAIL_BREAKOUT_VOLUME = "FAIL_BREAKOUT_VOLUME"
     FAIL_BREAKOUT_EXTENSION = "FAIL_BREAKOUT_EXTENSION"
+
+
+FINANCIAL_KEYWORDS = [
+    "BANK", "FINANCE", "FINANCIAL", "HOUSING FINANCE", "NBFC",
+    "INSURANCE", "INVESTMENT", "CAPITAL", "SECURITIES", "LEASING"
+]
+
+FINANCIAL_SYMBOLS = {
+    'HDFCBANK', 'ICICIBANK', 'SBIN', 'KOTAKBANK', 'AXISBANK',
+    'BAJFINANCE', 'BAJAJFINSV', 'CHOLAFIN', 'MUTHOOTFIN', 'SHRIRAMFIN',
+    'AUBANK', 'BANKBARODA', 'BANKINDIA', 'CANFINHOME', 'CAPITALSFB',
+    'CSBBANK', 'CUB', 'DCBBANK', 'FEDERALBNK', 'FEDFINA', 'IDFCFIRSTB',
+    'INDIANB', 'J&KBANK', 'KARURVYSYA', 'KTKBANK', 'PNB', 'SBICARD',
+    'SBILIFE', 'SGFIN', 'TMB', 'UNIONBANK', 'BANDHANBNK', 'CANBK',
+    'GODIGIT', 'ICICIGI', 'APTUS', 'AYE', 'MANAPPURAM', 'POONAWALLA',
+    'L&TFH', 'PEL', 'CREDITACC', 'HOMEFIRST', 'FIVESTAR'
+}
+
+def is_financial_entity(fundamentals: Optional[Dict[str, Any]], symbol: Optional[str] = None) -> bool:
+    """Identifies financial sector entities (banks, NBFCs, insurance, housing finance) excluded from industrial ROCE."""
+    sym = (symbol or (fundamentals.get("symbol", "") if fundamentals else "")).upper()
+    if sym in FINANCIAL_SYMBOLS:
+        return True
+    if not fundamentals:
+        return False
+    sec = str(fundamentals.get("sector", fundamentals.get("Sector", ""))).upper()
+    ind = str(fundamentals.get("industry", fundamentals.get("Industry", ""))).upper()
+    sub = str(fundamentals.get("financial_sub_path", "")).upper()
+    if sub in ("BANK", "NBFC_HFC", "INSURANCE", "AMC", "FINANCIAL_UNCLASSIFIED"):
+        return True
+    if any(kw in sec for kw in FINANCIAL_KEYWORDS) or any(kw in ind for kw in FINANCIAL_KEYWORDS):
+        return True
+    return False
 
 
 # -------------------------------------------------------------------------------------
@@ -173,9 +210,15 @@ class FundamentalQualityGate:
     def evaluate(fundamentals: Dict[str, Any], symbol: Optional[str] = None) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
         failures = []
         sym = symbol or (fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN")
-        if not fundamentals:
+        if not fundamentals or fundamentals.get("upstream_provider") == "DATA_UNAVAILABLE":
             logger.info(f"🔍 [GATE_EVAL:FQ] {sym} REJECTED: fundamentals record is missing or empty")
             return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
+
+        # Sector Gate: Financial entities (banks, NBFCs, insurance) do not have industrial ROCE / D/E
+        if is_financial_entity(fundamentals, sym):
+            failures.append(RejectionReason.FAIL_UNIVERSE_FINANCIAL_SECTOR)
+            logger.info(f"🔍 [GATE_EVAL:FQ] {sym:<12} REJECTED (FINANCIAL_SECTOR): Excluded from industrial ROCE/DE model")
+            return False, failures, {"sector_type": "FINANCIAL"}
 
         roce = fundamentals.get("roce")
         roe = fundamentals.get("roe")
@@ -217,9 +260,9 @@ class FundamentalQualityGate:
         if de_val is None: missing_fields.append("debt_equity")
 
         if missing_fields:
-            failures.append(RejectionReason.FUNDAMENTAL_DATA_MISSING)
+            failures.append(RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE)
             logger.info(
-                f"🔍 [GATE_EVAL:FQ] {sym:<12} REJECTED (DATA_MISSING): missing={missing_fields} | "
+                f"🔍 [GATE_EVAL:FQ] {sym:<12} REJECTED (QUALITY_INCOMPLETE): missing={missing_fields} | "
                 f"roce={f'{roce_val:.1f}%' if roce_val is not None else 'MISSING'} | "
                 f"roe={f'{roe_val:.1f}%' if roe_val is not None else 'MISSING'} | "
                 f"ocf={f'{ocf_val:.1f}' if ocf_val is not None else 'MISSING'} | "
@@ -272,7 +315,7 @@ class EarningsAccelerationGate:
     def evaluate(fundamentals: Dict[str, Any], symbol: Optional[str] = None) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
         failures = []
         sym = symbol or (fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN")
-        if not fundamentals:
+        if not fundamentals or fundamentals.get("upstream_provider") == "DATA_UNAVAILABLE":
             logger.info(f"🔍 [GATE_EVAL:EA] {sym} REJECTED: fundamentals record is missing or empty")
             return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
 
@@ -316,9 +359,9 @@ class EarningsAccelerationGate:
         if p_eps is None: missing_fields.append("prior_eps")
 
         if missing_fields:
-            failures.append(RejectionReason.FUNDAMENTAL_DATA_MISSING)
+            failures.append(RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT)
             logger.info(
-                f"🔍 [GATE_EVAL:EA] {sym:<12} REJECTED (DATA_MISSING): missing={missing_fields} | "
+                f"🔍 [GATE_EVAL:EA] {sym:<12} REJECTED (GROWTH_DATA_INSUFFICIENT): missing={missing_fields} | "
                 f"rev_l={f'{rev_l:.1f}%' if rev_l is not None else 'MISSING'} | rev_p={f'{rev_p:.1f}%' if rev_p is not None else 'MISSING'} | "
                 f"op_l={f'{op_l:.1f}%' if op_l is not None else 'MISSING'} | op_p={f'{op_p:.1f}%' if op_p is not None else 'MISSING'} | "
                 f"eps_l={f'{eps_l:.1f}%' if eps_l is not None else 'MISSING'} | eps_p={f'{eps_p:.1f}%' if eps_p is not None else 'MISSING'} | "
@@ -1464,10 +1507,20 @@ class LiveFundamentalBuyScanner:
                    RejectionReason.EXCLUDED_QUARANTINED_ANOMALY not in res["rejection_reasons"]:
                     funnel["universe_valid_count"] += 1
 
-                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_ROCE, RejectionReason.FAIL_ROE, RejectionReason.FAIL_OCF, RejectionReason.FAIL_DEBT_EQUITY, RejectionReason.FAIL_VALUE_TRAP]):
+                if not any(r in res["rejection_reasons"] for r in [
+                    RejectionReason.FAIL_ROCE, RejectionReason.FAIL_ROE, RejectionReason.FAIL_OCF,
+                    RejectionReason.FAIL_DEBT_EQUITY, RejectionReason.FAIL_VALUE_TRAP,
+                    RejectionReason.FAIL_UNIVERSE_FINANCIAL_SECTOR, RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE,
+                    RejectionReason.FUNDAMENTAL_DATA_MISSING
+                ]):
                     funnel["fundamental_quality_pass_count"] += 1
 
-                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_REVENUE_ACCELERATION, RejectionReason.FAIL_OP_PROFIT_ACCELERATION, RejectionReason.FAIL_EPS_ACCELERATION, RejectionReason.FAIL_PRIOR_EPS]):
+                if not any(r in res["rejection_reasons"] for r in [
+                    RejectionReason.FAIL_REVENUE_ACCELERATION, RejectionReason.FAIL_OP_PROFIT_ACCELERATION,
+                    RejectionReason.FAIL_EPS_ACCELERATION, RejectionReason.FAIL_PRIOR_EPS,
+                    RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT, RejectionReason.FAIL_EARNINGS_ACCELERATION,
+                    RejectionReason.FUNDAMENTAL_DATA_MISSING
+                ]):
                     funnel["earnings_acceleration_pass_count"] += 1
 
                 if RejectionReason.FAIL_TREND not in res["rejection_reasons"]:
@@ -1615,9 +1668,12 @@ class LiveFundamentalBuyScanner:
                         except Exception as al_err:
                             logger.debug(f"Save alert warning for {sym}: {al_err}")
                 else:
-                    if any("INSUFFICIENT" in str(r).upper() for r in res["rejection_reasons"]):
+                    if (RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK in res["rejection_reasons"] or
+                        RejectionReason.MARKET_DATA_MISSING in res["rejection_reasons"]):
                         funnel["data_insufficient_count"] += 1
-                    if any("MISSING" in str(r).upper() for r in res["rejection_reasons"]):
+                    # data_missing_count counts true missing upstream fundamentals (record completely unavailable from provider)
+                    if (funds.get("upstream_provider") == "DATA_UNAVAILABLE" or 
+                        RejectionReason.FUNDAMENTAL_DATA_MISSING in res["rejection_reasons"]):
                         funnel["data_missing_count"] += 1
                     if any("PROVIDER" in str(r).upper() for r in res["rejection_reasons"]):
                         funnel["provider_failure_count"] += 1
@@ -1655,12 +1711,12 @@ class LiveFundamentalBuyScanner:
                     # 1. Scanned fewer symbols than approved universe (crashed early)
                     # 2. Broker provider failures exceed 5% of universe
                     # 3. Technical lookback insufficiency exceeds 10% of universe (>35 symbols, indicating bundle/cache loss)
-                    # 4. Context lifecycle failed
+                    # 4. Upstream fundamental master records missing from provider exceeds 5% of universe (>44 symbols)
+                    # 5. Context lifecycle failed
                     is_crashed = funnel["scanned_count"] < total_symbols_cnt
                     high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))
                     high_insufficient = di > max(35, int(total_symbols_cnt * 0.10))
-                    # Missing FUNDAMENTAL data (dm) also degrades health: >15% of universe is material
-                    high_missing = dm > max(50, int(total_symbols_cnt * 0.15))
+                    high_missing = dm > max(15, int(total_symbols_cnt * 0.05))
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
                     is_degraded = is_crashed or high_provider_failure or high_insufficient or high_missing or context_failed

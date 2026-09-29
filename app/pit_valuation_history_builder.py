@@ -257,6 +257,10 @@ def build_pit_valuation_history(
         except Exception:
             f_sym['dt'] = pd.to_datetime(f_sym[avail_col])
 
+        # Explicitly harmonize datetime unit to datetime64[ns] to avoid merge dtype incompatibility in Pandas 2.0+ (us vs ns)
+        df_3y['dt'] = pd.to_datetime(df_3y['dt']).astype('datetime64[ns]')
+        f_sym['dt'] = pd.to_datetime(f_sym['dt']).astype('datetime64[ns]')
+
         # Point-in-time backward merge: at each trade date, use latest published filing
         merged = pd.merge_asof(
             df_3y.sort_values('dt'),
