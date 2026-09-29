@@ -1178,6 +1178,14 @@ class LiveFundamentalBuyScanner:
                         "upstream_provider": "APPROVED_UNIVERSE_BASELINE_FALLBACK"
                     }
                 res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes, telemetry=telemetry)
+                # Track data freshness per-symbol in the run context
+                if ctx is not None:
+                    if funds.get("upstream_provider") == "APPROVED_UNIVERSE_BASELINE_FALLBACK":
+                        ctx.mark_incomplete()   # no real fundamentals data for this symbol
+                    elif db_meta.get("freshness_status", "FRESH") == "STALE":
+                        ctx.mark_stale()        # data exists but is stale
+                    else:
+                        ctx.mark_fresh()        # fresh, real data
 
                 if RejectionReason.EXCLUDED_UNAPPROVED_UNIVERSE not in res["rejection_reasons"] and \
                    RejectionReason.EXCLUDED_QUARANTINED_ANOMALY not in res["rejection_reasons"]:
@@ -1349,8 +1357,9 @@ class LiveFundamentalBuyScanner:
             duration_sec = round(time.time() - start_ts, 2)
             if ctx and complete_scanner_execution_run is not None:
                 try:
-                    ctx.fresh_data_count = funnel["scanned_count"]
-                    ctx.alerts_generated = funnel["buy_alerts_count"]
+                    ctx.set_alerts(funnel["buy_alerts_count"])
+                    # fresh_count, stale_count, incomplete_count were incremented per-symbol
+                    # inside the loop above — just call complete to flush them to DB.
                     complete_scanner_execution_run(ctx)
                 except Exception as ce_err:
                     logger.debug(f"Execution completion warning: {ce_err}")
