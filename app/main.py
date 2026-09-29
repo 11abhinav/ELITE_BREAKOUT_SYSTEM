@@ -1926,7 +1926,24 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
             logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build...")
             _vc_result = build_pit_valuation_history(save_cache=True, upload_db=True)
             if _vc_result:
-                logger.info(f"✅ [DAILY_BUILDER] Valuation cache rebuilt: {len(_vc_result)} symbols | uploaded to DB")
+                # Guard: only treat rebuild as successful if it produced at least some valid medians.
+                # A rebuild with 0 ev/pe medians must NOT overwrite a working cache.
+                _ev_valid = sum(1 for v in _vc_result.values() if v.get("ev_ebitda_3y_median") is not None)
+                _pe_valid = sum(1 for v in _vc_result.values() if v.get("pe_3y_median") is not None)
+                if _ev_valid > 0 or _pe_valid > 0:
+                    logger.info(
+                        f"✅ [DAILY_BUILDER] Valuation cache rebuilt: {len(_vc_result)} symbols | "
+                        f"EV/EBITDA medians: {_ev_valid} | PE medians: {_pe_valid} | uploaded to DB"
+                    )
+                else:
+                    # Rebuild produced only null medians — this would clobber a working cache.
+                    # Reject the result and preserve the existing cache.
+                    logger.error(
+                        f"❌ [DAILY_BUILDER] VALUATION_CACHE_REBUILD_REJECTED: build returned {len(_vc_result)} symbols "
+                        f"but EV/EBITDA medians=0/{len(_vc_result)} and PE medians=0/{len(_vc_result)}. "
+                        f"Existing cache preserved. Root cause: 1D history parquet missing or "
+                        f"shares_outstanding/operating_profit fields absent in PIT filings after merge."
+                    )
             else:
                 logger.warning("⚠️ [DAILY_BUILDER] Valuation cache rebuild returned empty — check 1D history and PIT parquet")
         except Exception as _vc_rebuild_err:

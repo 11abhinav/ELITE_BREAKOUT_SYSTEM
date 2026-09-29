@@ -4290,6 +4290,12 @@ def upsert_scanner_health(
         allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED'}
         if status == 'ERROR':
             status = 'DOWN'
+        elif status == 'DATA_BLOCKED':
+            # V2 valuation unavailable for >=50% of universe — treat as DEGRADED (not IDLE)
+            status = 'DEGRADED'
+        elif status == 'BLOCKED':
+            # V2 zero-price candidate defect — treat as DOWN (data integrity failure)
+            status = 'DOWN'
         elif status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
             logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
             status = 'IDLE'

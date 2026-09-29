@@ -1529,14 +1529,20 @@ class LiveFundamentalBuyScanner:
                     is_crashed = funnel["scanned_count"] < total_symbols_cnt
                     high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))
                     high_insufficient = di > max(35, int(total_symbols_cnt * 0.10))
+                    # Missing FUNDAMENTAL data (dm) also degrades health: >15% of universe is material
+                    high_missing = dm > max(50, int(total_symbols_cnt * 0.15))
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
-                    is_degraded = is_crashed or high_provider_failure or high_insufficient or context_failed
+                    is_degraded = is_crashed or high_provider_failure or high_insufficient or high_missing or context_failed
                     health_status = "DEGRADED" if is_degraded else "OK"
                     health_outcome = "PARTIAL" if is_degraded else "SUCCESS"
                     gap_msg = None
                     if is_degraded:
-                        gap_msg = f"Data gaps: {di} insufficient technicals, {dm} missing fundamentals, {pf} provider failures of {total_symbols_cnt} approved"
+                        gap_msg = (
+                            f"Data gaps: {di} insufficient technicals, {dm} missing fundamentals, "
+                            f"{pf} provider failures of {total_symbols_cnt} approved "
+                            f"(combined_gap={di+dm}/{total_symbols_cnt} = {round((di+dm)/max(total_symbols_cnt,1)*100,1)}%)"
+                        )
 
                     upsert_scanner_health(
                         "FUNDAMENTAL",
@@ -1724,7 +1730,7 @@ class QualityCompounderValueV2Scanner:
         """
         import time
         start_ts = time.time()
-        _scan_start = start_ts
+        _scan_start = time.monotonic()  # must be monotonic — print_scanner_end_banner computes time.monotonic() - start_mono
         acquired_scan = False
         acquired_global = False
         exec_run_ctx_holder = [None]
@@ -2430,21 +2436,28 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]")
             logger.info(f"     • PIT Field Completeness         : EV/EBITDA_curr={_ev_curr_cnt}/{pit_univ_cnt}, EV/EBITDA_3Ymed={_ev_med_cnt}/{pit_univ_cnt}, PE_curr={_pe_curr_cnt}/{pit_univ_cnt}, PE_3Ymed={_pe_med_cnt}/{pit_univ_cnt}")
             logger.info("  2. DATA COMPLETENESS & BLOCKING RECONCILIATION:")
-            logger.info(f"     • Complete Required Quality Data : {data_complete_count}  ({round(data_complete_count/max(total_scanned,1)*100,1)}% of universe)")
-            logger.info(f"     • Incomplete Quality History     : {incomplete_quality_count}  (PIT symbols missing 5Y ROCE/CAGR/CFO/D_E)")
-            logger.info(f"     • Price Data Blocked             : {price_data_blocked_count}  (missing/non-positive CMP)")
-            logger.info(f"     • Valuation Data Blocked         : {valuation_data_blocked_count}  (missing 3Y EV/EBITDA & PE medians)")
+            logger.info(f"     • Complete Required Quality Data : {data_complete_count}  ({round(data_complete_count/max(total_scanned,1)*100,1)}% of universe — requires quality + valuation + price all present)")
             logger.info(f"     • Total Data Blocked             : {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}% of universe)")
-            logger.info(f"       [Identity: {non_pit_blocked_count} Non-PIT + {incomplete_quality_count} Incomplete Quality = {data_blocked_count} Total Data Blocked]")
-            logger.info(f"       [Identity: {data_complete_count} Complete + {data_blocked_count} Blocked = {total_scanned} Approved Universe]")
+            logger.info(f"       ├─ Non-PIT (no filing history) : {non_pit_blocked_count}")
+            logger.info(f"       └─ PIT blocked (any required field missing) : {pit_univ_cnt - data_complete_count}  of {pit_univ_cnt} PIT symbols")
+            logger.info(f"           ├─ Incomplete Quality History : {incomplete_quality_count}  (missing 5Y ROCE/CAGR/CFO/D_E)")
+            logger.info(f"           ├─ Valuation Data Unavailable : {valuation_data_blocked_count}  (missing 3Y EV/EBITDA & PE medians)")
+            logger.info(f"           └─ Price Data Missing         : {price_data_blocked_count}  (missing/non-positive CMP)")
+            logger.info(f"       [Universe: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved]")
+            logger.info(f"       [PIT Quality: {pit_univ_cnt - incomplete_quality_count} Quality-complete + {incomplete_quality_count} Quality-incomplete = {pit_univ_cnt} PIT]")
+            logger.info(f"       [PIT Valuation: {pit_univ_cnt - valuation_data_blocked_count} Valuation-available + {valuation_data_blocked_count} Valuation-missing = {pit_univ_cnt} PIT]")
+            logger.info(f"       [Note: Valuation and Quality dimensions overlap — total-blocked is NOT their sum]")
+            _quality_evaluated = pit_univ_cnt - incomplete_quality_count  # PIT symbols that had enough quality data to evaluate
             logger.info("  3. STRATEGY FILTER FUNNEL RECONCILIATION:")
-            logger.info(f"     • Data Complete Evaluated        : {data_complete_count}")
+            logger.info(f"     • Quality-evaluated PIT symbols  : {_quality_evaluated}  (PIT symbols with full ROCE/CAGR/CFO/D_E history)")
             logger.info(f"     • Quality Gate Passed            : {quality_pass_count}")
             logger.info(f"     • Quality Gate Rejected          : {quality_reject_count}  (failed ROCE, CAGR, CFO, debt, or liquidity)")
-            logger.info(f"       [Identity: {quality_pass_count} Passed + {quality_reject_count} Rejected = {data_complete_count} Data Complete]")
+            logger.info(f"       [Identity: {quality_pass_count} Passed + {quality_reject_count} Rejected = {_quality_evaluated} Quality-evaluated]  {'✅' if quality_pass_count + quality_reject_count == _quality_evaluated else '⚠️ MISMATCH'}")
+            logger.info(f"     • Of {quality_pass_count} Quality-passed: Valuation gate evaluated only when 3Y median present")
             logger.info(f"     • Valuation Gate Passed          : {value_pass_count}  (EV/EBITDA discount >= 25%)")
             logger.info(f"     • Valuation Gate Rejected        : {value_reject_count}  (EV/EBITDA discount < 25%)")
-            logger.info(f"       [Identity: {value_pass_count} Passed + {value_reject_count} Rejected = {quality_pass_count} Quality Passed]")
+            logger.info(f"     • Valuation Gate Blocked (no data): {quality_pass_count - value_pass_count - value_reject_count}  (quality-passed but 3Y median absent)")
+            logger.info(f"       [Identity: {value_pass_count} Val-Pass + {value_reject_count} Val-Reject + {quality_pass_count - value_pass_count - value_reject_count} Val-Blocked = {quality_pass_count} Quality-Passed]  {'✅' if value_pass_count + value_reject_count + (quality_pass_count - value_pass_count - value_reject_count) == quality_pass_count else '⚠️ MISMATCH'}")
             logger.info(f"     • Candidates Selected (BUY)      : {candidate_count}  (verified CMP > 0 and 0 rejections)")
             logger.info(f"     • Snapshots Saved in DB          : {snapshots_inserted}  (100% universe audit trail)")
             logger.info("  4. HEALTH STATE:")

@@ -186,6 +186,22 @@ def build_pit_valuation_history(
         f"EV/EBITDA medians: {ev_count}/{total_processed} | PE medians: {pe_count}/{total_processed}"
     )
 
+    # Guard: never overwrite an existing working cache with a null rebuild.
+    # If ev_count + pe_count == 0, all medians are null — the computation failed
+    # (most likely cause: 1D history parquet missing, or shares_outstanding /
+    # operating_profit column absent after PIT merge_asof).
+    if ev_count == 0 and pe_count == 0 and total_processed > 0:
+        logger.error(
+            f"❌ [VALUATION_BUILDER] NULL_REBUILD_BLOCKED: processed {total_processed} symbols but "
+            f"produced 0 valid EV/EBITDA medians and 0 valid PE medians. "
+            f"Existing cache NOT overwritten. "
+            f"Diagnostic: check (1) data/history/1d/{{symbol}}.parquet files exist and are non-empty, "
+            f"(2) pit_fundamentals_v1 columns 'shares_outstanding', 'operating_profit', "
+            f"'depreciation_amortization', 'eps', 'total_debt', 'cash_and_equivalents' are populated, "
+            f"(3) merge_asof alignment between price dates and conservative_availability_timestamp."
+        )
+        return results  # Return null results; caller must handle
+
     if save_cache and results:
         os.makedirs(os.path.dirname(VALUATION_CACHE_PATH), exist_ok=True)
         try:
