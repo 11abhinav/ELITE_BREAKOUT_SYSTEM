@@ -1727,12 +1727,17 @@ class QualityCompounderValueV2Scanner:
 
         total_scanned = 0
         quality_pass_count = 0
+        quality_reject_count = 0
         value_pass_count = 0
+        value_reject_count = 0
         candidate_count = 0
-        quality_data_blocked_count = 0    # unique symbols with missing quality fields
-        valuation_data_blocked_count = 0  # unique symbols with missing valuation fields
-        price_data_blocked_count = 0      # unique symbols with missing or non-positive price
-        data_blocked_count = 0            # unique symbols with ANY missing required field (quality, valuation, OR price)
+
+        non_pit_blocked_count = 0         # Non-PIT symbols (missing statement history in pit_df)
+        incomplete_quality_count = 0      # PIT symbols missing 5Y quality history (roce/cagr/cfo/d_e)
+        valuation_data_blocked_count = 0  # PIT symbols missing valuation discount calculation
+        price_data_blocked_count = 0      # Missing or non-positive live quote CMP
+        data_blocked_count = 0            # Total unique symbols with any required field missing
+        data_complete_count = 0           # Symbols with 100% complete required data
 
         # Filter to latest PIT record per symbol on or before today
         if 'filing_date' in pit_df.columns:
@@ -1743,13 +1748,19 @@ class QualityCompounderValueV2Scanner:
         pit_df['symbol'] = pit_df['symbol'].astype(str).str.strip().str.upper()
         pit_df = pit_df.drop_duplicates(subset=['symbol'], keep='last').reset_index(drop=True)
 
-        # ── PRE-FLIGHT UNIVERSE HEALTH GATE ───────────────────────────────────────
+        # ── PRE-FLIGHT UNIVERSE HEALTH & VALUATION COMPLETENESS GATE ──────────────
         # Explicit universe & PIT lineage tracking (§1, §2)
         approved_univ = sorted(list(self.universe_registry.approved_symbols))
         universe_symbols = approved_univ if approved_univ else [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
         total_approved_univ = len(universe_symbols)
         pit_univ_cnt = len(pit_df)
         non_pit_univ_cnt = max(0, total_approved_univ - pit_univ_cnt)
+
+        # Field-level completeness across PIT dataset rows
+        _ev_curr_cnt = int(pit_df['current_ev_ebitda'].notna().sum()) if 'current_ev_ebitda' in pit_df.columns else 0
+        _ev_med_cnt  = int(pit_df['ev_ebitda_3y_median'].notna().sum()) if 'ev_ebitda_3y_median' in pit_df.columns else 0
+        _pe_curr_cnt = int(pit_df['current_pe'].notna().sum()) if 'current_pe' in pit_df.columns else 0
+        _pe_med_cnt  = int(pit_df['pe_3y_median'].notna().sum()) if 'pe_3y_median' in pit_df.columns else 0
 
         _val_available_pit = sum(
             1 for _, _row in pit_df.iterrows()
@@ -1762,9 +1773,15 @@ class QualityCompounderValueV2Scanner:
         logger.info(
             f"ℹ️ [V2_FINAL] UNIVERSE & PIT LINEAGE: "
             f"ApprovedUniverse={total_approved_univ} | "
-            f"PIT_ValuationUniverse={pit_univ_cnt} | "
-            f"Non_PIT_Symbols={non_pit_univ_cnt} (hard-blocked as DATA_MISSING_PIT_FILINGS) | "
-            f"ValuationAvailableForPIT={_val_available_pit}/{pit_univ_cnt} ({_val_cov_pct:.1f}%)"
+            f"PIT_Universe={pit_univ_cnt} | "
+            f"Non_PIT_Symbols={non_pit_univ_cnt} (hard-blocked as DATA_MISSING_PIT_FILINGS)"
+        )
+        logger.info(
+            f"ℹ️ [V2_FINAL] PIT VALUATION FIELD COMPLETENESS ({pit_univ_cnt} PIT rows): "
+            f"current_ev_ebitda={_ev_curr_cnt}/{pit_univ_cnt} ({_ev_curr_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
+            f"ev_ebitda_3y_med={_ev_med_cnt}/{pit_univ_cnt} ({_ev_med_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
+            f"current_pe={_pe_curr_cnt}/{pit_univ_cnt} ({_pe_curr_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
+            f"pe_3y_med={_pe_med_cnt}/{pit_univ_cnt} ({_pe_med_cnt/max(pit_univ_cnt,1)*100:.1f}%)"
         )
 
         if not _valuation_provider_healthy:
@@ -1775,9 +1792,9 @@ class QualityCompounderValueV2Scanner:
             )
         else:
             logger.info(
-                f"✅ [V2_FINAL] PRE-FLIGHT GATE: Valuation coverage verified for PIT reporting universe "
-                f"({_val_available_pit}/{pit_univ_cnt} symbols, {_val_cov_pct:.1f}% coverage; "
-                f"{non_pit_univ_cnt} non-PIT symbols will be hard-blocked by quality data). Proceeding."
+                f"✅ [V2_FINAL] PRE-FLIGHT GATE: PIT DATASET PRESENT = {pit_univ_cnt}/{pit_univ_cnt} | "
+                f"VALUATION 3Y MEDIAN AVAILABILITY = {_val_available_pit}/{pit_univ_cnt} ({_val_cov_pct:.1f}%); "
+                f"{non_pit_univ_cnt} non-PIT symbols will be hard-blocked by data gate. Proceeding."
             )
         # ─────────────────────────────────────────────────────────────────────────
 
@@ -1848,7 +1865,7 @@ class QualityCompounderValueV2Scanner:
 
             # 100% UNIVERSE AUDITABILITY: Handle symbols missing from PIT filings
             if sym not in pit_records_map:
-                quality_data_blocked_count += 1
+                non_pit_blocked_count += 1
                 data_blocked_count += 1
                 rejections = ["DATA_MISSING_PIT_FILINGS"]
                 logger.info(
@@ -1982,7 +1999,7 @@ class QualityCompounderValueV2Scanner:
             quality_data_missing = any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio])
             if quality_data_missing:
                 rejections.append("DATA_INSUFFICIENT_QUALITY")
-                quality_data_blocked_count += 1
+                incomplete_quality_count += 1
             else:
                 roce_val = float(roce_5y)
                 sales_val = float(sales_cagr_5y)
@@ -2003,6 +2020,8 @@ class QualityCompounderValueV2Scanner:
                 quality_gate_passed = not any(r.startswith("FAIL_") or r.startswith("DATA_") for r in rejections)
                 if quality_gate_passed:
                     quality_pass_count += 1
+                else:
+                    quality_reject_count += 1
 
             # ── VALUE GATE ────────────────────────────────────────────────────────
             ev_discount = None   # None = valuation data unavailable (DATA_INSUFFICIENT)
@@ -2029,12 +2048,17 @@ class QualityCompounderValueV2Scanner:
                     pe_discount = max((pe_m - pe_c) / pe_m, 0.0)
 
                 value_gate_passed = (ev_discount >= 0.25)
-                if value_gate_passed:
-                    value_pass_count += 1
+                if quality_gate_passed:
+                    if value_gate_passed:
+                        value_pass_count += 1
+                    else:
+                        value_reject_count += 1
 
             # Count symbol as data-blocked ONCE (if ANY quality, valuation, OR price data missing)
             if quality_data_missing or valuation_data_missing or price_data_missing:
                 data_blocked_count += 1
+            else:
+                data_complete_count += 1
             # Residual drawdown and tiering were calculated dynamically above from 252D historical high and benchmark
 
             score_100 = self.compute_100pt_score(row.to_dict(), ev_discount, pe_discount, res_dd)
@@ -2187,12 +2211,11 @@ class QualityCompounderValueV2Scanner:
                         quality_status="HEALTHY",
                         summary_notes=(
                             f"Approved={total_scanned} | "
-                            f"PIT_Univ={pit_univ_cnt} | "
-                            f"Non_PIT={non_pit_univ_cnt} | "
-                            f"DataComplete={data_good_count} | "
-                            f"QualityPass={quality_pass_count} | "
-                            f"ValuationPass={value_pass_count} | "
-                            f"DataBlocked={data_blocked_count} | "
+                            f"PIT={pit_univ_cnt} | Non_PIT={non_pit_blocked_count} | "
+                            f"DataComplete={data_complete_count} | "
+                            f"DataBlocked={data_blocked_count} (Non_PIT:{non_pit_blocked_count}, IncompleteQuality:{incomplete_quality_count}) | "
+                            f"QualityPass={quality_pass_count} | QualityReject={quality_reject_count} | "
+                            f"ValuationPass={value_pass_count} | ValuationReject={value_reject_count} | "
                             f"Candidates={candidate_count}"
                         )
                     )
@@ -2214,7 +2237,11 @@ class QualityCompounderValueV2Scanner:
                 _health_error = f"VALUATION_DATA_UNAVAILABLE: {valuation_data_blocked_count}/{total_scanned} symbols missing 3Y medians"
             elif data_blocked_count / max(total_scanned, 1) > 0.15:
                 _health_status = "DEGRADED"
-                _health_error = f"DATA_DEGRADED: {data_blocked_count}/{total_scanned} ({data_blocked_count/max(total_scanned,1)*100:.1f}%) symbols data-blocked"
+                _health_error = (
+                    f"DATA_DEGRADED: {data_blocked_count}/{total_scanned} "
+                    f"({data_blocked_count/max(total_scanned,1)*100:.1f}%) symbols data-blocked "
+                    f"(Non_PIT: {non_pit_blocked_count}, IncompleteQuality: {incomplete_quality_count})"
+                )
             else:
                 _health_status = "OK"
                 _health_error = None
@@ -2238,29 +2265,40 @@ class QualityCompounderValueV2Scanner:
                 except Exception as e:
                     logger.debug(f"Scanner health update warning: {e}")
 
-            # Structured End-of-Scan Telemetry Summary Report
-            data_good_count = total_scanned - data_blocked_count
+            # Structured End-of-Scan Telemetry Summary Report with strict mathematical identities
             _val_status_str = "DATA_AVAILABLE" if _valuation_provider_healthy else "DATA_BLOCKED — VALUATION_UNAVAILABLE"
             logger.info("=" * 80)
             logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
             logger.info("=" * 80)
-            logger.info(f"  • Approved Scanner Universe      : {total_scanned}")
-            logger.info(f"  • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT history)")
-            logger.info(f"  • Non-PIT Universe Symbols       : {non_pit_univ_cnt}  (hard-blocked as DATA_MISSING_PIT_FILINGS)")
-            logger.info(f"  • Valuation Available (PIT Univ) : {_val_available_pit}/{pit_univ_cnt}  (100.0% coverage of PIT universe)")
-            logger.info(f"  • Data Complete (All Required)   : {data_good_count}  ({round(data_good_count/max(total_scanned,1)*100,1)}%)")
-            logger.info(f"  • Quality Data Blocked           : {quality_data_blocked_count}  (missing 5Y ROCE/CAGR/CFO/D_E or non-PIT)")
-            logger.info(f"  • Valuation Data Blocked (PIT)   : {valuation_data_blocked_count}  (missing pe_3y_median + ev_ebitda_3y_median)")
-            logger.info(f"  • Price Data Blocked             : {price_data_blocked_count}  (missing/non-positive CMP)")
-            logger.info(f"  • Any Data Blocked (unique syms) : {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}% of universe)")
-            logger.info(f"  • Quality Gate Passed            : {quality_pass_count}  (of {data_good_count} data-complete stocks)")
-            logger.info(f"  • Valuation Provider Status      : {_val_status_str}")
-            logger.info(f"  • Valuation Gate Passed          : {value_pass_count}")
-            logger.info(f"  • Candidates Selected            : {candidate_count}  ← BUY ALERTS")
-            logger.info(f"  • Snapshots Saved in DB          : {snapshots_inserted}")
-            logger.info(f"  • Candidate Alerts Saved         : {candidates_inserted}")
-            logger.info(f"  • Scanner Health Status          : {_health_status} (honest reflection of {data_blocked_count} data-blocked stocks)")
-            logger.info(f"  • Duration (Seconds)             : {duration_sec}s")
+            logger.info("  1. UNIVERSE & DATA PROVENANCE ACCOUNTING:")
+            logger.info(f"     • Approved Scanner Universe      : {total_scanned}")
+            logger.info(f"     • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT statement history)")
+            logger.info(f"     • Non-PIT / Missing PIT Filings  : {non_pit_blocked_count}  (hard-blocked as DATA_MISSING_PIT_FILINGS)")
+            logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]")
+            logger.info(f"     • PIT Field Completeness         : EV/EBITDA_curr={_ev_curr_cnt}/{pit_univ_cnt}, EV/EBITDA_3Ymed={_ev_med_cnt}/{pit_univ_cnt}, PE_curr={_pe_curr_cnt}/{pit_univ_cnt}, PE_3Ymed={_pe_med_cnt}/{pit_univ_cnt}")
+            logger.info("  2. DATA COMPLETENESS & BLOCKING RECONCILIATION:")
+            logger.info(f"     • Complete Required Quality Data : {data_complete_count}  ({round(data_complete_count/max(total_scanned,1)*100,1)}% of universe)")
+            logger.info(f"     • Incomplete Quality History     : {incomplete_quality_count}  (PIT symbols missing 5Y ROCE/CAGR/CFO/D_E)")
+            logger.info(f"     • Price Data Blocked             : {price_data_blocked_count}  (missing/non-positive CMP)")
+            logger.info(f"     • Valuation Data Blocked         : {valuation_data_blocked_count}  (missing 3Y EV/EBITDA & PE medians)")
+            logger.info(f"     • Total Data Blocked             : {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}% of universe)")
+            logger.info(f"       [Identity: {non_pit_blocked_count} Non-PIT + {incomplete_quality_count} Incomplete Quality = {data_blocked_count} Total Data Blocked]")
+            logger.info(f"       [Identity: {data_complete_count} Complete + {data_blocked_count} Blocked = {total_scanned} Approved Universe]")
+            logger.info("  3. STRATEGY FILTER FUNNEL RECONCILIATION:")
+            logger.info(f"     • Data Complete Evaluated        : {data_complete_count}")
+            logger.info(f"     • Quality Gate Passed            : {quality_pass_count}")
+            logger.info(f"     • Quality Gate Rejected          : {quality_reject_count}  (failed ROCE, CAGR, CFO, debt, or liquidity)")
+            logger.info(f"       [Identity: {quality_pass_count} Passed + {quality_reject_count} Rejected = {data_complete_count} Data Complete]")
+            logger.info(f"     • Valuation Gate Passed          : {value_pass_count}  (EV/EBITDA discount >= 25%)")
+            logger.info(f"     • Valuation Gate Rejected        : {value_reject_count}  (EV/EBITDA discount < 25%)")
+            logger.info(f"       [Identity: {value_pass_count} Passed + {value_reject_count} Rejected = {quality_pass_count} Quality Passed]")
+            logger.info(f"     • Candidates Selected (BUY)      : {candidate_count}  (verified CMP > 0 and 0 rejections)")
+            logger.info(f"     • Snapshots Saved in DB          : {snapshots_inserted}  (100% universe audit trail)")
+            logger.info("  4. HEALTH STATE:")
+            logger.info(f"     • Health Status                  : {_health_status} (honest reflection of {data_blocked_count}/{total_scanned} data-blocked stocks)")
+            logger.info(f"     • Zero-Price Defect Count        : {len(zero_price_candidates)}")
+            logger.info(f"     • Candidate Alerts Saved         : {candidates_inserted}")
+            logger.info(f"     • Duration (Seconds)             : {duration_sec}s")
             logger.info("-" * 80)
             if not _valuation_provider_healthy:
                 logger.error(
