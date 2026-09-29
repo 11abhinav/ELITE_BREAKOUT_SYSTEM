@@ -28,24 +28,28 @@ IST = ZoneInfo("Asia/Kolkata")
 # SCANNER IDENTITY CONFIG  — unique emoji + display name per scanner
 # ─────────────────────────────────────────────────────────────────────────────
 SCANNER_CONFIG = {
-    "wealth_engine":      {"emoji": "💰", "display": "WEALTH ENGINE",      "db_name": "Wealth Engine"},
-    "WEALTH_ENGINE":      {"emoji": "💰", "display": "WEALTH ENGINE",      "db_name": "Wealth Engine"},
-    "multi_tf_scanner":   {"emoji": "📊", "display": "MULTI-TF SCANNER",    "db_name": "MULTI_TF"},
-    "MULTI_TF":           {"emoji": "📊", "display": "MULTI-TF SCANNER",    "db_name": "MULTI_TF"},
-    "eod_scanner":        {"emoji": "🌙", "display": "EOD SCANNER",          "db_name": "EOD"},
-    "EOD":                {"emoji": "🌙", "display": "EOD SCANNER",          "db_name": "EOD"},
-    "reversal_scanner":   {"emoji": "🔄", "display": "REVERSAL SCANNER",     "db_name": "REVERSAL"},
-    "REVERSAL":           {"emoji": "🔄", "display": "REVERSAL SCANNER",     "db_name": "REVERSAL"},
-    "pullback_scanner":   {"emoji": "📉", "display": "PULLBACK SCANNER",     "db_name": "PULLBACK"},
-    "PULLBACK":           {"emoji": "📉", "display": "PULLBACK SCANNER",     "db_name": "PULLBACK"},
-    "multibagger":        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER",   "db_name": "MULTIBAGGER"},
-    "MULTIBAGGER":        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER",   "db_name": "MULTIBAGGER"},
-    "accumulation":       {"emoji": "📦", "display": "ACCUMULATION SCANNER", "db_name": "ACCUMULATION"},
-    "ACCUMULATION":       {"emoji": "📦", "display": "ACCUMULATION SCANNER", "db_name": "ACCUMULATION"},
-    "daily_builder":      {"emoji": "🏗️", "display": "DAILY BUILDER",       "db_name": "DAILY_BUILDER"},
-    "DAILY_BUILDER":      {"emoji": "🏗️", "display": "DAILY BUILDER",       "db_name": "DAILY_BUILDER"},
-    "technical":          {"emoji": "📐", "display": "TECHNICAL SCANNER",    "db_name": "TECHNICAL"},
-    "TECHNICAL":          {"emoji": "📐", "display": "TECHNICAL SCANNER",    "db_name": "TECHNICAL"},
+    "wealth_engine":                      {"emoji": "💰", "display": "WEALTH ENGINE",                   "db_name": "Wealth Engine"},
+    "WEALTH_ENGINE":                      {"emoji": "💰", "display": "WEALTH ENGINE",                   "db_name": "Wealth Engine"},
+    "multi_tf_scanner":                   {"emoji": "📊", "display": "MULTI-TF SCANNER",                "db_name": "MULTI_TF"},
+    "MULTI_TF":                           {"emoji": "📊", "display": "MULTI-TF SCANNER",                "db_name": "MULTI_TF"},
+    "eod_scanner":                        {"emoji": "🌙", "display": "EOD SCANNER",                      "db_name": "EOD"},
+    "EOD":                                {"emoji": "🌙", "display": "EOD SCANNER",                      "db_name": "EOD"},
+    "reversal_scanner":                   {"emoji": "🔄", "display": "REVERSAL SCANNER",                 "db_name": "REVERSAL"},
+    "REVERSAL":                           {"emoji": "🔄", "display": "REVERSAL SCANNER",                 "db_name": "REVERSAL"},
+    "pullback_scanner":                   {"emoji": "📉", "display": "PULLBACK SCANNER",                 "db_name": "PULLBACK"},
+    "PULLBACK":                           {"emoji": "📉", "display": "PULLBACK SCANNER",                 "db_name": "PULLBACK"},
+    "multibagger":                        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER",               "db_name": "MULTIBAGGER"},
+    "MULTIBAGGER":                        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER",               "db_name": "MULTIBAGGER"},
+    "accumulation":                       {"emoji": "📦", "display": "ACCUMULATION SCANNER",             "db_name": "ACCUMULATION"},
+    "ACCUMULATION":                       {"emoji": "📦", "display": "ACCUMULATION SCANNER",             "db_name": "ACCUMULATION"},
+    "daily_builder":                      {"emoji": "🏗️", "display": "DAILY BUILDER",                   "db_name": "DAILY_BUILDER"},
+    "DAILY_BUILDER":                      {"emoji": "🏗️", "display": "DAILY BUILDER",                   "db_name": "DAILY_BUILDER"},
+    "technical":                          {"emoji": "📐", "display": "TECHNICAL SCANNER",                "db_name": "TECHNICAL"},
+    "TECHNICAL":                          {"emoji": "📐", "display": "TECHNICAL SCANNER",                "db_name": "TECHNICAL"},
+    "fundamental":                        {"emoji": "🔬", "display": "FUNDAMENTAL BREAKOUT",             "db_name": "FUNDAMENTAL"},
+    "FUNDAMENTAL":                        {"emoji": "🔬", "display": "FUNDAMENTAL BREAKOUT",             "db_name": "FUNDAMENTAL"},
+    "quality_compounder_v2":              {"emoji": "💎", "display": "QUALITY COMPOUNDER VALUE V2 FINAL", "db_name": "QUALITY_COMPOUNDER_VALUE_V2_FINAL"},
+    "QUALITY_COMPOUNDER_VALUE_V2_FINAL": {"emoji": "💎", "display": "QUALITY COMPOUNDER VALUE V2 FINAL", "db_name": "QUALITY_COMPOUNDER_VALUE_V2_FINAL"},
 }
 
 _BAR_LEN = 30
@@ -53,7 +57,10 @@ _BAR_LEN = 30
 
 def _resolve_scanner_identity(scanner_key: str):
     """Canonicalize scanner key and return (emoji, display_name, canonical_db_name). Fail fast if unmapped."""
-    from database import normalize_scanner_name
+    try:
+        from database import normalize_scanner_name
+    except ImportError:
+        from app.database import normalize_scanner_name
     canonical_db_name = normalize_scanner_name(scanner_key)
     cfg = SCANNER_CONFIG.get(scanner_key) or SCANNER_CONFIG.get(canonical_db_name)
     if not cfg:
@@ -83,12 +90,15 @@ def print_scanner_start_banner(scanner_key: str, queued_at: float = None, run_id
         queue_wait_str = f" | Queue Wait: {queue_wait_secs}s"
     
     logger.info(star_bar)
-    logger.info(f"🚀🚀🚀 {emoji} {display} STARTED — {ts}{queue_wait_str} {emoji} 🚀🚀🚀")
+    logger.info(f"🚀 ******* STARTING SCANNER: {display} — {ts}{queue_wait_str} *******")
     logger.info(star_bar)
     
     # ✅ Immediately transition QUEUED → RUNNING in DB (only if not paused/stopped)
     try:
-        from database import upsert_scanner_health, is_scanner_stopped
+        try:
+            from database import upsert_scanner_health, is_scanner_stopped
+        except ImportError:
+            from app.database import upsert_scanner_health, is_scanner_stopped
         if not is_scanner_stopped(db_name):
             upsert_scanner_health(db_name, "RUNNING", error_msg="Scan in progress...", run_id=run_id)
             logger.info(f"🟢 [{display}] Status updated: RUNNING (was QUEUED{queue_wait_str})")
@@ -110,11 +120,14 @@ def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = 
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     runtime = time.monotonic() - start_mono
     logger.info(star_bar)
-    logger.info(f"🏁🏁🏁 {emoji} {display} ENDED — {ts} | Runtime: {runtime:.1f}s 🏁🏁🏁")
+    logger.info(f"🏁 ******* FINISHED SCANNER: {display} — {ts} | Duration: {runtime:.1f}s *******")
     logger.info(star_bar)
 
     try:
-        from database import upsert_scanner_health, get_scanner_health, is_scanner_stopped
+        try:
+            from database import upsert_scanner_health, get_scanner_health, is_scanner_stopped
+        except ImportError:
+            from app.database import upsert_scanner_health, get_scanner_health, is_scanner_stopped
         if is_scanner_stopped(db_name):
             logger.info(f"⏸️ [{display}] Scanner is PAUSED/STOPPED — preserving PAUSED state on end banner")
         else:

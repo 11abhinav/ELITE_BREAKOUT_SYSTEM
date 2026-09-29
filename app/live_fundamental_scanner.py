@@ -42,6 +42,17 @@ try:
 except ImportError:
     from fundamental_telemetry import FundamentalScanTelemetry
 
+import threading
+try:
+    from lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
+except ImportError:
+    from app.lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
+
+# Universal sequential lock shared across the 3 main scanners
+_global_lock = ProcessLock("global_scanner_lock")
+_fundamental_scan_lock = threading.Lock()
+_v2_scan_lock = threading.Lock()
+
 BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
     BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
@@ -1063,184 +1074,225 @@ class LiveFundamentalBuyScanner:
         import time
         start_ts = time.time()
         ctx = None
+        acquired_scan = False
+        acquired_global = False
+        _scan_start = start_ts
 
-        logger.info(f"📡 [SCANNER: FUNDAMENTAL] Fetching 1D market data & loading fundamentals (trigger={trigger_type}, scheduler={scheduler_name})...")
+        # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
+        if not _fundamental_scan_lock.acquire(blocking=False):
+            logger.warning("🔒 [FUNDAMENTAL] Scanner is already running in another thread. Skipping duplicate cycle.")
+            return {"status": "SKIPPED", "reason": "Already running"}
+        acquired_scan = True
 
-        # Authoritative Upstream Layer: Daily Builder 2.0
-        db_funds, db_meta = self.daily_builder_provider.load_master_fundamentals()
-        if fundamentals_map is None:
-            fundamentals_map = db_funds
-        else:
-            # Enrich passed fundamentals with Daily Builder metadata & value trap flags
-            for sym, f_data in list(fundamentals_map.items()):
-                sym_u = sym.upper()
-                if sym_u in db_funds:
-                    for k, v in db_funds[sym_u].items():
-                        if k not in f_data or f_data[k] is None:
-                            f_data[k] = v
-
-        target_symbols = list(self.universe_registry.approved_symbols)
-
-        if market_data_map is None:
-            market_data_map = {}
-            history_dir = os.path.join(DATA_DIR, "history", "1d")
-            os.makedirs(history_dir, exist_ok=True)
-
-            # Live quote warmup for accurate intraday breakout evaluation
-            live_quotes = {}
+        # 2. Universal global scanner lock queue wait: serialize TECHNICAL, FUNDAMENTAL, V2_FINAL
+        queued_at = time.monotonic()
+        if not _global_lock.acquire(blocking=False, owner_scanner="FUNDAMENTAL", operation="FULL_SCAN"):
+            logger.info("⏳ [FUNDAMENTAL] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
             try:
-                from live_prices import get_live_prices
-                live_quotes = get_live_prices(target_symbols, purpose="FUNDAMENTAL_SCAN")
-            except Exception as _lpe:
-                logger.debug(f"Live quote fetch notice: {_lpe}")
-
-            # Pass 1: Load existing valid 1D parquets from disk
-            missing_or_short = []
-            for sym in target_symbols:
-                p_path = os.path.join(history_dir, f"{sym}.parquet")
-                if os.path.exists(p_path):
-                    try:
-                        df_bar = pd.read_parquet(p_path)
-                        if not df_bar.empty and len(df_bar) >= 200:
-                            market_data_map[sym] = df_bar
-                        else:
-                            missing_or_short.append(sym)
-                    except Exception as e:
-                        logger.debug(f"Failed to load daily candle for {sym}: {e}")
-                        missing_or_short.append(sym)
-                else:
-                    missing_or_short.append(sym)
-
-            # Pass 2: Fetch missing or short (<200 candles) symbols via UnifiedFetcher
-            if missing_or_short:
-                logger.info(f"📥 [FUNDAMENTAL_SCAN] Fetching missing/short 1D history for {len(missing_or_short)} symbols via UnifiedFetcher...")
+                from database import upsert_scanner_health
+            except ImportError:
                 try:
-                    from price_cache import fetch_unified_historical
-                    for i in range(0, len(missing_or_short), 100):
-                        batch = missing_or_short[i:i + 100]
-                        fetched = fetch_unified_historical(batch, period="1y", interval="1d", requester="FUNDAMENTAL_SCAN")
-                        if fetched:
-                            for sym, df_bar in fetched.items():
-                                if df_bar is not None and not df_bar.empty and len(df_bar) >= 50:
-                                    market_data_map[sym] = df_bar
+                    from app.database import upsert_scanner_health
+                except Exception:
+                    upsert_scanner_health = None
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health("FUNDAMENTAL", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+                except Exception:
+                    pass
 
-                    # Persist newly fetched 1d parquet files to DB history bundle in background
+            try:
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="FUNDAMENTAL", operation="FULL_SCAN")
+            except Exception as lock_err:
+                logger.error(f"❌ [FUNDAMENTAL] Error acquiring global lock: {lock_err}")
+                acquired_global = False
+
+            if not acquired_global:
+                logger.error("❌ [FUNDAMENTAL] Failed to acquire global scanner lock after queue wait.")
+                if upsert_scanner_health is not None:
                     try:
-                        from database import upload_history_bundle_to_db, submit_background_upload
-                        submit_background_upload(lambda: upload_history_bundle_to_db("1d", force=True))
-                    except Exception as _ube:
-                        logger.debug(f"History bundle upload dispatch notice: {_ube}")
-                except Exception as fe:
-                    logger.warning(f"⚠️ [FUNDAMENTAL_SCAN] Failed to fetch missing 1D history: {fe}")
-
-            # Pass 3: Overlay live quote onto the latest daily candle
-            for sym, df_bar in market_data_map.items():
-                lp = live_quotes.get(sym)
-                if lp and float(lp) > 0:
-                    df_bar = df_bar.copy()
-                    c_col = 'Close' if 'Close' in df_bar.columns else ('close' if 'close' in df_bar.columns else None)
-                    h_col = 'High' if 'High' in df_bar.columns else ('high' if 'high' in df_bar.columns else None)
-                    if c_col:
-                        if df_bar[c_col].dtype != 'float64':
-                            df_bar[c_col] = df_bar[c_col].astype(float)
-                        df_bar.loc[df_bar.index[-1], c_col] = float(lp)
-                    if h_col and float(lp) > float(df_bar[h_col].iloc[-1]):
-                        if df_bar[h_col].dtype != 'float64':
-                            df_bar[h_col] = df_bar[h_col].astype(float)
-                        df_bar.loc[df_bar.index[-1], h_col] = float(lp)
-                    market_data_map[sym] = df_bar
-
-        if benchmark_closes is None:
-            history_dir = os.path.join(DATA_DIR, "history", "1d")
-            for bm_file in ["NIFTY 50.parquet", "NIFTY50.parquet", "^NSEI.parquet"]:
-                bm_path = os.path.join(history_dir, bm_file)
-                if os.path.exists(bm_path):
-                    try:
-                        df_bm = pd.read_parquet(bm_path)
-                        if "Close" in df_bm.columns and not df_bm.empty:
-                            benchmark_closes = df_bm["Close"].values
-                            break
-                        elif "close" in df_bm.columns and not df_bm.empty:
-                            benchmark_closes = df_bm["close"].values
-                            break
+                        upsert_scanner_health("FUNDAMENTAL", "IDLE", error_msg="Lock acquisition timed out")
                     except Exception:
                         pass
+                _fundamental_scan_lock.release()
+                return {"status": "FAILED", "reason": "Lock acquisition failed"}
+        else:
+            acquired_global = True
 
         try:
+            # 3. Imports for DB execution tracking & health updates
             try:
                 from database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
             except ImportError:
                 from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
-        except Exception:
-            create_scanner_execution_run = None
-            complete_scanner_execution_run = None
-            upsert_scanner_health = None
-            save_wealth_buy_alert = None
-            save_alert_if_new = None
 
-        if create_scanner_execution_run is not None:
-            try:
-                ctx = create_scanner_execution_run(
-                    scanner_name="FUNDAMENTAL",
-                    trigger_type=trigger_type,
-                    total_stocks=len(target_symbols),
-                    allow_concurrent=True
-                )
-            except Exception as e:
-                logger.debug(f"Execution history start warning: {e}")
+            target_symbols = list(self.universe_registry.approved_symbols)
 
-        if upsert_scanner_health is not None:
-            try:
-                upsert_scanner_health(
-                    "FUNDAMENTAL",
-                    status="RUNNING",
-                    total_count=len(target_symbols),
-                    run_id=getattr(ctx, "run_id", None)
-                )
-            except Exception as e:
-                logger.debug(f"Scanner health RUNNING warning: {e}")
+            # 4. Entry in history MUST ONLY be created once we get lock and start running
+            if create_scanner_execution_run is not None:
+                try:
+                    ctx = create_scanner_execution_run(
+                        scanner_name="FUNDAMENTAL",
+                        trigger_type=trigger_type,
+                        total_stocks=len(target_symbols),
+                        allow_concurrent=True
+                    )
+                except Exception as e:
+                    logger.debug(f"Execution history start warning: {e}")
 
-        telemetry = FundamentalScanTelemetry(
-            scanner_version="2.0.0",
-            universe_version="certified_clean_universe_886",
-            universe_hash=RULES_HASH_BUY,
-            daily_builder_version="2.0",
-            git_commit=FROZEN_GIT_SHA
-        )
-        telemetry.log_scan_start(
-            master_count=len(self.universe_registry.master_symbols),
-            quarantined_count=len(self.universe_registry.quarantined_symbols),
-            eligible_count=len(self.universe_registry.approved_symbols)
-        )
-        telemetry.record_data_provider_audit(
-            provider="DAILY_BUILDER_2.0",
-            source=str(db_meta.get("file_path", "data/daily_builder_master_v2.parquet")),
-            rows=len(fundamentals_map) if fundamentals_map else 0,
-            latency_ms=round((time.time() - start_ts) * 1000.0, 2),
-            latest_timestamp=db_meta.get("loaded_at"),
-            data_age_days=db_meta.get("age_days", 0.0),
-            freshness_status=str(db_meta.get("freshness_status", "FRESH")),
-            validation_status=str(db_meta.get("provenance_status", "CERTIFIED_LOCAL_DAILY_BUILDER"))
-        )
+            # 5. Start Banner
+            _scan_start = print_scanner_start_banner("FUNDAMENTAL", queued_at=queued_at, run_id=getattr(ctx, "run_id", None))
 
-        funnel = {
-            "scanned_count": 0,
-            "universe_valid_count": 0,
-            "fundamental_quality_pass_count": 0,
-            "earnings_acceleration_pass_count": 0,
-            "trend_pass_count": 0,
-            "relative_strength_pass_count": 0,
-            "consolidation_pass_count": 0,
-            "breakout_pass_count": 0,
-            "buy_alerts_count": 0,
-            "data_insufficient_count": 0,
-            "data_missing_count": 0,
-            "provider_failure_count": 0,
-            "rejection_summary": {},
-            "buy_candidates": []
-        }
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health(
+                        "FUNDAMENTAL",
+                        status="RUNNING",
+                        total_count=len(target_symbols),
+                        run_id=getattr(ctx, "run_id", None)
+                    )
+                except Exception as e:
+                    logger.debug(f"Scanner health RUNNING warning: {e}")
 
-        try:
+            logger.info(f"📡 [SCANNER: FUNDAMENTAL] Fetching 1D market data & loading fundamentals (trigger={trigger_type}, scheduler={scheduler_name})...")
+
+            # Authoritative Upstream Layer: Daily Builder 2.0
+            db_funds, db_meta = self.daily_builder_provider.load_master_fundamentals()
+            if fundamentals_map is None:
+                fundamentals_map = db_funds
+            else:
+                # Enrich passed fundamentals with Daily Builder metadata & value trap flags
+                for sym, f_data in list(fundamentals_map.items()):
+                    sym_u = sym.upper()
+                    if sym_u in db_funds:
+                        for k, v in db_funds[sym_u].items():
+                            if k not in f_data or f_data[k] is None:
+                                f_data[k] = v
+
+            if market_data_map is None:
+                market_data_map = {}
+                history_dir = os.path.join(DATA_DIR, "history", "1d")
+                os.makedirs(history_dir, exist_ok=True)
+
+                # Live quote warmup for accurate intraday breakout evaluation
+                live_quotes = {}
+                try:
+                    from live_prices import get_live_prices
+                    live_quotes = get_live_prices(target_symbols, purpose="FUNDAMENTAL_SCAN")
+                except Exception as _lpe:
+                    logger.debug(f"Live quote fetch notice: {_lpe}")
+
+                # Pass 1: Load existing valid 1D parquets from disk
+                missing_or_short = []
+                for sym in target_symbols:
+                    p_path = os.path.join(history_dir, f"{sym}.parquet")
+                    if os.path.exists(p_path):
+                        try:
+                            df_bar = pd.read_parquet(p_path)
+                            if not df_bar.empty and len(df_bar) >= 200:
+                                market_data_map[sym] = df_bar
+                            else:
+                                missing_or_short.append(sym)
+                        except Exception as e:
+                            logger.debug(f"Failed to load daily candle for {sym}: {e}")
+                            missing_or_short.append(sym)
+                    else:
+                        missing_or_short.append(sym)
+
+                # Pass 2: Fetch missing or short (<200 candles) symbols via UnifiedFetcher
+                if missing_or_short:
+                    logger.info(f"📥 [FUNDAMENTAL_SCAN] Fetching missing/short 1D history for {len(missing_or_short)} symbols via UnifiedFetcher...")
+                    try:
+                        from price_cache import fetch_unified_historical
+                        for i in range(0, len(missing_or_short), 100):
+                            batch = missing_or_short[i:i + 100]
+                            fetched = fetch_unified_historical(batch, period="1y", interval="1d", requester="FUNDAMENTAL_SCAN")
+                            if fetched:
+                                for sym, df_bar in fetched.items():
+                                    if df_bar is not None and not df_bar.empty and len(df_bar) >= 50:
+                                        market_data_map[sym] = df_bar
+
+                        # Persist newly fetched 1d parquet files to DB history bundle in background
+                        try:
+                            from database import upload_history_bundle_to_db, submit_background_upload
+                            submit_background_upload(lambda: upload_history_bundle_to_db("1d", force=True))
+                        except Exception as _ube:
+                            logger.debug(f"History bundle upload dispatch notice: {_ube}")
+                    except Exception as fe:
+                        logger.warning(f"⚠️ [FUNDAMENTAL_SCAN] Failed to fetch missing 1D history: {fe}")
+
+                # Pass 3: Overlay live quote onto the latest daily candle
+                for sym, df_bar in market_data_map.items():
+                    lp = live_quotes.get(sym)
+                    if lp and float(lp) > 0:
+                        df_bar = df_bar.copy()
+                        c_col = 'Close' if 'Close' in df_bar.columns else ('close' if 'close' in df_bar.columns else None)
+                        h_col = 'High' if 'High' in df_bar.columns else ('high' if 'high' in df_bar.columns else None)
+                        if c_col:
+                            if df_bar[c_col].dtype != 'float64':
+                                df_bar[c_col] = df_bar[c_col].astype(float)
+                            df_bar.loc[df_bar.index[-1], c_col] = float(lp)
+                        if h_col and float(lp) > float(df_bar[h_col].iloc[-1]):
+                            if df_bar[h_col].dtype != 'float64':
+                                df_bar[h_col] = df_bar[h_col].astype(float)
+                            df_bar.loc[df_bar.index[-1], h_col] = float(lp)
+                        market_data_map[sym] = df_bar
+
+            if benchmark_closes is None:
+                history_dir = os.path.join(DATA_DIR, "history", "1d")
+                for bm_file in ["NIFTY 50.parquet", "NIFTY50.parquet", "^NSEI.parquet"]:
+                    bm_path = os.path.join(history_dir, bm_file)
+                    if os.path.exists(bm_path):
+                        try:
+                            df_bm = pd.read_parquet(bm_path)
+                            if "Close" in df_bm.columns and not df_bm.empty:
+                                benchmark_closes = df_bm["Close"].values
+                                break
+                            elif "close" in df_bm.columns and not df_bm.empty:
+                                benchmark_closes = df_bm["close"].values
+                                break
+                        except Exception:
+                            pass
+
+            telemetry = FundamentalScanTelemetry(
+                scanner_version="2.0.0",
+                universe_version="certified_clean_universe_886",
+                universe_hash=RULES_HASH_BUY,
+                daily_builder_version="2.0",
+                git_commit=FROZEN_GIT_SHA
+            )
+            telemetry.log_scan_start(
+                master_count=len(self.universe_registry.master_symbols),
+                quarantined_count=len(self.universe_registry.quarantined_symbols),
+                eligible_count=len(self.universe_registry.approved_symbols)
+            )
+            telemetry.record_data_provider_audit(
+                provider="DAILY_BUILDER_2.0",
+                source=str(db_meta.get("file_path", "data/daily_builder_master_v2.parquet")),
+                rows=len(fundamentals_map) if fundamentals_map else 0,
+                latency_ms=round((time.time() - start_ts) * 1000.0, 2),
+                latest_timestamp=db_meta.get("loaded_at"),
+                data_age_days=db_meta.get("age_days", 0.0),
+                freshness_status=str(db_meta.get("freshness_status", "FRESH")),
+                validation_status=str(db_meta.get("provenance_status", "CERTIFIED_LOCAL_DAILY_BUILDER"))
+            )
+
+            funnel = {
+                "scanned_count": 0,
+                "universe_valid_count": 0,
+                "fundamental_quality_pass_count": 0,
+                "earnings_acceleration_pass_count": 0,
+                "trend_pass_count": 0,
+                "relative_strength_pass_count": 0,
+                "consolidation_pass_count": 0,
+                "breakout_pass_count": 0,
+                "buy_alerts_count": 0,
+                "data_insufficient_count": 0,
+                "data_missing_count": 0,
+                "provider_failure_count": 0,
+                "rejection_summary": {},
+                "buy_candidates": []
+            }
             # Audit EVERY approved symbol in the clean universe (strictly 886 / 886 — NO SILENT SKIPS)
             for sym in target_symbols:
                 funnel["scanned_count"] += 1
@@ -1519,6 +1571,22 @@ class LiveFundamentalBuyScanner:
                 except Exception:
                     pass
             raise
+        finally:
+            print_scanner_end_banner(
+                "FUNDAMENTAL",
+                start_mono=_scan_start,
+                run_id=getattr(ctx, "run_id", None)
+            )
+            if acquired_global:
+                try:
+                    _global_lock.release()
+                except Exception as _ge:
+                    logger.debug(f"Global lock release notice: {_ge}")
+            if acquired_scan:
+                try:
+                    _fundamental_scan_lock.release()
+                except Exception as _se:
+                    logger.debug(f"Fundamental scan lock release notice: {_se}")
 
         self.last_funnel_audit = funnel
         return funnel
@@ -1656,10 +1724,88 @@ class QualityCompounderValueV2Scanner:
         """
         import time
         start_ts = time.time()
+        _scan_start = start_ts
+        acquired_scan = False
+        acquired_global = False
+        exec_run_ctx_holder = [None]
+
+        # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
+        if not _v2_scan_lock.acquire(blocking=False):
+            logger.warning("🔒 [V2_FINAL] Scanner is already running in another thread. Skipping duplicate cycle.")
+            return {"status": "SKIPPED", "reason": "Already running"}
+        acquired_scan = True
+
+        # 2. Universal global scanner lock queue wait: serialize TECHNICAL, FUNDAMENTAL, V2_FINAL
+        queued_at = time.monotonic()
+        if not _global_lock.acquire(blocking=False, owner_scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL", operation="FULL_SCAN"):
+            logger.info("⏳ [V2_FINAL] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
+            try:
+                from database import upsert_scanner_health
+            except ImportError:
+                try:
+                    from app.database import upsert_scanner_health
+                except Exception:
+                    upsert_scanner_health = None
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+                except Exception:
+                    pass
+
+            try:
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL", operation="FULL_SCAN")
+            except Exception as lock_err:
+                logger.error(f"❌ [V2_FINAL] Error acquiring global lock: {lock_err}")
+                acquired_global = False
+
+            if not acquired_global:
+                logger.error("❌ [V2_FINAL] Failed to acquire global scanner lock after queue wait.")
+                if upsert_scanner_health is not None:
+                    try:
+                        upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", "IDLE", error_msg="Lock acquisition timed out")
+                    except Exception:
+                        pass
+                _v2_scan_lock.release()
+                return {"status": "FAILED", "reason": "Lock acquisition failed"}
+        else:
+            acquired_global = True
+
+        try:
+            return self._scan_universe_core(
+                trigger_type=trigger_type,
+                scheduler_name=scheduler_name,
+                queued_at=queued_at,
+                start_ts=start_ts,
+                exec_run_ctx_holder=exec_run_ctx_holder
+            )
+        finally:
+            run_id = getattr(exec_run_ctx_holder[0], "run_id", None) if exec_run_ctx_holder[0] else None
+            print_scanner_end_banner(
+                "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                start_mono=_scan_start,
+                run_id=run_id
+            )
+            if acquired_global:
+                try:
+                    _global_lock.release()
+                except Exception as _ge:
+                    logger.debug(f"Global lock release notice: {_ge}")
+            if acquired_scan:
+                try:
+                    _v2_scan_lock.release()
+                except Exception as _se:
+                    logger.debug(f"V2 scan lock release notice: {_se}")
+
+    def _scan_universe_core(
+        self,
+        trigger_type: str = "SCHEDULED",
+        scheduler_name: str = "CRON",
+        queued_at: float = 0.0,
+        start_ts: float = 0.0,
+        exec_run_ctx_holder: Optional[List[Any]] = None
+    ) -> Dict[str, Any]:
         now_ist = datetime.now(IST)
         today_str = now_ist.strftime("%Y-%m-%d")
-
-        logger.info(f"📡 [SCANNER: V2_FINAL] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
 
         # Imports for DB execution tracking & health updates
         try:
@@ -1679,7 +1825,7 @@ class QualityCompounderValueV2Scanner:
                 save_v2_candidate_alert
             )
 
-        # Record execution run start in scanner_execution_history and scanner_health
+        # Record execution run start in scanner_execution_history ONLY AFTER lock acquired
         exec_run_ctx = None
         if create_scanner_execution_run is not None:
             try:
@@ -1688,8 +1834,13 @@ class QualityCompounderValueV2Scanner:
                     trigger_type=trigger_type,
                     allow_concurrent=True
                 )
+                if exec_run_ctx_holder is not None:
+                    exec_run_ctx_holder[0] = exec_run_ctx
             except Exception as e:
                 logger.debug(f"Execution history start warning: {e}")
+
+        # Start Banner
+        _scan_start = print_scanner_start_banner("QUALITY_COMPOUNDER_VALUE_V2_FINAL", queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
 
         if upsert_scanner_health is not None:
             try:
@@ -1700,6 +1851,8 @@ class QualityCompounderValueV2Scanner:
                 )
             except Exception as e:
                 logger.debug(f"Scanner health RUNNING warning: {e}")
+
+        logger.info(f"📡 [SCANNER: V2_FINAL] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
 
         # Load PIT fundamentals dataset
         pit_df = self.load_pit_dataset()

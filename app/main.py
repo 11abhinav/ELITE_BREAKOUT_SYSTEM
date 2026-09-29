@@ -1749,8 +1749,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Check locks synchronously to return immediate HTTP JSON error
     LOCK_MAP = {
         "DAILY_BUILDER":                      lambda: __import__('daily_builder')._build_lock,
-        "FUNDAMENTAL":                        lambda: None,
-        "QUALITY_COMPOUNDER_VALUE_V2_FINAL": lambda: None,
+        "FUNDAMENTAL":                        lambda: __import__('live_fundamental_scanner')._fundamental_scan_lock,
+        "QUALITY_COMPOUNDER_VALUE_V2_FINAL": lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "Wealth Engine":                      lambda: __import__('wealth_engine')._scan_lock,
         "AI Worker":                          lambda: __import__('ai_worker')._scan_lock,
         "PERFORMANCE_TRACKER":                lambda: _perf_tracker_lock,

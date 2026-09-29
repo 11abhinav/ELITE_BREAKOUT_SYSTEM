@@ -1609,12 +1609,13 @@ def run_technical_scan(
         acquired_scan = True
 
         # Acquire universal global scanner lock
+        queued_at = time.monotonic()
         if not _global_lock.acquire(blocking=False, owner_scanner="TECHNICAL", operation="FULL_SCAN"):
-            logger.info("⏳ [TECHNICAL] Global scanner lock busy — waiting in queue until active scanner finishes...")
+            logger.info("⏳ [TECHNICAL] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
             upsert_scanner_health("TECHNICAL", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
 
             try:
-                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="TECHNICAL", operation="FULL_SCAN", run_ctx=real_run_ctx)
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="TECHNICAL", operation="FULL_SCAN")
             except Exception as lock_err:
                 logger.error(f"❌ [TECHNICAL] Error acquiring global lock: {lock_err}")
                 acquired_global = False
@@ -1644,7 +1645,7 @@ def run_technical_scan(
                 logger.warning(f"⚠️ [TECHNICAL] Could not create run_ctx: {exc}")
                 real_run_ctx = None
 
-        _scan_start = print_scanner_start_banner("TECHNICAL", run_id=real_run_ctx.run_id if real_run_ctx else None)
+        _scan_start = print_scanner_start_banner("TECHNICAL", queued_at=queued_at, run_id=real_run_ctx.run_id if real_run_ctx else None)
 
         init_db()
         upsert_scanner_health(
