@@ -130,3 +130,113 @@ def test_5y_quality_window_provenance():
     assert 'growth_years_elapsed' in df.columns
     assert 'financial_periods_used' in df.columns
     assert 'roce_periods_used' in df.columns
+
+
+def test_upstream_recovery_upstox_api_success(monkeypatch):
+    """
+    Test targeted upstream recovery: when an eligible stock passes Quality Gate
+    but is missing current_ev_ebitda, Upstox Key-Ratios API is called,
+    successfully recovers EV/EBITDA, evaluates the valuation discount, and admits candidate.
+    """
+    scanner = QualityCompounderValueV2Scanner()
+    pit_data = [{
+        'symbol': 'RECOV_API',
+        'industry': 'IT',
+        'market_cap': 5000.0,
+        'adtv_90d': 10.0,
+        'roce_5y_avg': 25.0,
+        'sales_cagr_5y': 15.0,
+        'pat_cagr_5y': 20.0,
+        'cfo_pat_5y_ratio': 1.1,
+        'debt_to_equity': 0.05,
+        'current_ev_ebitda': None,  # Missing locally!
+        'ev_ebitda_3y_median': 20.0,
+        'current_price': 100.0
+    }]
+    scanner.load_pit_dataset = lambda: pd.DataFrame(pit_data)
+
+    # Mock recover_upstream_valuation_data to simulate successful API return
+    mock_audit = [{
+        "provider": "UPSTOX_KEY_RATIOS_API",
+        "result": "SUCCESS",
+        "recovered_value": 12.0
+    }]
+    monkeypatch.setattr(
+        scanner,
+        "recover_upstream_valuation_data",
+        lambda symbol, cmp_price, row: (12.0, 15.0, mock_audit, "UPSTOX_KEY_RATIOS_API")
+    )
+
+    res = scanner.scan_universe(trigger_type="MANUAL")
+    assert res['total_scanned'] == 1
+    assert res['valuation_data_blocked_count'] == 0
+    assert res['candidate_count'] == 1
+    assert res['candidates_inserted'] == 1
+
+
+def test_upstream_recovery_raw_statements_success(monkeypatch):
+    """
+    Test targeted upstream recovery: when Upstox Key-Ratios API fails,
+    system derives EV/EBITDA from raw statement balance sheet and P&L items.
+    """
+    scanner = QualityCompounderValueV2Scanner()
+    pit_data = [{
+        'symbol': 'RECOV_RAW',
+        'industry': 'Manufacturing',
+        'market_cap': 5000.0,
+        'adtv_90d': 10.0,
+        'roce_5y_avg': 22.0,
+        'sales_cagr_5y': 12.0,
+        'pat_cagr_5y': 18.0,
+        'cfo_pat_5y_ratio': 1.2,
+        'debt_to_equity': 0.10,
+        'current_ev_ebitda': None,  # Missing locally!
+        'ev_ebitda_3y_median': 18.0,
+        'current_price': 100.0,
+        # Raw statement items
+        'total_debt': 200.0,
+        'cash_and_equivalents': 100.0,
+        'ebitda': 400.0,
+        'shares_outstanding': 500000000.0
+    }]
+    scanner.load_pit_dataset = lambda: pd.DataFrame(pit_data)
+
+    # Do not mock recover_upstream_valuation_data, test raw derivation directly!
+    # (API call will fail safely in offline test environment, then fallback to raw statement derivation)
+    res = scanner.scan_universe(trigger_type="MANUAL")
+    assert res['total_scanned'] == 1
+    assert res['valuation_data_blocked_count'] == 0
+    assert res['candidate_count'] == 1
+
+
+def test_upstream_recovery_exhausted_fail_closed():
+    """
+    Test fail-closed invariant: when all upstream recovery channels fail,
+    symbol receives DATA_INSUFFICIENT_VALUATION without synthetic fallback.
+    """
+    scanner = QualityCompounderValueV2Scanner()
+    pit_data = [{
+        'symbol': 'FAIL_CLOSED_VAL',
+        'industry': 'Services',
+        'market_cap': 5000.0,
+        'adtv_90d': 10.0,
+        'roce_5y_avg': 25.0,
+        'sales_cagr_5y': 15.0,
+        'pat_cagr_5y': 20.0,
+        'cfo_pat_5y_ratio': 1.1,
+        'debt_to_equity': 0.05,
+        'current_ev_ebitda': None,  # Missing locally
+        'ev_ebitda_3y_median': 20.0,
+        'current_price': 100.0,
+        # Raw items also missing!
+        'total_debt': None,
+        'cash_and_equivalents': None,
+        'ebitda': None
+    }]
+    scanner.load_pit_dataset = lambda: pd.DataFrame(pit_data)
+
+    res = scanner.scan_universe(trigger_type="MANUAL")
+    assert res['total_scanned'] == 1
+    assert res['valuation_data_blocked_count'] == 1
+    assert res['candidate_count'] == 0
+

@@ -34,6 +34,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
 import numpy as np
 import pandas as pd
+import requests
 
 try:
     from trading_calendar import default_trading_calendar, get_latest_trading_date, get_previous_trading_date
@@ -1290,6 +1291,24 @@ class LiveFundamentalBuyScanner:
         volumes = df_bars["Volume" if "Volume" in df_bars.columns else "volume"].values.astype(np.float64)
 
         # 6. Technical Trend Gate & Relative Strength Gate
+        if benchmark_closes is None:
+            if hasattr(self, "_cached_benchmark_closes") and self._cached_benchmark_closes is not None:
+                benchmark_closes = self._cached_benchmark_closes
+            else:
+                history_dir = os.path.join(DATA_DIR, "history", "1d")
+                for bm_file in ["NIFTY 50.parquet", "NIFTY50.parquet", "^NSEI.parquet"]:
+                    bm_path = os.path.join(history_dir, bm_file)
+                    if os.path.exists(bm_path):
+                        try:
+                            df_bm = pd.read_parquet(bm_path)
+                            c_col = "Close" if "Close" in df_bm.columns else ("close" if "close" in df_bm.columns else None)
+                            if c_col and not df_bm.empty:
+                                benchmark_closes = df_bm[c_col].values.astype(np.float64)
+                                self._cached_benchmark_closes = benchmark_closes
+                                break
+                        except Exception:
+                            pass
+
         tt_pass, tt_errs, tt_metrics = TechnicalTrendGate.evaluate(closes, benchmark_closes)
         gate_metrics.update(tt_metrics)
         trend_only_errs = [e for e in tt_errs if e == RejectionReason.FAIL_TREND]
@@ -1416,7 +1435,7 @@ class LiveFundamentalBuyScanner:
             except ImportError:
                 from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
 
-            target_symbols = list(self.universe_registry.approved_symbols)
+            target_symbols = list(market_data_map.keys()) if market_data_map is not None else list(self.universe_registry.approved_symbols)
 
             # 4. Entry in history MUST ONLY be created once we get lock and start running
             if create_scanner_execution_run is not None:
@@ -2334,6 +2353,265 @@ class QualityCompounderValueV2Scanner:
 
         return round(ev_pts + roce_pts + pe_pts + cfo_pts + res_pts, 2)
 
+    def recover_upstream_valuation_data(
+        self,
+        symbol: str,
+        cmp_price: float,
+        row: Dict[str, Any]
+    ) -> Tuple[Optional[float], Optional[float], List[Dict[str, Any]], str]:
+        """
+        Controlled provider-recovery chain for missing current EV/EBITDA on eligible stocks:
+
+        Trigger Condition:
+          Triggered strictly on the exception path when an eligible non-financial stock reaches
+          the valuation decision gate and current_ev_ebitda is missing from local PIT sources.
+
+        Hierarchy:
+          1. Local certified PIT data (already attempted)
+                  ↓ missing
+          2. Upstox Fundamentals Key-Ratios API (GET /v2/fundamentals/{isin}/key-ratios)
+                  ↓ missing / not populated
+          3. Raw Authoritative Statement Derivation (Exchange filings balance-sheet + income-statement)
+                  ↓ missing
+          4. DATA_INSUFFICIENT (Strict fail-closed)
+
+        Returns:
+          (recovered_ev_ebitda, recovered_pe, provider_audit_list, recovery_verdict)
+        """
+        providers_audit: List[Dict[str, Any]] = []
+        recovered_ev: Optional[float] = None
+        recovered_pe: Optional[float] = None
+        clean_sym = str(symbol).strip().upper()
+
+        logger.info(
+            f"🔄 [UPSTREAM_RECOVERY: START] {clean_sym}: Local current_ev_ebitda missing. "
+            f"Initiating controlled upstream recovery chain before valuation decision..."
+        )
+
+        # ── 1. RESOLVE ISIN VIA OFFICIAL UPSTOX INSTRUMENT MAPPER ──────────────────
+        isin = None
+        try:
+            from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
+            inst_key = get_upstox_instrument_key(clean_sym)
+            if inst_key and "|" in inst_key:
+                isin = inst_key.split("|")[1].strip()
+        except Exception as _e_map:
+            logger.debug(f"[UPSTREAM_RECOVERY] {clean_sym}: Instrument mapper resolution notice: {_e_map}")
+
+        # Fallback ISIN resolution if mapper returned bare key
+        if not isin or not isin.startswith("INE"):
+            _pit_f = row.get("isin")
+            if _pit_f and str(_pit_f).startswith("INE"):
+                isin = str(_pit_f).strip()
+
+        # ── 2. CALL AUTHORITATIVE UPSTOX FUNDAMENTALS API (GET /v2/fundamentals/{isin}/key-ratios) ──
+        if isin:
+            try:
+                import config
+                token = getattr(config, "UPSTOX_ACCESS_TOKEN", None) or os.environ.get("UPSTOX_ACCESS_TOKEN")
+                if token:
+                    api_url = f"https://api.upstox.com/v2/fundamentals/{isin}/key-ratios"
+                    headers = {
+                        "Accept": "application/json",
+                        "Authorization": f"Bearer {token}"
+                    }
+                    logger.info(
+                        f"🌐 [UPSTREAM_RECOVERY: API_CALL] {clean_sym}: Calling Upstox Key-Ratios API | "
+                        f"endpoint={api_url} | isin={isin}"
+                    )
+                    t0 = time.monotonic()
+                    resp = requests.get(api_url, headers=headers, timeout=6.0)
+                    elapsed_ms = round((time.monotonic() - t0) * 1000, 1)
+
+                    raw_snippet = resp.text[:300].replace("\n", " ")
+                    logger.info(
+                        f"📥 [UPSTREAM_RECOVERY: API_RESPONSE] {clean_sym}: HTTP {resp.status_code} "
+                        f"({elapsed_ms}ms) | payload_snippet={raw_snippet}"
+                    )
+
+                    if resp.status_code == 200:
+                        data_items = resp.json().get("data", [])
+                        raw_ev_str = None
+                        raw_pe_str = None
+                        for item in data_items:
+                            name = str(item.get("name", "")).strip().upper()
+                            cval = str(item.get("company_value", "")).strip()
+                            if name in ("EV/EBITDA", "EV_TO_EBITDA", "EV_EBITDA") and cval:
+                                raw_ev_str = cval
+                                try:
+                                    parsed_val = float(cval.replace("%", "").strip())
+                                    if parsed_val > 0.0 and parsed_val < 1000.0:
+                                        recovered_ev = round(parsed_val, 2)
+                                except ValueError:
+                                    pass
+                            elif name in ("P/E", "PE", "PE_RATIO") and cval:
+                                raw_pe_str = cval
+                                try:
+                                    parsed_pe = float(cval.replace("%", "").strip())
+                                    if parsed_pe > 0.0 and parsed_pe < 1000.0:
+                                        recovered_pe = round(parsed_pe, 2)
+                                except ValueError:
+                                    pass
+
+                        if recovered_ev is not None:
+                            logger.info(
+                                f"✅ [UPSTREAM_RECOVERY: SUCCESS] {clean_sym}: Successfully recovered "
+                                f"current_ev_ebitda={recovered_ev} from Upstox Key-Ratios API (raw='{raw_ev_str}')"
+                            )
+                            providers_audit.append({
+                                "provider": "UPSTOX_KEY_RATIOS_API",
+                                "endpoint": api_url,
+                                "result": "SUCCESS",
+                                "http_status": 200,
+                                "latency_ms": elapsed_ms,
+                                "field_requested": "EV/EBITDA",
+                                "raw_company_value": raw_ev_str,
+                                "recovered_value": recovered_ev,
+                                "raw_pe_value": raw_pe_str,
+                                "recovered_pe": recovered_pe,
+                                "validation": "PASSED",
+                                "action": "ACCEPTED_DIRECT_UPSTOX_EV_EBITDA"
+                            })
+                            return recovered_ev, recovered_pe, providers_audit, "RECOVERED_VIA_UPSTOX_KEY_RATIOS_API"
+                        else:
+                            logger.warning(
+                                f"⚠️ [UPSTREAM_RECOVERY: FIELD_ABSENT] {clean_sym}: HTTP 200 received from Upstox, "
+                                f"but 'EV/EBITDA' ratio was not found or was zero/negative in payload."
+                            )
+                            providers_audit.append({
+                                "provider": "UPSTOX_KEY_RATIOS_API",
+                                "endpoint": api_url,
+                                "result": "FIELD_ABSENT",
+                                "http_status": 200,
+                                "latency_ms": elapsed_ms,
+                                "validation": "FAILED",
+                                "validation_reason": "EV_EBITDA_NOT_IN_KEY_RATIOS_PAYLOAD"
+                            })
+                    else:
+                        logger.warning(
+                            f"⚠️ [UPSTREAM_RECOVERY: HTTP_ERROR] {clean_sym}: Upstox API returned "
+                            f"HTTP {resp.status_code} | response={resp.text[:200]}"
+                        )
+                        providers_audit.append({
+                            "provider": "UPSTOX_KEY_RATIOS_API",
+                            "endpoint": api_url,
+                            "result": "HTTP_ERROR",
+                            "http_status": resp.status_code,
+                            "validation": "FAILED",
+                            "validation_reason": f"HTTP_{resp.status_code}"
+                        })
+                else:
+                    logger.warning(f"⚠️ [UPSTREAM_RECOVERY] {clean_sym}: UPSTOX_ACCESS_TOKEN not configured.")
+                    providers_audit.append({
+                        "provider": "UPSTOX_KEY_RATIOS_API",
+                        "result": "AUTH_MISSING",
+                        "validation": "FAILED",
+                        "validation_reason": "NO_ACCESS_TOKEN"
+                    })
+            except Exception as _e_api:
+                logger.error(f"❌ [UPSTREAM_RECOVERY: EXCEPTION] {clean_sym}: API call failed: {_e_api}")
+                providers_audit.append({
+                    "provider": "UPSTOX_KEY_RATIOS_API",
+                    "result": "EXCEPTION",
+                    "validation": "FAILED",
+                    "validation_reason": str(_e_api)
+                })
+        else:
+            logger.warning(f"⚠️ [UPSTREAM_RECOVERY] {clean_sym}: Unable to resolve ISIN for Upstox API.")
+            providers_audit.append({
+                "provider": "UPSTOX_INSTRUMENT_MAPPER",
+                "result": "FAILED",
+                "validation": "FAILED",
+                "validation_reason": "ISIN_UNRESOLVED"
+            })
+
+        # ── 3. SECONDARY RECOVERY: DERIVE FROM AUTHORITATIVE RAW EXCHANGE FILINGS ──
+        logger.info(
+            f"🧮 [UPSTREAM_RECOVERY: FALLBACK_DERIVATION] {clean_sym}: Direct API did not yield EV/EBITDA. "
+            f"Attempting independent derivation from raw authoritative statement filings + live CMP..."
+        )
+        try:
+            # Resolve live CMP if missing
+            eff_cmp = cmp_price
+            if eff_cmp <= 0.0 and isin:
+                try:
+                    import config
+                    token = getattr(config, "UPSTOX_ACCESS_TOKEN", None) or os.environ.get("UPSTOX_ACCESS_TOKEN")
+                    if token:
+                        q_url = f"https://api.upstox.com/v2/market-quote/quotes?instrument_key=NSE_EQ|{isin}"
+                        q_resp = requests.get(q_url, headers={"Accept": "application/json", "Authorization": f"Bearer {token}"}, timeout=4.0)
+                        if q_resp.status_code == 200:
+                            q_data = q_resp.json().get("data", {})
+                            for q_k, q_v in q_data.items():
+                                lp = q_v.get("last_price")
+                                if lp and float(lp) > 0:
+                                    eff_cmp = float(lp)
+                                    logger.info(f"📥 [UPSTREAM_RECOVERY] {clean_sym}: Live CMP recovered from Upstox Quote: ₹{eff_cmp:.2f}")
+                                    break
+                except Exception as _qe:
+                    logger.debug(f"[UPSTREAM_RECOVERY] {clean_sym}: Quote fetch notice: {_qe}")
+
+            _d_raw = row.get("total_debt")
+            _c_raw = row.get("cash_and_equivalents")
+            _d = float(_d_raw) if (_d_raw is not None and pd.notna(_d_raw)) else None
+            _c = float(_c_raw) if (_c_raw is not None and pd.notna(_c_raw)) else None
+
+            _sh = row.get("shares_outstanding")
+            _sh_f = float(_sh) if (_sh is not None and pd.notna(_sh) and float(_sh) > 0) else None
+            if _sh_f is None:
+                _np = row.get("net_profit")
+                _ep = row.get("eps")
+                if _np is not None and _ep is not None and float(_ep or 0) > 0:
+                    _sh_f = (float(_np) * 1e7) / float(_ep)
+
+            _op = row.get("operating_profit")
+            _da = row.get("depreciation_amortization")
+            _eb = None
+            if _op is not None and _da is not None:
+                _eb = float(_op) + float(_da)
+            elif row.get("ebitda") is not None and pd.notna(row.get("ebitda")):
+                _eb = float(row.get("ebitda"))
+
+            if eff_cmp > 0 and _sh_f is not None and _eb is not None and _eb > 0:
+                _mc_cr = (_sh_f * eff_cmp) / 1e7
+                if _d is not None and _c is not None:
+                    _ev = _mc_cr + _d - _c
+                elif _d is not None:
+                    _ev = _mc_cr + _d  # conservative bound
+                else:
+                    _ev = None
+
+                if _ev is not None and _ev > 0:
+                    recovered_ev = round(_ev / _eb, 2)
+                    logger.info(
+                        f"✅ [UPSTREAM_RECOVERY: SUCCESS] {clean_sym}: Independently derived EV/EBITDA={recovered_ev} "
+                        f"from raw statement filings (MCap=₹{_mc_cr:.2f}Cr, Debt=₹{_d}Cr, Cash=₹{_c}Cr, EBITDA=₹{_eb:.2f}Cr)!"
+                    )
+                    providers_audit.append({
+                        "provider": "RAW_STATEMENTS_INDEPENDENT_DERIVATION",
+                        "result": "SUCCESS",
+                        "raw_inputs": {"mcap_cr": round(_mc_cr, 2), "debt_cr": _d, "cash_cr": _c, "ebitda_cr": round(_eb, 2)},
+                        "recovered_value": recovered_ev,
+                        "validation": "PASSED",
+                        "action": "DERIVED_FROM_RAW_FILING_COMPONENTS"
+                    })
+                    return recovered_ev, recovered_pe, providers_audit, "RECOVERED_VIA_RAW_FILING_DERIVATION"
+        except Exception as _e_der:
+            logger.error(f"❌ [UPSTREAM_RECOVERY: EXCEPTION] {clean_sym}: Statement derivation failed: {_e_der}")
+
+        # ── 4. ALL RECOVERY OPTIONS EXHAUSTED → DATA_INSUFFICIENT (STRICT FAIL-CLOSED) ──
+        logger.error(
+            f"❌ [UPSTREAM_RECOVERY: EXHAUSTED] {clean_sym}: All upstream recovery attempts failed to retrieve "
+            f"or compute current_ev_ebitda. Enforcing strict fail-closed DATA_INSUFFICIENT_VALUATION."
+        )
+        providers_audit.append({
+            "provider": "UPSTREAM_RECOVERY_EXHAUSTED",
+            "result": "FAILED",
+            "validation": "FAILED",
+            "validation_reason": "ALL_UPSTREAM_PROVIDERS_UNAVAILABLE_OR_INSUFFICIENT"
+        })
+        return None, None, providers_audit, "DATA_INSUFFICIENT_VALUATION"
+
     def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON") -> Dict[str, Any]:
         """
         Executes the frozen QUALITY_COMPOUNDER_VALUE_V2_FINAL 17:00 IST daily scan run.
@@ -2970,6 +3248,46 @@ class QualityCompounderValueV2Scanner:
             pe_discount = None   # None = PE comparison data unavailable
             calc_discount = None
 
+            # P0 Controlled Provider-Recovery Chain (Exception Path):
+            # When an eligible non-financial stock reaches the valuation gate and current_ev_ebitda is missing,
+            # trigger targeted upstream API recovery (Upstox Key-Ratios API -> Raw Statement Derivation)
+            # BEFORE declaring DATA_INSUFFICIENT_VALUATION.
+            recovery_providers_audit: List[Dict[str, Any]] = []
+            if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and not is_fin and quality_gate_passed:
+                logger.info(
+                    f"🎯 [V2_VALUATION_GATE] {sym}: Reached valuation gate with missing current_ev_ebitda. "
+                    f"Triggering targeted upstream provider recovery before valuation decision..."
+                )
+                recovered_ev, recovered_pe, recovery_providers_audit, recovery_verdict = self.recover_upstream_valuation_data(
+                    symbol=sym,
+                    cmp_price=cmp_price,
+                    row=row
+                )
+                if recovered_ev is not None:
+                    ev_ebitda_curr = recovered_ev
+                    logger.info(
+                        f"🎉 [V2_VALUATION_GATE] {sym}: Upstream recovery succeeded! "
+                        f"current_ev_ebitda set to {ev_ebitda_curr} via {recovery_verdict}."
+                    )
+                    if (pe_curr is None or pd.isna(pe_curr)) and recovered_pe is not None:
+                        pe_curr = recovered_pe
+                    _emit_data_recovery_log(
+                        scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        symbol=sym,
+                        stage="VALUATION",
+                        missing_data="current_ev_ebitda",
+                        recovery_attempted=True,
+                        providers=recovery_providers_audit,
+                        validation="PASSED",
+                        validation_reason=f"RECOVERED_VIA_{recovery_verdict}",
+                        final_action="DATA_USED",
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️ [V2_VALUATION_GATE] {sym}: Upstream recovery failed. "
+                        f"All upstream and derived providers exhausted."
+                    )
+
             # P0: EV/EBITDA is the authoritative valuation metric for this strategy.
             # PE is logged for context but NEVER substituted when EV/EBITDA is unavailable.
             # If EV/EBITDA data is missing, the symbol receives DATA_INSUFFICIENT_VALUATION — no fallback.
@@ -2996,25 +3314,25 @@ class QualityCompounderValueV2Scanner:
                     # When both current EV and 3‑Y median are missing we flag it distinctly.
                     _val_missing = ["current_ev_ebitda", "ev_ebitda_3y_median"]
                     val_reason = "CURRENT_EV_EBITDA_MISSING_AND_3Y_MEDIAN_MISSING"
-                    providers_list = [
+                    providers_list = list(recovery_providers_audit) if recovery_providers_audit else [
                         {
                             "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
                             "result": "FAILED",
                             "validation": "FAILED",
                             "validation_reason": "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE",
-                        },
-                        {
-                            "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
-                            "result": "NOT_AVAILABLE",
-                            "validation": "FAILED",
-                            "validation_reason": "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE — run pit_valuation_history_builder.py",
                         }
                     ]
+                    providers_list.append({
+                        "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
+                        "result": "NOT_AVAILABLE",
+                        "validation": "FAILED",
+                        "validation_reason": "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE — run pit_valuation_history_builder.py",
+                    })
                 elif curr_val_missing:
                     # Only current EV missing – use the explicit reason code.
                     _val_missing = ["current_ev_ebitda"]
                     val_reason = "CURRENT_EV_EBITDA_MISSING"
-                    providers_list = [
+                    providers_list = list(recovery_providers_audit) if recovery_providers_audit else [
                         {
                             "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
                             "result": "FAILED",
@@ -3371,19 +3689,18 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"     • Quality Gate Passed            : {quality_pass_count}")
             logger.info(f"     • Quality Gate Rejected          : {quality_reject_count}  (failed ROCE, CAGR, CFO, debt, or liquidity)")
             logger.info(f"       [Identity: {quality_pass_count} Passed + {quality_reject_count} Rejected = {_quality_evaluated} Quality-evaluated]  {'✅' if quality_pass_count + quality_reject_count == _quality_evaluated else '⚠️ MISMATCH'}")
-            logger.info(f"     • Of {quality_pass_count} Quality-passed: Valuation gate evaluated only when 3Y median present")
-            logger.info(f"     • Valuation Gate Passed          : {value_pass_count}  (EV/EBITDA discount >= 25%)")
-            logger.info(f"     • Valuation Gate Rejected        : {value_reject_count}  (EV/EBITDA discount < 25%)")
             _val_blocked_count = quality_pass_count - value_pass_count - value_reject_count
-            # Correct reason attribution: val_curr_missing_count dominates when Current EV ≈ 8/796.
-            # Do NOT label all blocks as "3Y median absent" — use the actual per-symbol reason counters.
-            logger.info(
-                f"     • Valuation Gate Blocked (no data): {_val_blocked_count}  "
-                f"(CURRENT_EV_EBITDA_MISSING={val_curr_missing_count} | "
-                f"EV_EBITDA_3Y_MEDIAN_MISSING={val_med_missing_count} | "
-                f"Both_Missing={val_both_missing_count} [diagnostic; overlap-counted separately])"
-            )
-            logger.info(f"       [Identity: {value_pass_count} Val-Pass + {value_reject_count} Val-Reject + {quality_pass_count - value_pass_count - value_reject_count} Val-Blocked = {quality_pass_count} Quality-Passed]  {'✅' if value_pass_count + value_reject_count + (quality_pass_count - value_pass_count - value_reject_count) == quality_pass_count else '⚠️ MISMATCH'}")
+            _val_evaluated = quality_pass_count - _val_blocked_count
+            logger.info("     • UNIVERSE VALUATION DATA GAPS (diagnostic across entire PIT universe):")
+            logger.info(f"         ├─ Current EV/EBITDA missing : {val_curr_missing_count}")
+            logger.info(f"         ├─ 3Y median missing         : {val_med_missing_count}")
+            logger.info(f"         └─ Both missing (overlap)    : {val_both_missing_count}")
+            logger.info("     • QUALITY-PASSED STOCKS VALUATION FUNNEL:")
+            logger.info(f"         ├─ Valuation evaluated       : {_val_evaluated}")
+            logger.info(f"         ├─ Valuation passed          : {value_pass_count}  (EV/EBITDA discount >= 25%)")
+            logger.info(f"         ├─ Valuation rejected        : {value_reject_count}  (EV/EBITDA discount < 25%)")
+            logger.info(f"         └─ Valuation blocked by data : {_val_blocked_count}")
+            logger.info(f"       [Identity: {value_pass_count} Val-Pass + {value_reject_count} Val-Reject + {_val_blocked_count} Val-Blocked = {quality_pass_count} Quality-Passed]  {'✅' if value_pass_count + value_reject_count + _val_blocked_count == quality_pass_count else '⚠️ MISMATCH'}")
             logger.info(f"     • Research Candidates (Gates OK) : {len(candidate_records)}")
             _suppressed_syms = [c['symbol'] for c in candidate_records] if _health_status in ('DATA_BLOCKED', 'BLOCKED') and candidate_records else []
             _suppression_note = (
