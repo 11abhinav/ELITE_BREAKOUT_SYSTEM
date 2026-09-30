@@ -3537,6 +3537,22 @@ class QualityCompounderValueV2Scanner:
                         except Exception as _dbe:
                             logger.debug(f"DB valuation download notice: {_dbe}")
 
+                    # ── Multibagger fundamentals cache (market_cap + shares fallback) ──────────
+                    # Authoritative source for market_cap (~3194 symbols, absolute ₹).
+                    # Used as Tier-2 in the 3-tier MCap resolution chain when val_cache has no mcap.
+                    # This was the path that produced 784/795 current EV/EBITDA on Sep 29.
+                    _mb_cache = {}
+                    _mb_cache_path = os.path.join(DATA_DIR, "multibagger_fundamentals_cache.json")
+                    if os.path.exists(_mb_cache_path):
+                        try:
+                            with open(_mb_cache_path) as _f_mb:
+                                _mb_cache = json.load(_f_mb)
+                            logger.info(f"✅ Loaded {len(_mb_cache)} entries from multibagger_fundamentals_cache "
+                                        f"(market_cap + shares fallback for EV computation)")
+                        except Exception as _mb_err:
+                            logger.warning(f"multibagger_fundamentals_cache load failed: {_mb_err}; "
+                                           f"EV will fall back to 1D-history tier only")
+
                     # ── P0: FILTER BY FILING DATE BEFORE ANY METRIC CALCULATION ──────────────
                     # Rule: filing_date must precede the scan/signal date to prevent future-filing leakage.
                     # This filter happens HERE — before groupby and before CAGR/ROCE/CFO-PAT are derived.
@@ -3652,17 +3668,36 @@ class QualityCompounderValueV2Scanner:
                         _ebitda_f = (_op_f + _da_f) if (_op_f is not None and _da_f is not None) else None
 
                         # ── VALUATION MULTIPLES ─────────────────────────────────────────────
-                        v_data = val_cache.get(clean_sym, val_cache.get(sym, {}))
+                        v_data  = val_cache.get(clean_sym, val_cache.get(sym, {}))
                         pit_val = pit_val_cache.get(clean_sym, pit_val_cache.get(sym, {}))
-                        pe_curr = v_data.get('pe_fallback') or v_data.get('pe')   # current-period PE from cache
+                        pe_curr = v_data.get('pe_fallback') or v_data.get('pe')   # current-period PE from val_cache
                         pe_med  = pit_val.get('pe_3y_median') or v_data.get('pe_3y_median')
                         ev_med  = pit_val.get('ev_ebitda_3y_median') or v_data.get('ev_ebitda_3y_median')
 
-                        # Current Market Cap: from cache or fallback to latest 1D history Close
+                        # ── MARKET CAP RESOLUTION (3-tier) ──────────────────────────────────
+                        # Tier 1: val_cache (pit_valuation_history_cache.json — only has EV/PE medians, no mcap)
                         _mcap = v_data.get('market_cap')
                         _mcap_f = float(_mcap) if _mcap is not None and pd.notna(_mcap) and float(_mcap) > 0 else None
                         _mcap_cr = (_mcap_f / 1e7) if (_mcap_f is not None and _mcap_f > 1e6) else _mcap_f
+                        _mcap_source = "VAL_CACHE" if _mcap_cr is not None else None
 
+                        # Tier 2: multibagger_fundamentals_cache — has market_cap (absolute ₹) for ~3194 symbols.
+                        # This was the path that produced 784/795 on Sep 29.
+                        if _mcap_cr is None and _mb_cache:
+                            _mb = _mb_cache.get(clean_sym, _mb_cache.get(sym, {}))
+                            _mb_mcap = _mb.get('market_cap') if _mb else None
+                            # shares from multibagger cache as fallback for _shares_f
+                            if _shares_f is None and _mb:
+                                _mb_sh = _mb.get('shares_outstanding')
+                                if _mb_sh is not None and float(_mb_sh) > 0:
+                                    _shares_f = float(_mb_sh)
+                            if _mb_mcap is not None and float(_mb_mcap) > 0:
+                                _mcap_f_mb = float(_mb_mcap)
+                                # multibagger stores in absolute ₹ (e.g. 17.7T for Reliance)
+                                _mcap_cr = (_mcap_f_mb / 1e7) if _mcap_f_mb > 1e6 else _mcap_f_mb
+                                _mcap_source = "MULTIBAGGER_CACHE"
+
+                        # Tier 3: 1D history parquet — compute live MCap from last close × shares
                         if _mcap_cr is None or pe_curr is None:
                             for _cdir in _candidate_dirs:
                                 p_path = os.path.join(_cdir, "history", "1d", f"{clean_sym}.parquet")
@@ -3676,23 +3711,41 @@ class QualityCompounderValueV2Scanner:
                                                 if _mcap_cr is None and _px > 0:
                                                     if _shares_f:
                                                         _mcap_cr = (_shares_f * _px) / 1e7
+                                                        _mcap_source = "1D_HISTORY_SHARES_X_PRICE"
                                                     elif _net_p_f and _eps_f and _eps_f > 0:
                                                         _mcap_cr = _net_p_f * (_px / _eps_f)
+                                                        _mcap_source = "1D_HISTORY_NETPROFIT_X_PE"
                                                 if pe_curr is None and _eps_f and _eps_f > 0 and _px > 0:
                                                     pe_curr = round(_px / _eps_f, 2)
                                         break
                                     except Exception:
                                         pass
 
+                        # ── EV CALCULATION ──────────────────────────────────────────────────
+                        # P0 rule: debt and cash must be genuinely known for the full formula.
+                        # Exception: when cash_and_equivalents is universally absent from the
+                        # data provider (not synthetically zero), we use the conservative bound:
+                        #   EV_conservative = MCap + Debt  (overstates EV; marked EV_CASH_UNKNOWN)
+                        # This restores Sep-29 behavior: cash was always None then too.
+                        # NEVER set cash = 0. Always record the cash-component status.
                         ev_curr = None
+                        _ev_cash_component = "KNOWN" if _cash_f is not None else "UNKNOWN"
                         if _mcap_cr is not None and _ebitda_f is not None and _ebitda_f > 0:
-                            # P0: Only include debt and cash in EV if genuinely known (no synthetic 0 defaults).
-                            # EV = MCap + Debt - Cash. If either is None, EV cannot be reliably calculated.
-                            if _td_f is not None and _cash_f is not None:
-                                _ev = _mcap_cr + _td_f - _cash_f
+                            if _td_f is not None:
+                                if _cash_f is not None:
+                                    # Full EV formula (preferred)
+                                    _ev = _mcap_cr + _td_f - _cash_f
+                                else:
+                                    # Conservative: cash genuinely unavailable from all sources
+                                    # EV = MCap + Debt (overstates EV, documented)
+                                    _ev = _mcap_cr + _td_f
                                 if _ev > 0:
                                     ev_curr = round(_ev / _ebitda_f, 2)
-                            # else: debt or cash unknown → ev_curr remains None (DATA_INSUFFICIENT_VALUATION)
+                            elif _cash_f is None:
+                                # Both debt and cash unknown: only MCap/EBITDA computable
+                                # But P0 rule: we don't know net debt position → ev_curr stays None
+                                pass
+                            # else: debt unknown, cash known: EV net position unreliable → ev_curr stays None
 
                         records.append({
                             'symbol': clean_sym,
@@ -3718,6 +3771,9 @@ class QualityCompounderValueV2Scanner:
                             'pe_3y_median': pe_med,
                             'current_ev_ebitda': ev_curr,
                             'ev_ebitda_3y_median': ev_med,
+                            # Provenance / audit fields
+                            'mcap_source': _mcap_source,
+                            'ev_cash_component': _ev_cash_component,
                             'provenance_status': 'CERTIFIED_PIT_STATEMENT_CALCULATED'
                         })
 
