@@ -301,14 +301,16 @@ def main():
             "exit_date", "exit_price", "holding_sessions", "gross_return_pct",
             "net_return_pct", "h20_net_return_pct", "exit_reason", "sue_val"
         ])
-    print(f"   • Total Trades Replayed: {len(df_trades)}")
+    sue_valid_events = len(df_events[df_events['sue_status'] == 'CERTIFIED'])
+    quality_valid_events = len(df_events[df_events['quality_pass'] == True])
+    arm_a_trades = len(df_trades[df_trades['treatment_group'] == 'ARM_A']) if 'treatment_group' in df_trades.columns else 0
 
-    # -------------------------------------------------------------------------
-    # STEP 4: GENERATE MANDATORY REPORT ARTIFACTS
-    # -------------------------------------------------------------------------
+    print("📊 EARNINGS EVENT ACCOUNTING FUNNEL:")
+    print(f"   1. Reconstructed Earnings Events : {len(df_events)}")
+    print(f"   2. Quality Pass Events           : {quality_valid_events}")
+    print(f"   3. SUE Valid Events (>= 12Q)     : {sue_valid_events}")
+    print(f"   4. ARM A Executable Trades       : {arm_a_trades}")
     print("📝 STEP 4: Generating Master Markdown Reports & Execution Artifacts...")
-
-    arm_a_count = len(df_trades[df_trades['treatment_group'] == 'ARM_A']) if 'treatment_group' in df_trades.columns else 0
 
     # 1. Master Audit Report
     master_report_path = os.path.join(REPORTS_DIR, "EARNINGS_SURPRISE_QUALITY_V1_MASTER_AUDIT_REPORT.md")
@@ -320,11 +322,18 @@ def main():
         f.write(f"**PIT DB SHA256:** `{pit_db_hash}`  \n\n")
         f.write("---\n\n")
         f.write("### Executive Summary & Final Governance Verdict\n\n")
-        f.write("- **Primary Treatment (ARM A - Quality + Positive Result + SUE >= 1.0):**  \n")
-        f.write(f"  - Replayed Trades: `{arm_a_count}`  \n")
-        f.write(f"  - Exit Architecture: `Confirmed Structural Weakness (Open-Ended Hold)`  \n")
+        f.write("#### Accounting Funnel:\n")
+        f.write(f"- **1. Reconstructed Earnings Events:** `{len(df_events)}`  \n")
+        f.write(f"- **2. Quality Baseline Valid Events:** `{quality_valid_events}`  \n")
+        f.write(f"- **3. SUE Valid Events (>= 12 Prior Quarters):** `{sue_valid_events}`  \n")
+        f.write(f"- **4. ARM A Executable Trades Replayed:** `{arm_a_trades}`  \n\n")
+        f.write("- **Exit Architecture:** `Confirmed Structural Weakness (Open-Ended Hold)`  \n")
         f.write("- **Overall Master Verdict:** `DATA_INSUFFICIENT` (Screener DB max 11 quarters history vs 12 quarters required for certified SUE forecast)  \n")
         f.write("- **Production Status:** `BLOCKED` (Zero live alerts authorized)  \n\n")
+        f.write("---\n\n")
+        f.write("### Forensic Audit Note\n")
+        f.write("This run reached the event-replay stage, but ARM A produced 0 executable trades because the active PIT dataset contains a maximum of 11 consecutive quarters per symbol (2023-Q3 to 2026-Q1), whereas the frozen SUE forecast model strictly requires 12 prior quarters. ")
+        f.write("Under fail-closed governance rules, the 12-quarter requirement was preserved untouched. No trades were executed, and the hypothesis remains un-tested until historical quarterly depth is restored to 2012-2013+.\n\n")
         f.write("---\n\n")
         f.write("### Data Provenance & Invariants Audit\n")
         f.write("- **Price Source:** Upstox Historical Candle API V3 (Certified)\n")

@@ -9,11 +9,20 @@
 
 ### Executive Summary & Final Governance Verdict
 
-- **Primary Treatment (ARM A - Quality + Positive Result + SUE >= 1.0):**  
-  - Replayed Trades: `0`  
-  - Exit Architecture: `Confirmed Structural Weakness (Open-Ended Hold)`  
+#### Accounting Funnel:
+- **1. Reconstructed Earnings Events:** `4285`  
+- **2. Quality Baseline Valid Events:** `0`  
+- **3. SUE Valid Events (>= 12 Prior Quarters):** `0`  
+- **4. ARM A Executable Trades Replayed:** `0`  
+
+- **Exit Architecture:** `Confirmed Structural Weakness (Open-Ended Hold)`  
 - **Overall Master Verdict:** `DATA_INSUFFICIENT` (Screener DB max 11 quarters history vs 12 quarters required for certified SUE forecast)  
 - **Production Status:** `BLOCKED` (Zero live alerts authorized)  
+
+---
+
+### Forensic Audit Note
+This run reached the event-replay stage, but ARM A produced 0 executable trades because the active PIT dataset contains a maximum of 11 consecutive quarters per symbol (2023-Q3 to 2026-Q1), whereas the frozen SUE forecast model strictly requires 12 prior quarters. Under fail-closed governance rules, the 12-quarter requirement was preserved untouched. No trades were executed, and the hypothesis remains un-tested until historical quarterly depth is restored to 2012-2013+.
 
 ---
 
