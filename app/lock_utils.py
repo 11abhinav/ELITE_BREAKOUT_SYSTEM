@@ -271,7 +271,7 @@ class ProcessLockImpl:
                 return True
 
         # Bounded Queue Wait Timeout Guard (Rule 14)
-        effective_timeout = timeout_val if timeout_val > 0 else 600.0
+        effective_timeout = timeout if timeout > 0 else 600.0
         queue_start_time = datetime.datetime.now(tz=datetime.timezone.utc)
 
         # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting
@@ -396,8 +396,8 @@ class ProcessLockImpl:
                                             if total_wait > 1.0:
                                                 logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock for {owner_scanner} after {total_wait:.1f}s total wait")
                                             break
-                                        if timeout_val > 0 and elapsed >= timeout_val:
-                                            logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {timeout_val}s) for {owner_scanner}.")
+                                        if timeout > 0 and elapsed >= timeout:
+                                            logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {timeout}s) for {owner_scanner}.")
                                             locked = False
                                             break
                                         _pg_log_interval = 60 if owner_scanner == "UNKNOWN" else 180
