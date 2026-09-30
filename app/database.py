@@ -2792,27 +2792,57 @@ def save_alert_if_new(
     if scanner_run_id:
         context['scanner_run_id'] = scanner_run_id
 
+    # Derive effective_alert_date for calendar-day deduplication
+    effective_alert_date = kwargs.get('alert_date')
+    if effective_alert_date is None and context:
+        effective_alert_date = context.get('alert_date')
+    if effective_alert_date is None and alert_time:
+        try:
+            if isinstance(alert_time, datetime):
+                effective_alert_date = alert_time.date()
+            elif isinstance(alert_time, str):
+                date_part = alert_time.strip().split(" ")[0].split("T")[0]
+                from datetime import date as dt_date
+                effective_alert_date = dt_date.fromisoformat(date_part)
+        except Exception:
+            pass
+    if effective_alert_date is None:
+        try:
+            from market_utils import get_expected_latest_trading_date
+            effective_alert_date = get_expected_latest_trading_date()
+        except Exception:
+            effective_alert_date = datetime.now(IST).date()
+    if isinstance(effective_alert_date, str):
+        try:
+            from datetime import date as dt_date
+            effective_alert_date = dt_date.fromisoformat(effective_alert_date.split("T")[0].split(" ")[0])
+        except Exception:
+            effective_alert_date = datetime.now(IST).date()
+
     # Derive source_trading_date (Saturday/Sunday always inherit latest valid Friday trading session)
     source_trading_date = kwargs.get('source_trading_date')
     if source_trading_date is None and context:
         source_trading_date = context.get('source_trading_date')
     if source_trading_date is None:
-        try:
-            from market_utils import get_expected_latest_trading_date
-            source_trading_date = get_expected_latest_trading_date()
-        except Exception:
-            from datetime import datetime as dt
-            source_trading_date = dt.now(IST).date()
+        if effective_alert_date.weekday() == 5:  # Saturday
+            from datetime import timedelta
+            source_trading_date = effective_alert_date - timedelta(days=1)
+        elif effective_alert_date.weekday() == 6:  # Sunday
+            from datetime import timedelta
+            source_trading_date = effective_alert_date - timedelta(days=2)
+        else:
+            source_trading_date = effective_alert_date
     if isinstance(source_trading_date, str):
         try:
             from datetime import date as dt_date
-            source_trading_date = dt_date.fromisoformat(source_trading_date.split("T")[0])
+            source_trading_date = dt_date.fromisoformat(source_trading_date.split("T")[0].split(" ")[0])
         except Exception:
             pass
 
     if context is None:
         context = {}
     context['source_trading_date'] = str(source_trading_date)
+    context['alert_date'] = str(effective_alert_date)
 
     sanitized_context = _sanitize_for_json(context) if context is not None else None
     context_str = json.dumps(sanitized_context, default=str) if sanitized_context is not None else None
@@ -2870,6 +2900,10 @@ def save_alert_if_new(
         direction = "LONG"
         setup_type = str(signals or breakout_type or "BREAKOUT").strip().upper()
 
+        eff_scanner_upper = str(scanner or "").strip().upper()
+        eff_breakout_upper = str(breakout_type or "").strip().upper()
+        eff_canonical_upper = str(canonical_scanner or "").strip().upper()
+
         try:
             from config import SCANNER_DEDUP_ENTRY_TOLERANCE_PCT
             tol_pct = float(SCANNER_DEDUP_ENTRY_TOLERANCE_PCT.get(canonical_scanner, SCANNER_DEDUP_ENTRY_TOLERANCE_PCT.get("DEFAULT", 0.5)))
@@ -2886,57 +2920,67 @@ def save_alert_if_new(
             tolerance_pct=tol_pct
         )
 
+        # ─────────────────────────────────────────────────────────────────
+        # 🛡️ PER-SCANNER DAILY DEDUPLICATION GATE
+        # 1. Scanners independently generate alerts for the same symbol.
+        # 2. Duplicate alerts for the SAME scanner on the SAME trading date are blocked.
+        # 3. On a NEW DAY, any scanner can alert again even if previous alerts are OPEN.
+        # ─────────────────────────────────────────────────────────────────
         cur.execute("""
-            SELECT id, alert_date, alert_time, entry_price, status, scanner, breakout_type,
-                   COALESCE(source_trading_date, alert_date) as src_date
+            SELECT id, symbol, entry_price, stop_loss, target_1, target_2, target_3, signals, score, alert_date, alert_time, context,
+                   COALESCE(trade_evolution_state, 'INITIAL'), COALESCE(evidence_count, 1), COALESCE(distinct_patterns_count, 1), scanner, status,
+                   breakout_type, COALESCE(source_trading_date, alert_date) as src_date
             FROM alerts
             WHERE symbol = %s 
-              AND (UPPER(scanner) = %s OR UPPER(breakout_type) = %s)
               AND is_rejected = FALSE
               AND (
+                  COALESCE(UPPER(scanner), '') IN (%s, %s)
+                  OR COALESCE(UPPER(breakout_type), '') IN (%s, %s)
+              )
+              AND (
                   alert_fingerprint = %s
-                  OR (
-                      COALESCE(source_trading_date, alert_date) = %s
-                      AND abs(entry_price - %s) / GREATEST(0.01, %s) <= %s
-                  )
+                  OR alert_date = %s
+                  OR source_trading_date = %s
+                  OR COALESCE(source_trading_date, alert_date) = %s
               )
             ORDER BY id DESC LIMIT 1
         """, (
-            symbol, canonical_scanner, canonical_scanner,
+            symbol,
+            eff_canonical_upper, eff_scanner_upper,
+            eff_canonical_upper, eff_breakout_upper,
             alert_fingerprint,
+            effective_alert_date,
             source_trading_date,
-            eff_entry, eff_entry, (tol_pct / 100.0)
+            source_trading_date
         ))
-        prior_adjusted_alert = cur.fetchone()
+        prior_same_date_alert = cur.fetchone()
 
-        if prior_adjusted_alert:
-            prior_id, prior_adate, prior_atime, prior_entry, prior_status, prior_sc, prior_bt, prior_src = prior_adjusted_alert
-            logger.info(
-                f"🔁 [ADJUSTED_DEDUP] {symbol} ({canonical_scanner}) alert RAISED @ ₹{eff_entry:.2f}, "
-                f"but DB persistence suppressed — identical adjusted setup already saved in prior history "
-                f"(Alert ID: {prior_id}, Source Trading Date: {prior_src}, Entry: ₹{prior_entry:.2f}, "
-                f"Tolerance: {tol_pct}%, Fingerprint: {alert_fingerprint})"
-            )
-            # Emit structured lifecycle telemetry contract
-            try:
-                from telemetry_manager import telemetry
-                telemetry.log_scheduler_event(canonical_scanner, "ALERT_DEDUPLICATED", {
-                    "symbol": symbol, "scanner": canonical_scanner, "source_trading_date": str(source_trading_date),
-                    "entry_price": eff_entry, "alert_raised": True, "duplicate": True, "persisted": False, "notification_sent": False
-                })
-            except Exception:
-                pass
-            return False, f"Duplicate: Adjusted alert already persisted (ID {prior_id})", 0.0, 0
-
-        # Check if symbol already has an active OPEN position in the system
-        cur.execute("""
-            SELECT id, symbol, entry_price, stop_loss, target_1, target_2, target_3, signals, score, alert_date, alert_time, context,
-                   COALESCE(trade_evolution_state, 'INITIAL'), COALESCE(evidence_count, 1), COALESCE(distinct_patterns_count, 1), scanner
-            FROM alerts
-            WHERE symbol = %s AND status = 'OPEN' AND is_rejected = FALSE
-            ORDER BY alert_time DESC LIMIT 1
-        """, (symbol,))
-        existing_alert = cur.fetchone()
+        if prior_same_date_alert:
+            prior_id = prior_same_date_alert[0]
+            prior_status = prior_same_date_alert[16]
+            if prior_status == 'OPEN':
+                # An active OPEN position exists for this scanner on this same trading date:
+                # Route into Trade Evolution to evaluate intra-day re-triggers / pyramid confirmations.
+                existing_alert = prior_same_date_alert
+            else:
+                # Setup was already recorded for this scanner on this date (and is no longer OPEN):
+                # Suppress duplicate re-entry into alerts.
+                logger.info(
+                    f"🔁 [SAME_DAY_DEDUP] {symbol} ({canonical_scanner}) alert RAISED @ ₹{eff_entry:.2f}, "
+                    f"but DB persistence suppressed — alert already recorded for this date "
+                    f"(Alert ID: {prior_id}, Date: {prior_same_date_alert[9]}, Status: {prior_status})"
+                )
+                try:
+                    from telemetry_manager import telemetry
+                    telemetry.log_scheduler_event(canonical_scanner, "ALERT_DEDUPLICATED", {
+                        "symbol": symbol, "scanner": canonical_scanner, "source_trading_date": str(source_trading_date),
+                        "entry_price": eff_entry, "alert_raised": True, "duplicate": True, "persisted": False, "notification_sent": False
+                    })
+                except Exception:
+                    pass
+                return False, f"Duplicate: Alert already persisted for {symbol} ({canonical_scanner}) on {effective_alert_date} (ID {prior_id})", 0.0, 0
+        else:
+            existing_alert = None
 
         if existing_alert:
             # ─────────────────────────────────────────────────────────────────
@@ -2949,7 +2993,7 @@ def save_alert_if_new(
             current_rvol = float(volume_ratio or 1.0)
             current_pattern = str(signals or breakout_type or "BREAKOUT").strip()
             cand_ctx = context or {}
-            today_date = datetime.now(IST).date()
+            today_date = effective_alert_date
             today_str = today_date.strftime('%Y-%m-%d')
 
             # Query last recorded event for this alert in alert_events
@@ -2975,12 +3019,12 @@ def save_alert_if_new(
                 # Same-day guard: suppress duplicate triggers on the same calendar day unless substantial new breakout
                 if str(last_edate) == today_str and not (is_new_pattern or price_delta_pct >= 3.0 or (is_volume_expansion and is_structural_upgrade)):
                     logger.info(f"🚫 [TRADE_EVOLUTION] {symbol} ({scanner}) Re-trigger suppressed — Reason: SAME_DAY_NO_MATERIAL_CHANGE")
-                    return False, "Suppressed: No Material Change", 0.0, 0
+                    return False, "Duplicate: Suppressed: No Material Change", 0.0, 0
 
                 # Cross-day material change guard: require distinct pattern, volume surge, or structural upgrade
                 if not (is_new_pattern or (price_delta_pct >= 2.0 and is_structural_upgrade) or is_volume_expansion):
                     logger.info(f"🚫 [TRADE_EVOLUTION] {symbol} ({scanner}) Re-trigger suppressed — Reason: NO_MATERIAL_CHANGE (Pattern: {current_pattern}, ΔPrice: {price_delta_pct:.1f}%)")
-                    return False, "Suppressed: No Material Change", 0.0, 0
+                    return False, "Duplicate: Suppressed: No Material Change", 0.0, 0
 
             # Calculate PnL since original entry
             pnl_since_entry_pct = round(((current_trigger_price - orig_entry_price) / max(0.01, orig_entry_price)) * 100.0, 2)
@@ -3187,7 +3231,7 @@ def save_alert_if_new(
             eff_actual_entry_price = None
         else:
             eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
-        today_date = datetime.now(IST).date()
+        today_date = effective_alert_date
         cur.execute("""
             INSERT INTO alerts
                 (symbol, breakout_type, alert_time, alert_date, source_trading_date, alert_fingerprint, scanner, category,
@@ -3199,25 +3243,26 @@ def save_alert_if_new(
                 confirmation_quality, last_event_type, last_event_date, execution_status, execution_block_reason,
                 rvol_diurnal, rvol_rolling)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'INITIAL', 1, 1, 'INITIAL', 'NEW_ENTRY', %s, %s, %s, %s, %s)
+            ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
             RETURNING id;
-        """, (symbol, breakout_type, alert_time, today_date.strftime('%Y-%m-%d'), source_trading_date, alert_fingerprint, scanner, category,
+        """, (symbol, breakout_type, alert_time, effective_alert_date.strftime('%Y-%m-%d'), source_trading_date, alert_fingerprint, scanner, category,
             entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
             signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
             model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
             structural_failure_stop, target_quality_score, entry_mode, eff_actual_entry_price, initial_execution_state,
-            evaluation_id, scanner_run_id, today_date, execution_status, execution_block_reason,
+            evaluation_id, scanner_run_id, effective_alert_date, execution_status, execution_block_reason,
             rvol_diurnal_val, rvol_rolling_val))
         row = cur.fetchone()
-        inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
+        inserted = (row is not None) and (row[0] is not None)
         commit_cb()
         success = True
         if inserted:
             logger.info(f"✅ [DB_SAVE] Alert for {symbol} ({canonical_scanner}) SUCCESSFULLY SAVED to DB | Entry: ₹{entry_price:.2f} | Score: {score} | Fingerprint: {alert_fingerprint}")
-        else:
-            logger.info(f"🚫 [DB_SAVE] Alert for {symbol} ({scanner or 'EOD'}) SKIPPED — Reason: SAME_DAY_DUPLICATE (Already alerted today)")
-        if inserted:
-            alert_id = row[0] if row else 0
+            alert_id = row[0]
             base_score_val = kwargs.get('base_score', score or 80)
+        else:
+            logger.info(f"🚫 [DB_SAVE] Alert for {symbol} ({scanner or 'EOD'}) SKIPPED — Reason: SAME_DAY_DUPLICATE (Already alerted today on {effective_alert_date})")
+            return False, f"Duplicate: Alert already persisted for {symbol} today ({effective_alert_date})", 0.0, 0
 
             # Record initial NEW_ENTRY event into alert_events
             try:
@@ -7653,15 +7698,16 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                 success = False
                 try:
                     with conn.cursor() as cur:
-                        # Avoid duplicating alerts if the stock already has an ACTIVE position in ANY wealth bucket
+                        # Avoid duplicating alerts if the stock already has an ACTIVE position in ANY wealth bucket alerted today
                         cur.execute("""
                             SELECT 1 FROM wealth_buy_alert
                             WHERE symbol = %s
                             AND status = 'ACTIVE'
                             AND is_closed = FALSE
-                        """, (symbol,))
+                            AND alert_date = %s
+                        """, (symbol, ist_today))
                         if cur.fetchone():
-                            logger.info(f"⏭️  BUY alert skipped for {symbol}: Already has an active position.")
+                            logger.info(f"⏭️  BUY alert skipped for {symbol}: Already has an active position alerted today ({ist_today}).")
                             return False
 
                         # New alert - insert it with position sizing data and explicit IST time (Atomic DO NOTHING)
@@ -12013,8 +12059,9 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                 SELECT id, status, watchlist_state FROM alerts
                 WHERE symbol = %s AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
                   AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                  AND alert_date = %s
                 ORDER BY alert_time DESC LIMIT 1
-            """, (sym,))
+            """, (sym, today_date))
             row = cur.fetchone()
             if row:
                 alert_id = row[0]
