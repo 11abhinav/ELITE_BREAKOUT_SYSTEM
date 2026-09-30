@@ -7,6 +7,7 @@
 # =====================================================================================
 import sys
 import os
+os.environ["OMP_NUM_THREADS"] = "1"  # Prevent pyarrow/OpenMP deadlocks in background threads
 import time
 import threading
 import logging
