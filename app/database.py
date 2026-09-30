@@ -1807,6 +1807,11 @@ def init_db():
                         stale_ratio FLOAT DEFAULT 0.0,
                         alerts_generated INT DEFAULT 0,
                         api_calls INT DEFAULT 0,
+                        data_insufficient_count INT DEFAULT 0,
+                        data_missing_count INT DEFAULT 0,
+                        provider_failure_count INT DEFAULT 0,
+                        summary_notes TEXT,
+                        metrics_json JSONB DEFAULT '{}'::jsonb,
                         cache_hits INT DEFAULT 0,
                         cache_misses INT DEFAULT 0,
                         stop_reason VARCHAR(255),
@@ -1826,6 +1831,12 @@ def init_db():
                     CREATE INDEX IF NOT EXISTS idx_seh_life_started ON scanner_execution_history(lifecycle_status, started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_perf_composite ON scanner_execution_history(lifecycle_status, quality_status, started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_scanner_life ON scanner_execution_history(scanner_name, lifecycle_status, started_at DESC);
+
+                    ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_insufficient_count INT DEFAULT 0;
+                    ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_missing_count INT DEFAULT 0;
+                    ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS provider_failure_count INT DEFAULT 0;
+                    ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS summary_notes TEXT;
+                    ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS metrics_json JSONB DEFAULT '{}'::jsonb;
                 """)
 
                 # [RULE 67 CHANGE-RATIONALE]:
@@ -10905,33 +10916,114 @@ def update_scanner_run_lifecycle(run_id: str, lifecycle_status: str):
         logger.debug(f"Failed to update lifecycle_status for run {run_id}: {e}")
 
 
-def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason: str = None, status_override: str = None):
-    """Finalizes a scanner execution record with completion stats, quality evaluation, and errors."""
-    if not ctx or not getattr(ctx, 'run_id', None):
+def complete_scanner_execution_run(
+    ctx=None,
+    exception: Exception = None,
+    stop_reason: str = None,
+    status_override: str = None,
+    run_id: str = None,
+    total_scanned: int = None,
+    total_stocks: int = None,
+    candidate_count: int = None,
+    quality_status: str = None,
+    lifecycle_status: str = None,
+    summary_notes: str = None,
+    metrics_json: dict = None,
+    data_insufficient_count: int = None,
+    data_missing_count: int = None,
+    provider_failure_count: int = None,
+    **kwargs
+):
+    """Finalizes a scanner execution record with completion stats, quality evaluation, and errors.
+    Supports both ScannerRunContext objects and keyword arguments (e.g. run_id, total_scanned).
+    """
+    # 1. Resolve run_id
+    if isinstance(ctx, str):
+        if not run_id:
+            run_id = ctx
+        ctx = None
+    elif ctx and hasattr(ctx, 'run_id') and not run_id:
+        run_id = ctx.run_id
+
+    if not run_id:
         return
 
-    if hasattr(ctx, "stop_heartbeat_worker"):
+    if ctx and hasattr(ctx, "stop_heartbeat_worker"):
         try:
             ctx.stop_heartbeat_worker()
         except Exception:
             pass
 
     import traceback
+    # 2. Resolve lifecycle_status
     if status_override is not None:
-        lifecycle_status = status_override.upper()
-        if stop_reason is not None:
+        final_lifecycle = status_override.upper()
+        if stop_reason is not None and ctx:
             ctx.set_stop_reason(stop_reason)
+    elif lifecycle_status is not None:
+        final_lifecycle = lifecycle_status.upper()
     elif exception is not None:
-        ctx.record_error(str(exception)[:255], traceback.format_exc())
-        lifecycle_status = "FAILED"
+        if ctx:
+            ctx.record_error(str(exception)[:255], traceback.format_exc())
+        final_lifecycle = "FAILED"
     elif stop_reason is not None:
-        ctx.set_stop_reason(stop_reason)
-        lifecycle_status = "STOPPED"
+        if ctx:
+            ctx.set_stop_reason(stop_reason)
+        final_lifecycle = "STOPPED"
     else:
-        lifecycle_status = "COMPLETED"
+        final_lifecycle = "COMPLETED"
 
-    quality_status = ctx.evaluate_quality_status()
-    stale_ratio = ctx.compute_stale_ratio()
+    # 3. Resolve metrics and counts
+    final_total_stocks = total_stocks if total_stocks is not None else (total_scanned if total_scanned is not None else getattr(ctx, 'total_stocks', 0))
+    final_fresh = getattr(ctx, 'fresh_count', 0)
+    final_stale = getattr(ctx, 'stale_count', 0)
+    final_incomplete = getattr(ctx, 'incomplete_count', 0)
+    final_data_insuff = data_insufficient_count if data_insufficient_count is not None else getattr(ctx, 'data_insufficient_count', 0)
+    final_data_missing = data_missing_count if data_missing_count is not None else getattr(ctx, 'data_missing_count', 0)
+    final_prov_fail = provider_failure_count if provider_failure_count is not None else getattr(ctx, 'provider_failure_count', 0)
+    final_alerts = getattr(ctx, 'alerts_generated', 0)
+    if candidate_count is not None and final_alerts == 0:
+        final_alerts = candidate_count
+
+    final_api_calls = getattr(ctx, 'api_calls', 0)
+    final_cache_hits = getattr(ctx, 'cache_hits', 0)
+    final_cache_misses = getattr(ctx, 'cache_misses', 0)
+    final_stop_reason = stop_reason or getattr(ctx, 'stop_reason', None)
+
+    error_summary = getattr(ctx, 'error_summary', None)
+    error_details = getattr(ctx, 'error_details', None)
+    if exception is not None and not error_summary:
+        error_summary = str(exception)[:255]
+        error_details = traceback.format_exc()
+
+    final_summary_notes = summary_notes or getattr(ctx, 'summary_notes', None)
+
+    # Merge metrics_json
+    raw_metrics = dict(getattr(ctx, 'metrics_json', {}) or {})
+    if isinstance(metrics_json, dict):
+        raw_metrics.update(metrics_json)
+    if candidate_count is not None and 'candidate_count' not in raw_metrics:
+        raw_metrics['candidate_count'] = candidate_count
+    import json
+    metrics_json_str = json.dumps(raw_metrics) if raw_metrics else '{}'
+
+    # 4. Resolve quality_status and stale_ratio
+    if quality_status is not None:
+        final_quality = str(quality_status).upper()
+    elif ctx and hasattr(ctx, 'evaluate_quality_status'):
+        final_quality = ctx.evaluate_quality_status()
+    else:
+        if final_data_insuff > 0 or final_data_missing > 0 or final_prov_fail > 0 or final_incomplete > 0:
+            final_quality = "PARTIAL"
+        else:
+            final_quality = "NORMAL"
+
+    if ctx and hasattr(ctx, 'compute_stale_ratio'):
+        stale_ratio = ctx.compute_stale_ratio()
+    else:
+        stale_ratio = round(final_stale / max(1, final_total_stocks), 4) if final_total_stocks > 0 else 0.0
+
+    scanner_name = getattr(ctx, 'scanner_name', None)
 
     try:
         with get_connection() as conn:
@@ -10945,6 +11037,11 @@ def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason
                         fresh_data_count = %s,
                         stale_data_count = %s,
                         incomplete_data_count = %s,
+                        data_insufficient_count = %s,
+                        data_missing_count = %s,
+                        provider_failure_count = %s,
+                        summary_notes = %s,
+                        metrics_json = %s::jsonb,
                         stale_ratio = %s,
                         alerts_generated = %s,
                         api_calls = %s,
@@ -10953,27 +11050,35 @@ def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason
                         stop_reason = %s,
                         error_summary = %s,
                         error_details = %s
-                    WHERE run_id = %s;
+                    WHERE run_id = %s
+                    RETURNING scanner_name;
                 """, (
-                    lifecycle_status, quality_status, ctx.total_stocks,
-                    ctx.fresh_count, ctx.stale_count, ctx.incomplete_count,
-                    stale_ratio, ctx.alerts_generated, ctx.api_calls,
-                    ctx.cache_hits, ctx.cache_misses, ctx.stop_reason,
-                    ctx.error_summary, ctx.error_details, ctx.run_id
+                    final_lifecycle, final_quality, final_total_stocks,
+                    final_fresh, final_stale, final_incomplete,
+                    final_data_insuff, final_data_missing, final_prov_fail,
+                    final_summary_notes, metrics_json_str,
+                    stale_ratio, final_alerts, final_api_calls,
+                    final_cache_hits, final_cache_misses, final_stop_reason,
+                    error_summary, error_details, run_id
                 ))
+                row = cur.fetchone()
+                if row and row[0] and not scanner_name:
+                    scanner_name = row[0]
                 conn.commit()
                 logger.info(
-                    f"📜 [EXECUTION HISTORY] Completed run {ctx.run_id[:8]} for {ctx.scanner_name} | "
-                    f"Lifecycle: {lifecycle_status} | Quality: {quality_status} | Stale Ratio: {stale_ratio*100:.1f}%"
+                    f"📜 [EXECUTION HISTORY] Completed run {run_id[:8]} for {scanner_name or 'SCANNER'} | "
+                    f"Lifecycle: {final_lifecycle} | Quality: {final_quality} | "
+                    f"Insuff: {final_data_insuff} | Missing: {final_data_missing} | "
+                    f"Stale Ratio: {stale_ratio*100:.1f}%"
                 )
     except Exception as e:
-        logger.warning(f"Failed to complete scanner execution history for run {ctx.run_id}: {e}")
+        logger.warning(f"Failed to complete scanner execution history for run {run_id}: {e}")
 
     # [FIX: STATE_SYNC_v1.0] If execution FAILED or STOPPED, ensure scanner_health card is also
     # marked DOWN so it doesn't stay stuck on QUEUED/RUNNING after a crash.
     # This is a best-effort sync — individual scanner wrappers in main.py remain the primary
     # source of truth for health status, but this catches cases where the wrapper itself crashes.
-    if lifecycle_status in ("FAILED", "STOPPED") and getattr(ctx, 'scanner_name', None):
+    if final_lifecycle in ("FAILED", "STOPPED") and scanner_name:
         try:
             err_msg = (ctx.error_summary or "Scanner crashed before completing health update")[:500]
             upsert_scanner_health(
@@ -11133,10 +11238,10 @@ def get_scanner_execution_history(
                     where_clauses.append("started_at >= NOW() - INTERVAL '30 days'")
 
                 if search and search.strip():
-                    # [VERSION: PERF_FIX] Removed slow ILIKE on error_details. Focus only on indexed or small columns.
-                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR stop_reason ILIKE %s OR system_version ILIKE %s)")
+                    # [VERSION: PERF_FIX] Focus only on indexed or small columns. Include summary_notes for deep search.
+                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR stop_reason ILIKE %s OR system_version ILIKE %s OR summary_notes ILIKE %s)")
                     term = f"%{search.strip()}%"
-                    params.extend([term, term, term, term])
+                    params.extend([term, term, term, term, term])
 
                 where_sql = " AND ".join(where_clauses)
 
@@ -11194,6 +11299,10 @@ def get_scanner_execution_history(
                            system_version, git_commit, started_at, execution_started_at, heartbeat_at, completed_at,
                            EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - COALESCE(execution_started_at, started_at)))::float as duration_seconds,
                            total_stocks, fresh_data_count, stale_data_count, incomplete_data_count,
+                           COALESCE(data_insufficient_count, 0) as data_insufficient_count,
+                           COALESCE(data_missing_count, 0) as data_missing_count,
+                           COALESCE(provider_failure_count, 0) as provider_failure_count,
+                           summary_notes, metrics_json,
                            stale_ratio, alerts_generated, api_calls, cache_hits, cache_misses,
                            stop_reason, error_summary, error_details
                     FROM scanner_execution_history

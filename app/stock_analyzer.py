@@ -817,14 +817,10 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     deficits = []
 
     # ---------------- STAGE 1: DAILY BUILDER (UNIVERSE ELIGIBILITY) ----------------
-    # [RULE 67 CHANGE-RATIONALE]: Lazy import scanner evaluator functions inside analyze_symbol to keep module import sub-10ms for autocomplete
+    # [RULE 67 CHANGE-RATIONALE]: Lazy import active production evaluator functions inside analyze_symbol to keep module import sub-10ms
     from daily_builder import evaluate_daily_builder_symbol
-    from eod_scanner import evaluate_eod_symbol
-    from reversal_scanner import evaluate_reversal_symbol
-    from pullback_pipeline import evaluate_pullback_symbol
+    from technical_scanner import detect_technical_setup
     from wealth_engine import evaluate_wealth_symbol
-    from multibagger import evaluate_multibagger_symbol
-    from multi_tf_scanner import evaluate_multi_tf_symbol
 
     db_eval = evaluate_daily_builder_symbol(sym_clean, df, fund_data=fund_data, ignore_min_price=True)
     db_pass = db_eval.get("qualified", False)
@@ -853,41 +849,47 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
 
     logger.info(f"🔍 [STOCK ANALYZER] [{sym_clean}] Starting deep multi-scanner evaluation (CMP: ₹{close_price:.2f} | ROCE: {roce_val if roce_val is not None else 'N/A'}% | D/E: {debt_equity if debt_equity is not None else 'N/A'})...")
 
-    # Evaluate canonical per-symbol evaluators directly from production scanner modules with REAL macro regime context
-    # [BUG FIX: BATCH_REGIME_v1.0] Use pre-fetched regime ctx from batch caller if available (avoids N redundant calls)
-    regime_ctx = _pre_fetched_regime_ctx if _pre_fetched_regime_ctx is not None else MarketRegimeEngine.get_regime_context()
-    
-    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running EOD Breakout Evaluator...")
-    eod_eval = evaluate_eod_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
-    
-    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Reversal Bounce Evaluator...")
-    rev_eval = evaluate_reversal_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
-    
-    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Pullback Evaluator...")
-    pb_eval = evaluate_pullback_symbol(sym_clean, df, fund_data=fund_data, regime_ctx=regime_ctx)
-    
+    # 1. Technical Breakout Evaluator
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Technical Breakout Evaluator...")
+    tech_setup = detect_technical_setup(df=df, symbol=sym_clean, return_trace=False)
+    tech_qualified = tech_setup is not None and bool(tech_setup.get("passed", True))
+    tech_pattern = tech_setup.get("pattern") if tech_setup else None
+    tech_eval = {
+        "qualified": tech_qualified,
+        "status": "QUALIFIED" if tech_qualified else "NO",
+        "reasons": [f"Technical Pattern: {tech_pattern}"] if tech_qualified else ["No active breakout pattern detected"],
+        "pattern": tech_pattern
+    }
+    tech_status = tech_eval["status"]
+    tech_reasons = list(tech_eval["reasons"])
+
+    # 2. Fundamental Quality Evaluator
+    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Fundamental Evaluator...")
+    fund_reasons = []
+    fund_pass = True
+    if roce_val is None or roce_val < 15.0:
+        fund_pass = False
+        fund_reasons.append(f"ROCE ({roce_val}%) below 15% threshold")
+    if roe_val is None or roe_val < 12.0:
+        fund_pass = False
+        fund_reasons.append(f"ROE ({roe_val}%) below 12% threshold")
+    if debt_equity is not None and debt_equity > 1.0:
+        fund_pass = False
+        fund_reasons.append(f"D/E ({debt_equity}) exceeds 1.0 threshold")
+    if fund_pass:
+        fund_reasons.append("Pristine fundamental compounder profile (ROCE>=15%, ROE>=12%, D/E<=1.0)")
+    fund_eval = {
+        "qualified": fund_pass,
+        "status": "QUALIFIED" if fund_pass else "NO",
+        "reasons": fund_reasons
+    }
+    fund_status = fund_eval["status"]
+
+    # 3. Wealth Engine Evaluator
     logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Wealth Engine Evaluator...")
     we_eval = evaluate_wealth_symbol(sym_clean, df, fund_data=fund_data)
-    
-    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Multibagger Engine Evaluator...")
-    mb_eval = evaluate_multibagger_symbol(sym_clean, df, fund_data=fund_data)
-    
-    logger.debug(f"📊 [STOCK ANALYZER] [{sym_clean}] Running Multi-TF Intraday Evaluator...")
-    # [VERSION: QUICK_DIAGNOSTIC_v1.0] Skip live 1H API fetch when running fast UI lookup
-    mtf_eval = evaluate_multi_tf_symbol(sym_clean, df, regime_ctx=regime_ctx, pre_fetched_h1_df=pre_fetched_h1_df, allow_live_fetch=is_deep_analysis)
-
-    eod_status = eod_eval.get("status", "NO")
-    eod_reasons = list(eod_eval.get("reasons", []))
-    rev_status = rev_eval.get("status", "NO")
-    rev_reasons = list(rev_eval.get("reasons", []))
-    pb_status = pb_eval.get("status", "NO")
-    pb_reasons = list(pb_eval.get("reasons", []))
     we_status = we_eval.get("status", "NO")
     we_reasons = list(we_eval.get("reasons", []))
-    mb_status = mb_eval.get("status", "NO")
-    mb_reasons = list(mb_eval.get("reasons", []))
-    mtf_status = mtf_eval.get("status", "NO")
-    mtf_reasons = list(mtf_eval.get("reasons", []))
 
     # ---------------- COMPOSITE HEALTH SCORE CALCULATION ----------------
     tech_score = 50.0
@@ -913,12 +915,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     scanners_wl = []
 
     eval_pairs = [
-        ("EOD", eod_eval),
-        ("PULLBACK", pb_eval),
+        ("TECHNICAL", tech_eval),
+        ("FUNDAMENTAL", fund_eval),
         ("WEALTH", we_eval),
-        ("REVERSAL", rev_eval),
-        ("MULTIBAGGER", mb_eval),
-        ("MULTI-TF", mtf_eval)
     ]
 
     for name, ev in eval_pairs:
@@ -937,7 +936,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         if any_core_met:
             deficits.append("🌟 Pristine Setup: No significant technical or fundamental deficits detected! Stock is in prime alignment.")
         else:
-            deficits.append("🔍 Setup Deficit: Stock has not triggered breakout parameters across any of the 6 core scanner engines.")
+            deficits.append("🔍 Setup Deficit: Stock has not triggered breakout parameters across active production scanner engines.")
 
     if scanners_met:
         watchlist_status = "QUALIFIED (" + ", ".join(scanners_met) + ")"
@@ -948,12 +947,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
 
     if any_core_met:
         outcome_msg = f"⚡ CORE CONDITION MET: Current Status: {watchlist_status} (Health Score: {overall_health_score:.1f})"
-        if eod_eval.get("qualified"): eod_reasons.append(outcome_msg)
-        if pb_eval.get("qualified"): pb_reasons.append(outcome_msg)
+        if tech_eval.get("qualified"): tech_reasons.append(outcome_msg)
+        if fund_eval.get("qualified"): fund_reasons.append(outcome_msg)
         if we_eval.get("qualified"): we_reasons.append(outcome_msg)
-        if rev_eval.get("qualified"): rev_reasons.append(outcome_msg)
-        if mb_eval.get("qualified"): mb_reasons.append(outcome_msg)
-        if mtf_eval.get("qualified"): mtf_reasons.append(outcome_msg)
 
     # Check if symbol is already in user watchlist
     user_watchlist = get_user_watchlist(user_id)
@@ -981,12 +977,9 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         "deficits": deficits,
         "funnel": {
             "daily_builder": {**db_eval, "status": "CORE MET" if db_pass else "NO", "reasons": db_reasons},
-            "eod_breakout": {**eod_eval, "status": eod_status, "reasons": eod_reasons},
-            "multi_tf": {**mtf_eval, "status": mtf_status, "reasons": mtf_reasons},
-            "reversal": {**rev_eval, "status": rev_status, "reasons": rev_reasons},
-            "pullback": {**pb_eval, "status": pb_status, "reasons": pb_reasons},
+            "technical": {**tech_eval, "status": tech_status, "reasons": tech_reasons},
+            "fundamental": {**fund_eval, "status": fund_status, "reasons": fund_reasons},
             "wealth_engine": {**we_eval, "status": we_status, "reasons": we_reasons},
-            "multibagger": {**mb_eval, "status": mb_status, "reasons": mb_reasons}
         }
     }
 

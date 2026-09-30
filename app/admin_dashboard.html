@@ -6830,7 +6830,15 @@ function renderScannerExecutionHistory(data) {
     // Quality status badge
     let qClass = 'background:rgba(0,212,161,0.1); color:var(--accent);';
     if (r.quality_status === 'DEGRADED') qClass = 'background:rgba(234,179,8,0.15); color:var(--amber); font-weight:800;';
-    else if (r.quality_status === 'PARTIAL') qClass = 'background:var(--accent-dim); color:#3b82f6;';
+    else if (r.quality_status === 'PARTIAL' || r.quality_status === 'DATA_BLOCKED' || r.quality_status === 'BLOCKED') qClass = 'background:rgba(255,140,0,0.15); color:#fb923c; font-weight:700;';
+
+    const issues = [];
+    if ((r.stale_ratio || 0) > 0) issues.push(`${((r.stale_ratio || 0) * 100).toFixed(0)}% Stale`);
+    if (r.data_insufficient_count) issues.push(`${r.data_insufficient_count} Insuff`);
+    if (r.data_missing_count) issues.push(`${r.data_missing_count} Missing`);
+    if (r.provider_failure_count) issues.push(`${r.provider_failure_count} Fail`);
+    else if (!r.data_missing_count && !r.data_insufficient_count && r.incomplete_data_count) issues.push(`${r.incomplete_data_count} Incomplete`);
+    const issueText = issues.length ? ` (${issues.join(', ')})` : ' (100% Fresh)';
 
     const startedStr = r.started_at ? new Date(r.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }) : '--';
 
@@ -6852,27 +6860,38 @@ function renderScannerExecutionHistory(data) {
           </span>
         </td>
         <td style="padding:10px 12px; text-align:center;">
-          <span style="font-size:10px; font-weight:700; padding:3px 8px; border-radius:12px; ${qClass}">
-            ${escapeHTML(r.quality_status)} (${((r.stale_ratio || 0) * 100).toFixed(0)}% Stale)
+          <span style="font-size:10px; font-weight:700; padding:3px 8px; border-radius:12px; ${qClass}" title="${escapeHTML(r.summary_notes || '')}">
+            ${escapeHTML(r.quality_status)}${issueText}
           </span>
         </td>
         <td style="padding:10px 12px; text-align:center; font-family:var(--font-mono); font-size:11px;">
           <strong style="font-size:12px; color:var(--text);">${r.total_stocks || 0}</strong>
-          <div style="font-size:10px; margin-top:2px;" title="Fresh: ${r.fresh_data_count || 0} | Stale: ${r.stale_data_count || 0} | Incomplete: ${r.incomplete_data_count || 0}">
+          <div style="font-size:10px; margin-top:2px;" title="Fresh: ${r.fresh_data_count || 0} | Stale: ${r.stale_data_count || 0} | Incomplete: ${r.incomplete_data_count || 0} | Insufficient: ${r.data_insufficient_count || 0} | Missing: ${r.data_missing_count || 0}">
             <span style="color:var(--accent);" title="Fresh Data">${r.fresh_data_count || 0}</span> /
             <span style="color:var(--amber);" title="Stale Data">${r.stale_data_count || 0}</span> /
             <span style="color:var(--warn);" title="Incomplete Data">${r.incomplete_data_count || 0}</span>
           </div>
+          ${(r.data_insufficient_count || r.data_missing_count || r.provider_failure_count) ? `
+            <div style="font-size:9.5px; color:#ff4d6d; margin-top:2px; font-weight:600;" title="Data Gaps Breakdown">
+              ${r.data_insufficient_count ? `⚠️ ${r.data_insufficient_count} Insuff ` : ''}
+              ${r.data_missing_count ? `🚫 ${r.data_missing_count} Missing ` : ''}
+              ${r.provider_failure_count ? `💥 ${r.provider_failure_count} Fail` : ''}
+            </div>
+          ` : ''}
         </td>
         <td style="padding:10px 12px; text-align:center; font-weight:800; color:${r.alerts_generated > 0 ? 'var(--accent)' : 'var(--muted)'};">
           ${r.alerts_generated || 0}
         </td>
         <td style="padding:10px 12px; text-align:right;">
-          ${r.error_summary || r.error_details ? `
+          ${(r.error_summary || r.error_details) ? `
             <button onclick="showSehErrorModal('${r.run_id}')" class="btn btn-sm" style="font-size:10px; padding:3px 8px; background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid var(--warn); font-weight:700;">
               ⚠️ View Stack Trace
             </button>
-          ` : '<span style="color:var(--muted); font-size:11px;">Clean</span>'}
+          ` : (r.summary_notes || (r.metrics_json && Object.keys(r.metrics_json).length > 0) ? `
+            <button onclick="showSehErrorModal('${r.run_id}')" class="btn btn-sm" style="font-size:10px; padding:3px 8px; background:rgba(0,212,161,0.1); color:var(--accent); border:1px solid rgba(0,212,161,0.3); font-weight:700;">
+              📋 View Report
+            </button>
+          ` : '<span style="color:var(--muted); font-size:11px;">Clean</span>')}
         </td>
       </tr>
     `;
@@ -6903,8 +6922,17 @@ function showSehErrorModal(runId) {
   const content = document.getElementById('tracebackModalContent');
   
   title.innerText = `[RUN DIAGNOSTICS: ${r.run_id.substring(0, 8)}] ${r.scanner_name}`;
-  summary.innerHTML = `<strong>Lifecycle:</strong> ${r.lifecycle_status} &nbsp;|&nbsp; <strong>Quality:</strong> ${r.quality_status}<br><br><strong>Summary:</strong> ${r.error_summary || r.stop_reason || 'N/A'}`;
-  content.innerText = r.error_details || 'No detailed stack trace available.';
+
+  let notesHtml = '';
+  if (r.summary_notes) {
+    notesHtml += `<br><br><strong>Pipeline Summary / Notes:</strong><br><div style="font-family:var(--font-mono); font-size:11px; color:var(--text); background:var(--bg); padding:8px 10px; border-radius:6px; margin-top:4px; border:1px solid var(--border); line-height:1.4;">${escapeHTML(r.summary_notes)}</div>`;
+  }
+  if (r.metrics_json && typeof r.metrics_json === 'object' && Object.keys(r.metrics_json).length > 0) {
+    notesHtml += `<br><strong>Structured Metrics:</strong><br><pre style="background:var(--bg); padding:8px 10px; border-radius:6px; font-size:11px; max-height:160px; overflow-y:auto; border:1px solid var(--border); margin-top:4px;">${escapeHTML(JSON.stringify(r.metrics_json, null, 2))}</pre>`;
+  }
+
+  summary.innerHTML = `<strong>Lifecycle:</strong> ${escapeHTML(r.lifecycle_status)} &nbsp;|&nbsp; <strong>Quality:</strong> ${escapeHTML(r.quality_status)}<br><br><strong>Error / Stop Reason:</strong> ${escapeHTML(r.error_summary || r.stop_reason || 'None')}${notesHtml}`;
+  content.innerText = r.error_details || 'No stack trace (run executed without Python exceptions).';
   
   modal.style.display = 'flex';
 }

@@ -217,6 +217,28 @@ def _emit_data_recovery_log(
 
 
 # -------------------------------------------------------------------------------------
+# PIT FUNDAMENTALS APPROVED RECOVERY PROVIDER
+# -------------------------------------------------------------------------------------
+_PIT_FILINGS_CACHE: Optional[Dict[str, List[Dict[str, Any]]]] = None
+
+def _get_pit_filings(symbol: str) -> List[Dict[str, Any]]:
+    """Returns historical filings for symbol from PIT database, sorted by period_end_date descending."""
+    global _PIT_FILINGS_CACHE
+    if _PIT_FILINGS_CACHE is None:
+        _PIT_FILINGS_CACHE = {}
+        pit_path = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet")
+        if os.path.exists(pit_path):
+            try:
+                df_pit = pd.read_parquet(pit_path)
+                if not df_pit.empty and "symbol" in df_pit.columns:
+                    for sym, group in df_pit.sort_values("period_end_date", ascending=False).groupby("symbol"):
+                        _PIT_FILINGS_CACHE[str(sym).upper()] = group.to_dict("records")
+            except Exception as _e:
+                logger.debug(f"PIT filings cache load notice: {_e}")
+    return _PIT_FILINGS_CACHE.get(str(symbol).upper(), [])
+
+
+# -------------------------------------------------------------------------------------
 # 1. APPROVED STOCK UNIVERSE REGISTRY
 # -------------------------------------------------------------------------------------
 class ApprovedUniverseRegistry:
@@ -945,7 +967,7 @@ class DailyBuilderFundamentalProvider:
             eps_p = float(eps_p) if (eps_p is not None and not pd.isna(eps_p)) else None
 
             p_eps = r.get("prior_eps", r.get("earnings_per_share_basic_ttm"))
-            p_eps = float(p_eps) if (p_eps is not None and not pd.isna(p_eps) and float(p_eps) > 0) else None
+            p_eps = float(p_eps) if (p_eps is not None and not pd.isna(p_eps)) else None
 
             funds_map[sym] = {
                 "symbol": sym,
@@ -1222,6 +1244,25 @@ class LiveFundamentalBuyScanner:
                 [RejectionReason.FAIL_VALUE_TRAP.value] if is_trap else []
             )
             telemetry.record_value_trap_detail(sym, is_trap, str(fundamentals.get("fundamental_category", "NONE")))
+
+        # Fail-closed stop (§26, Mandatory Invariant Gate):
+        # If required fundamental quality or growth metrics are missing/incomplete,
+        # the stock is skipped at the data gate. Do NOT continue to technical pipeline.
+        if any(r in rejections for r in (
+            RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE,
+            RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT,
+            RejectionReason.FUNDAMENTAL_DATA_MISSING
+        )):
+            res = self._build_result(sym, False, rejections, gate_metrics)
+            if telemetry is not None:
+                telemetry.record_gate_evaluation(
+                    sym, "MARKET_DATA", False,
+                    {"reason": "SKIPPED_DUE_TO_INSUFFICIENT_FUNDAMENTAL_DATA"},
+                    [r.value for r in rejections]
+                )
+                primary_err = rejections[0].value if rejections else "DATA_INSUFFICIENT"
+                telemetry.record_symbol_final_decision(sym, False, [e.value for e in rejections], primary_err)
+            return res
 
         # 5. Market Data Sanity
         if df_bars is None or len(df_bars) < 200:
@@ -1578,6 +1619,27 @@ class LiveFundamentalBuyScanner:
                 _bars_short   = (not _bars_missing and len(df_bars) < 50)
 
                 if _fund_missing:
+                    # Attempt recovery from PIT_DATABASE
+                    pit_filings = _get_pit_filings(sym)
+                    prov_pit_result = "FETCHED" if (pit_filings and any(f.get("roce") is not None for f in pit_filings)) else "NOT_AVAILABLE"
+                    prov_pit_fail = None if prov_pit_result == "FETCHED" else "SYMBOL_NOT_IN_PIT_DB"
+                    
+                    if prov_pit_result == "FETCHED":
+                        f0 = pit_filings[0]
+                        roce_val = f0.get("roce")
+                        roe_val = f0.get("roe")
+                        tot_debt = f0.get("total_debt")
+                        tot_eq = f0.get("total_equity")
+                        de_val = (float(tot_debt) / float(tot_eq)) if tot_debt is not None and tot_eq is not None and float(tot_eq) > 0 else (0.0 if tot_debt == 0 else None)
+                        ocf_val = f0.get("operating_cash_flow")
+                        funds["roce"] = float(roce_val) if roce_val is not None and not pd.isna(roce_val) else None
+                        funds["roe"] = float(roe_val) if roe_val is not None and not pd.isna(roe_val) else None
+                        funds["debt_equity"] = float(de_val) if de_val is not None and not pd.isna(de_val) else None
+                        funds["operating_cash_flow"] = float(ocf_val) if ocf_val is not None and not pd.isna(ocf_val) else None
+                        funds["upstream_provider"] = "PIT_DATABASE"
+                        funds["provenance_status"] = "CERTIFIED_PIT_FUNDAMENTALS_DB_REHYDRATED"
+                        prov_valid = True
+
                     _emit_data_recovery_log(
                         scanner="FUNDAMENTAL",
                         symbol=sym,
@@ -1589,12 +1651,134 @@ class LiveFundamentalBuyScanner:
                                 "provider": "DAILY_BUILDER_2.0",
                                 "result": "NOT_AVAILABLE",
                                 "failure_type": "SYMBOL_NOT_IN_MASTER_DATASET",
+                            },
+                            {
+                                "provider": "PIT_DATABASE",
+                                "result": prov_pit_result,
+                                "failure_type": prov_pit_fail,
                             }
                         ],
-                        validation="FAILED",
-                        validation_reason="FUNDAMENTAL_DATA_UNAVAILABLE_IN_ALL_PROVIDERS",
-                        final_action="STOCK_SKIPPED",
+                        validation="PASSED" if prov_pit_result == "FETCHED" else "FAILED",
+                        validation_reason=None if prov_pit_result == "FETCHED" else "APPROVED_PROVIDERS_EXHAUSTED",
+                        final_action="DATA_USED" if prov_pit_result == "FETCHED" else "STOCK_SKIPPED",
                     )
+                else:
+                    # Check partial missing Quality fields
+                    missing_q = [f for f in ["roce", "roe", "operating_cash_flow", "debt_equity"] if funds.get(f) is None]
+                    if missing_q:
+                        pit_filings = _get_pit_filings(sym)
+                        if pit_filings:
+                            f0 = pit_filings[0]
+                            if funds.get("roce") is None and f0.get("roce") is not None and not pd.isna(f0.get("roce")):
+                                funds["roce"] = float(f0.get("roce"))
+                            if funds.get("roe") is None and f0.get("roe") is not None and not pd.isna(f0.get("roe")):
+                                funds["roe"] = float(f0.get("roe"))
+                            if funds.get("operating_cash_flow") is None and f0.get("operating_cash_flow") is not None and not pd.isna(f0.get("operating_cash_flow")):
+                                funds["operating_cash_flow"] = float(f0.get("operating_cash_flow"))
+                            if funds.get("debt_equity") is None:
+                                td = f0.get("total_debt")
+                                te = f0.get("total_equity")
+                                if td is not None and te is not None and not pd.isna(td) and not pd.isna(te) and float(te) > 0:
+                                    funds["debt_equity"] = float(td) / float(te)
+                                elif td == 0:
+                                    funds["debt_equity"] = 0.0
+
+                        unresolved_q = [f for f in ["roce", "roe", "operating_cash_flow", "debt_equity"] if funds.get(f) is None]
+                        q_ok = (len(unresolved_q) == 0)
+                        _emit_data_recovery_log(
+                            scanner="FUNDAMENTAL",
+                            symbol=sym,
+                            stage="QUALITY",
+                            missing_data=f"quality_metrics ({', '.join(missing_q)})",
+                            recovery_attempted=True,
+                            providers=[
+                                {
+                                    "provider": "DAILY_BUILDER_2.0",
+                                    "result": "PARTIAL_OR_ABSENT",
+                                    "failure_type": "METRICS_MISSING_IN_DAILY_BUILDER",
+                                },
+                                {
+                                    "provider": "PIT_DATABASE",
+                                    "result": "FETCHED" if q_ok else ("NOT_AVAILABLE" if not pit_filings else "INSUFFICIENT_DATA"),
+                                    "failure_type": None if q_ok else ("SYMBOL_NOT_IN_PIT_DB" if not pit_filings else "METRICS_ABSENT_IN_FILINGS"),
+                                }
+                            ],
+                            validation="PASSED" if q_ok else "FAILED",
+                            validation_reason=None if q_ok else f"UNRESOLVED_QUALITY_FIELDS_{unresolved_q}",
+                            final_action="DATA_USED" if q_ok else "STOCK_SKIPPED",
+                        )
+
+                    # Check partial missing Growth fields
+                    missing_g = [f for f in ["rev_yoy_latest", "rev_yoy_prev", "op_profit_yoy_latest", "op_profit_yoy_prev", "eps_yoy_latest", "eps_yoy_prev", "prior_eps"] if funds.get(f) is None]
+                    if missing_g:
+                        pit_filings = _get_pit_filings(sym)
+                        if pit_filings and len(pit_filings) >= 2:
+                            f0 = pit_filings[0]
+                            f1 = pit_filings[1]
+
+                            def _find_yoy_match(ref_f):
+                                ref_dt = pd.to_datetime(ref_f.get("period_end_date"))
+                                for past_f in pit_filings:
+                                    past_dt = pd.to_datetime(past_f.get("period_end_date"))
+                                    diff_days = (ref_dt - past_dt).days
+                                    if 340 <= diff_days <= 390:
+                                        return past_f
+                                return None
+
+                            match_f0 = _find_yoy_match(f0)
+                            match_f1 = _find_yoy_match(f1)
+
+                            if match_f0:
+                                r0, r_m0 = f0.get("revenue"), match_f0.get("revenue")
+                                op0, op_m0 = f0.get("operating_profit"), match_f0.get("operating_profit")
+                                eps0, eps_m0 = f0.get("eps"), match_f0.get("eps")
+                                if funds.get("rev_yoy_latest") is None and r0 is not None and r_m0 is not None and not pd.isna(r0) and not pd.isna(r_m0) and abs(float(r_m0)) > 1e-5:
+                                    funds["rev_yoy_latest"] = ((float(r0) - float(r_m0)) / abs(float(r_m0))) * 100.0
+                                if funds.get("op_profit_yoy_latest") is None and op0 is not None and op_m0 is not None and not pd.isna(op0) and not pd.isna(op_m0) and abs(float(op_m0)) > 1e-5:
+                                    funds["op_profit_yoy_latest"] = ((float(op0) - float(op_m0)) / abs(float(op_m0))) * 100.0
+                                if funds.get("eps_yoy_latest") is None and eps0 is not None and eps_m0 is not None and not pd.isna(eps0) and not pd.isna(eps_m0) and abs(float(eps_m0)) > 1e-5:
+                                    funds["eps_yoy_latest"] = ((float(eps0) - float(eps_m0)) / abs(float(eps_m0))) * 100.0
+                                if funds.get("prior_eps") is None and eps_m0 is not None and not pd.isna(eps_m0):
+                                    funds["prior_eps"] = float(eps_m0)
+
+                            if match_f1:
+                                r1, r_m1 = f1.get("revenue"), match_f1.get("revenue")
+                                op1, op_m1 = f1.get("operating_profit"), match_f1.get("operating_profit")
+                                eps1, eps_m1 = f1.get("eps"), match_f1.get("eps")
+                                if funds.get("rev_yoy_prev") is None and r1 is not None and r_m1 is not None and not pd.isna(r1) and not pd.isna(r_m1) and abs(float(r_m1)) > 1e-5:
+                                    funds["rev_yoy_prev"] = ((float(r1) - float(r_m1)) / abs(float(r_m1))) * 100.0
+                                if funds.get("op_profit_yoy_prev") is None and op1 is not None and op_m1 is not None and not pd.isna(op1) and not pd.isna(op_m1) and abs(float(op_m1)) > 1e-5:
+                                    funds["op_profit_yoy_prev"] = ((float(op1) - float(op_m1)) / abs(float(op_m1))) * 100.0
+                                if funds.get("eps_yoy_prev") is None and eps1 is not None and eps_m1 is not None and not pd.isna(eps1) and not pd.isna(eps_m1) and abs(float(eps_m1)) > 1e-5:
+                                    funds["eps_yoy_prev"] = ((float(eps1) - float(eps_m1)) / abs(float(eps_m1))) * 100.0
+
+                            if funds.get("prior_eps") is None and f1.get("eps") is not None and not pd.isna(f1.get("eps")):
+                                funds["prior_eps"] = float(f1.get("eps"))
+
+                        unresolved_g = [f for f in ["rev_yoy_latest", "rev_yoy_prev", "op_profit_yoy_latest", "op_profit_yoy_prev", "eps_yoy_latest", "eps_yoy_prev", "prior_eps"] if funds.get(f) is None]
+                        g_ok = (len(unresolved_g) == 0)
+                        _emit_data_recovery_log(
+                            scanner="FUNDAMENTAL",
+                            symbol=sym,
+                            stage="GROWTH",
+                            missing_data=f"growth_acceleration_metrics ({', '.join(missing_g)})",
+                            recovery_attempted=True,
+                            providers=[
+                                {
+                                    "provider": "DAILY_BUILDER_2.0",
+                                    "result": "PARTIAL_OR_ABSENT",
+                                    "failure_type": "METRICS_MISSING_IN_DAILY_BUILDER",
+                                },
+                                {
+                                    "provider": "PIT_DATABASE",
+                                    "result": "FETCHED" if g_ok else ("NOT_AVAILABLE" if not pit_filings else "INSUFFICIENT_DATA"),
+                                    "failure_type": None if g_ok else ("SYMBOL_NOT_IN_PIT_DB" if not pit_filings else "INSUFFICIENT_QUARTERS_IN_FILINGS"),
+                                }
+                            ],
+                            validation="PASSED" if g_ok else "FAILED",
+                            validation_reason=None if g_ok else f"UNRESOLVED_GROWTH_FIELDS_{unresolved_g}",
+                            final_action="DATA_USED" if g_ok else "STOCK_SKIPPED",
+                        )
 
                 if _bars_missing:
                     _emit_data_recovery_log(
@@ -1611,7 +1795,7 @@ class LiveFundamentalBuyScanner:
                             },
                             {
                                 "provider": "UNIFIED_FETCHER",
-                                "result": "NOT_FETCHED" if sym not in market_data_map else "FETCHED",
+                                "result": "FETCH_FAILED" if sym not in market_data_map else "FETCHED",
                                 "validation": "FAILED" if sym not in market_data_map else "PASSED",
                                 "validation_reason": "FETCH_RETURNED_EMPTY_OR_FAILED" if sym not in market_data_map else None,
                             }
@@ -1848,9 +2032,31 @@ class LiveFundamentalBuyScanner:
             duration_sec = round(time.time() - start_ts, 2)
             if ctx and complete_scanner_execution_run is not None:
                 try:
-                    ctx.set_alerts(funnel["buy_alerts_count"])
-                    # fresh_count, stale_count, incomplete_count were incremented per-symbol
-                    # inside the loop above — just call complete to flush them to DB.
+                    ctx.set_alerts(funnel.get("buy_alerts_count", 0))
+                    ctx.data_insufficient_count = funnel.get("data_insufficient_count", 0)
+                    ctx.data_missing_count = funnel.get("data_missing_count", 0)
+                    ctx.provider_failure_count = funnel.get("provider_failure_count", 0)
+                    ctx.summary_notes = (
+                        f"Approved={funnel.get('approved_universe_count', 0)} | "
+                        f"DataInsuff={funnel.get('data_insufficient_count', 0)} | "
+                        f"DataMissing={funnel.get('data_missing_count', 0)} | "
+                        f"ProviderFail={funnel.get('provider_failure_count', 0)} | "
+                        f"BreakoutEligible={funnel.get('breakout_eligible_count', 0)} | "
+                        f"Alerts={funnel.get('buy_alerts_count', 0)} | "
+                        f"Recon={funnel.get('reconciliation_verdict', 'N/A')} | "
+                        f"Telemetry={funnel.get('telemetry_integrity', 'N/A')}"
+                    )
+                    ctx.metrics_json = {
+                        "approved_universe_count": funnel.get("approved_universe_count", 0),
+                        "data_insufficient_count": funnel.get("data_insufficient_count", 0),
+                        "data_missing_count": funnel.get("data_missing_count", 0),
+                        "provider_failure_count": funnel.get("provider_failure_count", 0),
+                        "breakout_eligible_count": funnel.get("breakout_eligible_count", 0),
+                        "buy_alerts_count": funnel.get("buy_alerts_count", 0),
+                        "reconciliation_verdict": funnel.get("reconciliation_verdict", "N/A"),
+                        "telemetry_integrity": funnel.get("telemetry_integrity", "N/A"),
+                        "breakdown": funnel.get("breakdown", {})
+                    }
                     complete_scanner_execution_run(ctx)
                 except Exception as ce_err:
                     logger.debug(f"Execution completion warning: {ce_err}")
@@ -2882,10 +3088,14 @@ class QualityCompounderValueV2Scanner:
             if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
                 try:
                     complete_scanner_execution_run(
+                        ctx=exec_run_ctx,
                         run_id=exec_run_ctx.run_id,
                         total_scanned=total_scanned,
+                        total_stocks=total_scanned,
                         candidate_count=candidate_count,
                         quality_status=_health_status,  # REAL status: OK / DEGRADED / DATA_BLOCKED / BLOCKED
+                        data_insufficient_count=incomplete_quality_count,
+                        data_missing_count=non_pit_blocked_count,
                         summary_notes=(
                             f"Approved={total_scanned} | "
                             f"PIT={pit_univ_cnt} | Non_PIT={non_pit_blocked_count} | "
@@ -2894,7 +3104,24 @@ class QualityCompounderValueV2Scanner:
                             f"QualityPass={quality_pass_count} | QualityReject={quality_reject_count} | "
                             f"ValuationPass={value_pass_count} | ValuationReject={value_reject_count} | "
                             f"Candidates={candidate_count} | Health={_health_status}"
-                        )
+                        ),
+                        metrics_json={
+                            "total_scanned": total_scanned,
+                            "pit_univ_cnt": pit_univ_cnt,
+                            "non_pit_blocked_count": non_pit_blocked_count,
+                            "data_complete_count": data_complete_count,
+                            "data_blocked_count": data_blocked_count,
+                            "incomplete_quality_count": incomplete_quality_count,
+                            "valuation_data_blocked_count": valuation_data_blocked_count,
+                            "price_data_blocked_count": price_data_blocked_count,
+                            "quality_pass_count": quality_pass_count,
+                            "quality_reject_count": quality_reject_count,
+                            "value_pass_count": value_pass_count,
+                            "value_reject_count": value_reject_count,
+                            "candidate_count": candidate_count,
+                            "health_status": _health_status,
+                            "health_error": _health_error
+                        }
                     )
                 except Exception as e:
                     logger.debug(f"Execution history completion warning: {e}")

@@ -78,6 +78,11 @@ def create_ideal_bars(n_bars: int = 210, base_price: float = 100.0) -> pd.DataFr
     })
 
 
+def create_ideal_benchmark(n_bars: int = 210) -> np.ndarray:
+    """Benchmark series with modest return so ideal candidate outperforms."""
+    return np.linspace(100.0, 105.0, n_bars)
+
+
 def create_ideal_fundamentals() -> dict:
     """Fundamentally strong candidate passing all quality and acceleration gates."""
     return {
@@ -106,17 +111,19 @@ def create_ideal_fundamentals() -> dict:
 def test_buy_pipeline_pass_telemetry_complete_trace():
     """Verifies complete gate trace, metrics, composite scores, and PASS decision."""
     telemetry = FundamentalScanTelemetry()
-    telemetry.log_scan_start(master_count=886, quarantined_count=0, eligible_count=886)
+    telemetry.log_scan_start(master_count=1, quarantined_count=0, eligible_count=1)
 
     scanner = LiveFundamentalBuyScanner()
     symbol = "RELIANCE"
     df_bars = create_ideal_bars()
     funds = create_ideal_fundamentals()
+    benchmark_closes = create_ideal_benchmark()
 
     res = scanner.scan_candidate(
         symbol=symbol,
         df_bars=df_bars,
         fundamentals=funds,
+        benchmark_closes=benchmark_closes,
         consolidation_window=20,
         provenance_valid=True,
         is_stale=False,
@@ -150,7 +157,8 @@ def test_buy_pipeline_pass_telemetry_complete_trace():
     # End of run summary and integrity check
     summary = telemetry.produce_end_of_run_summary()
     assert summary["reconciliation"] == "PASS"
-    assert summary["funnel"]["buy_alerts_created"] == 1
+    assert telemetry.funnel_counts["buy_alerts_created"] == 1
+    assert summary["processing"]["buy_alerts"] == 1
 
     passed, failures = telemetry.run_telemetry_integrity_check()
     assert passed is True
@@ -228,7 +236,7 @@ def test_buy_universe_mathematical_reconciliation():
     scanner = LiveFundamentalBuyScanner()
 
     # Candidate 1: PASS
-    res1 = scanner.scan_candidate("RELIANCE", create_ideal_bars(), create_ideal_fundamentals(), provenance_valid=True, telemetry=telemetry)
+    res1 = scanner.scan_candidate("RELIANCE", create_ideal_bars(), create_ideal_fundamentals(), benchmark_closes=create_ideal_benchmark(), provenance_valid=True, telemetry=telemetry)
     assert res1["is_buy"] is True
     telemetry.record_alert_persistence(symbol="RELIANCE", persisted=True, reason="ALERT_CREATED", entry_price=152.0)
 
@@ -247,10 +255,10 @@ def test_buy_universe_mathematical_reconciliation():
     summary = telemetry.produce_end_of_run_summary()
 
     assert summary["processing"]["evaluated"] == 3
-    assert summary["funnel"]["buy_eligible"] == 1
-    assert summary["funnel"]["rejected"] == 2
-    assert summary["funnel"]["buy_alerts_created"] == 1
-    assert summary["funnel"]["buy_alerts_suppressed"] == 0
+    assert telemetry.funnel_counts["buy_eligible"] == 1
+    assert telemetry.funnel_counts["rejected"] == 2
+    assert telemetry.funnel_counts["buy_alerts_created"] == 1
+    assert telemetry.funnel_counts["buy_alerts_suppressed"] == 0
     assert summary["reconciliation"] == "PASS"
 
     # Telemetry self-check

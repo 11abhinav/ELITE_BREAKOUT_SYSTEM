@@ -2540,7 +2540,19 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             run_ctx.fresh_count = global_fetched_count
             run_ctx.stale_count = len(candidate_stale_symbols)
             run_ctx.incomplete_count = len(candidate_missing_symbols)
+            run_ctx.data_missing_count = len(candidate_missing_symbols)
             run_ctx.add_alert(saved_alerts_count)
+            run_ctx.summary_notes = (
+                f"Candidates={len(candidate_symbols)} | Fresh={global_fetched_count} | "
+                f"Stale={len(candidate_stale_symbols)} | Missing={len(candidate_missing_symbols)} | Alerts={saved_alerts_count}"
+            )
+            run_ctx.metrics_json = {
+                "candidates_count": len(candidate_symbols),
+                "fresh_count": global_fetched_count,
+                "stale_count": len(candidate_stale_symbols),
+                "missing_count": len(candidate_missing_symbols),
+                "alerts_count": saved_alerts_count
+            }
 
         _prof_l2.__exit__(None, None, None)
 

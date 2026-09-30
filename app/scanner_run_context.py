@@ -54,6 +54,11 @@ class ScannerRunContext:
         self.fresh_count = 0
         self.stale_count = 0
         self.incomplete_count = 0
+        self.data_insufficient_count = 0
+        self.data_missing_count = 0
+        self.provider_failure_count = 0
+        self.summary_notes: Optional[str] = None
+        self.metrics_json: Dict[str, Any] = {}
         self.alerts_generated = 0
         
         self.api_calls = 0
@@ -210,13 +215,35 @@ class ScannerRunContext:
                 return 0.0
             return round(self.stale_count / max(1, self.total_stocks), 4)
 
+    def set_data_counts(self, insufficient: int = 0, missing: int = 0, provider_failure: int = 0):
+        with self._lock:
+            self.data_insufficient_count = max(0, int(insufficient))
+            self.data_missing_count = max(0, int(missing))
+            self.provider_failure_count = max(0, int(provider_failure))
+            self.heartbeat()
+
+    def set_summary_notes(self, notes: str):
+        with self._lock:
+            self.summary_notes = str(notes) if notes else None
+
+    def set_metrics_json(self, metrics: Dict[str, Any]):
+        with self._lock:
+            if isinstance(metrics, dict):
+                self.metrics_json = dict(metrics)
+
     def evaluate_quality_status(self) -> str:
         with self._lock:
             stale_ratio = self.compute_stale_ratio()
             threshold = STALE_THRESHOLDS.get(self.scanner_name.upper(), 0.25)
             if stale_ratio > threshold:
                 return "DEGRADED"
-            elif self.incomplete_count > 0 or self.error_summary:
+            elif (
+                self.incomplete_count > 0
+                or self.data_insufficient_count > 0
+                or self.data_missing_count > 0
+                or self.provider_failure_count > 0
+                or self.error_summary
+            ):
                 return "PARTIAL"
             return "NORMAL"
 
@@ -235,6 +262,11 @@ class ScannerRunContext:
                 "fresh_data_count": self.fresh_count,
                 "stale_data_count": self.stale_count,
                 "incomplete_data_count": self.incomplete_count,
+                "data_insufficient_count": self.data_insufficient_count,
+                "data_missing_count": self.data_missing_count,
+                "provider_failure_count": self.provider_failure_count,
+                "summary_notes": self.summary_notes,
+                "metrics_json": self.metrics_json,
                 "stale_ratio": self.compute_stale_ratio(),
                 "alerts_generated": self.alerts_generated,
                 "api_calls": self.api_calls,

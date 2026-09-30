@@ -4189,14 +4189,8 @@ def api_accumulation_health():
 @app.route("/api/admin/restore_multibagger_positions", methods=["POST"])
 @admin_required
 def api_restore_multibagger_positions():
-    """Admin endpoint to restore healthy Multibagger positions back to OPEN status."""
-    try:
-        from multibagger import restore_healthy_multibagger_positions
-        count = restore_healthy_multibagger_positions()
-        return jsonify({"status": "ok", "message": f"Restored {count} Multibagger position(s) back to OPEN status.", "count": count}), 200
-    except Exception as e:
-        logger.exception("❌ /api/admin/restore_multibagger_positions failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    """Admin endpoint to restore healthy Multibagger positions back to OPEN status (Decommissioned)."""
+    return jsonify({"status": "error", "message": "MULTIBAGGER scanner has been decommissioned by governance.", "count": 0}), 400
 
 @app.route("/api/admin/reset_all_positions", methods=["POST"])
 @admin_required
