@@ -181,36 +181,160 @@ def wait_for_bhavcopy_or_fallback(name: str) -> bool:
 
 
 # =====================================================================================
-# WATCHLIST PRE-FLIGHT
+# WATCHLIST PRE-FLIGHT & FAIL-SAFE TELEMETRY
 # =====================================================================================
 from config import WATCHLIST_PATH
 import threading as _threading
+import sys
+import traceback
 
 _watchlist_ready = _threading.Event()
+_watchlist_failed_or_blocked = _threading.Event()
+
+WATCHLIST_BUILD_TIMEOUT_SECONDS = 300  # 5-minute hard execution timeout
+
+def dump_all_thread_stacks(reason: str = "THREAD_HANG_TIMEOUT"):
+    """
+    Captures and logs stack traces for all active Python threads.
+    Critical diagnostic tool when a background worker or scanner times out.
+    """
+    logger.critical(f"==================== THREAD STACK DUMP [{reason}] ====================")
+    try:
+        frames = sys._current_frames()
+        threads_by_id = {t.ident: t for t in threading.enumerate()}
+        for thread_id, frame in frames.items():
+            t_obj = threads_by_id.get(thread_id)
+            t_name = t_obj.name if t_obj else f"Thread-{thread_id}"
+            is_daemon = getattr(t_obj, 'daemon', 'unknown')
+            logger.critical(f"--- Thread: '{t_name}' (ID: {thread_id}, daemon={is_daemon}) ---")
+            stack = traceback.format_stack(frame)
+            for line in stack:
+                logger.critical(line.rstrip())
+    except Exception as dump_err:
+        logger.critical(f"Failed to dump thread stacks: {dump_err}")
+    logger.critical("====================================================================")
+
+
+class WatchlistTracker:
+    """Thread-safe watchdog telemetry state for WatchlistBuilder."""
+    def __init__(self):
+        self._lock = _threading.Lock()
+        self.status = "NOT_STARTED"       # STARTING, RUNNING, READY, FAILED, TIMEOUT, STUCK, DEGRADED
+        self.current_stage = "INIT"       # INIT, CHECKING_DISK, FETCHING_DB, REBUILDING_DAILY, READY, FAILED, STUCK_TIMEOUT
+        self.started_at = None
+        self.last_progress_at = None
+        self.elapsed_seconds = 0.0
+        self.error = None
+
+    def update(self, stage: str, status: str = "RUNNING", error: str = None):
+        with self._lock:
+            now = time.time()
+            if self.started_at is None:
+                self.started_at = now
+            self.current_stage = stage
+            self.status = status
+            self.last_progress_at = now
+            self.elapsed_seconds = now - self.started_at
+            if error:
+                self.error = str(error)
+            
+            logger.info(f"📋 [WATCHLIST_BUILDER] Status='{self.status}' | Stage='{self.current_stage}' | Elapsed={self.elapsed_seconds:.1f}s")
+            
+            try:
+                from database import upsert_scanner_health
+                db_status = "OK" if status == "READY" else ("DOWN" if status in ("FAILED", "STUCK", "TIMEOUT") else "RUNNING")
+                err_msg = f"Stage={self.current_stage} | Elapsed={int(self.elapsed_seconds)}s"
+                if self.error:
+                    err_msg += f" | Error={self.error[:150]}"
+                upsert_scanner_health("WATCHLIST_BUILDER", status=db_status, error_msg=err_msg)
+            except Exception:
+                pass
+
+    def mark_ready(self):
+        self.update("READY", status="READY")
+        _watchlist_ready.set()
+
+    def mark_stuck(self, reason: str):
+        self.update("STUCK_TIMEOUT", status="STUCK", error=reason)
+        _watchlist_failed_or_blocked.set()
+
+    def mark_failed(self, error: Exception):
+        self.update("FAILED", status="FAILED", error=str(error))
+        _watchlist_failed_or_blocked.set()
+
+    def get_summary(self) -> dict:
+        with self._lock:
+            now = time.time()
+            elapsed = (now - self.started_at) if self.started_at else 0.0
+            return {
+                "status": self.status,
+                "current_stage": self.current_stage,
+                "elapsed_seconds": round(elapsed, 1),
+                "error": self.error
+            }
+
+watchlist_tracker = WatchlistTracker()
+
 
 def _build_watchlist_background():
     t_name = threading.current_thread().name
     logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='MainOrchestrator' | Action='Building or restoring fundamental watchlist'")
     _t_start = time.perf_counter()
-    with MemoryProfiler("Startup - Watchlist", force_gc_cleanup=True):
-        if os.path.exists(WATCHLIST_PATH):
-            logger.info(f"✅ Watchlist found | {WATCHLIST_PATH}")
-            _watchlist_ready.set()
-            dur_s = time.perf_counter() - _t_start
-            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Watchlist check complete' | Duration={dur_s:.2f}s")
-            return
-        logger.info("📋 Watchlist missing | Attempting to restore or build in background thread...")
+    watchlist_tracker.update("CHECKING_LOCAL_DISK", "STARTING")
+
+    def _inner_watchlist_work():
+        with MemoryProfiler("Startup - Watchlist", force_gc_cleanup=True):
+            if os.path.exists(WATCHLIST_PATH) and os.path.getsize(WATCHLIST_PATH) > 0:
+                try:
+                    import pandas as pd
+                    df = pd.read_parquet(WATCHLIST_PATH)
+                    if df is not None and not df.empty and len(df) > 5:
+                        logger.info(f"✅ Watchlist found on disk ({len(df)} symbols) | {WATCHLIST_PATH}")
+                        watchlist_tracker.mark_ready()
+                        return
+                except Exception as disk_err:
+                    logger.warning(f"⚠️ Local watchlist file exists but unreadable: {disk_err}")
+
+            watchlist_tracker.update("FETCHING_POSTGRES", "RUNNING")
+            logger.info("📋 Watchlist missing/invalid | Attempting to restore or build in background thread...")
+            try:
+                from watchlist_cache import get_watchlist
+                df_wl = get_watchlist()
+                if df_wl is not None and not df_wl.empty and len(df_wl) > 5:
+                    watchlist_tracker.mark_ready()
+                    dur_s = time.perf_counter() - _t_start
+                    logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Watchlist build complete ({len(df_wl)} symbols)' | Duration={dur_s:.2f}s")
+                else:
+                    watchlist_tracker.update("REBUILDING_DAILY", "RUNNING")
+                    if ensure_watchlist_exists_for_scanners():
+                        watchlist_tracker.mark_ready()
+                    else:
+                        watchlist_tracker.mark_failed(RuntimeError("Watchlist build produced empty result"))
+            except Exception as ex:
+                logger.exception(f"❌ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Watchlist build failed' | Error={ex}")
+                watchlist_tracker.mark_failed(ex)
+
+    # Execute inner work in thread with hard join timeout
+    work_thread = _threading.Thread(target=_inner_watchlist_work, name="WatchlistWorkerInner", daemon=True)
+    work_thread.start()
+    work_thread.join(timeout=WATCHLIST_BUILD_TIMEOUT_SECONDS)
+
+    if work_thread.is_alive():
+        reason = f"WatchlistBuilder inner worker timed out after {WATCHLIST_BUILD_TIMEOUT_SECONDS}s"
+        logger.critical(f"🚨 [WATCHLIST_BUILDER_TIMEOUT] {reason}")
+        dump_all_thread_stacks(reason="WATCHLIST_BUILDER_HARD_TIMEOUT")
+        watchlist_tracker.mark_stuck(reason)
+        # Attempt emergency fallback so downstream scanners have usable watchlist data
         try:
-            from watchlist_cache import get_watchlist
-            get_watchlist()
-            if os.path.exists(WATCHLIST_PATH):
+            logger.warning("⚠️ [WATCHLIST_BUILDER_TIMEOUT] Attempting emergency fallback watchlist creation...")
+            if ensure_watchlist_exists_for_scanners():
+                watchlist_tracker.update("DEGRADED_FALLBACK", status="DEGRADED")
                 _watchlist_ready.set()
-            dur_s = time.perf_counter() - _t_start
-            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Watchlist build complete' | Duration={dur_s:.2f}s")
-        except Exception as ex:
-            logger.exception(f"❌ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Daily builder failed' | Error={ex}")
+        except Exception as fallback_err:
+            logger.error(f"❌ Emergency fallback watchlist creation failed: {fallback_err}")
 
 _threading.Thread(target=_build_watchlist_background, name="WatchlistBuilder", daemon=True).start()
+
 
 
 # =====================================================================================
@@ -573,100 +697,51 @@ def verify_watchlist_is_pristine() -> bool:
             logger.error(f"❌ [NEW] Fresh watchlist created but failed freshness check!")
             return False
 
-def block_until_watchlist_ready():
-    """Blocks the thread until the watchlist is pristine."""
-    first_block = True
-    while not verify_watchlist_is_pristine():
-        if first_block:
-            logger.warning("⏳ Watchlist not ready — retrying every 60 seconds...")
-            first_block = False
-        time.sleep(60)
-    if not first_block:
-        logger.info("✅ Watchlist is pristine. Unblocking scanners.")
-
-
-# =====================================================================================
-# SINGLE-SHOT RUNNERS — EOD & Reversal
-#
-# Rules:
-#   • Runs between 21:00 IST and midnight.
-#   • If the scan raises an exception  → send Telegram crash alert, and RETRY in 5 minutes.
-#   • Once it finishes successfully    → do NOT run again until the next day's window.
-# =====================================================================================
-
-# [VERSION: SCHEDULER_CORRECTNESS_v1.0]
-# PRODUCTION CONTRACT: These _run_*_with_retries functions are called exclusively
-# by the production scheduler after it has already:
-#   (1) waited for Bhavcopy to be available, and
-#   (2) determined that the correct execution window has been reached.
-#
-# Therefore, scanners are called with force=True so they treat this as a
-# production run regardless of the wall-clock time. The scheduler owns the
-# decision of WHEN to run; the scanner owns the decision of HOW to scan.
-#
-# force=True must NOT be removed — doing so causes the scanners to silently
-# [RULE 67 CHANGE-RATIONALE]: Removed obsolete runner functions for permanently decommissioned scanners (EOD, REVERSAL, PULLBACK)
-
-    while True:
-        block_until_watchlist_ready()
-        wait_for_window("eod")
-        used_fallback = wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
-        now = datetime.now(IST)
-        today_str = now.strftime("%Y-%m-%d")
+def block_until_watchlist_ready(timeout_seconds: float = 300.0) -> bool:
+    """
+    Blocks until the watchlist is ready.
+    NEVER waits indefinitely.
+    
+    Returns True if watchlist is ready.
+    Returns False if timeout is reached or watchlist build failed/stuck.
+    """
+    if _watchlist_ready.is_set():
+        return True
         
-        from telemetry_manager import telemetry
-        telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_START")
-        telemetry.log_session_timeline("Started Evening Scanners Cycle (EOD, Reversal, Pullback)")
+    start_t = time.monotonic()
+    logger.info(f"⏳ [WATCHLIST_WAIT] Waiting up to {timeout_seconds}s for WatchlistBuilder readiness...")
+    
+    while time.monotonic() - start_t < timeout_seconds:
+        if _watchlist_ready.is_set():
+            logger.info("✅ Watchlist is ready. Unblocking caller.")
+            return True
+            
+        if _watchlist_failed_or_blocked.is_set():
+            logger.error("❌ [WATCHLIST_WAIT] WatchlistBuilder failed or is marked BLOCKED.")
+            if ensure_watchlist_exists_for_scanners():
+                _watchlist_ready.set()
+                logger.info("✅ Emergency fallback watchlist restored. Unblocking caller.")
+                return True
+            return False
+            
+        time.sleep(2)
         
-        # ── [VERSION: MARKET_DATA_SESSION_v1.0] ─────────────────────────────────
-        # Build the shared MarketDataSession ONCE before any scanner runs.
-        # All scanners (EOD, Reversal, Pullback) consume pre-fetched, pre-computed
-        # data via session.get(symbol) instead of independently fetching OHLCV.
-        # This eliminates: duplicate downloads, duplicate indicator computation,
-        # and serialized Bhavcopy proxy retries per scanner.
-        # ────────────────────────────────────────────────────────────────────────
-        evening_session = None
-        try:
-            from market_data_session import build_evening_session
-            from watchlist_cache import get_watchlist
-            import pandas as pd
-            wl = get_watchlist()
-            all_symbols = wl["Stock"].tolist() if wl is not None and not wl.empty else []
-            if all_symbols:
-                logger.info(f"🏗️  Building MarketDataSession for {len(all_symbols)} symbols...")
-                t_session_start = time.time()
-                evening_session = build_evening_session(all_symbols, ist_date=now.date())
-                t_session_dur = round(time.time() - t_session_start, 1)
-                if evening_session:
-                    logger.info(
-                        f"✅ MarketDataSession ready in {format_duration(t_session_dur)} "
-                        f"| {evening_session.summary()}"
-                    )
-                else:
-                    logger.warning(
-                        "⚠️ MarketDataSession build returned None — "
-                        "scanners will fall back to independent data fetching."
-                    )
-            else:
-                logger.warning("⚠️ Watchlist is empty — skipping session build.")
-        except Exception as session_err:
-            logger.exception(f"❌ MarketDataSession build crashed: {session_err}. "
-                             f"Scanners will run with independent fetching as fallback.")
-            evening_session = None
-
-        logger.info("🛡️ [GOVERNANCE] Evening scanners (Accumulation, EOD, Pullback) are permanently DECOMMISSIONED. Cycle skipped.")
-        telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
-        telemetry.log_session_timeline("Evening Scanners Cycle Skipped (Decommissioned by Governance)")
-
-        # Execute 4-step defensive purge telemetry post evening batch
-        try:
-            from memory_profiler import run_purge_with_telemetry
-            run_purge_with_telemetry("Post-Evening Batch")
-        except Exception as pe:
-            logger.warning(f"Could not run purge telemetry post evening batch: {pe}")
-
-        # Sleep for 6 hours to avoid retriggering until the window closes
-        time.sleep(3600 * 6)
+    elapsed = time.monotonic() - start_t
+    logger.critical(f"🚨 [WATCHLIST_WAIT_TIMEOUT] Timed out waiting for watchlist readiness after {elapsed:.1f}s!")
+    dump_all_thread_stacks(reason=f"BLOCK_UNTIL_WATCHLIST_READY_TIMEOUT_{int(elapsed)}S")
+    
+    if ensure_watchlist_exists_for_scanners():
+        _watchlist_ready.set()
+        logger.info("✅ Emergency fallback watchlist restored after wait timeout. Unblocking caller.")
+        return True
+        
+    try:
+        from database import upsert_scanner_health
+        upsert_scanner_health("WATCHLIST_BUILDER", status="DOWN", error_msg=f"Timeout waiting for watchlist after {int(elapsed)}s")
+    except Exception:
+        pass
+        
+    return False
 
 
 def run_bayesian_loop():
