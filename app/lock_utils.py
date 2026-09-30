@@ -18,7 +18,7 @@ except ImportError:
 import zlib
 
 from zoneinfo import ZoneInfo
-from datetime import datetime
+from datetime import datetime, timezone
 IST = ZoneInfo("Asia/Kolkata")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ class ProcessLockImpl:
 
         # Bounded Queue Wait Timeout Guard (Rule 14)
         effective_timeout = timeout if timeout > 0 else 600.0
-        queue_start_time = datetime.datetime.now(tz=datetime.timezone.utc)
+        queue_start_time = datetime.now(tz=timezone.utc)
 
         # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting
         if blocking:
@@ -285,7 +285,7 @@ class ProcessLockImpl:
                     break
                 elapsed_wait = time.monotonic() - wait_start_mono
                 if elapsed_wait >= effective_timeout:
-                    queue_timeout_time = datetime.datetime.now(tz=datetime.timezone.utc)
+                    queue_timeout_time = datetime.now(tz=timezone.utc)
                     blocking_scanner = getattr(self, "lock_owner_scanner", "ACTIVE_SCANNER")
                     blocking_run_id = getattr(self, "lock_owner_run_id", "UNKNOWN")
                     logger.warning(
