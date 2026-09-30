@@ -17,7 +17,7 @@ from typing import Optional, Tuple, Dict, Any, List
 IST = ZoneInfo("Asia/Kolkata")
 
 from tradingview_screener import Query, col
-from config import WATCHLIST_PATH
+from config import WATCHLIST_PATH, DATA_DIR
 
 """
 SURVIVORSHIP BIAS WARNING:

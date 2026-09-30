@@ -2119,7 +2119,7 @@ class LiveFundamentalBuyScanner:
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
                     # Determine if the run had any data gaps. Any non‑zero data_insufficient count should degrade health.
-                    data_gap = (_val_missing_both_cnt > 0) or (high_provider_failure) or (high_insufficient) or (high_missing) or (context_failed)
+                    data_gap = (di > 0) or (high_provider_failure) or (high_insufficient) or (high_missing) or (context_failed)
                     is_degraded = is_crashed or data_gap
                     # Emit a clearer health label when data is incomplete.
                     health_status = "OK_WITH_DATA_GAPS" if is_degraded else "OK"
@@ -2565,16 +2565,33 @@ class QualityCompounderValueV2Scanner:
         _ev_curr_missing_cnt = max(0, pit_univ_cnt - _ev_curr_cnt)
         _ev_med_missing_cnt  = max(0, pit_univ_cnt - _ev_med_cnt)
 
+        def _safe_pos(v):
+            if v is None or pd.isna(v):
+                return False
+            try:
+                return float(v) > 0
+            except (ValueError, TypeError):
+                return False
+
         # Authoritative both-required completeness (Current EV/EBITDA > 0 AND 3Y Median EV/EBITDA > 0)
         _both_complete_pit = sum(
             1 for _, _row in pit_df.iterrows()
-            if (_row.get('current_ev_ebitda') is not None and not pd.isna(_row.get('current_ev_ebitda')) and float(_row.get('current_ev_ebitda') or 0) > 0) and
-               (_row.get('ev_ebitda_3y_median') is not None and not pd.isna(_row.get('ev_ebitda_3y_median')) and float(_row.get('ev_ebitda_3y_median') or 0) > 0)
+            if _safe_pos(_row.get('current_ev_ebitda')) and _safe_pos(_row.get('ev_ebitda_3y_median'))
         )
         _val_missing_both_cnt = max(0, pit_univ_cnt - _both_complete_pit)
         _both_cov_pct = (_both_complete_pit / max(pit_univ_cnt, 1)) * 100.0
         _valuation_cache_cert_status = "CERTIFIED" if _both_complete_pit == pit_univ_cnt and pit_univ_cnt > 0 else "PARTIAL_INCOMPLETE"
         _valuation_provider_healthy = (_both_cov_pct >= 50.0)
+
+        # Complete EV and PE field availability (Current EV > 0 AND 3Y Median EV > 0 AND Current PE > 0 AND 3Y Median PE > 0)
+        _ev_pe_both_complete = sum(
+            1 for _, _row in pit_df.iterrows()
+            if _safe_pos(_row.get('current_ev_ebitda')) and
+               _safe_pos(_row.get('ev_ebitda_3y_median')) and
+               _safe_pos(_row.get('current_pe')) and
+               _safe_pos(_row.get('pe_3y_median'))
+        )
+        _ev_pe_cov_pct = (_ev_pe_both_complete / max(pit_univ_cnt, 1)) * 100.0
 
         logger.info(
             f"ℹ️ [V2_FINAL] UNIVERSE & PIT LINEAGE: "
@@ -2586,7 +2603,7 @@ class QualityCompounderValueV2Scanner:
             f"ℹ️ [V2_FINAL] PIT VALUATION FIELD COMPLETENESS ({pit_univ_cnt} PIT rows): "
             f"Current EV/EBITDA Complete={_ev_curr_cnt}/{pit_univ_cnt} (Missing: {_ev_curr_missing_cnt}) | "
             f"3Y EV/EBITDA Med Complete={_ev_med_cnt}/{pit_univ_cnt} (Missing: {_ev_med_missing_cnt}) | "
-            f"EV_PE_Both_Complete (Current EV ∧ 3Y Med ∧ Current PE ∧ 3Y PE)={_ev_pe_both_complete}/{pit_univ_cnt} ({_both_cov_pct:.1f}%) | "
+            f"EV_PE_Both_Complete (Current EV ∧ 3Y Med ∧ Current PE ∧ 3Y PE)={_ev_pe_both_complete}/{pit_univ_cnt} ({_ev_pe_cov_pct:.1f}%) | "
             f"Current PE Complete={_pe_curr_cnt}/{pit_univ_cnt} | "
             f"3Y PE Med Complete={_pe_med_cnt}/{pit_univ_cnt} | "
             f"Cache_Status={_valuation_cache_cert_status}"

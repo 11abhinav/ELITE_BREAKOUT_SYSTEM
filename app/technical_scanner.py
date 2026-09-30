@@ -1594,6 +1594,7 @@ def run_technical_scan(
     acquired_global = False
     acquired_scan = False
     _scan_start = None
+    real_run_ctx = None
     start_time = time.monotonic()
     # Pre-flight regime gate: TECHNICAL is certified exclusively for BULL regime
     try:
