@@ -537,9 +537,12 @@ class ForwardReturnCalculator:
         if not date_col:
             return None
 
-        df = df_daily.copy()
-        df["d_str"] = df[date_col].astype(str).str[:10]
-        df = df.sort_values(by="d_str").reset_index(drop=True)
+        if "d_str" in df_daily.columns:
+            df = df_daily
+        else:
+            df = df_daily.copy()
+            df["d_str"] = df[date_col].astype(str).str[:10]
+            df = df.sort_values(by="d_str").reset_index(drop=True)
 
         idx_matches = df.index[df["d_str"] >= entry_date].tolist()
         if not idx_matches:
