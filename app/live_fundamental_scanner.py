@@ -1869,14 +1869,32 @@ class QualityCompounderValueV2Scanner:
         self.daily_builder_provider = DailyBuilderFundamentalProvider()
         self.universe_registry = ApprovedUniverseRegistry()
 
-    @staticmethod
-    def is_financial_sector(industry_str: str) -> bool:
+    KNOWN_FINANCIAL_SYMBOLS = {
+        "AADHARHFC", "AAVAS", "ABCAPITAL", "AUBANK", "HDBFS", "HDFCBANK", "ICICIBANK", "SBIN",
+        "AXISBANK", "KOTAKBANK", "BAJFINANCE", "BAJAJFINSV", "CHOLAFIN", "CHOLAHLDNG", "CREDITACC",
+        "CANFINHOME", "APTUS", "HOMEFIRST", "HUDCO", "PFC", "RECLTD", "MUTHOOTFIN", "MANAPPURAM",
+        "SHRIRAMFIN", "M&MFIN", "L&TFH", "IIFL", "MOTILALOFS", "ICICIGI", "ICICIPRULI", "SBILIFE",
+        "HDFCLIFE", "GICRE", "NIACL", "CDSL", "BSE", "MCX", "CAMS", "KFINTECH", "NAM-INDIA",
+        "UTIAMC", "ANGELONE", "NUVAMA", "ANANDRATHI", "360ONE", "BANKBARODA", "BANKINDIA",
+        "CENTRALBK", "IDFCFIRSTB", "INDIANB", "IOB", "MAHABANK", "PNB", "PSB", "UCOBANK",
+        "UNIONBANK", "YESBANK", "BANDHANBNK", "FEDERALBNK", "IDBI", "INDUSINDBK", "KARURVYSYA",
+        "RBLBANK", "SOUTHBANK", "CSBBANK", "CUB", "DCBBANK", "EQUITASBNK", "FINOPB", "J&KBANK",
+        "JSFB", "KTKBANK", "SURYSFB", "UJJIVANSFB", "UTKARSHBNK", "CAPITALSFB", "AYE",
+        "JMFINANCIL", "LICHSGFIN", "MASFIN", "SUNDARMFIN", "TSFINV", "CGCL", "AIIL"
+    }
+
+    @classmethod
+    def is_financial_sector(cls, industry_str: str, symbol: str = "") -> bool:
+        if symbol:
+            sym_clean = str(symbol).strip().upper()
+            if sym_clean in cls.KNOWN_FINANCIAL_SYMBOLS:
+                return True
         if not isinstance(industry_str, str):
             return False
         ind_upper = industry_str.upper()
         financial_keywords = [
             "BANK", "FINANCE", "FINANCIAL", "HOUSING FINANCE", "NBFC",
-            "INSURANCE", "INVESTMENT", "CAPITAL", "SECURITIES", "LEASING"
+            "INSURANCE", "INVESTMENT", "CAPITAL", "SECURITIES", "LEASING", "AMC"
         ]
         return any(kw in ind_upper for kw in financial_keywords)
 
@@ -2352,9 +2370,11 @@ class QualityCompounderValueV2Scanner:
             quality_gate_passed = False
             value_gate_passed = False
 
-            # Financial Sector exclusion from primary EV/EBITDA pipeline
-            if self.is_financial_sector(industry):
-                rejections.append("FAIL_UNIVERSE_FINANCIAL_SECTOR")
+            # Financial Sector classification (Rule 7 & Rule 2)
+            is_fin = self.is_financial_sector(industry, sym)
+            if is_fin:
+                rejections.append("METRIC_NOT_APPLICABLE_FINANCIAL")
+
             if mcap is None or mcap < 1000.0:
                 rejections.append("FAIL_UNIVERSE_MARKET_CAP")
             if adtv_90d is None or adtv_90d < 2.0:
@@ -2366,33 +2386,37 @@ class QualityCompounderValueV2Scanner:
                 rejections.append("DATA_INSUFFICIENT_PRICE")
                 price_data_blocked_count += 1
 
-            # Missing Quality Data check — STOPS candidate from passing if any real fundamental metric is missing
-            quality_data_missing = any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio])
-            if quality_data_missing:
-                rejections.append("DATA_INSUFFICIENT_QUALITY")
-                incomplete_quality_count += 1
+            # Missing Quality Data check — STOPS candidate from passing if industrial metric is missing for non-financials
+            if is_fin:
+                quality_data_missing = False
+                quality_reject_count += 1
             else:
-                roce_val = float(roce_5y)
-                sales_val = float(sales_cagr_5y)
-                pat_val = float(pat_cagr_5y)
-                cfo_val = float(cfo_pat_5y)
-                de_val = float(de_ratio)
-
-                if roce_val < 15.0: rejections.append("FAIL_ROCE")
-                if sales_val < 10.0: rejections.append("FAIL_SALES_CAGR")
-                if pat_val < 10.0: rejections.append("FAIL_PAT_CAGR")
-                if cfo_val < 0.80: rejections.append("FAIL_CFO_PAT")
-                if de_val > 0.50: rejections.append("FAIL_DEBT")
-
-                if share_dilution_3y is not None and not pd.isna(share_dilution_3y):
-                    if float(share_dilution_3y) > 10.0:
-                        rejections.append("FAIL_DILUTION")
-
-                quality_gate_passed = not any(r.startswith("FAIL_") or r.startswith("DATA_") for r in rejections)
-                if quality_gate_passed:
-                    quality_pass_count += 1
+                quality_data_missing = any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio])
+                if quality_data_missing:
+                    rejections.append("DATA_INSUFFICIENT_QUALITY")
+                    incomplete_quality_count += 1
                 else:
-                    quality_reject_count += 1
+                    roce_val = float(roce_5y)
+                    sales_val = float(sales_cagr_5y)
+                    pat_val = float(pat_cagr_5y)
+                    cfo_val = float(cfo_pat_5y)
+                    de_val = float(de_ratio)
+
+                    if roce_val < 15.0: rejections.append("FAIL_ROCE")
+                    if sales_val < 10.0: rejections.append("FAIL_SALES_CAGR")
+                    if pat_val < 10.0: rejections.append("FAIL_PAT_CAGR")
+                    if cfo_val < 0.80: rejections.append("FAIL_CFO_PAT")
+                    if de_val > 0.50: rejections.append("FAIL_DEBT")
+
+                    if share_dilution_3y is not None and not pd.isna(share_dilution_3y):
+                        if float(share_dilution_3y) > 10.0:
+                            rejections.append("FAIL_DILUTION")
+
+                    quality_gate_passed = not any(r.startswith("FAIL_") or r.startswith("DATA_") for r in rejections)
+                    if quality_gate_passed:
+                        quality_pass_count += 1
+                    else:
+                        quality_reject_count += 1
 
             # ── VALUE GATE ────────────────────────────────────────────────────────
             ev_discount = None   # None = valuation data unavailable (DATA_INSUFFICIENT)
@@ -2826,36 +2850,37 @@ class QualityCompounderValueV2Scanner:
                         n = len(g)
                         latest_filing = g.iloc[-1]
 
+                        # Separate ANNUAL statement filings for annual growth & annual ratio metrics
+                        g_ann = g[g['statement_type'].astype(str).str.upper() == 'ANNUAL'].sort_values('period_end_date')
+                        n_ann = len(g_ann)
+
                         # ── 1. 5Y AVERAGE ROCE (Mean of trailing up to 5 annual filings) ──
-                        # B5 fix: ROCE is an independent frozen hard gate. ROE is a DIFFERENT metric.
-                        # If the 'roce' column is absent or empty for this symbol, roce_eff stays None.
-                        # The downstream scanner will then mark the stock DATA_MISSING on ROCE and
-                        # block it. We do NOT substitute ROE as a proxy for ROCE under any circumstance.
-                        roce_series = g['roce'].dropna()
+                        roce_series = g_ann['roce'].dropna() if not g_ann.empty else g['roce'].dropna()
                         trailing_roce = [float(x) for x in roce_series][-5:]
                         roce_eff = None
                         roce_periods_used = 0
                         if trailing_roce:
                             roce_eff = round(sum(trailing_roce) / len(trailing_roce), 2)
                             roce_periods_used = len(trailing_roce)
-                        # (No ROE fallback — ROCE unavailable → roce_eff = None → DATA_MISSING)
 
                         # ── 2. 5Y CUMULATIVE CFO / PAT RATIO (Trailing up to 5 annual filings) ──
-                        trailing_g = g.iloc[-5:] if n >= 5 else g
-                        sum_cfo = trailing_g['operating_cash_flow'].dropna().sum()
-                        sum_pat = trailing_g['net_profit'].dropna().sum()
+                        trailing_g = g_ann.iloc[-5:] if n_ann >= 5 else g_ann
+                        if trailing_g.empty:
+                            trailing_g = g.iloc[-5:] if n >= 5 else g
+                        sum_cfo = trailing_g['operating_cash_flow'].dropna().sum() if not trailing_g.empty else 0.0
+                        sum_pat = trailing_g['net_profit'].dropna().sum() if not trailing_g.empty else 0.0
                         cfo_pat = None
                         if sum_pat is not None and not pd.isna(sum_pat) and float(sum_pat) > 0 and len(trailing_g) >= 1:
                             cfo_pat = round(float(sum_cfo) / float(sum_pat), 2)
 
-                        # ── 3. 5Y CAGR (Sales CAGR & PAT CAGR across trailing up to 5 years) ──
-                        k_cagr = min(5, n - 1)
+                        # ── 3. 5Y CAGR (Sales CAGR & PAT CAGR across trailing ANNUAL filings) ──
+                        k_cagr = min(5, n_ann - 1) if n_ann >= 2 else 0
                         rev_cagr, pat_cagr = None, None
                         growth_start_period, growth_end_period = None, None
                         growth_yrs = 0.0
-                        if k_cagr >= 2:
-                            start_row = g.iloc[-k_cagr - 1]
-                            end_row = g.iloc[-1]
+                        if k_cagr >= 1:
+                            start_row = g_ann.iloc[-k_cagr - 1]
+                            end_row = g_ann.iloc[-1]
                             start_date = pd.to_datetime(start_row['period_end_date'])
                             end_date = pd.to_datetime(end_row['period_end_date'])
                             growth_yrs = max(1.0, (end_date - start_date).days / 365.25)
@@ -2867,7 +2892,6 @@ class QualityCompounderValueV2Scanner:
                             p0 = float(start_row.get('net_profit', 0.0) or 0.0)
                             p1 = float(end_row.get('net_profit', 0.0) or 0.0)
 
-                            # Denominator guards: CAGR is mathematically undefined over non-positive base
                             if r0 > 0 and r1 > 0:
                                 rev_cagr = round((pow(r1 / r0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
                             if p0 > 0 and p1 > 0:

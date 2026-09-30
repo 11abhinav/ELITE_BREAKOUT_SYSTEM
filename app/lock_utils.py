@@ -270,9 +270,9 @@ class ProcessLockImpl:
                 self._recursion_depth += 1
                 return True
 
-        # [VERSION: SEQUENTIAL_LOCK_FIRST_EXECUTION_v1.0]
-        # Never time out arbitrarily when blocking=True. Keep waiting indefinitely until lock is released.
-        timeout_val = float(timeout) if timeout is not None and float(timeout) > 0 else -1.0
+        # Bounded Queue Wait Timeout Guard (Rule 14)
+        effective_timeout = timeout_val if timeout_val > 0 else 600.0
+        queue_start_time = datetime.datetime.now(tz=datetime.timezone.utc)
 
         # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting
         if blocking:
@@ -284,9 +284,22 @@ class ProcessLockImpl:
                 if acquired_thread_lock:
                     break
                 elapsed_wait = time.monotonic() - wait_start_mono
-                if timeout_val > 0 and elapsed_wait >= timeout_val:
-                    logger.warning(f"⚠️ [{self.lock_name.upper()}] Thread lock wait timed out ({elapsed_wait:.1f}s >= {timeout_val}s) for {owner_scanner}.")
+                if elapsed_wait >= effective_timeout:
+                    queue_timeout_time = datetime.datetime.now(tz=datetime.timezone.utc)
+                    blocking_scanner = getattr(self, "lock_owner_scanner", "ACTIVE_SCANNER")
+                    blocking_run_id = getattr(self, "lock_owner_run_id", "UNKNOWN")
+                    logger.warning(
+                        f"🛑 [QUEUED_TIMEOUT] Scanner '{owner_scanner}' queue wait timed out ({elapsed_wait:.1f}s >= {effective_timeout:.1f}s) | "
+                        f"queue_started_at={queue_start_time.isoformat()}, queue_timeout_at={queue_timeout_time.isoformat()}, "
+                        f"blocking_scanner={blocking_scanner}, blocking_run_id={blocking_run_id}"
+                    )
+                    try:
+                        from database import upsert_scanner_health
+                        upsert_scanner_health(owner_scanner, "QUEUED_TIMEOUT", error_msg=f"Queue wait timed out after {elapsed_wait:.1f}s (Blocking scanner: {blocking_scanner})")
+                    except Exception:
+                        pass
                     return False
+
                 if int(elapsed_wait) >= last_logged_s + _log_interval:
                     last_logged_s = int(elapsed_wait)
                     active_owner = getattr(self, "lock_owner_scanner", "ACTIVE_SCANNER")
