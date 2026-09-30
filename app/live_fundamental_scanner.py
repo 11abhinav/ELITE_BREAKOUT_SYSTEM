@@ -23,16 +23,27 @@ GOVERNANCE INVARIANTS:
 from __future__ import annotations
 import os
 import sys
+import glob
 import json
 import time
 import logging
 import math
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
 import numpy as np
 import pandas as pd
+
+try:
+    from trading_calendar import default_trading_calendar, get_latest_trading_date, get_previous_trading_date
+except ImportError:
+    try:
+        from app.trading_calendar import default_trading_calendar, get_latest_trading_date, get_previous_trading_date
+    except ImportError:
+        default_trading_calendar = None
+        get_latest_trading_date = None
+        get_previous_trading_date = None
 
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("LIVE_FUNDAMENTAL_SCANNER")
@@ -138,6 +149,71 @@ def is_financial_entity(fundamentals: Optional[Dict[str, Any]], symbol: Optional
     if any(kw in sec for kw in FINANCIAL_KEYWORDS) or any(kw in ind for kw in FINANCIAL_KEYWORDS):
         return True
     return False
+
+
+# -------------------------------------------------------------------------------------
+# DATA RECOVERY AUDIT LOGGER
+# -------------------------------------------------------------------------------------
+def _emit_data_recovery_log(
+    *,
+    scanner: str,
+    symbol: str,
+    stage: str,
+    missing_data: str,
+    recovery_attempted: bool,
+    providers: Optional[List[Dict[str, str]]] = None,
+    validation: Optional[str] = None,
+    validation_reason: Optional[str] = None,
+    final_action: str,
+) -> None:
+    """
+    Emits a structured [DATA_RECOVERY] audit block to the application log.
+
+    This function answers four governance questions for every skipped symbol:
+      1. What data was missing?
+      2. What was attempted to recover it?
+      3. Did recovery + validation succeed?
+      4. Why was the stock ultimately skipped?
+
+    Parameters
+    ----------
+    scanner          : Scanner identifier (e.g. "FUNDAMENTAL", "QUALITY_COMPOUNDER_VALUE_V2_FINAL")
+    symbol           : Ticker symbol
+    stage            : Gate where missing data was detected (e.g. "FUNDAMENTAL", "TECHNICAL", "QUALITY", "VALUATION")
+    missing_data     : Human-readable description of the missing field(s)
+    recovery_attempted: Whether a fetch / recovery was attempted
+    providers        : List of dicts with keys: provider, result, and optionally rows_received / failure_type / validation / validation_reason
+    validation       : Overall validation outcome ("PASSED" / "FAILED" / None)
+    validation_reason: Why validation failed, if applicable
+    final_action     : "DATA_USED" (scan continued) or "STOCK_SKIPPED" (symbol blocked)
+    """
+    lines = [
+        f"[DATA_RECOVERY]",
+        f"  scanner={scanner}",
+        f"  symbol={symbol}",
+        f"  stage={stage}",
+        f"  missing_data={missing_data}",
+        f"  recovery_attempted={str(recovery_attempted).lower()}",
+    ]
+    if providers:
+        for p in providers:
+            lines.append(f"  provider={p.get('provider', 'UNKNOWN')}")
+            lines.append(f"    result={p.get('result', 'UNKNOWN')}")
+            if p.get('rows_received') is not None:
+                lines.append(f"    rows_received={p['rows_received']}")
+            if p.get('failure_type'):
+                lines.append(f"    failure_type={p['failure_type']}")
+            if p.get('validation'):
+                lines.append(f"    validation={p['validation']}")
+            if p.get('validation_reason'):
+                lines.append(f"    validation_reason={p['validation_reason']}")
+    if validation is not None:
+        lines.append(f"  validation={validation}")
+    if validation_reason is not None:
+        lines.append(f"  validation_reason={validation_reason}")
+    lines.append(f"  final_action={final_action}")
+    log_level = logging.WARNING if final_action == "STOCK_SKIPPED" else logging.DEBUG
+    logger.log(log_level, "\n".join(lines))
 
 
 # -------------------------------------------------------------------------------------
@@ -1493,12 +1569,91 @@ class LiveFundamentalBuyScanner:
                         "prior_eps": None,
                         "upstream_provider": "DATA_UNAVAILABLE"
                     }
-                res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes, telemetry=telemetry)
+                is_data_stale = (db_meta.get("freshness_status") == "STALE")
+                prov_valid = (db_meta.get("provenance_status") in ("CERTIFIED_LOCAL_DAILY_BUILDER", "CERTIFIED_POSTGRES_DAILY_BUILDER", "CERTIFIED_DAILY_BUILDER_WATCHLIST", "CERTIFIED_PIT_FUNDAMENTALS_DB_REHYDRATED")) and (funds.get("upstream_provider") != "DATA_UNAVAILABLE")
+
+                # ── DATA RECOVERY AUDIT: FUNDAMENTAL SCANNER ───────────────────────
+                _fund_missing = funds.get("upstream_provider") == "DATA_UNAVAILABLE"
+                _bars_missing = (df_bars is None or df_bars.empty)
+                _bars_short   = (not _bars_missing and len(df_bars) < 50)
+
+                if _fund_missing:
+                    _emit_data_recovery_log(
+                        scanner="FUNDAMENTAL",
+                        symbol=sym,
+                        stage="FUNDAMENTAL",
+                        missing_data="fundamental_metrics (ROCE, ROE, OCF, D/E, growth rates)",
+                        recovery_attempted=True,
+                        providers=[
+                            {
+                                "provider": "DAILY_BUILDER_2.0",
+                                "result": "NOT_AVAILABLE",
+                                "failure_type": "SYMBOL_NOT_IN_MASTER_DATASET",
+                            }
+                        ],
+                        validation="FAILED",
+                        validation_reason="FUNDAMENTAL_DATA_UNAVAILABLE_IN_ALL_PROVIDERS",
+                        final_action="STOCK_SKIPPED",
+                    )
+
+                if _bars_missing:
+                    _emit_data_recovery_log(
+                        scanner="FUNDAMENTAL",
+                        symbol=sym,
+                        stage="TECHNICAL",
+                        missing_data="1D_OHLCV_HISTORY",
+                        recovery_attempted=True,
+                        providers=[
+                            {
+                                "provider": "LOCAL_1D_PARQUET",
+                                "result": "NOT_AVAILABLE",
+                                "failure_type": "FILE_MISSING_OR_UNREADABLE",
+                            },
+                            {
+                                "provider": "UNIFIED_FETCHER",
+                                "result": "NOT_FETCHED" if sym not in market_data_map else "FETCHED",
+                                "validation": "FAILED" if sym not in market_data_map else "PASSED",
+                                "validation_reason": "FETCH_RETURNED_EMPTY_OR_FAILED" if sym not in market_data_map else None,
+                            }
+                        ],
+                        validation="FAILED" if sym not in market_data_map else "PASSED",
+                        validation_reason="1D_HISTORY_UNAVAILABLE" if sym not in market_data_map else None,
+                        final_action="STOCK_SKIPPED" if sym not in market_data_map else "DATA_USED",
+                    )
+                elif _bars_short:
+                    _emit_data_recovery_log(
+                        scanner="FUNDAMENTAL",
+                        symbol=sym,
+                        stage="TECHNICAL",
+                        missing_data=f"1D_OHLCV_HISTORY (only {len(df_bars)} candles — minimum 50 required)",
+                        recovery_attempted=False,
+                        providers=[
+                            {
+                                "provider": "LOCAL_1D_PARQUET",
+                                "result": "FETCHED",
+                                "rows_received": len(df_bars),
+                                "validation": "FAILED",
+                                "validation_reason": f"INSUFFICIENT_LOOKBACK_{len(df_bars)}_CANDLES",
+                            }
+                        ],
+                        validation="FAILED",
+                        validation_reason=f"INSUFFICIENT_LOOKBACK_{len(df_bars)}_CANDLES",
+                        final_action="STOCK_SKIPPED",
+                    )
+                # ── END DATA RECOVERY AUDIT ─────────────────────────────────────────
+
+                res = self.scan_candidate(
+                    sym, df_bars, funds,
+                    benchmark_closes=benchmark_closes,
+                    provenance_valid=prov_valid,
+                    is_stale=is_data_stale,
+                    telemetry=telemetry
+                )
                 # Track data freshness per-symbol in the run context
                 if ctx is not None:
                     if df_bars is None or df_bars.empty:
                         ctx.mark_incomplete()   # broker/exchange data completely unavailable
-                    elif db_meta.get("freshness_status", "FRESH") == "STALE":
+                    elif is_data_stale:
                         ctx.mark_stale()        # data exists but is stale
                     else:
                         ctx.mark_fresh()        # fresh, real data
@@ -2246,17 +2401,42 @@ class QualityCompounderValueV2Scanner:
                     except Exception:
                         pass
 
+            # P0: DO NOT fall back to historical 1D parquet when live CMP is unavailable.
+            # A stale/historical price must never participate in a live production BUY decision.
+            # The symbol will be blocked by the price_data_missing check below.
             if cmp_price <= 0.0 and df_px is not None and not df_px.empty:
+                # Historical price available but NOT injected as CMP — log for diagnostics only.
                 c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
-                if c_col:
-                    cmp_price = float(df_px[c_col].iloc[-1])
-                    price_source = "HISTORICAL_1D_PARQUET"
+                _last_hist_px = float(df_px[c_col].iloc[-1]) if c_col else None
+                price_source = "LIVE_QUOTE_FAILED_HISTORICAL_AVAILABLE"
+                logger.debug(
+                    f"[V2_CMP_BLOCK] {sym}: live CMP unavailable, "
+                    f"last historical close=₹{_last_hist_px:.2f} (NOT used as CMP — DATA_INSUFFICIENT_PRICE)."
+                )
+                # cmp_price intentionally NOT updated — remains <=0 so price_data_missing gate blocks this symbol.
 
             # 100% UNIVERSE AUDITABILITY: Handle symbols missing from PIT filings
             if sym not in pit_records_map:
                 non_pit_blocked_count += 1
                 data_blocked_count += 1
                 rejections = ["DATA_MISSING_PIT_FILINGS"]
+                _emit_data_recovery_log(
+                    scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    symbol=sym,
+                    stage="QUALITY",
+                    missing_data="pit_statement_filings (ROCE, Sales CAGR, PAT CAGR, CFO/PAT, D/E)",
+                    recovery_attempted=True,
+                    providers=[
+                        {
+                            "provider": "PIT_DATABASE (pit_fundamentals_v1.parquet)",
+                            "result": "NOT_AVAILABLE",
+                            "failure_type": "SYMBOL_NOT_IN_PIT_DATASET",
+                        }
+                    ],
+                    validation="FAILED",
+                    validation_reason="NO_PIT_STATEMENT_HISTORY_FOR_SYMBOL",
+                    final_action="STOCK_SKIPPED",
+                )
                 logger.info(
                     f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status=REJECTED  | "
                     f"FailedAt=DATA_MISSING_PIT_FILINGS    | Rejections={rejections} | "
@@ -2385,6 +2565,24 @@ class QualityCompounderValueV2Scanner:
             if price_data_missing:
                 rejections.append("DATA_INSUFFICIENT_PRICE")
                 price_data_blocked_count += 1
+                _emit_data_recovery_log(
+                    scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    symbol=sym,
+                    stage="PRICE",
+                    missing_data="live_CMP (current market price from Upstox live quote)",
+                    recovery_attempted=True,
+                    providers=[
+                        {
+                            "provider": "UPSTOX_LIVE_QUOTE",
+                            "result": "FAILED",
+                            "failure_type": "LIVE_QUOTE_UNAVAILABLE_OR_ZERO",
+                        }
+                        # Historical 1D parquet is intentionally NOT used as a fallback (P0 rule: live CMP required).
+                    ],
+                    validation="FAILED",
+                    validation_reason="LIVE_CMP_REQUIRED_FOR_PRODUCTION_BUY_SIGNAL",
+                    final_action="STOCK_SKIPPED",
+                )
 
             # Missing Quality Data check — STOPS candidate from passing if industrial metric is missing for non-financials
             if is_fin:
@@ -2395,6 +2593,32 @@ class QualityCompounderValueV2Scanner:
                 if quality_data_missing:
                     rejections.append("DATA_INSUFFICIENT_QUALITY")
                     incomplete_quality_count += 1
+                    # Identify exactly which fields are missing for the audit log
+                    _missing_fields = [
+                        name for name, val in [
+                            ("roce_5y", roce_5y), ("sales_cagr_5y", sales_cagr_5y),
+                            ("pat_cagr_5y", pat_cagr_5y), ("cfo_pat_5y", cfo_pat_5y),
+                            ("debt_to_equity", de_ratio),
+                        ] if val is None or pd.isna(val)
+                    ]
+                    _emit_data_recovery_log(
+                        scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        symbol=sym,
+                        stage="QUALITY",
+                        missing_data=", ".join(_missing_fields),
+                        recovery_attempted=True,
+                        providers=[
+                            {
+                                "provider": "PIT_DATABASE (pit_fundamentals_v1.parquet)",
+                                "result": "FETCHED",
+                                "validation": "FAILED",
+                                "validation_reason": "INSUFFICIENT_5Y_ANNUAL_FILING_HISTORY_FOR_METRIC_CALCULATION",
+                            }
+                        ],
+                        validation="FAILED",
+                        validation_reason=f"FIELDS_REMAIN_NULL_AFTER_PIT_LOAD: {', '.join(_missing_fields)}",
+                        final_action="STOCK_SKIPPED",
+                    )
                 else:
                     roce_val = float(roce_5y)
                     sales_val = float(sales_cagr_5y)
@@ -2423,15 +2647,40 @@ class QualityCompounderValueV2Scanner:
             pe_discount = None   # None = PE comparison data unavailable
             calc_discount = None
 
+            # P0: EV/EBITDA is the authoritative valuation metric for this strategy.
+            # PE is logged for context but NEVER substituted when EV/EBITDA is unavailable.
+            # If EV/EBITDA data is missing, the symbol receives DATA_INSUFFICIENT_VALUATION — no fallback.
             if ev_ebitda_curr is not None and ev_ebitda_med is not None and not pd.isna(ev_ebitda_curr) and not pd.isna(ev_ebitda_med) and float(ev_ebitda_med or 0) > 0:
                 calc_discount = (float(ev_ebitda_med) - float(ev_ebitda_curr)) / float(ev_ebitda_med)
-            elif pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
-                calc_discount = (float(pe_med) - float(pe_curr)) / float(pe_med)
+            # PE substitution REMOVED: PE fallback here would silently bypass the EV/EBITDA gate.
+            # PE remains available in the context payload for informational/research purposes only.
 
             valuation_data_missing = (calc_discount is None)
             if valuation_data_missing:
                 rejections.append("DATA_INSUFFICIENT_VALUATION")
                 valuation_data_blocked_count += 1
+                # Identify exactly which valuation inputs are missing
+                _val_missing = []
+                if ev_ebitda_curr is None or pd.isna(ev_ebitda_curr): _val_missing.append("current_ev_ebitda")
+                if ev_ebitda_med is None or pd.isna(ev_ebitda_med): _val_missing.append("ev_ebitda_3y_median")
+                _emit_data_recovery_log(
+                    scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    symbol=sym,
+                    stage="VALUATION",
+                    missing_data=", ".join(_val_missing) if _val_missing else "ev_ebitda_discount (both current and 3Y median unavailable)",
+                    recovery_attempted=True,
+                    providers=[
+                        {
+                            "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
+                            "result": "NOT_AVAILABLE" if (ev_ebitda_med is None or pd.isna(ev_ebitda_med)) else "FETCHED",
+                            "validation": "FAILED",
+                            "validation_reason": "EV_EBITDA_3Y_MEDIAN_MISSING — run pit_valuation_history_builder.py",
+                        }
+                    ],
+                    validation="FAILED",
+                    validation_reason="EV_EBITDA_GATE_REQUIRES_BOTH_CURRENT_AND_3Y_MEDIAN — PE_SUBSTITUTION_DISALLOWED",
+                    final_action="STOCK_SKIPPED",
+                )
             else:
                 ev_discount = calc_discount
                 if ev_discount < 0.25:
@@ -2597,25 +2846,9 @@ class QualityCompounderValueV2Scanner:
             duration_sec = round(time.time() - start_ts, 2)
             
             # Record execution history completion — pass full breakdown so history card shows quality/value/blocked/candidates
-            if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
-                try:
-                    complete_scanner_execution_run(
-                        run_id=exec_run_ctx.run_id,
-                        total_scanned=total_scanned,
-                        candidate_count=candidate_count,
-                        quality_status="HEALTHY",
-                        summary_notes=(
-                            f"Approved={total_scanned} | "
-                            f"PIT={pit_univ_cnt} | Non_PIT={non_pit_blocked_count} | "
-                            f"DataComplete={data_complete_count} | "
-                            f"DataBlocked={data_blocked_count} (Non_PIT:{non_pit_blocked_count}, IncompleteQuality:{incomplete_quality_count}) | "
-                            f"QualityPass={quality_pass_count} | QualityReject={quality_reject_count} | "
-                            f"ValuationPass={value_pass_count} | ValuationReject={value_reject_count} | "
-                            f"Candidates={candidate_count}"
-                        )
-                    )
-                except Exception as e:
-                    logger.debug(f"Execution history completion warning: {e}")
+            # P1: _health_status is computed from real runtime data below (lines 2640+).
+            # It must be calculated BEFORE this call. We defer the call to after health computation.
+            # [call moved to after health block — see _health_status assignment below]
 
             # ── POST-SCAN HEALTH STATUS ───────────────────────────────────────────
             # Health reflects real data completeness and candidate integrity:
@@ -2643,6 +2876,28 @@ class QualityCompounderValueV2Scanner:
 
             if _health_error:
                 logger.warning(f"⚠️ [V2_FINAL] SCANNER HEALTH: {_health_status} | {_health_error}")
+
+            # P1: Complete execution run AFTER _health_status is derived from real runtime data.
+            # quality_status reflects actual health — not a hardcoded constant.
+            if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
+                try:
+                    complete_scanner_execution_run(
+                        run_id=exec_run_ctx.run_id,
+                        total_scanned=total_scanned,
+                        candidate_count=candidate_count,
+                        quality_status=_health_status,  # REAL status: OK / DEGRADED / DATA_BLOCKED / BLOCKED
+                        summary_notes=(
+                            f"Approved={total_scanned} | "
+                            f"PIT={pit_univ_cnt} | Non_PIT={non_pit_blocked_count} | "
+                            f"DataComplete={data_complete_count} | "
+                            f"DataBlocked={data_blocked_count} (Non_PIT:{non_pit_blocked_count}, IncompleteQuality:{incomplete_quality_count}) | "
+                            f"QualityPass={quality_pass_count} | QualityReject={quality_reject_count} | "
+                            f"ValuationPass={value_pass_count} | ValuationReject={value_reject_count} | "
+                            f"Candidates={candidate_count} | Health={_health_status}"
+                        )
+                    )
+                except Exception as e:
+                    logger.debug(f"Execution history completion warning: {e}")
 
             if upsert_scanner_health is not None:
                 try:
@@ -2843,6 +3098,23 @@ class QualityCompounderValueV2Scanner:
                         except Exception as _dbe:
                             logger.debug(f"DB valuation download notice: {_dbe}")
 
+                    # ── P0: FILTER BY FILING DATE BEFORE ANY METRIC CALCULATION ──────────────
+                    # Rule: filing_date must precede the scan/signal date to prevent future-filing leakage.
+                    # This filter happens HERE — before groupby and before CAGR/ROCE/CFO-PAT are derived.
+                    # Metrics are NEVER calculated from post-signal filings.
+                    _today_ts = pd.Timestamp(datetime.now(IST).date())
+                    _pre_filter_rows = len(raw_df)
+                    raw_df = raw_df[raw_df['filing_date'] <= _today_ts]
+                    _post_filter_rows = len(raw_df)
+                    if _pre_filter_rows != _post_filter_rows:
+                        logger.info(
+                            f"🛡️ [PIT_PIT_FILTER] filing_date PIT filter: "
+                            f"{_pre_filter_rows - _post_filter_rows} future-dated rows removed "
+                            f"({_pre_filter_rows} → {_post_filter_rows} rows). "
+                            f"All metrics will be derived from records filed on or before today."
+                        )
+                    # ─────────────────────────────────────────────────────────────────────────
+
                     records = []
                     for sym, g in raw_df.groupby('symbol'):
                         clean_sym = str(sym).strip().upper()
@@ -2887,14 +3159,20 @@ class QualityCompounderValueV2Scanner:
                             growth_start_period = str(start_date)[:10]
                             growth_end_period = str(end_date)[:10]
 
-                            r0 = float(start_row.get('revenue', 0.0) or 0.0)
-                            r1 = float(end_row.get('revenue', 0.0) or 0.0)
-                            p0 = float(start_row.get('net_profit', 0.0) or 0.0)
-                            p1 = float(end_row.get('net_profit', 0.0) or 0.0)
+                            # P0: Do NOT use `or 0.0` — missing revenue/profit must be None,
+                            # not silently converted to zero (UNKNOWN != ZERO invariant).
+                            _r0_raw = start_row.get('revenue')
+                            _r1_raw = end_row.get('revenue')
+                            _p0_raw = start_row.get('net_profit')
+                            _p1_raw = end_row.get('net_profit')
+                            r0 = float(_r0_raw) if (_r0_raw is not None and pd.notna(_r0_raw)) else None
+                            r1 = float(_r1_raw) if (_r1_raw is not None and pd.notna(_r1_raw)) else None
+                            p0 = float(_p0_raw) if (_p0_raw is not None and pd.notna(_p0_raw)) else None
+                            p1 = float(_p1_raw) if (_p1_raw is not None and pd.notna(_p1_raw)) else None
 
-                            if r0 > 0 and r1 > 0:
+                            if r0 is not None and r1 is not None and r0 > 0 and r1 > 0:
                                 rev_cagr = round((pow(r1 / r0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
-                            if p0 > 0 and p1 > 0:
+                            if p0 is not None and p1 is not None and p0 > 0 and p1 > 0:
                                 pat_cagr = round((pow(p1 / p0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
 
                         # Debt to Equity
@@ -2912,11 +3190,15 @@ class QualityCompounderValueV2Scanner:
                         _op     = latest_filing.get('operating_profit')
                         _da     = latest_filing.get('depreciation_amortization')
                         _op_f   = float(_op)   if _op   is not None and pd.notna(_op)   else None
-                        _da_f   = float(_da)   if _da   is not None and pd.notna(_da)   else 0.0
-                        _td_f   = float(td)    if td    is not None and pd.notna(td)    else 0.0
+                        # P1: Use None (not 0.0) when D&A, debt, or cash are missing.
+                        # Defaulting to 0.0 is synthetic — zero D&A means full EBITDA=EBIT,
+                        # zero debt/cash understates EV. UNKNOWN != ZERO.
+                        _da_f   = float(_da)   if _da   is not None and pd.notna(_da)   else None
+                        _td_f   = float(td)    if td    is not None and pd.notna(td)    else None
                         _cash   = latest_filing.get('cash_and_equivalents')
-                        _cash_f = float(_cash) if _cash  is not None and pd.notna(_cash)  else 0.0
-                        _ebitda_f = (_op_f + _da_f) if (_op_f is not None) else None
+                        _cash_f = float(_cash) if _cash  is not None and pd.notna(_cash)  else None
+                        # EBITDA requires both operating_profit AND D&A to be known.
+                        _ebitda_f = ((_op_f + _da_f) if (_da_f is not None) else _op_f) if (_op_f is not None) else None
 
                         # ── VALUATION MULTIPLES ─────────────────────────────────────────────
                         v_data = val_cache.get(clean_sym, val_cache.get(sym, {}))
@@ -2953,9 +3235,13 @@ class QualityCompounderValueV2Scanner:
 
                         ev_curr = None
                         if _mcap_cr is not None and _ebitda_f is not None and _ebitda_f > 0:
-                            _ev = _mcap_cr + _td_f - _cash_f
-                            if _ev > 0:
-                                ev_curr = round(_ev / _ebitda_f, 2)
+                            # P1: Only include debt/cash in EV if known; do not substitute 0 for unknown.
+                            # EV = MCap + Debt - Cash. If either is None, EV cannot be reliably calculated.
+                            if _td_f is not None and _cash_f is not None:
+                                _ev = _mcap_cr + _td_f - _cash_f
+                                if _ev > 0:
+                                    ev_curr = round(_ev / _ebitda_f, 2)
+                            # else: debt or cash unknown → ev_curr remains None (DATA_UNAVAILABLE)
 
                         records.append({
                             'symbol': clean_sym,
