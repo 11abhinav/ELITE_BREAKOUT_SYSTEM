@@ -2684,29 +2684,33 @@ class QualityCompounderValueV2Scanner:
             )
             return _core_result_holder[0]
         finally:
-            run_id = getattr(exec_run_ctx_holder[0], "run_id", None) if exec_run_ctx_holder[0] else None
-            # Propagate _health_status from _scan_universe_core return dict to override_status.
-            # This ensures the end-banner always persists the real health, even when the body's
-            # upsert_scanner_health was silently rejected by the execution-ownership guard.
-            if _core_result_holder[0] and isinstance(_core_result_holder[0], dict):
-                _computed_v2_health_status = _core_result_holder[0].get("status") or _computed_v2_health_status
-            print_scanner_end_banner(
-                "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-                start_mono=_scan_start,
-                run_id=run_id,
-                override_status=_computed_v2_health_status,
-                start_wall_ts=start_ts
-            )
-            if acquired_global:
-                try:
-                    _global_lock.release()
-                except Exception as _ge:
-                    logger.debug(f"Global lock release notice: {_ge}")
-            if acquired_scan:
-                try:
-                    _v2_scan_lock.release()
-                except Exception as _se:
-                    logger.debug(f"V2 scan lock release notice: {_se}")
+            try:
+                run_id = getattr(exec_run_ctx_holder[0], "run_id", None) if exec_run_ctx_holder[0] else None
+                # Propagate _health_status from _scan_universe_core return dict to override_status.
+                # This ensures the end-banner always persists the real health, even when the body's
+                # upsert_scanner_health was silently rejected by the execution-ownership guard.
+                if _core_result_holder[0] and isinstance(_core_result_holder[0], dict):
+                    _computed_v2_health_status = _core_result_holder[0].get("status") or _computed_v2_health_status
+                print_scanner_end_banner(
+                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    start_mono=_scan_start,
+                    run_id=run_id,
+                    override_status=_computed_v2_health_status,
+                    start_wall_ts=start_ts
+                )
+            except Exception as _banner_err:
+                logger.debug(f"End banner notice: {_banner_err}")
+            finally:
+                if acquired_global:
+                    try:
+                        _global_lock.release()
+                    except Exception as _ge:
+                        logger.debug(f"Global lock release notice: {_ge}")
+                if acquired_scan:
+                    try:
+                        _v2_scan_lock.release()
+                    except Exception as _se:
+                        logger.debug(f"V2 scan lock release notice: {_se}")
 
     def _scan_universe_core(
         self,
@@ -2752,7 +2756,7 @@ class QualityCompounderValueV2Scanner:
                 logger.debug(f"Execution history start warning: {e}")
 
         # Start Banner
-        _scan_start = print_scanner_start_banner("QUALITY_COMPOUNDER_VALUE_V2_FINAL", queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
+        print_scanner_start_banner("QUALITY_COMPOUNDER_VALUE_V2_FINAL", queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
 
         if upsert_scanner_health is not None:
             try:
@@ -2813,6 +2817,27 @@ class QualityCompounderValueV2Scanner:
         quality_and_val_blocked_count = 0 # Both quality and valuation incomplete
         price_only_blocked_count = 0      # Price missing/non-positive CMP, but quality and valuation complete
 
+        # Filter to latest PIT record per symbol on or before today
+        if 'filing_date' in pit_df.columns:
+            pit_df['filing_date'] = pd.to_datetime(pit_df['filing_date'])
+            pit_df = pit_df[pit_df['filing_date'] <= pd.to_datetime(today_str)].sort_values('filing_date').groupby('symbol').last().reset_index()
+
+        # Deduplicate and canonicalize symbols
+        pit_df['symbol'] = pit_df['symbol'].astype(str).str.strip().str.upper()
+        pit_df = pit_df.drop_duplicates(subset=['symbol'], keep='last').reset_index(drop=True)
+
+        # ── PRE-FLIGHT UNIVERSE HEALTH & VALUATION COMPLETENESS GATE ──────────────
+        # Explicit universe & PIT lineage tracking (§1, §2)
+        approved_univ = sorted(list(self.universe_registry.approved_symbols))
+        pit_symbols_set = set(pit_df['symbol'].astype(str).str.strip().str.upper())
+        if approved_univ and any(s in pit_symbols_set for s in approved_univ):
+            universe_symbols = approved_univ
+        else:
+            universe_symbols = [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
+        total_approved_univ = len(universe_symbols)
+        pit_univ_cnt = len(pit_df)
+        non_pit_univ_cnt = max(0, total_approved_univ - pit_univ_cnt)
+
         # ── V2 DUAL-POPULATION HEALTH ACCOUNTING COUNTERS ────────────────────────
         # FIX (2026-10-01): Previously, health was computed from the full 886-symbol audit universe,
         # which caused DEGRADED even when the qualifying pipeline was producing 40 BUY alerts.
@@ -2826,7 +2851,9 @@ class QualityCompounderValueV2Scanner:
         #                          MUST remain a failure until resolved.
         #   HEALTH = GREEN when DATA_FAILURE_COUNT == 0.
         structural_ineligible_count = 0       # Symbols with insufficient historical existence (not a provider failure)
-        non_pit_data_failure_count = 0        # Non-PIT symbols with sufficient raw history (ingestion gap = failure)
+        no_pit_structural_count = 0           # Non-PIT symbols with < 5 raw annual filings (structural)
+        partial_pit_structural_count = 0      # PIT symbols with < 5 annual filings in parquet (structural)
+        non_pit_data_failure_count = 0        # Non-PIT symbols with >= 5 raw annual filings (ingestion gap = failure)
         incomplete_pit_data_failure_count = 0 # PIT symbols with enough annual filings but still null metrics (failure)
 
         # Pre-load raw filing annual counts for no-PIT symbol classification.
@@ -2856,7 +2883,7 @@ class QualityCompounderValueV2Scanner:
                             _raw_filings_annual_index[_rf_sym] = len(_ann_list) if isinstance(_ann_list, list) else 0
                         else:
                             _raw_filings_annual_index[_rf_sym] = 0
-                    except Exception as _rf_err:
+                    except Exception:
                         # Conservative: file exists but unreadable → mark as DATA_FAILURE (not structural)
                         _raw_filings_annual_index[_rf_sym] = _MIN_ANNUAL_FILINGS_FOR_EVALUABLE
                 # No raw filing file at all → symbol not in index → treated as DATA_FAILURE (conservative)
@@ -2864,27 +2891,6 @@ class QualityCompounderValueV2Scanner:
             f"📂 [V2_FINAL] Raw filing index loaded: {len(_raw_filings_annual_index)} symbols indexed | "
             f"threshold for DATA_FAILURE classification: >={_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} annual filings"
         )
-
-        # Filter to latest PIT record per symbol on or before today
-        if 'filing_date' in pit_df.columns:
-            pit_df['filing_date'] = pd.to_datetime(pit_df['filing_date'])
-            pit_df = pit_df[pit_df['filing_date'] <= pd.to_datetime(today_str)].sort_values('filing_date').groupby('symbol').last().reset_index()
-
-        # Deduplicate and canonicalize symbols
-        pit_df['symbol'] = pit_df['symbol'].astype(str).str.strip().str.upper()
-        pit_df = pit_df.drop_duplicates(subset=['symbol'], keep='last').reset_index(drop=True)
-
-        # ── PRE-FLIGHT UNIVERSE HEALTH & VALUATION COMPLETENESS GATE ──────────────
-        # Explicit universe & PIT lineage tracking (§1, §2)
-        approved_univ = sorted(list(self.universe_registry.approved_symbols))
-        pit_symbols_set = set(pit_df['symbol'].astype(str).str.strip().str.upper())
-        if approved_univ and any(s in pit_symbols_set for s in approved_univ):
-            universe_symbols = approved_univ
-        else:
-            universe_symbols = [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
-        total_approved_univ = len(universe_symbols)
-        pit_univ_cnt = len(pit_df)
-        non_pit_univ_cnt = max(0, total_approved_univ - pit_univ_cnt)
 
         # Field-level completeness across PIT dataset rows (independent accounting)
         _ev_curr_cnt = int(pit_df['current_ev_ebitda'].notna().sum()) if 'current_ev_ebitda' in pit_df.columns else 0
@@ -2981,7 +2987,7 @@ class QualityCompounderValueV2Scanner:
         try:
             from live_prices import get_live_prices
             live_prices_map = get_live_prices(universe_symbols, purpose="V2_FUNDAMENTAL_SCAN")
-        except Exception as _lp_err:
+        except Exception:
             try:
                 from app.live_prices import get_live_prices
                 live_prices_map = get_live_prices(universe_symbols, purpose="V2_FUNDAMENTAL_SCAN")
@@ -3052,6 +3058,7 @@ class QualityCompounderValueV2Scanner:
                 if _raw_ann_count < _MIN_ANNUAL_FILINGS_FOR_EVALUABLE:
                     # Symbol has < 5 annual filings available anywhere → structurally ineligible
                     structural_ineligible_count += 1
+                    no_pit_structural_count += 1
                     _eligibility_label = f"STRUCTURAL_INELIGIBLE_NO_PIT (raw_annual_filings={_raw_ann_count} < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE})"
                     _data_status = "STRUCTURAL_INELIGIBLE_INSUFFICIENT_HISTORY"
                 else:
@@ -3283,11 +3290,20 @@ class QualityCompounderValueV2Scanner:
                     # it structurally cannot produce full 5Y metrics and is NOT a data failure.
                     # If it has >= _MIN_ANNUAL_FILINGS_FOR_EVALUABLE but metrics are still null,
                     # that is a metric computation / ingestion failure → DATA_FAILURE.
-                    # Conservative fallback: if field absent from row dict, assume DATA_FAILURE.
-                    _inc_ann_count = int(row.get("annual_filing_count", _MIN_ANNUAL_FILINGS_FOR_EVALUABLE) or _MIN_ANNUAL_FILINGS_FOR_EVALUABLE)
+                    # Conservative fallback: if field absent or NaN, assume DATA_FAILURE.
+                    _raw_inc_val = row.get("annual_filing_count")
+                    try:
+                        if _raw_inc_val is not None and not pd.isna(_raw_inc_val):
+                            _inc_ann_count = int(float(_raw_inc_val))
+                        else:
+                            _inc_ann_count = _MIN_ANNUAL_FILINGS_FOR_EVALUABLE
+                    except (ValueError, TypeError):
+                        _inc_ann_count = _MIN_ANNUAL_FILINGS_FOR_EVALUABLE
+
                     if _inc_ann_count < _MIN_ANNUAL_FILINGS_FOR_EVALUABLE:
                         # Insufficient filing history → structural ineligibility, not a provider failure
                         structural_ineligible_count += 1
+                        partial_pit_structural_count += 1
                         _inc_eligibility = f"STRUCTURAL_INELIGIBLE_PARTIAL_PIT (annual_filings={_inc_ann_count} < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE})"
                     else:
                         # Has >= 5 annual filings but quality metrics are null → metric calc / ingestion failure
@@ -3783,7 +3799,7 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"     • Approved Scanner Universe      : {total_scanned}")
             logger.info(f"     • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT statement history)")
             logger.info(f"     • Non-PIT / Missing PIT Filings  : {non_pit_blocked_count}  (blocked — see breakdown below)")
-            logger.info(f"       ├─ Structural Ineligible         : (see section 5 for full classification)")
+            logger.info(f"       ├─ Structural Ineligible         : {no_pit_structural_count}  (absent from PIT parquet, < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} raw annual filings)")
             logger.info(f"       └─ Data Failures (ingestion gap) : {non_pit_data_failure_count}  (mature, raw filings exist >= {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} annual, absent from PIT parquet)")
 
             logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]  {'✅' if pit_univ_cnt + non_pit_blocked_count == total_scanned else '⚠️ MISMATCH'}")
@@ -3841,8 +3857,8 @@ class QualityCompounderValueV2Scanner:
             logger.info("  5. POPULATION CLASSIFICATION (V2 DUAL-POPULATION HEALTH MODEL):")
             logger.info(f"     • Audit Universe                 : {total_scanned}  (all approved clean equities evaluated)")
             logger.info(f"     • Structurally Ineligible        : {structural_ineligible_count}  (insufficient history — NOT a data failure, excluded from health basis)")
-            logger.info(f"       ├─ No-PIT structural           : {structural_ineligible_count - (non_pit_data_failure_count + incomplete_pit_data_failure_count - _total_data_failure_count) if structural_ineligible_count > 0 else structural_ineligible_count}  (absent from PIT parquet with < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} raw annual filings)")
-            logger.info(f"       └─ Partial-PIT structural      : {structural_ineligible_count - non_pit_blocked_count if structural_ineligible_count > non_pit_blocked_count else 0}  (in PIT parquet but < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} annual filings → null metrics)")
+            logger.info(f"       ├─ No-PIT structural           : {no_pit_structural_count}  (absent from PIT parquet with < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} raw annual filings)")
+            logger.info(f"       └─ Partial-PIT structural      : {partial_pit_structural_count}  (in PIT parquet but < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} annual filings → null metrics)")
             logger.info(f"     • DATA_FAILURE (ingestion gaps)  : {_total_data_failure_count}  (mature symbols that SHOULD be evaluable — MUST FIX)")
             logger.info(f"       ├─ Non-PIT data failures       : {non_pit_data_failure_count}  (absent from PIT parquet with >= {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} raw annual filings)")
             logger.info(f"       └─ Incomplete-PIT data failures: {incomplete_pit_data_failure_count}  (in PIT parquet, >= {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} filings, but quality metrics null)")
