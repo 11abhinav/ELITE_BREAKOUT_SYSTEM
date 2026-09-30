@@ -1,0 +1,13 @@
+{
+  "strategy_id": "EARNINGS_SURPRISE_QUALITY_V1",
+  "governance_version": "1.0",
+  "execution_timestamp_utc": "2026-09-30T03:35:02.895884",
+  "pit_db_sha256": "3700fc8060666d9ece5b95dc9ce91679d5a8bd1a34469c2b7336106d51c58227",
+  "eval_period": "2016-01-01 to 2026-09-30",
+  "total_events_evaluated": 4285,
+  "total_trades_replayed": 4285,
+  "friction_entry_bps": 2.5,
+  "friction_exit_bps": 2.5,
+  "exit_architecture": "CONFIRMED_STRUCTURAL_WEAKNESS_OPEN_ENDED",
+  "verdict": "DATA_INSUFFICIENT"
+}
