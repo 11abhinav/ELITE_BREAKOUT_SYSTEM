@@ -131,7 +131,12 @@ REASON_CODE_MAP = {
     "FAIL_BREAKOUT_PRICE": "BREAKOUT_PRICE_FAIL",
     "FAIL_BREAKOUT_VOLUME": "BREAKOUT_VOLUME_FAIL",
     "FAIL_BREAKOUT_EXTENSION": "BREAKOUT_EXTENSION_FAIL",
-    "MARKET_DATA_INSUFFICIENT_LOOKBACK": "DATA_INSUFFICIENT"
+    "FAIL_GROWTH_DATA_INSUFFICIENT": "GROWTH_DATA_INSUFFICIENT",
+    "FAIL_QUALITY_METRICS_INCOMPLETE": "QUALITY_DATA_INSUFFICIENT",
+    "DATA_INSUFFICIENT_QUALITY": "QUALITY_DATA_INSUFFICIENT",
+    "DATA_INSUFFICIENT_VALUATION": "VALUATION_DATA_INSUFFICIENT",
+    "MARKET_DATA_INSUFFICIENT_LOOKBACK": "PRICE_DATA_INSUFFICIENT",
+    "MARKET_DATA_MISSING": "MARKET_DATA_MISSING"
 }
 
 
@@ -238,6 +243,9 @@ class FundamentalScanTelemetry:
             "rejected": 0,
             "errors": 0,
             "data_insufficient": 0,
+            "growth_data_insufficient": 0,
+            "quality_data_insufficient": 0,
+            "price_data_insufficient": 0,
             "data_missing": 0,
             "provider_failure": 0
         }
@@ -697,12 +705,26 @@ class FundamentalScanTelemetry:
             disp["rejections"] = norm_rejections
             disp["primary_reason"] = primary_norm
             self.funnel_counts["rejected"] += 1
-            if any("INSUFFICIENT" in r.upper() for r in norm_rejections) or "INSUFFICIENT" in primary_norm.upper():
-                self.funnel_counts["data_insufficient"] += 1
-            elif any("MISSING" in r.upper() for r in norm_rejections) or "MISSING" in primary_norm.upper():
+            is_growth_insuff = any("GROWTH_DATA_INSUFFICIENT" in r for r in norm_rejections) or "GROWTH_DATA_INSUFFICIENT" in primary_norm
+            is_quality_insuff = any("QUALITY_DATA_INSUFFICIENT" in r for r in norm_rejections) or "QUALITY_DATA_INSUFFICIENT" in primary_norm
+            is_price_insuff = any("PRICE_DATA_INSUFFICIENT" in r or "MARKET_DATA_INSUFFICIENT" in r for r in norm_rejections) or "PRICE_DATA_INSUFFICIENT" in primary_norm or "MARKET_DATA_INSUFFICIENT" in primary_norm
+            is_missing = any("MISSING" in r for r in norm_rejections) or "MISSING" in primary_norm
+            is_provider = any("PROVIDER" in r for r in norm_rejections) or "PROVIDER" in primary_norm
+
+            if is_growth_insuff:
+                self.funnel_counts["growth_data_insufficient"] += 1
+            if is_quality_insuff:
+                self.funnel_counts["quality_data_insufficient"] += 1
+            if is_price_insuff:
+                self.funnel_counts["price_data_insufficient"] += 1
+            if is_missing:
                 self.funnel_counts["data_missing"] += 1
-            elif any("PROVIDER" in r.upper() for r in norm_rejections) or "PROVIDER" in primary_norm.upper():
+            if is_provider:
                 self.funnel_counts["provider_failure"] += 1
+
+            # Total unique data-insufficient count
+            if is_growth_insuff or is_quality_insuff or is_price_insuff or any("INSUFFICIENT" in r for r in norm_rejections) or "INSUFFICIENT" in primary_norm:
+                self.funnel_counts["data_insufficient"] += 1
 
         decision_record = {
             "event_type": "SYMBOL_FINAL_DECISION",
@@ -932,6 +954,9 @@ evaluated={evaluated_count}
 rejected={self.funnel_counts['rejected']}
 buy_alerts={self.funnel_counts['buy_alerts_created']}
 data_insufficient={self.funnel_counts.get('data_insufficient', 0)}
+  growth_data_insufficient={self.funnel_counts.get('growth_data_insufficient', 0)}
+  quality_data_insufficient={self.funnel_counts.get('quality_data_insufficient', 0)}
+  price_data_insufficient={self.funnel_counts.get('price_data_insufficient', 0)}
 data_missing={self.funnel_counts.get('data_missing', 0)}
 provider_failure={self.funnel_counts.get('provider_failure', 0)}
 errors={self.funnel_counts['errors']}

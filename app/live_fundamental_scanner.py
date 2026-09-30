@@ -1578,7 +1578,11 @@ class LiveFundamentalBuyScanner:
                 "breakout_pass_count": 0,
                 "buy_alerts_count": 0,
                 "data_insufficient_count": 0,
+                "growth_data_insufficient_count": 0,
+                "quality_data_insufficient_count": 0,
+                "price_data_insufficient_count": 0,
                 "data_missing_count": 0,
+                "pit_missing_count": 0,
                 "provider_failure_count": 0,
                 "rejection_summary": {},
                 "buy_candidates": []
@@ -2007,15 +2011,42 @@ class LiveFundamentalBuyScanner:
                         except Exception as al_err:
                             logger.debug(f"Save alert warning for {sym}: {al_err}")
                 else:
-                    if (RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK in res["rejection_reasons"] or
-                        RejectionReason.MARKET_DATA_MISSING in res["rejection_reasons"]):
-                        funnel["data_insufficient_count"] += 1
-                    # data_missing_count counts true missing upstream fundamentals (record completely unavailable from provider)
-                    if (funds.get("upstream_provider") == "DATA_UNAVAILABLE" or 
-                        RejectionReason.FUNDAMENTAL_DATA_MISSING in res["rejection_reasons"]):
-                        funnel["data_missing_count"] += 1
-                    if any("PROVIDER" in str(r).upper() for r in res["rejection_reasons"]):
+                    rej_set = set(res["rejection_reasons"])
+                    is_price_insuff = bool(
+                        RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK in rej_set or
+                        RejectionReason.MARKET_DATA_MISSING in rej_set
+                    )
+                    is_quality_insuff = bool(
+                        RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE in rej_set or
+                        getattr(RejectionReason, "DATA_INSUFFICIENT_QUALITY", None) in rej_set
+                    )
+                    is_growth_insuff = bool(
+                        RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT in rej_set
+                    )
+                    is_pit_missing = bool(
+                        funds.get("upstream_provider") == "DATA_UNAVAILABLE" or 
+                        RejectionReason.FUNDAMENTAL_DATA_MISSING in rej_set
+                    )
+                    is_provider_fail = bool(
+                        any("PROVIDER" in str(r).upper() for r in res["rejection_reasons"])
+                    )
+
+                    if is_price_insuff:
+                        funnel["price_data_insufficient_count"] += 1
+                    if is_quality_insuff:
+                        funnel["quality_data_insufficient_count"] += 1
+                    if is_growth_insuff:
+                        funnel["growth_data_insufficient_count"] += 1
+                    if is_pit_missing:
+                        funnel["pit_missing_count"] += 1
+                    if is_provider_fail:
                         funnel["provider_failure_count"] += 1
+
+                    # Unified counters across entire system
+                    if is_price_insuff or is_quality_insuff or is_growth_insuff:
+                        funnel["data_insufficient_count"] += 1
+                    if is_pit_missing:
+                        funnel["data_missing_count"] += 1
 
                     for r in res["rejection_reasons"]:
                         r_key = r.value if hasattr(r, "value") else str(r)
@@ -2038,7 +2069,10 @@ class LiveFundamentalBuyScanner:
                     ctx.provider_failure_count = funnel.get("provider_failure_count", 0)
                     ctx.summary_notes = (
                         f"Approved={funnel.get('approved_universe_count', 0)} | "
-                        f"DataInsuff={funnel.get('data_insufficient_count', 0)} | "
+                        f"DataInsuff={funnel.get('data_insufficient_count', 0)} "
+                        f"(Growth:{funnel.get('growth_data_insufficient_count', 0)}, "
+                        f"Quality:{funnel.get('quality_data_insufficient_count', 0)}, "
+                        f"Price:{funnel.get('price_data_insufficient_count', 0)}) | "
                         f"DataMissing={funnel.get('data_missing_count', 0)} | "
                         f"ProviderFail={funnel.get('provider_failure_count', 0)} | "
                         f"BreakoutEligible={funnel.get('breakout_eligible_count', 0)} | "
@@ -2049,7 +2083,11 @@ class LiveFundamentalBuyScanner:
                     ctx.metrics_json = {
                         "approved_universe_count": funnel.get("approved_universe_count", 0),
                         "data_insufficient_count": funnel.get("data_insufficient_count", 0),
+                        "growth_data_insufficient_count": funnel.get("growth_data_insufficient_count", 0),
+                        "quality_data_insufficient_count": funnel.get("quality_data_insufficient_count", 0),
+                        "price_data_insufficient_count": funnel.get("price_data_insufficient_count", 0),
                         "data_missing_count": funnel.get("data_missing_count", 0),
+                        "pit_missing_count": funnel.get("pit_missing_count", 0),
                         "provider_failure_count": funnel.get("provider_failure_count", 0),
                         "breakout_eligible_count": funnel.get("breakout_eligible_count", 0),
                         "buy_alerts_count": funnel.get("buy_alerts_count", 0),
@@ -2076,7 +2114,7 @@ class LiveFundamentalBuyScanner:
                     # 5. Context lifecycle failed
                     is_crashed = funnel["scanned_count"] < total_symbols_cnt
                     high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))
-                    high_insufficient = di > max(35, int(total_symbols_cnt * 0.10))
+                    high_insufficient = funnel.get("price_data_insufficient_count", 0) > max(35, int(total_symbols_cnt * 0.10))
                     high_missing = dm > max(15, int(total_symbols_cnt * 0.05))
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
@@ -2087,7 +2125,8 @@ class LiveFundamentalBuyScanner:
                     gap_msg = None
                     if is_degraded:
                         gap_msg = (
-                            f"Data gaps: {di} insufficient technicals, {dm} missing fundamentals, "
+                            f"Data gaps: {funnel.get('price_data_insufficient_count', 0)} insufficient technicals, "
+                            f"{funnel.get('growth_data_insufficient_count', 0)} insufficient growth, {dm} missing fundamentals, "
                             f"{pf} provider failures of {total_symbols_cnt} approved "
                             f"(combined_gap={di+dm}/{total_symbols_cnt} = {round((di+dm)/max(total_symbols_cnt,1)*100,1)}%)"
                         )
@@ -2482,6 +2521,15 @@ class QualityCompounderValueV2Scanner:
         data_blocked_count = 0            # Total unique symbols with any required field missing
         data_complete_count = 0           # Symbols with 100% complete required data
 
+        # Sub-breakdown counters for exact mathematical Venn reconciliation
+        val_curr_missing_count = 0        # Missing current EV/EBITDA
+        val_med_missing_count = 0         # Missing 3Y EV/EBITDA median
+        val_both_missing_count = 0        # Missing BOTH current and median EV/EBITDA
+        quality_only_blocked_count = 0    # Quality incomplete, but valuation complete
+        val_only_blocked_count = 0        # Valuation incomplete, but quality complete
+        quality_and_val_blocked_count = 0 # Both quality and valuation incomplete
+        price_only_blocked_count = 0      # Price missing/non-positive CMP, but quality and valuation complete
+
         # Filter to latest PIT record per symbol on or before today
         if 'filing_date' in pit_df.columns:
             pit_df['filing_date'] = pd.to_datetime(pit_df['filing_date'])
@@ -2494,22 +2542,29 @@ class QualityCompounderValueV2Scanner:
         # ── PRE-FLIGHT UNIVERSE HEALTH & VALUATION COMPLETENESS GATE ──────────────
         # Explicit universe & PIT lineage tracking (§1, §2)
         approved_univ = sorted(list(self.universe_registry.approved_symbols))
-        universe_symbols = approved_univ if approved_univ else [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
+        pit_symbols_set = set(pit_df['symbol'].astype(str).str.strip().str.upper())
+        if approved_univ and any(s in pit_symbols_set for s in approved_univ):
+            universe_symbols = approved_univ
+        else:
+            universe_symbols = [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
         total_approved_univ = len(universe_symbols)
         pit_univ_cnt = len(pit_df)
         non_pit_univ_cnt = max(0, total_approved_univ - pit_univ_cnt)
 
-        # Field-level completeness across PIT dataset rows
+        # Field-level completeness across PIT dataset rows (independent accounting)
         _ev_curr_cnt = int(pit_df['current_ev_ebitda'].notna().sum()) if 'current_ev_ebitda' in pit_df.columns else 0
         _ev_med_cnt  = int(pit_df['ev_ebitda_3y_median'].notna().sum()) if 'ev_ebitda_3y_median' in pit_df.columns else 0
         _pe_curr_cnt = int(pit_df['current_pe'].notna().sum()) if 'current_pe' in pit_df.columns else 0
         _pe_med_cnt  = int(pit_df['pe_3y_median'].notna().sum()) if 'pe_3y_median' in pit_df.columns else 0
 
-        # Authoritative both-required completeness (EV 3Y median > 0 AND PE 3Y median > 0)
+        _ev_curr_missing_cnt = max(0, pit_univ_cnt - _ev_curr_cnt)
+        _ev_med_missing_cnt  = max(0, pit_univ_cnt - _ev_med_cnt)
+
+        # Authoritative both-required completeness (Current EV/EBITDA > 0 AND 3Y Median EV/EBITDA > 0)
         _both_complete_pit = sum(
             1 for _, _row in pit_df.iterrows()
-            if (_row.get('ev_ebitda_3y_median') is not None and not pd.isna(_row.get('ev_ebitda_3y_median')) and float(_row.get('ev_ebitda_3y_median') or 0) > 0) and
-               (_row.get('pe_3y_median') is not None and not pd.isna(_row.get('pe_3y_median')) and float(_row.get('pe_3y_median') or 0) > 0)
+            if (_row.get('current_ev_ebitda') is not None and not pd.isna(_row.get('current_ev_ebitda')) and float(_row.get('current_ev_ebitda') or 0) > 0) and
+               (_row.get('ev_ebitda_3y_median') is not None and not pd.isna(_row.get('ev_ebitda_3y_median')) and float(_row.get('ev_ebitda_3y_median') or 0) > 0)
         )
         _val_missing_both_cnt = max(0, pit_univ_cnt - _both_complete_pit)
         _both_cov_pct = (_both_complete_pit / max(pit_univ_cnt, 1)) * 100.0
@@ -2524,24 +2579,25 @@ class QualityCompounderValueV2Scanner:
         )
         logger.info(
             f"ℹ️ [V2_FINAL] PIT VALUATION FIELD COMPLETENESS ({pit_univ_cnt} PIT rows): "
-            f"current_ev_ebitda={_ev_curr_cnt}/{pit_univ_cnt} ({_ev_curr_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
-            f"ev_ebitda_3y_med={_ev_med_cnt}/{pit_univ_cnt} ({_ev_med_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
-            f"current_pe={_pe_curr_cnt}/{pit_univ_cnt} ({_pe_curr_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
-            f"pe_3y_med={_pe_med_cnt}/{pit_univ_cnt} ({_pe_med_cnt/max(pit_univ_cnt,1)*100:.1f}%) | "
-            f"Both_Required={_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%) | "
+            f"Current EV/EBITDA Complete={_ev_curr_cnt}/{pit_univ_cnt} (Missing: {_ev_curr_missing_cnt}) | "
+            f"3Y EV/EBITDA Med Complete={_ev_med_cnt}/{pit_univ_cnt} (Missing: {_ev_med_missing_cnt}) | "
+            f"Both_Required_EV_Gate (Current ∩ 3Y Med)={_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%) | "
+            f"Current PE Complete={_pe_curr_cnt}/{pit_univ_cnt} | "
+            f"3Y PE Med Complete={_pe_med_cnt}/{pit_univ_cnt} | "
             f"Cache_Status={_valuation_cache_cert_status}"
         )
 
         if not _valuation_provider_healthy:
             logger.error(
                 f"❌ [V2_FINAL] PRE-FLIGHT GATE: VALUATION_DATA_CRITICAL — "
-                f"only {_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%) symbols have both required 3Y valuation medians. "
+                f"only {_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%) symbols satisfy the frozen EV/EBITDA gate (Current EV ∩ 3Y Med). "
+                f"Current EV missing for {_ev_curr_missing_cnt}/{pit_univ_cnt} symbols; 3Y Med missing for {_ev_med_missing_cnt}/{pit_univ_cnt}. "
                 f"V2 strategy decision engine is severely degraded. Continuing quality scan for telemetry."
             )
         else:
             logger.info(
                 f"✅ [V2_FINAL] PRE-FLIGHT GATE: PIT DATASET PRESENT = {pit_univ_cnt}/{pit_univ_cnt} | "
-                f"VALUATION 3Y BOTH-REQUIRED AVAILABILITY = {_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%); "
+                f"VALUATION BOTH-REQUIRED AVAILABILITY = {_both_complete_pit}/{pit_univ_cnt} ({_both_cov_pct:.1f}%); "
                 f"VAL_MISSING_FOR_BOTH_REQUIRED = {_val_missing_both_cnt}; "
                 f"CERTIFICATION_STATUS = {_valuation_cache_cert_status}; "
                 f"{non_pit_univ_cnt} non-PIT symbols will be hard-blocked by data gate. Proceeding."
@@ -2594,6 +2650,13 @@ class QualityCompounderValueV2Scanner:
             total_scanned += 1
             cmp_price = float(live_prices_map.get(sym, 0.0) or 0.0)
             price_source = "LIVE_QUOTE" if cmp_price > 0 else "UNRESOLVED"
+
+            # Allow mock / PIT override price if live quote is missing (e.g. unit tests or mock datasets)
+            if cmp_price <= 0.0 and sym in pit_records_map:
+                _mock_px = pit_records_map[sym].get('current_price')
+                if _mock_px is not None and not pd.isna(_mock_px) and float(_mock_px) > 0:
+                    cmp_price = float(_mock_px)
+                    price_source = "PIT_DATASET_OVERRIDE"
 
             # Check if certified 1D history candle is available locally
             df_px = None
@@ -2698,8 +2761,8 @@ class QualityCompounderValueV2Scanner:
             sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_cagr', row.get('revenue_cagr_3y'))))
             pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_cagr')))
             cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y', row.get('cfo_pat')))
-            de_ratio = row.get('debt_to_equity', row.get('debt_equity', row.get('debt', row.get('d_e'))))
-            share_dilution_3y = row.get('share_dilution_3y_pct', row.get('share_dilution_3y', 0.0))
+            de_ratio = row.get('debt_to_equity')
+            share_dilution_3y = row.get('share_dilution_3y_pct', row.get('share_dilution_3y'))
 
             ev_ebitda_curr = row.get('current_ev_ebitda', row.get('ev_to_ebitda', row.get('ev_ebitda')))
             ev_ebitda_med = row.get('ev_ebitda_3y_median', row.get('ev_to_ebitda_3y_median', row.get('ev_ebitda_median')))
@@ -2716,13 +2779,17 @@ class QualityCompounderValueV2Scanner:
             # Dynamic real-time calculation from CMP + statement filings if multiples were not pre-calculated
             if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and cmp_price > 0:
                 _eb = row.get('ebitda')
-                _d = float(row.get('total_debt', 0.0) or 0.0)
-                _c = float(row.get('cash_and_equivalents', 0.0) or 0.0)
+                _d_raw = row.get('total_debt')
+                _c_raw = row.get('cash_and_equivalents')
+                _d = float(_d_raw) if (_d_raw is not None and pd.notna(_d_raw)) else None
+                _c = float(_c_raw) if (_c_raw is not None and pd.notna(_c_raw)) else None
                 if _sh is not None and not pd.isna(_sh) and float(_sh) > 0 and _eb is not None and not pd.isna(_eb) and float(_eb) > 0:
-                    _mc = (float(_sh) * cmp_price) / 1e7
-                    _ev = _mc + _d - _c
-                    if _ev > 0:
-                        ev_ebitda_curr = round(_ev / float(_eb), 2)
+                    # P0: Both debt and cash must be genuinely known (no synthetic 0 defaults)
+                    if _d is not None and _c is not None:
+                        _mc = (float(_sh) * cmp_price) / 1e7
+                        _ev = _mc + _d - _c
+                        if _ev > 0:
+                            ev_ebitda_curr = round(_ev / float(_eb), 2)
             if (pe_curr is None or pd.isna(pe_curr)) and cmp_price > 0:
                 _ep = row.get('eps')
                 if _ep is not None and not pd.isna(_ep) and float(_ep) > 0:
@@ -2862,29 +2929,68 @@ class QualityCompounderValueV2Scanner:
             # PE remains available in the context payload for informational/research purposes only.
 
             valuation_data_missing = (calc_discount is None)
+            curr_val_missing = (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr))
+            med_val_missing = (ev_ebitda_med is None or pd.isna(ev_ebitda_med) or float(ev_ebitda_med or 0) <= 0)
+
             if valuation_data_missing:
                 rejections.append("DATA_INSUFFICIENT_VALUATION")
                 valuation_data_blocked_count += 1
-                # Identify exactly which valuation inputs are missing
-                _val_missing = []
-                if ev_ebitda_curr is None or pd.isna(ev_ebitda_curr): _val_missing.append("current_ev_ebitda")
-                if ev_ebitda_med is None or pd.isna(ev_ebitda_med): _val_missing.append("ev_ebitda_3y_median")
+
+                # Track exact valuation missing cause (independent inclusion-exclusion accounting)
+                if curr_val_missing:
+                    val_curr_missing_count += 1
+                if med_val_missing:
+                    val_med_missing_count += 1
+                if curr_val_missing and med_val_missing:
+                    val_both_missing_count += 1
+                    _val_missing = ["current_ev_ebitda", "ev_ebitda_3y_median"]
+                    val_reason = "BOTH_CURRENT_EV_EBITDA_AND_3Y_MEDIAN_UNAVAILABLE"
+                    providers_list = [
+                        {
+                            "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
+                            "result": "FAILED",
+                            "validation": "FAILED",
+                            "validation_reason": "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE",
+                        },
+                        {
+                            "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
+                            "result": "NOT_AVAILABLE",
+                            "validation": "FAILED",
+                            "validation_reason": "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE — run pit_valuation_history_builder.py",
+                        }
+                    ]
+                elif curr_val_missing:
+                    _val_missing = ["current_ev_ebitda"]
+                    val_reason = "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE"
+                    providers_list = [
+                        {
+                            "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
+                            "result": "FAILED",
+                            "validation": "FAILED",
+                            "validation_reason": "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE",
+                        }
+                    ]
+                else:
+                    _val_missing = ["ev_ebitda_3y_median"]
+                    val_reason = "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE"
+                    providers_list = [
+                        {
+                            "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
+                            "result": "NOT_AVAILABLE",
+                            "validation": "FAILED",
+                            "validation_reason": "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE — run pit_valuation_history_builder.py",
+                        }
+                    ]
+
                 _emit_data_recovery_log(
                     scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                     symbol=sym,
                     stage="VALUATION",
-                    missing_data=", ".join(_val_missing) if _val_missing else "ev_ebitda_discount (both current and 3Y median unavailable)",
+                    missing_data=", ".join(_val_missing),
                     recovery_attempted=True,
-                    providers=[
-                        {
-                            "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
-                            "result": "NOT_AVAILABLE" if (ev_ebitda_med is None or pd.isna(ev_ebitda_med)) else "FETCHED",
-                            "validation": "FAILED",
-                            "validation_reason": "EV_EBITDA_3Y_MEDIAN_MISSING — run pit_valuation_history_builder.py",
-                        }
-                    ],
+                    providers=providers_list,
                     validation="FAILED",
-                    validation_reason="EV_EBITDA_GATE_REQUIRES_BOTH_CURRENT_AND_3Y_MEDIAN — PE_SUBSTITUTION_DISALLOWED",
+                    validation_reason=val_reason,
                     final_action="STOCK_SKIPPED",
                 )
             else:
@@ -2903,6 +3009,16 @@ class QualityCompounderValueV2Scanner:
                         value_pass_count += 1
                     else:
                         value_reject_count += 1
+
+            # Venn intersection accounting across PIT dimensions
+            if quality_data_missing and valuation_data_missing:
+                quality_and_val_blocked_count += 1
+            elif quality_data_missing:
+                quality_only_blocked_count += 1
+            elif valuation_data_missing:
+                val_only_blocked_count += 1
+            elif price_data_missing:
+                price_only_blocked_count += 1
 
             # Count symbol as data-blocked ONCE (if ANY quality, valuation, OR price data missing)
             if quality_data_missing or valuation_data_missing or price_data_missing:
@@ -3036,25 +3152,9 @@ class QualityCompounderValueV2Scanner:
                     }
                     candidate_records.append(candidate_rec)
 
-        # Persist ONLY genuine candidate alerts to alerts table
+        # Persist scan results & evaluate post-scan health under safety gates
         try:
-            snapshots_inserted = save_v2_scan_snapshots(snapshot_records)
-            candidates_inserted = 0
-            for cand in candidate_records:
-                ok, msg = save_v2_candidate_alert(cand)
-                if ok:
-                    candidates_inserted += 1
-                    logger.info(
-                        f"🚀 [BUY_ALERT: V2] {cand['symbol']:<12} | Tier={cand['tier']} | "
-                        f"Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} (Source={cand['context'].get('price_source', 'UNKNOWN')}) | Status={msg}"
-                    )
-
             duration_sec = round(time.time() - start_ts, 2)
-            
-            # Record execution history completion — pass full breakdown so history card shows quality/value/blocked/candidates
-            # P1: _health_status is computed from real runtime data below (lines 2640+).
-            # It must be calculated BEFORE this call. We defer the call to after health computation.
-            # [call moved to after health block — see _health_status assignment below]
 
             # ── POST-SCAN HEALTH STATUS ───────────────────────────────────────────
             # Health reflects real data completeness and candidate integrity:
@@ -3068,7 +3168,7 @@ class QualityCompounderValueV2Scanner:
                 _health_error = f"ZERO_PRICE_CANDIDATE_DEFECT: {len(zero_price_candidates)} candidates produced with CMP <= 0"
             elif valuation_data_blocked_count / max(total_scanned, 1) >= 0.50:
                 _health_status = "DATA_BLOCKED"
-                _health_error = f"VALUATION_DATA_UNAVAILABLE: {valuation_data_blocked_count}/{total_scanned} symbols missing 3Y medians"
+                _health_error = f"VALUATION_DATA_UNAVAILABLE: {valuation_data_blocked_count}/{total_scanned} symbols missing current EV or 3Y medians"
             elif data_blocked_count / max(total_scanned, 1) > 0.15:
                 _health_status = "DEGRADED"
                 _health_error = (
@@ -3083,6 +3183,35 @@ class QualityCompounderValueV2Scanner:
             if _health_error:
                 logger.warning(f"⚠️ [V2_FINAL] SCANNER HEALTH: {_health_status} | {_health_error}")
 
+            # ── ALERT ROUTING GOVERNANCE UNDER HEALTH GATES ─────────────────────────
+            # MANDATORY INVARIANT: When scanner health is DATA_BLOCKED or BLOCKED,
+            # NO production BUY alerts may be routed or saved to alerts table.
+            # Candidate snapshots are preserved in the DB with status RESEARCH_CANDIDATE_DATA_BLOCKED.
+            candidates_inserted = 0
+            if _health_status in ("DATA_BLOCKED", "BLOCKED"):
+                if candidate_records:
+                    logger.warning(
+                        f"🚫 [V2_ALERT_SUPPRESSED] SCANNER HEALTH IS {_health_status}: "
+                        f"{len(candidate_records)} candidate BUY alert(s) ({[c['symbol'] for c in candidate_records]}) "
+                        f"were SUPPRESSED from live alerts table. Preserving snapshots as RESEARCH_CANDIDATE_DATA_BLOCKED."
+                    )
+                for s_rec in snapshot_records:
+                    if s_rec.get("overall_candidate_status") == "CANDIDATE":
+                        s_rec["overall_candidate_status"] = "RESEARCH_CANDIDATE_DATA_BLOCKED"
+                        s_rec["watchlist_state"] = "DATA_BLOCKED"
+                        s_rec["rejection_reason"] = f"SCANNER_HEALTH_{_health_status}"
+            else:
+                for cand in candidate_records:
+                    ok, msg = save_v2_candidate_alert(cand)
+                    if ok:
+                        candidates_inserted += 1
+                        logger.info(
+                            f"🚀 [BUY_ALERT: V2] {cand['symbol']:<12} | Tier={cand['tier']} | "
+                            f"Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} (Source={cand['context'].get('price_source', 'UNKNOWN')}) | Status={msg}"
+                        )
+
+            snapshots_inserted = save_v2_scan_snapshots(snapshot_records)
+
             # P1: Complete execution run AFTER _health_status is derived from real runtime data.
             # quality_status reflects actual health — not a hardcoded constant.
             if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
@@ -3092,7 +3221,7 @@ class QualityCompounderValueV2Scanner:
                         run_id=exec_run_ctx.run_id,
                         total_scanned=total_scanned,
                         total_stocks=total_scanned,
-                        candidate_count=candidate_count,
+                        candidate_count=candidates_inserted,
                         quality_status=_health_status,  # REAL status: OK / DEGRADED / DATA_BLOCKED / BLOCKED
                         data_insufficient_count=incomplete_quality_count,
                         data_missing_count=non_pit_blocked_count,
@@ -3103,7 +3232,7 @@ class QualityCompounderValueV2Scanner:
                             f"DataBlocked={data_blocked_count} (Non_PIT:{non_pit_blocked_count}, IncompleteQuality:{incomplete_quality_count}) | "
                             f"QualityPass={quality_pass_count} | QualityReject={quality_reject_count} | "
                             f"ValuationPass={value_pass_count} | ValuationReject={value_reject_count} | "
-                            f"Candidates={candidate_count} | Health={_health_status}"
+                            f"ResearchCandidates={len(candidate_records)} | LiveAlerts={candidates_inserted} | Health={_health_status}"
                         ),
                         metrics_json={
                             "total_scanned": total_scanned,
@@ -3113,12 +3242,19 @@ class QualityCompounderValueV2Scanner:
                             "data_blocked_count": data_blocked_count,
                             "incomplete_quality_count": incomplete_quality_count,
                             "valuation_data_blocked_count": valuation_data_blocked_count,
+                            "val_curr_missing_count": val_curr_missing_count,
+                            "val_med_missing_count": val_med_missing_count,
+                            "val_both_missing_count": val_both_missing_count,
+                            "quality_only_blocked_count": quality_only_blocked_count,
+                            "val_only_blocked_count": val_only_blocked_count,
+                            "quality_and_val_blocked_count": quality_and_val_blocked_count,
                             "price_data_blocked_count": price_data_blocked_count,
                             "quality_pass_count": quality_pass_count,
                             "quality_reject_count": quality_reject_count,
                             "value_pass_count": value_pass_count,
                             "value_reject_count": value_reject_count,
-                            "candidate_count": candidate_count,
+                            "research_candidates_detected": len(candidate_records),
+                            "live_alerts_generated": candidates_inserted,
                             "health_status": _health_status,
                             "health_error": _health_error
                         }
@@ -3131,9 +3267,9 @@ class QualityCompounderValueV2Scanner:
                     upsert_scanner_health(
                         "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                         status=_health_status,
-                        today_alerts=candidate_count,          # 0 when no candidates
+                        today_alerts=candidates_inserted,      # 0 under DATA_BLOCKED
                         last_success=now_ist.isoformat() if _health_status in ("OK", "DEGRADED") else None,
-                        processed_count=candidate_count,       # alerts generated
+                        processed_count=candidates_inserted,   # live alerts generated
                         total_count=total_scanned,             # equities evaluated
                         duration_seconds=duration_sec,
                         error_msg=_health_error,
@@ -3143,7 +3279,12 @@ class QualityCompounderValueV2Scanner:
                     logger.debug(f"Scanner health update warning: {e}")
 
             # Structured End-of-Scan Telemetry Summary Report with strict mathematical identities
-            _val_status_str = "DATA_AVAILABLE" if _valuation_provider_healthy else "DATA_BLOCKED — VALUATION_UNAVAILABLE"
+            _pit_blocked_cnt = pit_univ_cnt - data_complete_count
+            _venn_sum = quality_only_blocked_count + val_only_blocked_count + quality_and_val_blocked_count + price_only_blocked_count
+            _venn_ok = (_venn_sum == _pit_blocked_cnt)
+            _val_decomp_sum = val_curr_missing_count + val_med_missing_count - val_both_missing_count
+            _val_decomp_ok = (_val_decomp_sum == valuation_data_blocked_count)
+
             logger.info("=" * 80)
             logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
             logger.info("=" * 80)
@@ -3151,20 +3292,26 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"     • Approved Scanner Universe      : {total_scanned}")
             logger.info(f"     • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT statement history)")
             logger.info(f"     • Non-PIT / Missing PIT Filings  : {non_pit_blocked_count}  (hard-blocked as DATA_MISSING_PIT_FILINGS)")
-            logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]")
+            logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]  {'✅' if pit_univ_cnt + non_pit_blocked_count == total_scanned else '⚠️ MISMATCH'}")
             logger.info(f"     • PIT Field Completeness         : EV/EBITDA_curr={_ev_curr_cnt}/{pit_univ_cnt}, EV/EBITDA_3Ymed={_ev_med_cnt}/{pit_univ_cnt}, PE_curr={_pe_curr_cnt}/{pit_univ_cnt}, PE_3Ymed={_pe_med_cnt}/{pit_univ_cnt}, Both_Required={_both_complete_pit}/{pit_univ_cnt} (Cache: {_valuation_cache_cert_status})")
             logger.info("  2. DATA COMPLETENESS & BLOCKING RECONCILIATION:")
             logger.info(f"     • Complete Required Quality Data : {data_complete_count}  ({round(data_complete_count/max(total_scanned,1)*100,1)}% of universe — requires quality + valuation + price all present)")
             logger.info(f"     • Total Data Blocked             : {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}% of universe)")
+            logger.info(f"       [Identity: {data_complete_count} Complete + {data_blocked_count} Blocked = {total_scanned} Universe]  {'✅' if data_complete_count + data_blocked_count == total_scanned else '⚠️ MISMATCH'}")
             logger.info(f"       ├─ Non-PIT (no filing history) : {non_pit_blocked_count}")
-            logger.info(f"       └─ PIT blocked (any required field missing) : {pit_univ_cnt - data_complete_count}  of {pit_univ_cnt} PIT symbols")
-            logger.info(f"           ├─ Incomplete Quality History : {incomplete_quality_count}  (missing 5Y ROCE/CAGR/CFO/D_E)")
-            logger.info(f"           ├─ Valuation Missing Both-Req : {_val_missing_both_cnt}  (lacks both 3Y EV/EBITDA + PE medians; {_both_complete_pit}/{pit_univ_cnt} complete)")
-            logger.info(f"           └─ Price Data Missing         : {price_data_blocked_count}  (missing/non-positive CMP)")
-            logger.info(f"       [Universe: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved]")
-            logger.info(f"       [PIT Quality: {pit_univ_cnt - incomplete_quality_count} Quality-complete + {incomplete_quality_count} Quality-incomplete = {pit_univ_cnt} PIT]")
-            logger.info(f"       [PIT Valuation: {_both_complete_pit} Valuation-available + {_val_missing_both_cnt} Valuation-missing = {pit_univ_cnt} PIT | Status: {_valuation_cache_cert_status}]")
-            logger.info(f"       [Note: Valuation and Quality dimensions overlap — total-blocked is NOT their sum]")
+            logger.info(f"       └─ PIT blocked (any required field missing) : {_pit_blocked_cnt} of {pit_univ_cnt} PIT symbols")
+            logger.info(f"           ├─ Quality-Only Incomplete    : {quality_only_blocked_count}  (quality missing, valuation complete)")
+            logger.info(f"           ├─ Valuation-Only Incomplete  : {val_only_blocked_count}  (valuation missing, quality complete)")
+            logger.info(f"           ├─ Both Quality & Valuation   : {quality_and_val_blocked_count}  (both quality and valuation missing)")
+            logger.info(f"           └─ Price-Only Missing         : {price_only_blocked_count}  (missing/non-positive CMP)")
+            logger.info(f"           [Venn Identity: {quality_only_blocked_count} Quality-Only + {val_only_blocked_count} Valuation-Only + {quality_and_val_blocked_count} Both + {price_only_blocked_count} Price-Only = {_pit_blocked_cnt} PIT Blocked]  {'✅' if _venn_ok else '⚠️ MISMATCH'}")
+            logger.info(f"       • Valuation Blocked Decomposition (Total Valuation Blocked: {valuation_data_blocked_count}):")
+            logger.info(f"           ├─ Current EV/EBITDA Missing  : {val_curr_missing_count}")
+            logger.info(f"           ├─ 3Y EV/EBITDA Median Missing: {val_med_missing_count}")
+            logger.info(f"           └─ Both Missing (Overlap)     : {val_both_missing_count}")
+            logger.info(f"           [Inclusion-Exclusion Identity: {val_curr_missing_count} Current + {val_med_missing_count} 3Y_Med - {val_both_missing_count} Both = {valuation_data_blocked_count} Valuation Blocked]  {'✅' if _val_decomp_ok else '⚠️ MISMATCH'}")
+            logger.info(f"       [Universe Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved]  {'✅' if pit_univ_cnt + non_pit_blocked_count == total_scanned else '⚠️ MISMATCH'}")
+            logger.info(f"       [Total Blocked Identity: {non_pit_blocked_count} Non-PIT + {_pit_blocked_cnt} PIT-Blocked = {data_blocked_count} Total Blocked]  {'✅' if non_pit_blocked_count + _pit_blocked_cnt == data_blocked_count else '⚠️ MISMATCH'}")
             _quality_evaluated = pit_univ_cnt - incomplete_quality_count  # PIT symbols that had enough quality data to evaluate
             logger.info("  3. STRATEGY FILTER FUNNEL RECONCILIATION:")
             logger.info(f"     • Quality-evaluated PIT symbols  : {_quality_evaluated}  (PIT symbols with full ROCE/CAGR/CFO/D_E history)")
@@ -3176,9 +3323,10 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"     • Valuation Gate Rejected        : {value_reject_count}  (EV/EBITDA discount < 25%)")
             logger.info(f"     • Valuation Gate Blocked (no data): {quality_pass_count - value_pass_count - value_reject_count}  (quality-passed but 3Y median absent)")
             logger.info(f"       [Identity: {value_pass_count} Val-Pass + {value_reject_count} Val-Reject + {quality_pass_count - value_pass_count - value_reject_count} Val-Blocked = {quality_pass_count} Quality-Passed]  {'✅' if value_pass_count + value_reject_count + (quality_pass_count - value_pass_count - value_reject_count) == quality_pass_count else '⚠️ MISMATCH'}")
-            logger.info(f"     • Candidates Selected (BUY)      : {candidate_count}  (verified CMP > 0 and 0 rejections)")
+            logger.info(f"     • Research Candidates (Gates OK) : {len(candidate_records)}")
+            logger.info(f"     • Production BUY Alerts Saved    : {candidates_inserted} {'(SUPPRESSED: scanner in DATA_BLOCKED)' if _health_status in ('DATA_BLOCKED', 'BLOCKED') and candidate_records else ''}")
             logger.info(f"     • Snapshots Saved in DB          : {snapshots_inserted}  (100% universe audit trail)")
-            logger.info("  4. HEALTH STATE:")
+            logger.info("  4. HEALTH STATE & ALERT ROUTING GOVERNANCE:")
             logger.info(f"     • Health Status                  : {_health_status} (honest reflection of {data_blocked_count}/{total_scanned} data-blocked stocks)")
             logger.info(f"     • Zero-Price Defect Count        : {len(zero_price_candidates)}")
             logger.info(f"     • Candidate Alerts Saved         : {candidates_inserted}")
@@ -3186,14 +3334,15 @@ class QualityCompounderValueV2Scanner:
             logger.info("-" * 80)
             if not _valuation_provider_healthy:
                 logger.error(
-                    "🚫 [V2_FINAL] ZERO CANDIDATES IS NOT A VALID MARKET SIGNAL — "
+                    "🚫 [V2_FINAL] ZERO PRODUCTION CANDIDATES IS NOT A VALID MARKET SIGNAL — "
                     "It is a DATA FAILURE. V2 cannot make the BUY decision without real "
                     "3Y EV/EBITDA or PE median per stock. Required action: populate "
                     "ev_ebitda_3y_median / pe_3y_median in the PIT fundamentals pipeline."
                 )
-            logger.info(f"🎯 GENERATED BUY CANDIDATE ALERTS ({len(candidate_records)} STOCKS):")
+            logger.info(f"🎯 CANDIDATE AUDIT ({len(candidate_records)} STOCKS MET GATES):")
             for idx, cand in enumerate(candidate_records, 1):
-                logger.info(f"  [{idx:02d}] {cand['symbol']:<12} | Tier={cand['tier']} | Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} (Source={cand['context'].get('price_source', 'UNKNOWN')}) | SignalDate={cand['signal_date']}")
+                _alert_note = "PRODUCTION_BUY_ALERT" if candidates_inserted > 0 else "SUPPRESSED_DATA_BLOCKED"
+                logger.info(f"  [{idx:02d}] {cand['symbol']:<12} | Tier={cand['tier']} | Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} (Source={cand['context'].get('price_source', 'UNKNOWN')}) | Status={_alert_note}")
             if not candidate_records:
                 _zero_reason = "no stocks met all quality + valuation gates" if _valuation_provider_healthy else "valuation data unavailable for all stocks"
                 logger.info(f"  (none — {_zero_reason})")
@@ -3201,6 +3350,7 @@ class QualityCompounderValueV2Scanner:
 
             return {
                 "status": _health_status,
+                "health_status": _health_status,
                 "execution": "SUCCESS",
                 "strategy_status": "BLOCKED_DATA" if not _valuation_provider_healthy else ("OK" if candidate_count > 0 else "SCARCITY"),
                 "valuation_provider_healthy": _valuation_provider_healthy,
@@ -3402,30 +3552,42 @@ class QualityCompounderValueV2Scanner:
                             if p0 is not None and p1 is not None and p0 > 0 and p1 > 0:
                                 pat_cagr = round((pow(p1 / p0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
 
-                        # Debt to Equity
-                        td = latest_filing.get('total_debt') if pd.notna(latest_filing.get('total_debt')) else 0.0
-                        te = latest_filing.get('total_equity') if pd.notna(latest_filing.get('total_equity')) else None
-                        de = (float(td) / float(te)) if te is not None and float(te) > 0 else (0.0 if float(td) == 0 else None)
+                        # Debt to Equity — strictly derived from latest annual filing with disclosed balance sheet
+                        latest_ann = g_ann.iloc[-1] if not g_ann.empty else latest_filing
+                        td_raw = latest_ann.get('total_debt')
+                        te_raw = latest_ann.get('total_equity')
+                        td_val = float(td_raw) if (td_raw is not None and pd.notna(td_raw)) else None
+                        te_val = float(te_raw) if (te_raw is not None and pd.notna(te_raw) and float(te_raw) > 0) else None
+
+                        # P0: Missing debt or missing equity must result in de = None (UNKNOWN != ZERO).
+                        # Only genuine zero debt (td == 0.0) with valid positive equity yields de = 0.0.
+                        if td_val is not None and te_val is not None:
+                            de = round(td_val / te_val, 3)
+                        else:
+                            de = None
 
                         # Statement fundamentals for dynamic valuation
-                        _shares = latest_filing.get('shares_outstanding')
+                        _shares = latest_ann.get('shares_outstanding')
                         _shares_f = float(_shares) if _shares is not None and pd.notna(_shares) and float(_shares) > 0 else None
-                        _eps = latest_filing.get('eps')
+                        _eps = latest_ann.get('eps')
                         _eps_f = float(_eps) if _eps is not None and pd.notna(_eps) and float(_eps) > 0 else None
-                        _net_p = latest_filing.get('net_profit')
+                        _net_p = latest_ann.get('net_profit')
                         _net_p_f = float(_net_p) if _net_p is not None and pd.notna(_net_p) else None
-                        _op     = latest_filing.get('operating_profit')
-                        _da     = latest_filing.get('depreciation_amortization')
+
+                        # Ind-AS / GAAP Exact Derivation if shares_outstanding is not explicitly reported:
+                        # Basic EPS = Net Profit (Cr) * 1e7 / Shares => Shares = Net Profit (Cr) * 1e7 / EPS
+                        if _shares_f is None and _net_p_f is not None and _eps_f is not None and _eps_f > 0:
+                            _shares_f = (_net_p_f * 1e7) / _eps_f
+
+                        _op     = latest_ann.get('operating_profit')
+                        _da     = latest_ann.get('depreciation_amortization')
                         _op_f   = float(_op)   if _op   is not None and pd.notna(_op)   else None
-                        # P1: Use None (not 0.0) when D&A, debt, or cash are missing.
-                        # Defaulting to 0.0 is synthetic — zero D&A means full EBITDA=EBIT,
-                        # zero debt/cash understates EV. UNKNOWN != ZERO.
                         _da_f   = float(_da)   if _da   is not None and pd.notna(_da)   else None
-                        _td_f   = float(td)    if td    is not None and pd.notna(td)    else None
-                        _cash   = latest_filing.get('cash_and_equivalents')
+                        _td_f   = td_val
+                        _cash   = latest_ann.get('cash_and_equivalents')
                         _cash_f = float(_cash) if _cash  is not None and pd.notna(_cash)  else None
-                        # EBITDA requires both operating_profit AND D&A to be known.
-                        _ebitda_f = ((_op_f + _da_f) if (_da_f is not None) else _op_f) if (_op_f is not None) else None
+                        # EBITDA requires both operating_profit AND D&A to be genuinely known.
+                        _ebitda_f = (_op_f + _da_f) if (_op_f is not None and _da_f is not None) else None
 
                         # ── VALUATION MULTIPLES ─────────────────────────────────────────────
                         v_data = val_cache.get(clean_sym, val_cache.get(sym, {}))
@@ -3462,13 +3624,13 @@ class QualityCompounderValueV2Scanner:
 
                         ev_curr = None
                         if _mcap_cr is not None and _ebitda_f is not None and _ebitda_f > 0:
-                            # P1: Only include debt/cash in EV if known; do not substitute 0 for unknown.
+                            # P0: Only include debt and cash in EV if genuinely known (no synthetic 0 defaults).
                             # EV = MCap + Debt - Cash. If either is None, EV cannot be reliably calculated.
                             if _td_f is not None and _cash_f is not None:
                                 _ev = _mcap_cr + _td_f - _cash_f
                                 if _ev > 0:
                                     ev_curr = round(_ev / _ebitda_f, 2)
-                            # else: debt or cash unknown → ev_curr remains None (DATA_UNAVAILABLE)
+                            # else: debt or cash unknown → ev_curr remains None (DATA_INSUFFICIENT_VALUATION)
 
                         records.append({
                             'symbol': clean_sym,
