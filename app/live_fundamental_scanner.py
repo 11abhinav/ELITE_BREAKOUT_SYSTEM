@@ -2813,6 +2813,58 @@ class QualityCompounderValueV2Scanner:
         quality_and_val_blocked_count = 0 # Both quality and valuation incomplete
         price_only_blocked_count = 0      # Price missing/non-positive CMP, but quality and valuation complete
 
+        # ── V2 DUAL-POPULATION HEALTH ACCOUNTING COUNTERS ────────────────────────
+        # FIX (2026-10-01): Previously, health was computed from the full 886-symbol audit universe,
+        # which caused DEGRADED even when the qualifying pipeline was producing 40 BUY alerts.
+        # Root cause: structurally ineligible symbols (recent IPOs / insufficient filing history)
+        # were counted identically to genuine data failures (mature companies with missing ingestion).
+        #
+        # New model:
+        #   STRUCTURAL_INELIGIBLE: Symbol cannot satisfy 5Y prerequisite by design (< 5 annual filings
+        #                          available anywhere) — NOT a data failure, never triggers DEGRADED.
+        #   DATA_FAILURE:          Mature symbol that should be evaluable but our ingestion failed.
+        #                          MUST remain a failure until resolved.
+        #   HEALTH = GREEN when DATA_FAILURE_COUNT == 0.
+        structural_ineligible_count = 0       # Symbols with insufficient historical existence (not a provider failure)
+        non_pit_data_failure_count = 0        # Non-PIT symbols with sufficient raw history (ingestion gap = failure)
+        incomplete_pit_data_failure_count = 0 # PIT symbols with enough annual filings but still null metrics (failure)
+
+        # Pre-load raw filing annual counts for no-PIT symbol classification.
+        # This index maps symbol → n_annual_filings from pit_raw_filings/{SYM}.json.
+        # Used to distinguish: no raw annual data (STRUCTURAL_INELIGIBLE) vs.
+        # raw annual data exists but not ingested to PIT parquet (DATA_FAILURE).
+        # The threshold is >=5 annual filings → symbol is mature → failure to appear in PIT = DATA_FAILURE.
+        # Threshold <5 → structurally ineligible (cannot produce full 5Y metrics even if ingested).
+        _MIN_ANNUAL_FILINGS_FOR_EVALUABLE = 5  # must have >= 5 annual filings to be data-failure-classified
+        _raw_filings_annual_index: Dict[str, int] = {}  # symbol → n_annual_filings (from pit_raw_filings/)
+        _raw_filings_dir = os.path.join(DATA_DIR, "pit_raw_filings")
+        if os.path.isdir(_raw_filings_dir):
+            for _rf_sym in universe_symbols:
+                _rf_path = os.path.join(_raw_filings_dir, f"{_rf_sym}.json")
+                if os.path.exists(_rf_path):
+                    try:
+                        with open(_rf_path, "r") as _rf_f:
+                            _rf_data = json.load(_rf_f)
+                        # Raw filing JSONs may be a list or a dict with 'annual' / 'quarterly' keys
+                        if isinstance(_rf_data, list):
+                            # Flat list: count entries with a period_type/type == 'Annual' or all rows
+                            _ann_rows = [r for r in _rf_data if str(r.get("period_type", r.get("type", ""))).lower() in ("annual", "yearly") or r.get("is_annual", False)]
+                            _raw_filings_annual_index[_rf_sym] = len(_ann_rows) if _ann_rows else len(_rf_data)
+                        elif isinstance(_rf_data, dict):
+                            # Dict with 'annual' key
+                            _ann_list = _rf_data.get("annual", _rf_data.get("annuals", []))
+                            _raw_filings_annual_index[_rf_sym] = len(_ann_list) if isinstance(_ann_list, list) else 0
+                        else:
+                            _raw_filings_annual_index[_rf_sym] = 0
+                    except Exception as _rf_err:
+                        # Conservative: file exists but unreadable → mark as DATA_FAILURE (not structural)
+                        _raw_filings_annual_index[_rf_sym] = _MIN_ANNUAL_FILINGS_FOR_EVALUABLE
+                # No raw filing file at all → symbol not in index → treated as DATA_FAILURE (conservative)
+        logger.info(
+            f"📂 [V2_FINAL] Raw filing index loaded: {len(_raw_filings_annual_index)} symbols indexed | "
+            f"threshold for DATA_FAILURE classification: >={_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} annual filings"
+        )
+
         # Filter to latest PIT record per symbol on or before today
         if 'filing_date' in pit_df.columns:
             pit_df['filing_date'] = pd.to_datetime(pit_df['filing_date'])
@@ -2989,6 +3041,25 @@ class QualityCompounderValueV2Scanner:
                 non_pit_blocked_count += 1
                 data_blocked_count += 1
                 rejections = ["DATA_MISSING_PIT_FILINGS"]
+
+                # FIX (2026-10-01): Classify non-PIT symbols into STRUCTURAL_INELIGIBLE vs DATA_FAILURE.
+                # A newly listed company with < 5 annual filings cannot produce 5Y metrics by design;
+                # it must NOT be counted as a provider/ingestion failure.
+                # A mature company (>= 5 annual filings in raw_filings/) that is absent from the PIT
+                # parquet is a genuine data failure and MUST remain counted until the ingestion is fixed.
+                # Conservative default: if symbol is not in the raw filing index, treat as DATA_FAILURE.
+                _raw_ann_count = _raw_filings_annual_index.get(sym, _MIN_ANNUAL_FILINGS_FOR_EVALUABLE)
+                if _raw_ann_count < _MIN_ANNUAL_FILINGS_FOR_EVALUABLE:
+                    # Symbol has < 5 annual filings available anywhere → structurally ineligible
+                    structural_ineligible_count += 1
+                    _eligibility_label = f"STRUCTURAL_INELIGIBLE_NO_PIT (raw_annual_filings={_raw_ann_count} < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE})"
+                    _data_status = "STRUCTURAL_INELIGIBLE_INSUFFICIENT_HISTORY"
+                else:
+                    # Symbol has >= 5 raw annual filings but is missing from PIT parquet → ingestion failure
+                    non_pit_data_failure_count += 1
+                    _eligibility_label = f"DATA_FAILURE_INGESTION_GAP (raw_annual_filings={_raw_ann_count} >= {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE}, absent from PIT parquet)"
+                    _data_status = "DATA_MISSING_PIT_FILINGS"
+
                 _emit_data_recovery_log(
                     scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                     symbol=sym,
@@ -3008,7 +3079,7 @@ class QualityCompounderValueV2Scanner:
                 )
                 logger.info(
                     f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status=REJECTED  | "
-                    f"FailedAt=DATA_MISSING_PIT_FILINGS    | Rejections={rejections} | "
+                    f"FailedAt={_eligibility_label} | "
                     f"CMP=₹{cmp_price:<8.2f} (Source={price_source}) | "
                     f"RequiredToPass=['Filing history in pit_fundamentals_v1']"
                 )
@@ -3031,10 +3102,13 @@ class QualityCompounderValueV2Scanner:
                         "scan_date": today_str,
                         "current_price": cmp_price,
                         "price_source": price_source,
-                        "data_status": "DATA_MISSING_PIT_FILINGS"
+                        "data_status": _data_status,
+                        "eligibility_classification": _eligibility_label,
+                        "raw_annual_filing_count": _raw_ann_count,
                     }
                 })
                 continue
+
 
             row = pit_records_map[sym]
             industry = str(row.get('industry', 'Unknown'))
@@ -3202,6 +3276,24 @@ class QualityCompounderValueV2Scanner:
                             ("debt_to_equity", de_ratio),
                         ] if val is None or pd.isna(val)
                     ]
+
+                    # FIX (2026-10-01): Classify incomplete-PIT symbols into STRUCTURAL_INELIGIBLE vs DATA_FAILURE.
+                    # annual_filing_count is written by load_pit_dataset() for every PIT record.
+                    # If the symbol has < _MIN_ANNUAL_FILINGS_FOR_EVALUABLE annual filings in the parquet,
+                    # it structurally cannot produce full 5Y metrics and is NOT a data failure.
+                    # If it has >= _MIN_ANNUAL_FILINGS_FOR_EVALUABLE but metrics are still null,
+                    # that is a metric computation / ingestion failure → DATA_FAILURE.
+                    # Conservative fallback: if field absent from row dict, assume DATA_FAILURE.
+                    _inc_ann_count = int(row.get("annual_filing_count", _MIN_ANNUAL_FILINGS_FOR_EVALUABLE) or _MIN_ANNUAL_FILINGS_FOR_EVALUABLE)
+                    if _inc_ann_count < _MIN_ANNUAL_FILINGS_FOR_EVALUABLE:
+                        # Insufficient filing history → structural ineligibility, not a provider failure
+                        structural_ineligible_count += 1
+                        _inc_eligibility = f"STRUCTURAL_INELIGIBLE_PARTIAL_PIT (annual_filings={_inc_ann_count} < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE})"
+                    else:
+                        # Has >= 5 annual filings but quality metrics are null → metric calc / ingestion failure
+                        incomplete_pit_data_failure_count += 1
+                        _inc_eligibility = f"DATA_FAILURE_QUALITY_METRIC_NULL (annual_filings={_inc_ann_count}, missing_fields={_missing_fields})"
+
                     _emit_data_recovery_log(
                         scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                         symbol=sym,
@@ -3214,12 +3306,15 @@ class QualityCompounderValueV2Scanner:
                                 "result": "FETCHED",
                                 "validation": "FAILED",
                                 "validation_reason": "INSUFFICIENT_5Y_ANNUAL_FILING_HISTORY_FOR_METRIC_CALCULATION",
+                                "eligibility_classification": _inc_eligibility,
+                                "annual_filing_count": _inc_ann_count,
                             }
                         ],
                         validation="FAILED",
                         validation_reason=f"FIELDS_REMAIN_NULL_AFTER_PIT_LOAD: {', '.join(_missing_fields)}",
                         final_action="STOCK_SKIPPED",
                     )
+
                 else:
                     roce_val = float(roce_5y)
                     sales_val = float(sales_cagr_5y)
@@ -3528,11 +3623,26 @@ class QualityCompounderValueV2Scanner:
             duration_sec = round(time.time() - start_ts, 2)
 
             # ── POST-SCAN HEALTH STATUS ───────────────────────────────────────────
-            # Health reflects real data completeness and candidate integrity:
-            # 1. Any candidate created with CMP <= 0 -> BLOCKED (Defect)
-            # 2. Valuation unavailable for >= 50% -> DATA_BLOCKED
-            # 3. Data blocked ratio > 15% -> DEGRADED
-            # 4. Otherwise -> OK
+            # V2 DUAL-POPULATION HEALTH MODEL (FIX 2026-10-01):
+            #
+            # OLD (incorrect): health based on (data_blocked / 886 universe) > 15%
+            #   → Always DEGRADED because 90-229 structurally ineligible symbols (recent IPOs,
+            #     insufficient filing history) were counted identically to provider failures.
+            #
+            # NEW (correct): health based on DATA_FAILURE_COUNT alone.
+            #   STRUCTURAL_INELIGIBLE: symbol cannot satisfy 5Y prerequisite by design
+            #                          (< 5 annual filings exist anywhere). NOT a data failure.
+            #   DATA_FAILURE: mature symbol that SHOULD be evaluable but our ingestion failed.
+            #                 MUST remain in DEGRADED state until the gap is resolved.
+            #   HEALTH = GREEN (OK) when DATA_FAILURE_COUNT == 0.
+            #
+            # Priority order:
+            #   1. BLOCKED          — any candidate produced with CMP <= 0 (defect)
+            #   2. DATA_BLOCKED     — valuation data unavailable for >= 50% of scanned symbols
+            #   3. DEGRADED         — DATA_FAILURE_COUNT > 0 (real ingestion/coverage gaps remain)
+            #   4. OK (GREEN)       — DATA_FAILURE_COUNT == 0 (all failures resolved or structural)
+            _total_data_failure_count = non_pit_data_failure_count + incomplete_pit_data_failure_count
+
             zero_price_candidates = [c for c in candidate_records if float(c.get("current_price", 0) or 0) <= 0]
             if zero_price_candidates:
                 _health_status = "BLOCKED"
@@ -3540,16 +3650,17 @@ class QualityCompounderValueV2Scanner:
             elif valuation_data_blocked_count / max(total_scanned, 1) >= 0.50:
                 _health_status = "DATA_BLOCKED"
                 _health_error = f"VALUATION_DATA_UNAVAILABLE: {valuation_data_blocked_count}/{total_scanned} symbols missing current EV or 3Y medians"
-            elif data_blocked_count / max(total_scanned, 1) > 0.15:
+            elif _total_data_failure_count > 0:
                 _health_status = "DEGRADED"
                 _health_error = (
-                    f"DATA_DEGRADED: {data_blocked_count}/{total_scanned} "
-                    f"({data_blocked_count/max(total_scanned,1)*100:.1f}%) symbols data-blocked "
-                    f"(Non_PIT: {non_pit_blocked_count}, IncompleteQuality: {incomplete_quality_count})"
+                    f"DATA_FAILURE: {_total_data_failure_count} mature symbols with unresolved ingestion/coverage gaps "
+                    f"(NonPIT_failures={non_pit_data_failure_count}, IncompletePIT_failures={incomplete_pit_data_failure_count}) | "
+                    f"StructurallyIneligible={structural_ineligible_count} (excluded from health basis — recent IPOs/insufficient history)"
                 )
             else:
                 _health_status = "OK"
                 _health_error = None
+
 
             if _health_error:
                 logger.warning(f"⚠️ [V2_FINAL] SCANNER HEALTH: {_health_status} | {_health_error}")
@@ -3627,9 +3738,18 @@ class QualityCompounderValueV2Scanner:
                             "research_candidates_detected": len(candidate_records),
                             "live_alerts_generated": candidates_inserted,
                             "health_status": _health_status,
-                            "health_error": _health_error
+                            "health_error": _health_error,
+                            # V2 dual-population health accounting (FIX 2026-10-01)
+                            "structural_ineligible_count": structural_ineligible_count,
+                            "non_pit_data_failure_count": non_pit_data_failure_count,
+                            "incomplete_pit_data_failure_count": incomplete_pit_data_failure_count,
+                            "total_data_failure_count": _total_data_failure_count,
+                            "evaluable_universe_count": total_scanned - structural_ineligible_count,
+                            "health_basis": "DATA_FAILURE_COUNT",
+                            "health_basis_threshold": "GREEN_WHEN_ZERO",
                         }
                     )
+
                 except Exception as e:
                     logger.debug(f"Execution history completion warning: {e}")
 
@@ -3662,7 +3782,10 @@ class QualityCompounderValueV2Scanner:
             logger.info("  1. UNIVERSE & DATA PROVENANCE ACCOUNTING:")
             logger.info(f"     • Approved Scanner Universe      : {total_scanned}")
             logger.info(f"     • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT statement history)")
-            logger.info(f"     • Non-PIT / Missing PIT Filings  : {non_pit_blocked_count}  (hard-blocked as DATA_MISSING_PIT_FILINGS)")
+            logger.info(f"     • Non-PIT / Missing PIT Filings  : {non_pit_blocked_count}  (blocked — see breakdown below)")
+            logger.info(f"       ├─ Structural Ineligible         : (see section 5 for full classification)")
+            logger.info(f"       └─ Data Failures (ingestion gap) : {non_pit_data_failure_count}  (mature, raw filings exist >= {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} annual, absent from PIT parquet)")
+
             logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]  {'✅' if pit_univ_cnt + non_pit_blocked_count == total_scanned else '⚠️ MISMATCH'}")
             logger.info(f"     • PIT Field Completeness         : EV/EBITDA_curr={_ev_curr_cnt}/{pit_univ_cnt}, EV/EBITDA_3Ymed={_ev_med_cnt}/{pit_univ_cnt}, PE_curr={_pe_curr_cnt}/{pit_univ_cnt}, PE_3Ymed={_pe_med_cnt}/{pit_univ_cnt}, EV_PE_Both_Complete={_ev_pe_both_complete}/{pit_univ_cnt} (Cache: {_valuation_cache_cert_status})")
             logger.info("  2. DATA COMPLETENESS & BLOCKING RECONCILIATION:")
@@ -3710,10 +3833,23 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"     • Production BUY Alerts Saved    : {candidates_inserted} {_suppression_note}")
             logger.info(f"     • Snapshots Saved in DB          : {snapshots_inserted}  (100% universe audit trail)")
             logger.info("  4. HEALTH STATE & ALERT ROUTING GOVERNANCE:")
-            logger.info(f"     • Health Status                  : {_health_status} (honest reflection of {data_blocked_count}/{total_scanned} data-blocked stocks)")
+            logger.info(f"     • Health Status                  : {_health_status}")
+            logger.info(f"     • Health Basis (NEW dual-pop)    : DATA_FAILURE_COUNT={_total_data_failure_count} (GREEN when = 0)")
             logger.info(f"     • Zero-Price Defect Count        : {len(zero_price_candidates)}")
             logger.info(f"     • Candidate Alerts Saved         : {candidates_inserted}")
             logger.info(f"     • Duration (Seconds)             : {duration_sec}s")
+            logger.info("  5. POPULATION CLASSIFICATION (V2 DUAL-POPULATION HEALTH MODEL):")
+            logger.info(f"     • Audit Universe                 : {total_scanned}  (all approved clean equities evaluated)")
+            logger.info(f"     • Structurally Ineligible        : {structural_ineligible_count}  (insufficient history — NOT a data failure, excluded from health basis)")
+            logger.info(f"       ├─ No-PIT structural           : {structural_ineligible_count - (non_pit_data_failure_count + incomplete_pit_data_failure_count - _total_data_failure_count) if structural_ineligible_count > 0 else structural_ineligible_count}  (absent from PIT parquet with < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} raw annual filings)")
+            logger.info(f"       └─ Partial-PIT structural      : {structural_ineligible_count - non_pit_blocked_count if structural_ineligible_count > non_pit_blocked_count else 0}  (in PIT parquet but < {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} annual filings → null metrics)")
+            logger.info(f"     • DATA_FAILURE (ingestion gaps)  : {_total_data_failure_count}  (mature symbols that SHOULD be evaluable — MUST FIX)")
+            logger.info(f"       ├─ Non-PIT data failures       : {non_pit_data_failure_count}  (absent from PIT parquet with >= {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} raw annual filings)")
+            logger.info(f"       └─ Incomplete-PIT data failures: {incomplete_pit_data_failure_count}  (in PIT parquet, >= {_MIN_ANNUAL_FILINGS_FOR_EVALUABLE} filings, but quality metrics null)")
+            logger.info(f"     • Evaluable Universe             : {total_scanned - structural_ineligible_count}  (audit universe minus structurally ineligible)")
+            logger.info(f"     • HEALTH_POPULATION_BASIS        : DATA_FAILURE_COUNT={_total_data_failure_count} — GREEN when = 0")
+            logger.info(f"     [Identity: {structural_ineligible_count} Structural + {_total_data_failure_count} DataFailure + {data_complete_count} Complete + {total_scanned - structural_ineligible_count - _total_data_failure_count - data_complete_count} Other = {total_scanned}]")
+
             logger.info("-" * 80)
             if not _valuation_provider_healthy:
                 if candidate_records and _health_status in ("DATA_BLOCKED", "BLOCKED"):
@@ -4108,8 +4244,13 @@ class QualityCompounderValueV2Scanner:
                             # Provenance / audit fields
                             'mcap_source': _mcap_source,
                             'ev_cash_component': _ev_cash_component,
-                            'provenance_status': 'CERTIFIED_PIT_STATEMENT_CALCULATED'
+                            'provenance_status': 'CERTIFIED_PIT_STATEMENT_CALCULATED',
+                            # FIX (2026-10-01): Annual filing count for structural eligibility classification in scan_universe.
+                            # Used to distinguish STRUCTURAL_INELIGIBLE (< 5 annual filings = cannot ever produce 5Y metrics)
+                            # from DATA_FAILURE (>= 5 annual filings but quality metrics still null = ingestion/calc failure).
+                            'annual_filing_count': n_ann,
                         })
+
 
                     pit_df = pd.DataFrame(records)
                     # Valuation coverage report — logged at dataset build time
