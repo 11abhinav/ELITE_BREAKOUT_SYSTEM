@@ -2723,11 +2723,11 @@ class QualityCompounderValueV2Scanner:
 
         ev_pts = round(30.0 * min(max((ev_disc_eff - 0.25) / 0.25, 0.0), 1.0), 2)
         roce_val_raw = row_dict.get("roce_5y_avg")
-        roce_val = float(roce_val_raw) if (roce_val_raw is not None and not pd.isna(roce_val_raw)) else 0.0
+        roce_val = float(roce_val_raw) if (roce_val_raw is not None and not pd.isna(roce_val_raw) and float(roce_val_raw) != -999.0) else 0.0
         roce_pts = round(25.0 * min(max((roce_val - 15.0) / 25.0, 0.0), 1.0), 2)
         pe_pts = round(20.0 * min(max(pe_disc_eff / 0.40, 0.0), 1.0), 2)
         cfo_pat_raw = row_dict.get("cfo_pat_5y_ratio")
-        cfo_pat_val = float(cfo_pat_raw) if (cfo_pat_raw is not None and not pd.isna(cfo_pat_raw)) else 0.0
+        cfo_pat_val = float(cfo_pat_raw) if (cfo_pat_raw is not None and not pd.isna(cfo_pat_raw) and float(cfo_pat_raw) != -999.0) else 0.0
         cfo_pts = round(15.0 * min(max((cfo_pat_val - 0.80) / 0.70, 0.0), 1.0), 2)
         if res_dd <= 0.10:
             res_pts = 10.0
@@ -2738,11 +2738,11 @@ class QualityCompounderValueV2Scanner:
         return {
             "ev_discount": ev_discount,
             "ev_pts": ev_pts,
-            "roce_val": roce_val,
+            "roce_val": roce_val if (roce_val_raw is not None and not pd.isna(roce_val_raw) and float(roce_val_raw) != -999.0) else None,
             "roce_pts": roce_pts,
             "pe_discount": pe_discount,
             "pe_pts": pe_pts,
-            "cfo_pat_val": cfo_pat_val,
+            "cfo_pat_val": cfo_pat_val if (cfo_pat_raw is not None and not pd.isna(cfo_pat_raw) and float(cfo_pat_raw) != -999.0) else None,
             "cfo_pts": cfo_pts,
             "res_dd": res_dd,
             "res_pts": res_pts,
@@ -3347,9 +3347,8 @@ class QualityCompounderValueV2Scanner:
         # Audit log:
         #   GUJGASLTD: verified 2026-10-01 — not in NSE.csv.gz. ISIN INE844O01030 maps to GUJENERGY
         #              (Gujarat Energy Limited), a different company. Cannot be resolved.
-        CONFIRMED_NOT_ON_EXCHANGE: Set[str] = {
-            "GUJGASLTD",  # Not in Upstox NSE instrument master (verified 2026-10-01)
-        }
+        CONFIRMED_NOT_ON_EXCHANGE: Set[str] = set()
+
 
         _raw_filings_dir = os.path.join(DATA_DIR, "pit_raw_filings")
 
@@ -3805,6 +3804,22 @@ class QualityCompounderValueV2Scanner:
             pe_curr = row.get('current_pe', row.get('pe_ratio', row.get('pe', row.get('pe_fallback'))))
             pe_med = row.get('pe_3y_median', row.get('pe_ratio_3y_median'))
 
+            # Loss/negative base sentinel detection (-999.0 indicates genuine loss/non-positive base, not missing data)
+            sales_cagr_loss = (sales_cagr_5y == -999.0)
+            pat_cagr_loss = (pat_cagr_5y == -999.0)
+            cfo_pat_loss = (cfo_pat_5y == -999.0)
+            ev_ebitda_curr_loss = (ev_ebitda_curr == -999.0)
+
+            clean_sales_cagr = None if sales_cagr_loss else sales_cagr_5y
+            clean_pat_cagr = None if pat_cagr_loss else pat_cagr_5y
+            clean_cfo_pat = None if cfo_pat_loss else cfo_pat_5y
+            clean_ev_curr = None if ev_ebitda_curr_loss else ev_ebitda_curr
+
+            disp_sales = "INVALID_SENTINEL (NON_POSITIVE_BASE)" if sales_cagr_loss else (f"{float(clean_sales_cagr):.2f}%" if clean_sales_cagr is not None and not pd.isna(clean_sales_cagr) else "N/A")
+            disp_pat = "INVALID_SENTINEL (LOSS)" if pat_cagr_loss else (f"{float(clean_pat_cagr):.2f}%" if clean_pat_cagr is not None and not pd.isna(clean_pat_cagr) else "N/A")
+            disp_cfo = "INVALID_SENTINEL (CUMULATIVE_LOSS)" if cfo_pat_loss else (f"{float(clean_cfo_pat):.2f}" if clean_cfo_pat is not None and not pd.isna(clean_cfo_pat) else "N/A")
+            disp_ev_curr = "INVALID_SENTINEL (OPERATING_LOSS)" if ev_ebitda_curr_loss else (f"{float(clean_ev_curr):.2f}" if clean_ev_curr is not None and not pd.isna(clean_ev_curr) else "N/A")
+
             # Provenance tracking from statement calculations
             growth_start_period = row.get('growth_start_period')
             growth_end_period = row.get('growth_end_period')
@@ -3813,7 +3828,7 @@ class QualityCompounderValueV2Scanner:
             roce_periods_used = row.get('roce_periods_used')
 
             # Dynamic real-time calculation from CMP + statement filings if multiples were not pre-calculated
-            if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and cmp_price > 0:
+            if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and cmp_price > 0 and not ev_ebitda_curr_loss:
                 _eb = row.get('ebitda')
                 _d_raw = row.get('total_debt')
                 _c_raw = row.get('cash_and_equivalents')
@@ -3826,6 +3841,8 @@ class QualityCompounderValueV2Scanner:
                         _ev = _mc + _d - _c
                         if _ev > 0:
                             ev_ebitda_curr = round(_ev / float(_eb), 2)
+                            clean_ev_curr = ev_ebitda_curr
+                            disp_ev_curr = f"{float(clean_ev_curr):.2f}"
             if (pe_curr is None or pd.isna(pe_curr)) and cmp_price > 0:
                 _ep = row.get('eps')
                 if _ep is not None and not pd.isna(_ep) and float(_ep) > 0:
@@ -3838,9 +3855,11 @@ class QualityCompounderValueV2Scanner:
             _f_c    = float(row.get('cash_and_equivalents')) if (row.get('cash_and_equivalents') is not None and not pd.isna(row.get('cash_and_equivalents'))) else None
             _f_mc   = round((_f_sh * cmp_price) / 1e7, 2) if (_f_sh and cmp_price > 0) else None
             _f_ev   = round(_f_mc + _f_d - _f_c, 2) if (_f_mc is not None and _f_d is not None and _f_c is not None) else None
-            _f_ev_m = round(ev_ebitda_curr, 2) if (ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr)) else None
+            _f_ev_m = "OPERATING_LOSS" if ev_ebitda_curr_loss else (round(ev_ebitda_curr, 2) if (ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr)) else None)
             _f_med  = round(float(ev_ebitda_med), 2) if (ev_ebitda_med is not None and not pd.isna(ev_ebitda_med)) else None
-            if _f_ev_m is None and _f_med is None:
+            if ev_ebitda_curr_loss:
+                _f_block = "OPERATING_LOSS_EBITDA_NON_POSITIVE"
+            elif _f_ev_m is None and _f_med is None:
                 _f_block = "CURRENT_EV_EBITDA_MISSING_AND_3Y_MEDIAN_MISSING"
             elif _f_ev_m is None:
                 _f_block = "CURRENT_EV_EBITDA_MISSING"
@@ -3934,17 +3953,25 @@ class QualityCompounderValueV2Scanner:
                 quality_data_missing = False
                 quality_reject_count += 1
             else:
-                quality_data_missing = any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio])
+                quality_data_missing = (
+                    (roce_5y is None or pd.isna(roce_5y)) or
+                    ((sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and not sales_cagr_loss) or
+                    ((pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and not pat_cagr_loss) or
+                    ((cfo_pat_5y is None or pd.isna(cfo_pat_5y)) and not cfo_pat_loss) or
+                    (de_ratio is None or pd.isna(de_ratio))
+                )
                 if quality_data_missing:
                     rejections.append("DATA_INSUFFICIENT_QUALITY")
                     incomplete_quality_count += 1
                     # Identify exactly which fields are missing for the audit log
                     _missing_fields = [
-                        name for name, val in [
-                            ("roce_5y", roce_5y), ("sales_cagr_5y", sales_cagr_5y),
-                            ("pat_cagr_5y", pat_cagr_5y), ("cfo_pat_5y", cfo_pat_5y),
-                            ("debt_to_equity", de_ratio),
-                        ] if val is None or pd.isna(val)
+                        name for name, val, is_loss in [
+                            ("roce_5y", roce_5y, False),
+                            ("sales_cagr_5y", sales_cagr_5y, sales_cagr_loss),
+                            ("pat_cagr_5y", pat_cagr_5y, pat_cagr_loss),
+                            ("cfo_pat_5y", cfo_pat_5y, cfo_pat_loss),
+                            ("debt_to_equity", de_ratio, False),
+                        ] if (val is None or pd.isna(val)) and not is_loss
                     ]
 
                     # Conservative classification: INCOMPLETE-PIT PATH
@@ -4000,15 +4027,12 @@ class QualityCompounderValueV2Scanner:
 
                 else:
                     roce_val = float(roce_5y)
-                    sales_val = float(sales_cagr_5y)
-                    pat_val = float(pat_cagr_5y)
-                    cfo_val = float(cfo_pat_5y)
                     de_val = float(de_ratio)
 
                     if roce_val < 15.0: rejections.append("FAIL_ROCE")
-                    if sales_val < 10.0: rejections.append("FAIL_SALES_CAGR")
-                    if pat_val < 10.0: rejections.append("FAIL_PAT_CAGR")
-                    if cfo_val < 0.80: rejections.append("FAIL_CFO_PAT")
+                    if sales_cagr_loss or float(sales_cagr_5y) < 10.0: rejections.append("FAIL_SALES_CAGR")
+                    if pat_cagr_loss or float(pat_cagr_5y) < 10.0: rejections.append("FAIL_PAT_CAGR")
+                    if cfo_pat_loss or float(cfo_pat_5y) < 0.80: rejections.append("FAIL_CFO_PAT")
                     if de_val > 0.50: rejections.append("FAIL_DEBT")
 
                     if share_dilution_3y is not None and not pd.isna(share_dilution_3y):
@@ -4031,7 +4055,7 @@ class QualityCompounderValueV2Scanner:
             # trigger targeted upstream API recovery (Upstox Key-Ratios API -> Raw Statement Derivation)
             # BEFORE declaring DATA_INSUFFICIENT_VALUATION.
             recovery_providers_audit: List[Dict[str, Any]] = []
-            if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and not is_fin and quality_gate_passed:
+            if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and not ev_ebitda_curr_loss and not is_fin and quality_gate_passed:
                 logger.info(
                     f"🎯 [V2_VALUATION_GATE] {sym}: Reached valuation gate with missing current_ev_ebitda. "
                     f"Triggering targeted upstream provider recovery before valuation decision..."
@@ -4043,6 +4067,9 @@ class QualityCompounderValueV2Scanner:
                 )
                 if recovered_ev is not None:
                     ev_ebitda_curr = recovered_ev
+                    clean_ev_curr = recovered_ev
+                    disp_ev_curr = f"{float(recovered_ev):.2f}"
+                    ev_ebitda_curr_loss = False
                     logger.info(
                         f"🎉 [V2_VALUATION_GATE] {sym}: Upstream recovery succeeded! "
                         f"current_ev_ebitda set to {ev_ebitda_curr} via {recovery_verdict}."
@@ -4069,16 +4096,16 @@ class QualityCompounderValueV2Scanner:
             # P0: EV/EBITDA is the authoritative valuation metric for this strategy.
             # PE is logged for context but NEVER substituted when EV/EBITDA is unavailable.
             # If EV/EBITDA data is missing, the symbol receives DATA_INSUFFICIENT_VALUATION — no fallback.
-            if ev_ebitda_curr is not None and ev_ebitda_med is not None and not pd.isna(ev_ebitda_curr) and not pd.isna(ev_ebitda_med) and float(ev_ebitda_med or 0) > 0:
+            if ev_ebitda_curr is not None and ev_ebitda_med is not None and not pd.isna(ev_ebitda_curr) and not pd.isna(ev_ebitda_med) and float(ev_ebitda_med or 0) > 0 and not ev_ebitda_curr_loss:
                 calc_discount = (float(ev_ebitda_med) - float(ev_ebitda_curr)) / float(ev_ebitda_med)
 
-            valuation_data_missing = (calc_discount is None)
-            curr_val_missing = (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr))
-            med_val_missing = (ev_ebitda_med is None or pd.isna(ev_ebitda_med) or float(ev_ebitda_med or 0) <= 0)
-            _val_reason = None
-
             if not is_fin:
-                if ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr) and ev_ebitda_curr == -999.0:
+                valuation_data_missing = (calc_discount is None and not ev_ebitda_curr_loss)
+                curr_val_missing = ((ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and not ev_ebitda_curr_loss)
+                med_val_missing = (ev_ebitda_med is None or pd.isna(ev_ebitda_med) or float(ev_ebitda_med or 0) <= 0)
+                _val_reason = None
+
+                if ev_ebitda_curr_loss:
                     # Operating loss (EBITDA <= 0): multiple is negative / undefined
                     rejections.append("FAIL_VALUATION")
                     valuation_data_missing = False
@@ -4161,6 +4188,11 @@ class QualityCompounderValueV2Scanner:
                             value_pass_count += 1
                         else:
                             value_reject_count += 1
+            else:
+                valuation_data_missing = False
+                curr_val_missing = False
+                med_val_missing = False
+                _val_reason = None
 
             # Venn intersection accounting across PIT dimensions
             if quality_data_missing and valuation_data_missing:
@@ -4201,31 +4233,35 @@ class QualityCompounderValueV2Scanner:
             if roce_5y is None or pd.isna(roce_5y) or float(roce_5y) < 15.0:
                 cur_v = f"{float(roce_5y):.1f}%" if roce_5y is not None and not pd.isna(roce_5y) else "N/A"
                 required_improvements.append(f"5Y Avg ROCE >= 15.0% (Current: {cur_v})")
-            if sales_cagr_5y is None or pd.isna(sales_cagr_5y) or float(sales_cagr_5y) < 10.0:
-                cur_v = f"{float(sales_cagr_5y):.1f}%" if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else "N/A"
+            if sales_cagr_loss or sales_cagr_5y is None or pd.isna(sales_cagr_5y) or float(sales_cagr_5y) < 10.0:
+                cur_v = "N/A (NON_POSITIVE_BASE)" if sales_cagr_loss else (f"{float(sales_cagr_5y):.1f}%" if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else "N/A")
                 required_improvements.append(f"5Y Sales CAGR >= 10.0% (Current: {cur_v})")
-            if pat_cagr_5y is None or pd.isna(pat_cagr_5y) or float(pat_cagr_5y) < 10.0:
-                cur_v = f"{float(pat_cagr_5y):.1f}%" if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else "N/A"
+            if pat_cagr_loss or pat_cagr_5y is None or pd.isna(pat_cagr_5y) or float(pat_cagr_5y) < 10.0:
+                cur_v = "N/A (LOSS)" if pat_cagr_loss else (f"{float(pat_cagr_5y):.1f}%" if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else "N/A")
                 required_improvements.append(f"5Y PAT CAGR >= 10.0% (Current: {cur_v})")
-            if cfo_pat_5y is None or pd.isna(cfo_pat_5y) or float(cfo_pat_5y) < 0.80:
-                cur_v = f"{float(cfo_pat_5y):.2f}" if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else "N/A"
+            if cfo_pat_loss or cfo_pat_5y is None or pd.isna(cfo_pat_5y) or float(cfo_pat_5y) < 0.80:
+                cur_v = "N/A (CUMULATIVE_LOSS)" if cfo_pat_loss else (f"{float(cfo_pat_5y):.2f}" if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else "N/A")
                 required_improvements.append(f"5Y Cum CFO/PAT >= 0.80 (Current: {cur_v})")
             if de_ratio is not None and not pd.isna(de_ratio) and float(de_ratio) > 0.50:
                 required_improvements.append(f"Debt/Equity <= 0.50 (Current: {float(de_ratio):.2f})")
-            if ev_discount is None:
+            if is_fin:
+                required_improvements.append("Sector: Non-Financial Required (Current: Financial Sector Excluded)")
+            elif ev_ebitda_curr_loss:
+                required_improvements.append("EV/EBITDA Discount >= 25% (Current: N/A — operating loss / EBITDA <= 0)")
+            elif ev_discount is None:
                 required_improvements.append("EV/EBITDA Discount >= 25% (Current: N/A — valuation data missing)")
             elif ev_discount < 0.25:
                 required_improvements.append(f"EV/EBITDA Discount >= 25% (Current: {ev_discount*100:.1f}%)")
 
             # Per-Stock Complete Telemetry Logging
-            ev_disc_str = f"{ev_discount*100:.1f}%" if ev_discount is not None else "N/A (DATA_INSUFFICIENT)"
+            ev_disc_str = f"{ev_discount*100:.1f}%" if ev_discount is not None else ("EXCLUDED_FINANCIAL" if is_fin else ("OPERATING_LOSS" if ev_ebitda_curr_loss else "N/A (DATA_INSUFFICIENT)"))
             telemetry_status = "CANDIDATE" if is_candidate else "REJECTED"
             logger.info(
                 f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status={telemetry_status:<9} | "
                 f"FailedAt={primary_rejection:<28} | Rejections={rejections} | "
                 f"CMP=₹{cmp_price:<8.2f} (Source={price_source}) | "
-                f"Metrics=[roce_5y={roce_5y}, sales_cagr_5y={sales_cagr_5y}, pat_cagr_5y={pat_cagr_5y}, cfo_pat_5y={cfo_pat_5y}, d_e={de_ratio}, ev_discount={ev_disc_str}] | "
-                f"ValuationDetails=[EV_curr={ev_ebitda_curr}, EV_3Y_med={ev_ebitda_med}, PE_curr={pe_curr}, PE_3Y_med={pe_med}] | "
+                f"Metrics=[roce_5y={roce_5y}, sales_cagr_5y={disp_sales}, pat_cagr_5y={disp_pat}, cfo_pat_5y={disp_cfo}, d_e={de_ratio}, ev_discount={ev_disc_str}] | "
+                f"ValuationDetails=[EV_curr={disp_ev_curr}, EV_3Y_med={ev_ebitda_med}, PE_curr={pe_curr}, PE_3Y_med={pe_med}] | "
                 f"RequiredToPass={required_improvements if required_improvements else ['NONE (PASSING CANDIDATE)']}"
             )
 
@@ -4233,31 +4269,43 @@ class QualityCompounderValueV2Scanner:
             _struct_rsn = None
             _df_rsns = []
 
-            if quality_data_missing and _inc_cls is not None:
+            if sym in CONFIRMED_NOT_ON_EXCHANGE:
+                _struct_rsn = "CONFIRMED_NOT_ON_EXCHANGE"
+            elif quality_data_missing and _inc_cls is not None:
                 if _inc_cls["is_structural"]:
                     _struct_rsn = _inc_cls["reason"]
                 else:
                     _df_rsns.append(_inc_cls["reason"])
 
-            if valuation_data_missing:
+            if valuation_data_missing and not is_fin:
                 _df_rsns.append(f"VALUATION_DATA_GAP: {_val_reason or 'DISCOUNT_UNAVAILABLE'}")
 
-            if sym in provider_failed_symbols:
-                price_df_symbols.add(sym)
-                _df_rsns.append("PRICE_PROVIDER_FAILURE")
-            elif price_data_missing:
-                price_df_symbols.add(sym)
-                _df_rsns.append("PRICE_DATA_MISSING")
+            if sym not in CONFIRMED_NOT_ON_EXCHANGE:
+                if sym in provider_failed_symbols:
+                    price_df_symbols.add(sym)
+                    _df_rsns.append("PRICE_PROVIDER_FAILURE")
+                elif price_data_missing:
+                    price_df_symbols.add(sym)
+                    _df_rsns.append("PRICE_DATA_MISSING")
 
             if sym in structural_ineligible_symbols:
                 _top_pop = "STRUCTURAL_INELIGIBLE"
+                _df_rsns = []
             elif _df_rsns:
                 _top_pop = "DATA_FAILURE"
             else:
                 _top_pop = "FULLY_EVALUABLE"
 
-            _val_status = "NOT_EVALUATED" if valuation_data_missing else ("PASS" if value_gate_passed else "FAIL")
-            _qual_status = "FAIL" if quality_data_missing else ("PASS" if quality_gate_passed else "FAIL")
+            if is_fin:
+                _val_status = "EXCLUDED_FINANCIAL"
+                _qual_status = "EXCLUDED_FINANCIAL"
+                _curr_ev_status = "NOT_APPLICABLE"
+                _med_ev_status = "NOT_APPLICABLE"
+            else:
+                _val_status = "NOT_EVALUATED" if valuation_data_missing else ("PASS" if value_gate_passed else "FAIL")
+                _qual_status = "FAIL" if quality_data_missing else ("PASS" if quality_gate_passed else "FAIL")
+                _curr_ev_status = "OPERATING_LOSS" if ev_ebitda_curr_loss else ("PRESENT" if _safe_pos(ev_ebitda_curr) else "MISSING")
+                _med_ev_status = "PRESENT" if _safe_pos(ev_ebitda_med) else "MISSING"
 
             _ann_cnt = _inc_cls["filing_annual_count"] if (quality_data_missing and _inc_cls) else row.get("annual_filing_count")
             _earliest_p = _inc_cls["earliest_annual_period"] if (quality_data_missing and _inc_cls) else row.get("earliest_annual_period")
@@ -4274,8 +4322,8 @@ class QualityCompounderValueV2Scanner:
                 "latest_annual_period": _latest_p,
                 "structural_reason": _struct_rsn,
                 "data_failure_reasons": "; ".join(_df_rsns) if _df_rsns else None,
-                "current_ev_status": "PRESENT" if _safe_pos(ev_ebitda_curr) else "MISSING",
-                "ev_3y_median_status": "PRESENT" if _safe_pos(ev_ebitda_med) else "MISSING",
+                "current_ev_status": _curr_ev_status,
+                "ev_3y_median_status": _med_ev_status,
                 "provenance_source": "PIT_FUNDAMENTALS_V1",
             })
 
@@ -4295,15 +4343,15 @@ class QualityCompounderValueV2Scanner:
                 "financial_periods_used": financial_periods_used,
                 "roce_periods_used": roce_periods_used,
                 "roce_5y_avg": round(float(roce_5y), 2) if roce_5y is not None and not pd.isna(roce_5y) else None,
-                "sales_cagr_5y": round(float(sales_cagr_5y), 2) if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else None,
-                "pat_cagr_5y": round(float(pat_cagr_5y), 2) if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else None,
-                "cfo_pat_5y_ratio": round(float(cfo_pat_5y), 2) if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else None,
+                "sales_cagr_5y": round(float(clean_sales_cagr), 2) if clean_sales_cagr is not None and not pd.isna(clean_sales_cagr) else None,
+                "pat_cagr_5y": round(float(clean_pat_cagr), 2) if clean_pat_cagr is not None and not pd.isna(clean_pat_cagr) else None,
+                "cfo_pat_5y_ratio": round(float(clean_cfo_pat), 2) if clean_cfo_pat is not None and not pd.isna(clean_cfo_pat) else None,
                 "debt_to_equity": round(float(de_ratio), 2) if de_ratio is not None and not pd.isna(de_ratio) else None,
                 "share_dilution_3y_pct": round(float(share_dilution_3y), 2) if share_dilution_3y is not None and not pd.isna(share_dilution_3y) else None,
-                "current_ev_ebitda": round(float(ev_ebitda_curr), 2) if ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr) else None,
+                "current_ev_ebitda": round(float(clean_ev_curr), 2) if clean_ev_curr is not None and not pd.isna(clean_ev_curr) else None,
                 "ev_ebitda_3y_median": round(float(ev_ebitda_med), 2) if ev_ebitda_med is not None and not pd.isna(ev_ebitda_med) else None,
                 "ev_ebitda_discount_pct": round(ev_discount * 100, 1) if ev_discount is not None else None,
-                "valuation_status": "DATA_AVAILABLE" if ev_discount is not None else "DATA_INSUFFICIENT",
+                "valuation_status": "EXCLUDED_FINANCIAL" if is_fin else ("DATA_AVAILABLE" if ev_discount is not None else ("OPERATING_LOSS" if ev_ebitda_curr_loss else "DATA_INSUFFICIENT")),
                 "current_pe": round(float(pe_curr), 2) if pe_curr is not None and not pd.isna(pe_curr) else None,
                 "pe_3y_median": round(float(pe_med), 2) if pe_med is not None and not pd.isna(pe_med) else None,
                 "pe_discount_pct": round(pe_discount * 100, 1) if pe_discount is not None else None,
@@ -4619,11 +4667,11 @@ class QualityCompounderValueV2Scanner:
 
                 # Production metrics
                 collector.record_production_metric(sym, "5Y_AVG_ROCE", roce_5y, f"{float(roce_5y):.2f}%" if roce_5y is not None and not pd.isna(roce_5y) else "N/A", roce_5y, "%")
-                collector.record_production_metric(sym, "5Y_SALES_CAGR", sales_cagr_5y, f"{float(sales_cagr_5y):.2f}%" if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else "N/A", sales_cagr_5y, "%")
-                collector.record_production_metric(sym, "5Y_PAT_CAGR", pat_cagr_5y, f"{float(pat_cagr_5y):.2f}%" if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else "N/A", pat_cagr_5y, "%")
-                collector.record_production_metric(sym, "5Y_CFO_PAT_RATIO", cfo_pat_5y, f"{float(cfo_pat_5y):.2f}" if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else "N/A", cfo_pat_5y, "ratio")
+                collector.record_production_metric(sym, "5Y_SALES_CAGR", clean_sales_cagr, disp_sales, clean_sales_cagr, "%")
+                collector.record_production_metric(sym, "5Y_PAT_CAGR", clean_pat_cagr, disp_pat, clean_pat_cagr, "%")
+                collector.record_production_metric(sym, "5Y_CFO_PAT_RATIO", clean_cfo_pat, disp_cfo, clean_cfo_pat, "ratio")
                 collector.record_production_metric(sym, "DEBT_TO_EQUITY", de_ratio, f"{float(de_ratio):.2f}" if de_ratio is not None and not pd.isna(de_ratio) else "N/A", de_ratio, "ratio")
-                collector.record_production_metric(sym, "CURRENT_EV_EBITDA", ev_ebitda_curr, f"{float(ev_ebitda_curr):.2f}" if ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr) else "N/A", ev_ebitda_curr, "ratio")
+                collector.record_production_metric(sym, "CURRENT_EV_EBITDA", clean_ev_curr, disp_ev_curr, clean_ev_curr, "ratio")
                 collector.record_production_metric(sym, "EV_EBITDA_3Y_MEDIAN", ev_ebitda_med, f"{float(ev_ebitda_med):.2f}" if ev_ebitda_med is not None and not pd.isna(ev_ebitda_med) else "N/A", ev_ebitda_med, "ratio")
                 collector.record_production_metric(sym, "EV_EBITDA_DISCOUNT", calc_discount, f"{calc_discount*100:.1f}%" if calc_discount is not None else "N/A", calc_discount, "%")
                 collector.record_production_metric(sym, "MARKET_CAP_CR", mcap, f"₹{mcap:.2f} Cr" if mcap is not None else "N/A", mcap, "Cr")
@@ -4639,23 +4687,23 @@ class QualityCompounderValueV2Scanner:
 
                 if not is_fin:
                     p_roce = (roce_5y is not None and not pd.isna(roce_5y) and float(roce_5y) >= 15.0)
-                    p_sales = (sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) and float(sales_cagr_5y) >= 10.0)
-                    p_pat = (pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) and float(pat_cagr_5y) >= 10.0)
-                    p_cfo = (cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) and float(cfo_pat_5y) >= 0.80)
+                    p_sales = (clean_sales_cagr is not None and not pd.isna(clean_sales_cagr) and float(clean_sales_cagr) >= 10.0)
+                    p_pat = (clean_pat_cagr is not None and not pd.isna(clean_pat_cagr) and float(clean_pat_cagr) >= 10.0)
+                    p_cfo = (clean_cfo_pat is not None and not pd.isna(clean_cfo_pat) and float(clean_cfo_pat) >= 0.80)
                     p_de = (de_ratio is not None and not pd.isna(de_ratio) and float(de_ratio) <= 0.50)
                     collector.record_gate_result(sym, "5Y_ROCE", "QUALITY", ">= 15.0%", 15.0, roce_5y, ">=", "PASS" if p_roce else "FAIL")
-                    collector.record_gate_result(sym, "5Y_SALES_CAGR", "QUALITY", ">= 10.0%", 10.0, sales_cagr_5y, ">=", "PASS" if p_sales else "FAIL")
-                    collector.record_gate_result(sym, "5Y_PAT_CAGR", "QUALITY", ">= 10.0%", 10.0, pat_cagr_5y, ">=", "PASS" if p_pat else "FAIL")
-                    collector.record_gate_result(sym, "5Y_CFO_PAT", "QUALITY", ">= 0.80", 0.80, cfo_pat_5y, ">=", "PASS" if p_cfo else "FAIL")
+                    collector.record_gate_result(sym, "5Y_SALES_CAGR", "QUALITY", ">= 10.0%", 10.0, clean_sales_cagr, ">=", "PASS" if p_sales else "FAIL")
+                    collector.record_gate_result(sym, "5Y_PAT_CAGR", "QUALITY", ">= 10.0%", 10.0, clean_pat_cagr, ">=", "PASS" if p_pat else "FAIL")
+                    collector.record_gate_result(sym, "5Y_CFO_PAT", "QUALITY", ">= 0.80", 0.80, clean_cfo_pat, ">=", "PASS" if p_cfo else "FAIL")
                     collector.record_gate_result(sym, "DEBT_TO_EQUITY", "QUALITY", "<= 0.50", 0.50, de_ratio, "<=", "PASS" if p_de else "FAIL")
 
                     p_val = (calc_discount is not None and calc_discount >= 0.25)
                     collector.record_gate_result(sym, "EV_EBITDA_DISCOUNT", "VALUATION", ">= 25.0%", 0.25, calc_discount, ">=", "PASS" if p_val else "FAIL")
                 else:
                     collector.record_gate_result(sym, "5Y_ROCE", "QUALITY", ">= 15.0%", 15.0, roce_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
-                    collector.record_gate_result(sym, "5Y_SALES_CAGR", "QUALITY", ">= 10.0%", 10.0, sales_cagr_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
-                    collector.record_gate_result(sym, "5Y_PAT_CAGR", "QUALITY", ">= 10.0%", 10.0, pat_cagr_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
-                    collector.record_gate_result(sym, "5Y_CFO_PAT", "QUALITY", ">= 0.80", 0.80, cfo_pat_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "5Y_SALES_CAGR", "QUALITY", ">= 10.0%", 10.0, clean_sales_cagr, ">=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "5Y_PAT_CAGR", "QUALITY", ">= 10.0%", 10.0, clean_pat_cagr, ">=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "5Y_CFO_PAT", "QUALITY", ">= 0.80", 0.80, clean_cfo_pat, ">=", "BLOCKED_FINANCIAL_SECTOR")
                     collector.record_gate_result(sym, "DEBT_TO_EQUITY", "QUALITY", "<= 0.50", 0.50, de_ratio, "<=", "BLOCKED_FINANCIAL_SECTOR")
                     collector.record_gate_result(sym, "EV_EBITDA_DISCOUNT", "VALUATION", ">= 25.0%", 0.25, calc_discount, ">=", "BLOCKED_FINANCIAL_SECTOR")
 
@@ -5074,6 +5122,20 @@ class QualityCompounderValueV2Scanner:
                 audit_df = audit_df[audit_cols]
                 assert len(audit_df) == total_scanned, f"Audit row count ({len(audit_df)}) != Total scanned ({total_scanned})"
                 assert audit_df["symbol"].nunique() == total_scanned, f"Audit unique symbols ({audit_df['symbol'].nunique()}) != Total scanned ({total_scanned})"
+
+                # Strict mathematical integrity assertion between canonical health accounting and audit DataFrame
+                _audit_df_count = int((audit_df["top_level_population"] == "DATA_FAILURE").sum())
+                _audit_struct_count = int((audit_df["top_level_population"] == "STRUCTURAL_INELIGIBLE").sum())
+                _audit_fully_count = int((audit_df["top_level_population"] == "FULLY_EVALUABLE").sum())
+                assert _audit_df_count == _data_failures, (
+                    f"Audit DATA_FAILURE count ({_audit_df_count}) != Canonical _data_failures ({_data_failures})"
+                )
+                assert _audit_struct_count == _structural_ineligible, (
+                    f"Audit STRUCTURAL_INELIGIBLE count ({_audit_struct_count}) != Canonical _structural_ineligible ({_structural_ineligible})"
+                )
+                assert _audit_fully_count == _fully_evaluable, (
+                    f"Audit FULLY_EVALUABLE count ({_audit_fully_count}) != Canonical _fully_evaluable ({_fully_evaluable})"
+                )
 
                 if total_scanned >= 800:
                     audit_df.to_csv(audit_csv_p, index=False)
