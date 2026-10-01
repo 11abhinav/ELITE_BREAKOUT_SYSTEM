@@ -1,0 +1,17 @@
+{
+  "total_scanned": 1,
+  "approved_universe": 1,
+  "structural_ineligible_count": 0,
+  "data_failure_count": 1,
+  "evaluable_universe_count": 1,
+  "fully_evaluable_count": 0,
+  "quality_evaluated": 1,
+  "quality_pass_count": 0,
+  "quality_reject_count": 1,
+  "value_evaluated": 1,
+  "value_pass_count": 0,
+  "value_reject_count": 0,
+  "candidate_count": 0,
+  "live_alerts_generated": 0,
+  "health_status": "OK"
+}
