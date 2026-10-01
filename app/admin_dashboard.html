@@ -4466,7 +4466,7 @@ function getEarningsBadgeHtml(item) {
           const isIdle = !data.last_success && data.status !== 'RUNNING' && !(data.status && data.status.startsWith('QUEUED')) && !isDown;
           const isRunning = data.status === 'RUNNING';
           const isQueued = data.status && data.status.startsWith('QUEUED');
-          const isOk = data.status === 'OK';
+          const isOk = data.status === 'OK' || data.status === 'COMPLETED';
           
           let statusClass = 'status-ok';
           let badgeClass = 'badge-ok';
@@ -4496,7 +4496,7 @@ function getEarningsBadgeHtml(item) {
           } else if (isOk) {
              statusClass = 'status-ok';
              badgeClass = 'badge-ok';
-             badgeText = '● OK';
+             badgeText = data.status === 'COMPLETED' ? '● COMPLETED' : '● OK';
           } else if (isIdle) {
              statusClass = 'status-idle';
              badgeClass = 'badge-idle';
@@ -4702,7 +4702,7 @@ function getEarningsBadgeHtml(item) {
               <div class="scanner-stat-value" style="font-size:12px; color:var(--muted)">Hover</div>
             </div>` : '' : ''}
           </div>
-          ${isDown && data.error && !isApi ? `<div class="scanner-error" onclick="showCustomToast('Error Details: ' + decodeURIComponent('${encodeURIComponent(data.error || '')}'), 'error')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
+          ${(isDown || data.error) && data.error && !isApi ? `<div class="scanner-error" onclick="showCustomToast('Error Details: ' + decodeURIComponent('${encodeURIComponent(data.error || '')}'), 'error')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
         </div>`;
         }
         el.innerHTML = html_buffer;
@@ -6831,13 +6831,16 @@ function renderScannerExecutionHistory(data) {
     let qClass = 'background:rgba(0,212,161,0.1); color:var(--accent);';
     if (r.quality_status === 'DEGRADED') qClass = 'background:rgba(234,179,8,0.15); color:var(--amber); font-weight:800;';
     else if (r.quality_status === 'PARTIAL' || r.quality_status === 'DATA_BLOCKED' || r.quality_status === 'BLOCKED') qClass = 'background:rgba(255,140,0,0.15); color:#fb923c; font-weight:700;';
+    else if (r.quality_status === 'COMPLETED' || r.quality_status === 'OK' || r.quality_status === 'NORMAL') {
+      qClass = (r.incomplete_data_count || r.data_insufficient_count) ? 'background:rgba(234,179,8,0.15); color:var(--amber); font-weight:700;' : 'background:rgba(0,212,161,0.1); color:var(--accent); font-weight:700;';
+    }
 
     const issues = [];
     if ((r.stale_ratio || 0) > 0) issues.push(`${((r.stale_ratio || 0) * 100).toFixed(0)}% Stale`);
-    if (r.data_insufficient_count) issues.push(`${r.data_insufficient_count} Insuff`);
+    if (r.incomplete_data_count) issues.push(`${r.incomplete_data_count} Incomplete`);
+    else if (r.data_insufficient_count) issues.push(`${r.data_insufficient_count} Incomplete`);
     if (r.data_missing_count) issues.push(`${r.data_missing_count} Missing`);
     if (r.provider_failure_count) issues.push(`${r.provider_failure_count} Fail`);
-    else if (!r.data_missing_count && !r.data_insufficient_count && r.incomplete_data_count) issues.push(`${r.incomplete_data_count} Incomplete`);
     const issueText = issues.length ? ` (${issues.join(', ')})` : ' (100% Fresh)';
 
     const startedStr = r.started_at ? new Date(r.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }) : '--';
@@ -6866,14 +6869,14 @@ function renderScannerExecutionHistory(data) {
         </td>
         <td style="padding:10px 12px; text-align:center; font-family:var(--font-mono); font-size:11px;">
           <strong style="font-size:12px; color:var(--text);">${r.total_stocks || 0}</strong>
-          <div style="font-size:10px; margin-top:2px;" title="Fresh: ${r.fresh_data_count || 0} | Stale: ${r.stale_data_count || 0} | Incomplete: ${r.incomplete_data_count || 0} | Insufficient: ${r.data_insufficient_count || 0} | Missing: ${r.data_missing_count || 0}">
+          <div style="font-size:10px; margin-top:2px;" title="Fresh: ${r.fresh_data_count || 0} | Stale: ${r.stale_data_count || 0} | Incomplete: ${r.incomplete_data_count || r.data_insufficient_count || 0}">
             <span style="color:var(--accent);" title="Fresh Data">${r.fresh_data_count || 0}</span> /
             <span style="color:var(--amber);" title="Stale Data">${r.stale_data_count || 0}</span> /
-            <span style="color:var(--warn);" title="Incomplete Data">${r.incomplete_data_count || 0}</span>
+            <span style="color:var(--warn);" title="Incomplete Data">${r.incomplete_data_count || r.data_insufficient_count || 0}</span>
           </div>
-          ${(r.data_insufficient_count || r.data_missing_count || r.provider_failure_count) ? `
+          ${(r.incomplete_data_count || r.data_insufficient_count || r.data_missing_count || r.provider_failure_count) ? `
             <div style="font-size:9.5px; color:#ff4d6d; margin-top:2px; font-weight:600;" title="Data Gaps Breakdown">
-              ${r.data_insufficient_count ? `⚠️ ${r.data_insufficient_count} Insuff ` : ''}
+              ${(r.incomplete_data_count || r.data_insufficient_count) ? `⚠️ ${r.incomplete_data_count || r.data_insufficient_count} Incomplete ` : ''}
               ${r.data_missing_count ? `🚫 ${r.data_missing_count} Missing ` : ''}
               ${r.provider_failure_count ? `💥 ${r.provider_failure_count} Fail` : ''}
             </div>

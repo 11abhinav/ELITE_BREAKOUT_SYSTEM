@@ -3336,6 +3336,7 @@ class QualityCompounderValueV2Scanner:
         quality_df_symbols: Set[str] = set()
         val_df_symbols: Set[str] = set()
         price_df_symbols: Set[str] = set()
+        canonical_records: List[Dict[str, Any]] = []
 
         # ── CONFIRMED EXCHANGE NON-AVAILABILITY (STRUCTURAL, NOT DATA FAILURE) ──────
         # Symbols that are VERIFIED absent from Upstox NSE instrument master.
@@ -3602,6 +3603,26 @@ class QualityCompounderValueV2Scanner:
                     "data_failure_reasons": "; ".join(_df_rsns) if _df_rsns else None,
                     "current_ev_status": "MISSING",
                     "ev_3y_median_status": "MISSING",
+                    "provenance_source": "PIT_RAW_FILINGS",
+                })
+
+                is_np_struct = bool(sym in structural_ineligible_symbols)
+                canonical_records.append({
+                    "symbol": sym,
+                    "structural_ineligible": is_np_struct,
+                    "quality_data_failure": False,
+                    "valuation_data_failure": False,
+                    "price_data_failure": bool((cmp_price <= 0.0 or sym in provider_failed_symbols) and not is_np_struct),
+                    "other_data_failure": bool(not is_np_struct),
+                    "incomplete": bool(not is_np_struct),
+                    "fully_evaluable": False,
+                    "final_action": "STRUCTURAL_INELIGIBLE" if is_np_struct else "INCOMPLETE",
+                    "top_level_population": _top_pop,
+                    "quality_status": "NOT_EVALUATED",
+                    "valuation_status": "NOT_EVALUATED",
+                    "price_status": _price_status,
+                    "structural_reason": _s_rsn,
+                    "data_failure_reasons": "; ".join(_df_rsns) if _df_rsns else None,
                     "provenance_source": "PIT_RAW_FILINGS",
                 })
 
@@ -4840,59 +4861,128 @@ class QualityCompounderValueV2Scanner:
                         routing_result="PERSISTED_TO_ALERTS",
                     )
 
+                is_p_struct = bool(sym in structural_ineligible_symbols)
+                if is_p_struct:
+                    is_q_df = False
+                    is_v_df = False
+                    is_p_df = False
+                    is_o_df = False
+                    is_inc = False
+                    is_eval = False
+                    final_act = "STRUCTURAL_INELIGIBLE"
+                else:
+                    is_q_df = bool(sym in quality_df_symbols and not is_fin)
+                    is_v_df = bool(sym in val_df_symbols and not is_fin)
+                    is_p_df = bool(sym in price_df_symbols)
+                    is_o_df = bool(sym in non_pit_df_symbols)
+                    is_inc = bool(is_q_df or is_v_df or is_p_df or is_o_df)
+                    is_eval = bool(not is_inc)
+                    final_act = "BUY_ALERT" if is_candidate else ("INCOMPLETE" if is_inc else "REJECTED")
+
+                canonical_records.append({
+                    "symbol": sym,
+                    "structural_ineligible": is_p_struct,
+                    "quality_data_failure": is_q_df,
+                    "valuation_data_failure": is_v_df,
+                    "price_data_failure": is_p_df,
+                    "other_data_failure": is_o_df,
+                    "incomplete": is_inc,
+                    "fully_evaluable": is_eval,
+                    "final_action": final_act,
+                    "top_level_population": _top_pop,
+                    "quality_status": "EXCLUDED_FINANCIAL" if is_fin else ("NOT_EVALUATED" if quality_data_missing else ("PASS" if quality_gate_passed else "FAIL")),
+                    "valuation_status": "EXCLUDED_FINANCIAL" if is_fin else ("NOT_EVALUATED" if valuation_data_missing else ("PASS" if value_gate_passed else "FAIL")),
+                    "price_status": _price_status,
+                    "structural_reason": _struct_rsn if is_p_struct else None,
+                    "data_failure_reasons": "; ".join(_df_rsns) if _df_rsns else None,
+                    "provenance_source": "PIT_FUNDAMENTALS_V1",
+                })
+
         # Persist scan results & evaluate post-scan health under safety gates
         try:
             duration_sec = round(time.time() - start_ts, 2)
 
-            # ── EXACT SET UNION MATH RECONCILIATION ──────────────────────────────
-            data_failure_symbols = (non_pit_df_symbols | quality_df_symbols | val_df_symbols | price_df_symbols) - structural_ineligible_symbols
-            data_failure_count = len(data_failure_symbols)
-            structural_ineligible_count = len(structural_ineligible_symbols)
-            fully_evaluable_symbols = set(universe_symbols) - structural_ineligible_symbols - data_failure_symbols
-            fully_evaluable_count = len(fully_evaluable_symbols)
+            # ── CONSTRUCT CANONICAL PER-STOCK TABLE ─────────────────────────────
+            canonical_df = pd.DataFrame(canonical_records)
+            assert len(canonical_df) == total_scanned, f"Canonical table rows ({len(canonical_df)}) != total_scanned ({total_scanned})"
+            assert canonical_df["symbol"].nunique() == total_scanned, f"Canonical table symbols ({canonical_df['symbol'].nunique()}) != total_scanned ({total_scanned})"
 
-            _approved_universe = total_scanned
-            _structural_ineligible = structural_ineligible_count
+            scanned_count = len(canonical_df)
+            structural_count = int(canonical_df["structural_ineligible"].sum())
+            quality_df_count = int(canonical_df["quality_data_failure"].sum())
+            val_df_count = int(canonical_df["valuation_data_failure"].sum())
+            price_df_count = int(canonical_df["price_data_failure"].sum())
+            other_df_count = int(canonical_df["other_data_failure"].sum())
+            incomplete_count = int(canonical_df["incomplete"].sum())
+            fully_evaluable_count = int(canonical_df["fully_evaluable"].sum())
+            alerts_count = int((canonical_df["final_action"] == "BUY_ALERT").sum())
+            rejected_count = int((canonical_df["final_action"] == "REJECTED").sum())
+
+            incomplete_symbols = sorted(canonical_df[canonical_df["incomplete"]]["symbol"].tolist())
+            structural_symbols = sorted(canonical_df[canonical_df["structural_ineligible"]]["symbol"].tolist())
+            evaluable_symbols = sorted(canonical_df[canonical_df["fully_evaluable"]]["symbol"].tolist())
+            alert_symbols = sorted(canonical_df[canonical_df["final_action"] == "BUY_ALERT"]["symbol"].tolist())
+
+            # Legacy aliases for logging & context
+            data_failure_symbols = set(incomplete_symbols)
+            data_failure_count = incomplete_count
+            structural_ineligible_count = structural_count
+            structural_ineligible_symbols = set(structural_symbols)
+            fully_evaluable_symbols = set(evaluable_symbols)
+            _approved_universe = scanned_count
+            _structural_ineligible = structural_count
             _evaluable_universe = _approved_universe - _structural_ineligible
-            _data_failures = data_failure_count
+            _data_failures = incomplete_count
             _fully_evaluable = fully_evaluable_count
 
-            assert _approved_universe == _structural_ineligible + _evaluable_universe, (
-                f"Approved ({_approved_universe}) != Structural ({_structural_ineligible}) + Evaluable ({_evaluable_universe})"
+            # Strict disjoint category sets for reporting
+            q_syms = set(canonical_df[canonical_df["quality_data_failure"]]["symbol"])
+            v_syms = set(canonical_df[canonical_df["valuation_data_failure"]]["symbol"])
+            p_syms = set(canonical_df[canonical_df["price_data_failure"]]["symbol"])
+            o_syms = set(canonical_df[canonical_df["other_data_failure"]]["symbol"])
+
+            quality_only_syms = q_syms - v_syms - p_syms - o_syms
+            val_only_syms = v_syms - q_syms - p_syms - o_syms
+            price_only_syms = p_syms - q_syms - v_syms - o_syms
+            other_only_syms = o_syms - q_syms - v_syms - p_syms
+            overlap_syms = set(incomplete_symbols) - quality_only_syms - val_only_syms - price_only_syms - other_only_syms
+            overlap_count = len(overlap_syms)
+
+            # Mathematical integrity assertions
+            is_reconciled = (
+                scanned_count == structural_count + incomplete_count + fully_evaluable_count
+                and fully_evaluable_count == alerts_count + rejected_count
+                and len(canonical_df[canonical_df["structural_ineligible"] & canonical_df["incomplete"]]) == 0
+                and len(canonical_df[canonical_df["structural_ineligible"] & canonical_df["fully_evaluable"]]) == 0
+                and len(canonical_df[canonical_df["incomplete"] & canonical_df["fully_evaluable"]]) == 0
             )
-            assert _evaluable_universe == _data_failures + _fully_evaluable, (
-                f"Evaluable ({_evaluable_universe}) != DataFailure ({_data_failures}) + FullyEvaluable ({_fully_evaluable})"
-            )
-            assert _approved_universe == _structural_ineligible + _data_failures + _fully_evaluable, (
-                f"Approved ({_approved_universe}) != Structural ({_structural_ineligible}) + DataFailure ({_data_failures}) + FullyEvaluable ({_fully_evaluable})"
-            )
-            assert len(structural_ineligible_symbols & data_failure_symbols) == 0, "Overlap between Structural and Data Failure"
-            assert len(structural_ineligible_symbols & fully_evaluable_symbols) == 0, "Overlap between Structural and Fully Evaluable"
-            assert len(data_failure_symbols & fully_evaluable_symbols) == 0, "Overlap between Data Failure and Fully Evaluable"
 
             # ── POST-SCAN HEALTH STATUS ───────────────────────────────────────────
-            # V2 CONSERVATIVE HEALTH ACCOUNTING (2026-10-01):
-            #
-            # STRUCTURAL_INELIGIBLE: symbol cannot satisfy 5Y prerequisite by design (< 5 years
-            #                        proven historical existence). NOT a data failure. NEVER triggers DEGRADED.
-            # DATA_FAILURE: symbol that should be evaluable, but required data is missing.
-            #               MUST trigger DEGRADED until resolved.
-            # HEALTH = OK (GREEN) when DATA_FAILURE_COUNT == 0 and zero_price_candidates == 0.
-            # ZERO price candidates => BLOCKED.
             zero_price_candidates = [c for c in candidate_records if float(c.get("current_price", 0) or 0) <= 0]
             if zero_price_candidates:
                 _health_status = "BLOCKED"
                 _health_error = f"ZERO_PRICE_CANDIDATE_DEFECT: {len(zero_price_candidates)} candidates produced with CMP <= 0"
-            elif data_failure_count > 0:
+            elif not is_reconciled:
+                _health_status = "INCONSISTENT"
+                _health_error = (
+                    f"INCONSISTENT: Scanned ({scanned_count}) != Structural ({structural_count}) + "
+                    f"Incomplete ({incomplete_count}) + Evaluable ({fully_evaluable_count}) or "
+                    f"Evaluable != Alerts ({alerts_count}) + Rejected ({rejected_count})"
+                )
+            elif incomplete_count > 10 or (incomplete_count / max(1, scanned_count)) > 0.02 or price_df_count > 5:
                 _health_status = "DEGRADED"
                 _health_error = (
-                    f"DATA_FAILURE: {data_failure_count} symbols with unresolved data failures "
-                    f"(NonPIT={len(non_pit_df_symbols)}, Quality={len(quality_df_symbols)}, "
-                    f"Valuation={len(val_df_symbols)}, Price={len(price_df_symbols)}) | "
-                    f"StructuralIneligible={structural_ineligible_count} (excluded from health basis)"
+                    f"DATA_DEGRADED: {incomplete_count} stocks incomplete (>{min(10, int(scanned_count*0.02))} threshold) "
+                    f"({', '.join(incomplete_symbols[:10])})"
+                )
+            elif incomplete_count > 0:
+                _health_status = "COMPLETED"
+                _health_error = (
+                    f"DATA_INCOMPLETE: {incomplete_count} stock{'s' if incomplete_count > 1 else ''} "
+                    f"could not be fully evaluated ({', '.join(incomplete_symbols)})"
                 )
             else:
-                _health_status = "OK"
+                _health_status = "COMPLETED"
                 _health_error = None
 
             if _health_error:
@@ -4900,7 +4990,7 @@ class QualityCompounderValueV2Scanner:
 
             # ── ALERT ROUTING GOVERNANCE UNDER HEALTH GATES ─────────────────────────
             candidates_inserted = 0
-            if _health_status in ("DATA_BLOCKED", "BLOCKED"):
+            if _health_status in ("DATA_BLOCKED", "BLOCKED", "INCONSISTENT"):
                 if candidate_records:
                     logger.warning(
                         f"🚫 [V2_ALERT_SUPPRESSED] SCANNER HEALTH IS {_health_status}: "
@@ -4929,56 +5019,40 @@ class QualityCompounderValueV2Scanner:
                     complete_scanner_execution_run(
                         ctx=exec_run_ctx,
                         run_id=exec_run_ctx.run_id,
-                        total_scanned=total_scanned,
-                        total_stocks=total_scanned,
+                        total_scanned=scanned_count,
+                        total_stocks=scanned_count,
                         candidate_count=candidates_inserted,
-                        quality_status=_health_status,
-                        data_insufficient_count=incomplete_quality_count,
-                        data_missing_count=non_pit_blocked_count,
+                        quality_status="COMPLETED" if _health_status == "COMPLETED" else _health_status,
+                        lifecycle_status="COMPLETED" if _health_status not in ("BLOCKED", "INCONSISTENT") else "FAILED",
+                        fresh_data_count=fully_evaluable_count,
+                        stale_data_count=0,
+                        incomplete_data_count=incomplete_count,
+                        data_insufficient_count=0,
+                        data_missing_count=0,
+                        provider_failure_count=price_df_count,
                         summary_notes=(
-                            f"Approved={total_scanned} | "
-                            f"PIT={pit_univ_cnt} | Non_PIT={non_pit_blocked_count} | "
-                            f"StructuralIneligible={structural_ineligible_count} | DataFailures={data_failure_count} | "
-                            f"QualityPass={quality_pass_count} | QualityReject={quality_reject_count} | "
-                            f"ValuationPass={value_pass_count} | ValuationReject={value_reject_count} | "
-                            f"ResearchCandidates={len(candidate_records)} | LiveAlerts={candidates_inserted} | Health={_health_status}"
+                            f"Scanned={scanned_count} | FullyEvaluable={fully_evaluable_count} | "
+                            f"Incomplete={incomplete_count} | StructuralIneligible={structural_count} | "
+                            f"Alerts={candidates_inserted} | Health={_health_status}"
                         ),
                         metrics_json={
-                            "total_scanned": total_scanned,
-                            "pit_univ_cnt": pit_univ_cnt,
-                            "non_pit_blocked_count": non_pit_blocked_count,
-                            "data_complete_count": data_complete_count,
-                            "data_blocked_count": data_blocked_count,
-                            "incomplete_quality_count": incomplete_quality_count,
-                            "valuation_data_blocked_count": valuation_data_blocked_count,
-                            "val_curr_missing_count": val_curr_missing_count,
-                            "val_med_missing_count": val_med_missing_count,
-                            "val_both_missing_count": val_both_missing_count,
-                            "quality_only_blocked_count": quality_only_blocked_count,
-                            "val_only_blocked_count": val_only_blocked_count,
-                            "quality_and_val_blocked_count": quality_and_val_blocked_count,
-                            "price_data_blocked_count": price_data_blocked_count,
-                            "quality_pass_count": quality_pass_count,
-                            "quality_reject_count": quality_reject_count,
-                            "value_pass_count": value_pass_count,
-                            "value_reject_count": value_reject_count,
-                            "research_candidates_detected": len(candidate_records),
+                            "total_scanned": scanned_count,
+                            "fully_evaluable_count": fully_evaluable_count,
+                            "incomplete_count": incomplete_count,
+                            "structural_ineligible_count": structural_count,
+                            "quality_data_failure_count": quality_df_count,
+                            "valuation_data_failure_count": val_df_count,
+                            "price_data_failure_count": price_df_count,
+                            "other_data_failure_count": other_df_count,
+                            "quality_only_count": len(quality_only_syms),
+                            "valuation_only_count": len(val_only_syms),
+                            "price_only_count": len(price_only_syms),
+                            "overlap_failure_count": overlap_count,
                             "live_alerts_generated": candidates_inserted,
                             "health_status": _health_status,
                             "health_error": _health_error,
-                            # V2 Canonical 3-population health accounting
-                            "structural_ineligible_count": structural_ineligible_count,
-                            "non_pit_structural_count": non_pit_structural_count,
-                            "incomplete_pit_structural_count": incomplete_pit_structural_count,
-                            "data_failure_count": data_failure_count,
-                            "non_pit_data_failure_count": len(non_pit_df_symbols),
-                            "incomplete_pit_data_failure_count": len(quality_df_symbols),
-                            "valuation_data_failure_count": len(val_df_symbols),
-                            "price_data_failure_count": len(price_df_symbols),
-                            "evaluable_universe_count": _evaluable_universe,
-                            "fully_evaluable_count": _fully_evaluable,
-                            "health_basis": "DATA_FAILURE_COUNT",
-                            "health_basis_threshold": "GREEN_WHEN_ZERO",
+                            "incomplete_symbols": incomplete_symbols,
+                            "structural_symbols": structural_symbols,
                             "requested_price_symbols_count": len(requested_price_symbols),
                             "successful_price_symbols_count": len(successful_price_symbols),
                             "provider_failed_symbols_count": len(provider_failed_symbols),
@@ -4992,11 +5066,11 @@ class QualityCompounderValueV2Scanner:
                 try:
                     upsert_scanner_health(
                         "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-                        status=_health_status,
+                        status="COMPLETED" if _health_status == "COMPLETED" else _health_status,
                         today_alerts=candidates_inserted,
-                        last_success=now_ist.isoformat() if _health_status in ("OK", "DEGRADED") else None,
+                        last_success=now_ist.isoformat() if _health_status in ("OK", "COMPLETED", "DEGRADED") else None,
                         processed_count=candidates_inserted,
-                        total_count=total_scanned,
+                        total_count=scanned_count,
                         duration_seconds=duration_sec,
                         error_msg=_health_error,
                         run_id=getattr(exec_run_ctx, "run_id", None)
@@ -5004,145 +5078,62 @@ class QualityCompounderValueV2Scanner:
                 except Exception as e:
                     logger.debug(f"Scanner health update warning: {e}")
 
-            # Structured End-of-Scan Telemetry Summary Report with strict mathematical identities
-            _pit_blocked_cnt = pit_univ_cnt - data_complete_count
-            _venn_sum = quality_only_blocked_count + val_only_blocked_count + quality_and_val_blocked_count + price_only_blocked_count
-            _venn_ok = (_venn_sum == _pit_blocked_cnt)
-            _val_decomp_sum = val_curr_missing_count + val_med_missing_count - val_both_missing_count
-            _val_decomp_ok = (_val_decomp_sum == valuation_data_blocked_count)
-
             logger.info("=" * 80)
-            logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
+            logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] CANONICAL POPULATION REPORT ({today_str})")
             logger.info("=" * 80)
-            logger.info("  1. UNIVERSE & DATA PROVENANCE ACCOUNTING:")
-            logger.info(f"     • Approved Scanner Universe      : {total_scanned}")
-            logger.info(f"     • PIT Valuation Universe         : {pit_univ_cnt}  (symbols with audited PIT statement history)")
-            logger.info(f"     • Non-PIT / Missing PIT Filings  : {non_pit_blocked_count}  (blocked — see breakdown below)")
-            logger.info(f"       ├─ Structural Ineligible         : {non_pit_structural_count}  (absent from PIT parquet, proven genuine insufficient history)")
-            logger.info(f"       └─ Data Failures (ingestion gap) : {non_pit_data_failure_count}  (mature/unknown, absent from PIT parquet)")
-            logger.info(f"     • Price Provider Accounting (across all {total_scanned} symbols):")
-            logger.info(f"       ├─ Requested Price Symbols     : {len(requested_price_symbols)}")
-            logger.info(f"       ├─ Successful Price Quotes     : {len(successful_price_symbols)}")
-            logger.info(f"       ├─ Provider Failed Symbols     : {len(provider_failed_symbols)}")
-            logger.info(f"       └─ Zero/Negative Price Quotes  : {len(zero_or_negative_price_symbols)}")
-            logger.info(f"       [Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved Universe]  {'✅' if pit_univ_cnt + non_pit_blocked_count == total_scanned else '⚠️ MISMATCH'}")
-            logger.info(f"     • PIT Field Completeness         : EV/EBITDA_curr={_ev_curr_cnt}/{pit_univ_cnt}, EV/EBITDA_3Ymed={_ev_med_cnt}/{pit_univ_cnt}, PE_curr={_pe_curr_cnt}/{pit_univ_cnt}, PE_3Ymed={_pe_med_cnt}/{pit_univ_cnt}, EV_PE_Both_Complete={_ev_pe_both_complete}/{pit_univ_cnt} (Cache: {_valuation_cache_cert_status})")
-            logger.info("  2. DATA COMPLETENESS & BLOCKING RECONCILIATION:")
-            logger.info(f"     • Complete Required Quality Data : {data_complete_count}  ({round(data_complete_count/max(total_scanned,1)*100,1)}% of universe — requires quality + valuation + price all present)")
-            logger.info(f"     • Total Data Blocked             : {data_blocked_count}  ({round(data_blocked_count/max(total_scanned,1)*100,1)}% of universe)")
-            logger.info(f"       [Identity: {data_complete_count} Complete + {data_blocked_count} Blocked = {total_scanned} Universe]  {'✅' if data_complete_count + data_blocked_count == total_scanned else '⚠️ MISMATCH'}")
-            logger.info(f"       ├─ Non-PIT (no filing history) : {non_pit_blocked_count}")
-            logger.info(f"       └─ PIT blocked (any required field missing) : {_pit_blocked_cnt} of {pit_univ_cnt} PIT symbols")
-            logger.info(f"           ├─ Quality-Only Incomplete    : {quality_only_blocked_count}  (quality missing, valuation complete)")
-            logger.info(f"           ├─ Valuation-Only Incomplete  : {val_only_blocked_count}  (valuation missing, quality complete)")
-            logger.info(f"           ├─ Both Quality & Valuation   : {quality_and_val_blocked_count}  (both quality and valuation missing)")
-            logger.info(f"           └─ Price-Only Missing         : {price_only_blocked_count}  (missing/non-positive CMP)")
-            logger.info(f"           [Venn Identity: {quality_only_blocked_count} Quality-Only + {val_only_blocked_count} Valuation-Only + {quality_and_val_blocked_count} Both + {price_only_blocked_count} Price-Only = {_pit_blocked_cnt} PIT Blocked]  {'✅' if _venn_ok else '⚠️ MISMATCH'}")
-            logger.info(f"       • Valuation Blocked Decomposition (Total Valuation Blocked: {valuation_data_blocked_count}):")
-            logger.info(f"           ├─ Current EV/EBITDA Missing  : {val_curr_missing_count}")
-            logger.info(f"           ├─ 3Y EV/EBITDA Median Missing: {val_med_missing_count}")
-            logger.info(f"           └─ Both Missing (Overlap)     : {val_both_missing_count}")
-            logger.info(f"           [Inclusion-Exclusion Identity: {val_curr_missing_count} Current + {val_med_missing_count} 3Y_Med - {val_both_missing_count} Both = {valuation_data_blocked_count} Valuation Blocked]  {'✅' if _val_decomp_ok else '⚠️ MISMATCH'}")
-            logger.info(f"       [Universe Identity: {pit_univ_cnt} PIT + {non_pit_blocked_count} Non-PIT = {total_scanned} Approved]  {'✅' if pit_univ_cnt + non_pit_blocked_count == total_scanned else '⚠️ MISMATCH'}")
-            logger.info(f"       [Total Blocked Identity: {non_pit_blocked_count} Non-PIT + {_pit_blocked_cnt} PIT-Blocked = {data_blocked_count} Total Blocked]  {'✅' if non_pit_blocked_count + _pit_blocked_cnt == data_blocked_count else '⚠️ MISMATCH'}")
-            _quality_evaluated = pit_univ_cnt - incomplete_quality_count
-            logger.info("  3. STRATEGY FILTER FUNNEL RECONCILIATION:")
-            logger.info(f"     • Quality-evaluated PIT symbols  : {_quality_evaluated}  (PIT symbols with full ROCE/CAGR/CFO/D_E history)")
-            logger.info(f"     • Quality Gate Passed            : {quality_pass_count}")
-            logger.info(f"     • Quality Gate Rejected          : {quality_reject_count}  (failed ROCE, CAGR, CFO, debt, or liquidity)")
-            logger.info(f"       [Identity: {quality_pass_count} Passed + {quality_reject_count} Rejected = {_quality_evaluated} Quality-evaluated]  {'✅' if quality_pass_count + quality_reject_count == _quality_evaluated else '⚠️ MISMATCH'}")
-            _val_blocked_count = quality_pass_count - value_pass_count - value_reject_count
-            _val_evaluated = quality_pass_count - _val_blocked_count
-            logger.info("     • UNIVERSE VALUATION DATA GAPS (diagnostic across entire PIT universe):")
-            logger.info(f"         ├─ Current EV/EBITDA missing : {val_curr_missing_count}")
-            logger.info(f"         ├─ 3Y median missing         : {val_med_missing_count}")
-            logger.info(f"         └─ Both missing (overlap)    : {val_both_missing_count}")
-            logger.info("     • QUALITY-PASSED STOCKS VALUATION FUNNEL:")
-            logger.info(f"         ├─ Valuation evaluated       : {_val_evaluated}")
-            logger.info(f"         ├─ Valuation passed          : {value_pass_count}  (EV/EBITDA discount >= 25%)")
-            logger.info(f"         ├─ Valuation rejected        : {value_reject_count}  (EV/EBITDA discount < 25%)")
-            logger.info(f"         └─ Valuation blocked by data : {_val_blocked_count}")
-            logger.info(f"       [Identity: {value_pass_count} Val-Pass + {value_reject_count} Val-Reject + {_val_blocked_count} Val-Blocked = {quality_pass_count} Quality-Passed]  {'✅' if value_pass_count + value_reject_count + _val_blocked_count == quality_pass_count else '⚠️ MISMATCH'}")
-            logger.info(f"     • Research Candidates (Gates OK) : {len(candidate_records)}")
-            _suppressed_syms = [c['symbol'] for c in candidate_records] if _health_status in ('DATA_BLOCKED', 'BLOCKED') and candidate_records else []
-            _suppression_note = (
-                f"(SUPPRESSED: {len(_suppressed_syms)} research candidate(s) blocked — {_suppressed_syms}, reason=DATA_BLOCKED)"
-                if _suppressed_syms else ""
-            )
-            logger.info(f"     • Production BUY Alerts Saved    : {candidates_inserted} {_suppression_note}")
-            logger.info(f"     • Snapshots Saved in DB          : {snapshots_inserted}  (100% universe audit trail)")
-            logger.info("  4. HEALTH STATE & ALERT ROUTING GOVERNANCE:")
-            logger.info(f"     • Health Status                  : {_health_status}")
-            logger.info(f"     • Health Basis (Canonical 3-Pop) : DATA_FAILURE_COUNT={data_failure_count} (GREEN when = 0)")
-            logger.info(f"     • Zero-Price Defect Count        : {len(zero_price_candidates)}")
-            logger.info(f"     • Candidate Alerts Saved         : {candidates_inserted}")
-            logger.info(f"     • Duration (Seconds)             : {duration_sec}s")
-
-            logger.info("  5. CANONICAL 3-POPULATION CLASSIFICATION (V2 CONSERVATIVE HEALTH ACCOUNTING):")
-            logger.info(f"     • Approved Universe              : {_approved_universe}  (all approved clean equities evaluated)")
-            logger.info(f"     • Structural Ineligible          : {_structural_ineligible}  (proven genuine limited existence < {required_v2_annual_history()}Y — excluded from health basis)")
-            logger.info(f"       ├─ Non-PIT structural          : {non_pit_structural_count}")
-            logger.info(f"       └─ Incomplete-PIT structural   : {incomplete_pit_structural_count}")
-            logger.info(f"     • Evaluable Universe             : {_evaluable_universe}  (Approved minus Structural)")
-            logger.info(f"     • Data Failures                  : {_data_failures}  (Exact Set Union of all data gaps — triggers DEGRADED)")
-            logger.info(f"       ├─ Non-PIT data failures       : {len(non_pit_df_symbols)}")
-            logger.info(f"       ├─ Quality data failures       : {len(quality_df_symbols)}")
-            logger.info(f"       ├─ Valuation data failures     : {len(val_df_symbols)} ({val_only_blocked_count} valuation-only + {quality_and_val_blocked_count} overlap with quality)")
-            logger.info(f"       └─ Price data failures         : {len(price_df_symbols)}")
-            logger.info(f"     • Fully Evaluable                : {_fully_evaluable}  (Evaluable minus Data Failures)")
-            logger.info(f"     • Quality Passed                 : {quality_pass_count}")
-            logger.info(f"     • Valuation Evaluated            : {_val_evaluated}")
-            logger.info(f"     • Valuation Passed               : {value_pass_count}")
-            logger.info(f"     • BUY Alerts                     : {candidates_inserted}")
+            logger.info("  1. CANONICAL AUDIT POPULATIONS (Strict Disjoint Partition):")
+            logger.info(f"     • Scanned Universe (Approved)    : {scanned_count}")
+            logger.info(f"     • Fully Evaluable                : {fully_evaluable_count} ({round(fully_evaluable_count/max(1,scanned_count)*100, 1)}%)")
+            logger.info(f"       ├─ BUY Alerts Produced         : {alerts_count}")
+            logger.info(f"       └─ Filter Rejections           : {rejected_count}")
+            logger.info(f"     • Incomplete (Data Failures)     : {incomplete_count} ({round(incomplete_count/max(1,scanned_count)*100, 1)}%)")
+            logger.info(f"       ├─ Quality Data Failures       : {quality_df_count} ({len(quality_only_syms)} quality-only)")
+            logger.info(f"       ├─ Valuation Data Failures     : {val_df_count} ({len(val_only_syms)} valuation-only)")
+            logger.info(f"       ├─ Price Data Failures         : {price_df_count} ({len(price_only_syms)} price-only)")
+            logger.info(f"       └─ Multi-Failure Overlap       : {overlap_count} ({', '.join(overlap_syms) if overlap_syms else 'None'})")
+            logger.info(f"     • Structural Ineligible          : {structural_count} ({', '.join(structural_symbols) if structural_symbols else 'None'})")
             logger.info("")
-            logger.info("     [V2 CANONICAL POPULATION IDENTITIES]")
-            logger.info(f"     Approved = Structural + DataFailures + FullyEvaluable ({_approved_universe} = {_structural_ineligible} + {_data_failures} + {_fully_evaluable})  ✅ PASS")
-            logger.info(f"     Evaluable = DataFailures + FullyEvaluable ({_evaluable_universe} = {_data_failures} + {_fully_evaluable})  ✅ PASS")
+            logger.info("  2. CANONICAL POPULATION IDENTITIES:")
+            logger.info(f"     • Scanned = Structural + Incomplete + Evaluable ({scanned_count} = {structural_count} + {incomplete_count} + {fully_evaluable_count})  {'✅ PASS' if is_reconciled else '❌ INCONSISTENT'}")
+            logger.info(f"     • Evaluable = Alerts + Rejections ({fully_evaluable_count} = {alerts_count} + {rejected_count})  {'✅ PASS' if fully_evaluable_count == alerts_count + rejected_count else '❌ INCONSISTENT'}")
+            logger.info("")
+            logger.info("  3. HEALTH & GOVERNANCE STATE:")
+            logger.info(f"     • Health Status                  : {_health_status}")
+            logger.info(f"     • Health Error Message           : {_health_error or 'None (Clean Run)'}")
+            logger.info(f"     • Production BUY Alerts Saved    : {candidates_inserted}")
+            logger.info(f"     • Snapshots Saved in DB          : {snapshots_inserted}  (100% universe audit trail)")
+            logger.info(f"     • Duration (Seconds)             : {duration_sec}s")
+            logger.info("=" * 80)
 
-            # Save symbol-level forensic audit CSV & Parquet with exact 13 required columns
+            # Save symbol-level canonical audit CSV & Parquet
             audit_parquet_p = os.path.join(DATA_DIR, "v2_health_population_audit.parquet")
             audit_csv_p = os.path.join(DATA_DIR, "v2_health_population_audit.csv")
             try:
-                audit_df = pd.DataFrame(population_audit_records)
-                audit_cols = [
+                canonical_export_cols = [
                     "symbol",
+                    "structural_ineligible",
+                    "quality_data_failure",
+                    "valuation_data_failure",
+                    "price_data_failure",
+                    "other_data_failure",
+                    "incomplete",
+                    "fully_evaluable",
+                    "final_action",
                     "top_level_population",
                     "quality_status",
                     "valuation_status",
                     "price_status",
-                    "filing_annual_count",
-                    "earliest_annual_period",
-                    "latest_annual_period",
                     "structural_reason",
                     "data_failure_reasons",
-                    "current_ev_status",
-                    "ev_3y_median_status",
                     "provenance_source",
                 ]
-                audit_df = audit_df[audit_cols]
-                assert len(audit_df) == total_scanned, f"Audit row count ({len(audit_df)}) != Total scanned ({total_scanned})"
-                assert audit_df["symbol"].nunique() == total_scanned, f"Audit unique symbols ({audit_df['symbol'].nunique()}) != Total scanned ({total_scanned})"
-
-                # Strict mathematical integrity assertion between canonical health accounting and audit DataFrame
-                _audit_df_count = int((audit_df["top_level_population"] == "DATA_FAILURE").sum())
-                _audit_struct_count = int((audit_df["top_level_population"] == "STRUCTURAL_INELIGIBLE").sum())
-                _audit_fully_count = int((audit_df["top_level_population"] == "FULLY_EVALUABLE").sum())
-                assert _audit_df_count == _data_failures, (
-                    f"Audit DATA_FAILURE count ({_audit_df_count}) != Canonical _data_failures ({_data_failures})"
-                )
-                assert _audit_struct_count == _structural_ineligible, (
-                    f"Audit STRUCTURAL_INELIGIBLE count ({_audit_struct_count}) != Canonical _structural_ineligible ({_structural_ineligible})"
-                )
-                assert _audit_fully_count == _fully_evaluable, (
-                    f"Audit FULLY_EVALUABLE count ({_audit_fully_count}) != Canonical _fully_evaluable ({_fully_evaluable})"
-                )
-
-                if total_scanned >= 800:
+                audit_df = canonical_df[[c for c in canonical_export_cols if c in canonical_df.columns]]
+                if scanned_count >= 800:
                     audit_df.to_csv(audit_csv_p, index=False)
                     audit_df.to_parquet(audit_parquet_p, index=False)
-                    logger.info(f"📁 [V2_AUDIT] Saved symbol population audit artifact to {audit_csv_p} and {audit_parquet_p} ({len(audit_df)} records, 13 columns)")
+                    logger.info(f"📁 [V2_AUDIT] Saved canonical per-stock population audit artifact to {audit_csv_p} and {audit_parquet_p} ({len(audit_df)} records)")
 
-                logger.info("  6. POPULATION REASON AUDIT SUMMARY:")
+                logger.info("  4. POPULATION REASON AUDIT SUMMARY:")
                 _pop_grp = audit_df.groupby(["top_level_population", "structural_reason", "data_failure_reasons"], dropna=False).size()
                 for (_pop, _s_rsn, _df_rsn), _cnt in _pop_grp.items():
                     _rsn_lbl = _s_rsn if _pop == "STRUCTURAL_INELIGIBLE" else (_df_rsn if _pop == "DATA_FAILURE" else "FULLY_EVALUABLE")

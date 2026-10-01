@@ -10900,6 +10900,9 @@ def complete_scanner_execution_run(
     lifecycle_status: str = None,
     summary_notes: str = None,
     metrics_json: dict = None,
+    fresh_data_count: int = None,
+    stale_data_count: int = None,
+    incomplete_data_count: int = None,
     data_insufficient_count: int = None,
     data_missing_count: int = None,
     provider_failure_count: int = None,
@@ -10946,9 +10949,13 @@ def complete_scanner_execution_run(
 
     # 3. Resolve metrics and counts
     final_total_stocks = total_stocks if total_stocks is not None else (total_scanned if total_scanned is not None else getattr(ctx, 'total_stocks', 0))
-    final_fresh = getattr(ctx, 'fresh_count', 0)
-    final_stale = getattr(ctx, 'stale_count', 0)
-    final_incomplete = getattr(ctx, 'incomplete_count', 0)
+    final_fresh = fresh_data_count if fresh_data_count is not None else getattr(ctx, 'fresh_count', 0)
+    final_stale = stale_data_count if stale_data_count is not None else getattr(ctx, 'stale_count', 0)
+    final_incomplete = (
+        incomplete_data_count
+        if incomplete_data_count is not None
+        else kwargs.get('incomplete_data_count', getattr(ctx, 'incomplete_count', 0))
+    )
     final_data_insuff = data_insufficient_count if data_insufficient_count is not None else getattr(ctx, 'data_insufficient_count', 0)
     final_data_missing = data_missing_count if data_missing_count is not None else getattr(ctx, 'data_missing_count', 0)
     final_prov_fail = provider_failure_count if provider_failure_count is not None else getattr(ctx, 'provider_failure_count', 0)
