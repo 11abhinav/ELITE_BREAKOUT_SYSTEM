@@ -1086,6 +1086,13 @@ function changeAdminPage(type, delta) {
       animation: downPulse 2s infinite !important;
     }
 
+    .scanner-card.status-degraded {
+      border: 2px solid #f97316 !important;
+      border-left: 6px solid #f97316 !important;
+      background: linear-gradient(to right, rgba(249,115,22,0.1), var(--card)) !important;
+      animation: degradedPulse 2s infinite !important;
+    }
+
     .scanner-card.status-idle {
       border-left: 3px solid var(--muted2);
     }
@@ -1093,6 +1100,11 @@ function changeAdminPage(type, delta) {
     @keyframes downPulse {
       0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
       50% { box-shadow: 0 0 18px 3px rgba(239, 68, 68, 0.5); }
+    }
+
+    @keyframes degradedPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
+      50% { box-shadow: 0 0 16px 2px rgba(249, 115, 22, 0.45); }
     }
     
     @keyframes runPulse {
@@ -1130,8 +1142,10 @@ function changeAdminPage(type, delta) {
     .badge-running { background: rgba(99,102,241,.1); color: var(--brand); border: 1px solid rgba(99,102,241,.2); }
     .badge-queued { background: rgba(245,158,11,.1); color: var(--amber); border: 1px solid rgba(245,158,11,.2); }
     .badge-down { background: #ef4444 !important; color: var(--text-inv) !important; border: 1px solid #dc2626 !important; font-weight: 800 !important; letter-spacing: 0.5px !important; box-shadow: 0 0 10px rgba(239,68,68,0.6) !important; }
+    .badge-degraded { background: #f97316 !important; color: #ffffff !important; border: 1px solid #ea580c !important; font-weight: 800 !important; letter-spacing: 0.5px !important; box-shadow: 0 0 10px rgba(249,115,22,0.6) !important; }
     .badge-stopped { background: rgba(255,170,0,.15); color: #ffaa00; border: 1px solid rgba(255,170,0,.4); }
     .badge-idle { background: var(--card3); color: var(--muted); border: 1px solid var(--border); }
+    .status-degraded { border-color: rgba(249,115,22,0.4) !important; background: rgba(249,115,22,0.03); }
     .status-stopped { border-color: rgba(255,170,0,.3) !important; background: rgba(255,170,0,.02); }
 
     .scanner-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -4450,11 +4464,10 @@ function getEarningsBadgeHtml(item) {
           const isAck = data.is_acknowledged !== false;
           const isStopped = data.status === 'STOPPED' || data.status === 'PAUSED';
 
-          // CRITICAL FIX: If status is DOWN, DEGRADED, FAILED, CRASH, or contains DOWN/FAIL,
+          // CRITICAL FIX: If status is DOWN, FAILED, CRASH, or contains DOWN/FAIL,
           // it MUST ALWAYS render in PROMINENT RED regardless of acknowledgement!
           const isDown = Boolean(data.status && (
             data.status === 'DOWN' || 
-            data.status === 'DEGRADED' || 
             data.status === 'FAILED' || 
             data.status.includes('DOWN') || 
             data.status.includes('FAIL') || 
@@ -4463,7 +4476,9 @@ function getEarningsBadgeHtml(item) {
             data.status.includes('STALE') ||
             data.status.includes('TIMEOUT')
           ));
-          const isIdle = !data.last_success && data.status !== 'RUNNING' && !(data.status && data.status.startsWith('QUEUED')) && !isDown;
+          // DEGRADED renders in ORANGE per user specification
+          const isDegraded = Boolean(data.status && (data.status === 'DEGRADED' || data.status.includes('DEGRAD')));
+          const isIdle = !data.last_success && data.status !== 'RUNNING' && !(data.status && data.status.startsWith('QUEUED')) && !isDown && !isDegraded;
           const isRunning = data.status === 'RUNNING';
           const isQueued = data.status && data.status.startsWith('QUEUED');
           const isOk = data.status === 'OK' || data.status === 'COMPLETED';
@@ -4480,6 +4495,10 @@ function getEarningsBadgeHtml(item) {
              statusClass = 'status-down';
              badgeClass = 'badge-down';
              badgeText = '🔴 ' + (data.status || 'DOWN');
+          } else if (isDegraded) {
+             statusClass = 'status-degraded';
+             badgeClass = 'badge-degraded';
+             badgeText = '🟠 ' + (data.status || 'DEGRADED');
           } else if (isRunning) {
              statusClass = 'status-running';
              badgeClass = 'badge-running';
@@ -4702,7 +4721,7 @@ function getEarningsBadgeHtml(item) {
               <div class="scanner-stat-value" style="font-size:12px; color:var(--muted)">Hover</div>
             </div>` : '' : ''}
           </div>
-          ${(isDown || data.error) && data.error && !isApi ? `<div class="scanner-error" onclick="showCustomToast('Error Details: ' + decodeURIComponent('${encodeURIComponent(data.error || '')}'), 'error')" title="Click to see full error">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
+          ${(isDown || isDegraded || data.error) && data.error && !isApi ? `<div class="scanner-error" style="${isDegraded ? 'background:rgba(249,115,22,0.12); color:#ea580c; border:1px solid rgba(249,115,22,0.35);' : ''}" onclick="showCustomToast('Details: ' + decodeURIComponent('${encodeURIComponent(data.error || '')}'), '${isDegraded ? 'warning' : 'error'}')" title="Click to see full details">⚠ ${data.error.substring(0, 60)}${data.error.length > 60 ? '...' : ''}</div>` : ''}
         </div>`;
         }
         el.innerHTML = html_buffer;
@@ -4778,7 +4797,10 @@ function getEarningsBadgeHtml(item) {
         document.getElementById('drill-title').textContent = `${meta.label} — Error Trace`;
         const trace = data.error || 'No error details found.';
         const suffix = (fails > 0 && sc.startsWith('API_')) ? `\n\n[System tracked ${fails} consecutive failure${plural} of this exact exception]` : '';
-        document.getElementById('drill-body').innerHTML = `<div style="background:var(--card2); border:1px solid rgba(255,77,109,0.3); border-radius:8px; padding:20px; font-family:var(--font-mono); font-size:13px; color:#ff4d6d; white-space:pre-wrap; max-height:500px; overflow-y:auto;">${trace}${suffix}</div>`;
+        const isDeg = Boolean(data.status && (data.status === 'DEGRADED' || data.status.includes('DEGRAD')));
+        const boxBorder = isDeg ? 'rgba(249,115,22,0.4)' : 'rgba(255,77,109,0.3)';
+        const boxColor = isDeg ? '#ea580c' : '#ff4d6d';
+        document.getElementById('drill-body').innerHTML = `<div style="background:var(--card2); border:1px solid ${boxBorder}; border-radius:8px; padding:20px; font-family:var(--font-mono); font-size:13px; color:${boxColor}; white-space:pre-wrap; max-height:500px; overflow-y:auto;">${trace}${suffix}</div>`;
       }
       // Otherwise show trades table
       else {
@@ -6303,7 +6325,7 @@ function getEarningsBadgeHtml(item) {
         <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border);">
           <div>
             <span style="font-weight:700; font-family:var(--font-mono);">${escapeHTML(r.dataset_name)}</span>
-            <span class="badge" style="margin-left:8px; font-size:10px; background:${r.status === 'HEALTHY' || r.status === 'OK' ? 'var(--accent)' : 'var(--warn)'};">${escapeHTML(r.status || 'OK')}</span>
+            <span class="badge" style="margin-left:8px; font-size:10px; background:${r.status === 'HEALTHY' || r.status === 'OK' ? 'var(--accent)' : (r.status === 'DEGRADED' ? '#f97316' : 'var(--warn)')};">${escapeHTML(r.status || 'OK')}</span>
           </div>
           <div style="font-size:12px; color:var(--muted);">
             Score: <strong>${r.score != null ? r.score : 100}%</strong> | Processed: ${r.symbols_processed || 0} symbols
@@ -6824,12 +6846,12 @@ function renderScannerExecutionHistory(data) {
     } else if (r.lifecycle_status === 'STOPPED' || r.lifecycle_status === 'SERVER_RESTARTED' || r.lifecycle_status === 'CANCELLED') {
       lcClass = 'background:rgba(156,163,175,0.15); color:var(--muted); border:1px solid rgba(156,163,175,0.3);';
     } else if (r.lifecycle_status === 'DEGRADED' || r.lifecycle_status === 'SKIPPED_DUPLICATE') {
-      lcClass = 'background:rgba(234,179,8,0.15); color:var(--amber); border:1px solid rgba(234,179,8,0.3);';
+      lcClass = 'background:rgba(249,115,22,0.18); color:#f97316; border:1px solid rgba(249,115,22,0.4);';
     }
 
     // Quality status badge
     let qClass = 'background:rgba(0,212,161,0.1); color:var(--accent);';
-    if (r.quality_status === 'DEGRADED') qClass = 'background:rgba(234,179,8,0.15); color:var(--amber); font-weight:800;';
+    if (r.quality_status === 'DEGRADED') qClass = 'background:rgba(249,115,22,0.18); color:#f97316; border:1px solid rgba(249,115,22,0.4); font-weight:800;';
     else if (r.quality_status === 'PARTIAL' || r.quality_status === 'DATA_BLOCKED' || r.quality_status === 'BLOCKED') qClass = 'background:rgba(255,140,0,0.15); color:#fb923c; font-weight:700;';
     else if (r.quality_status === 'COMPLETED' || r.quality_status === 'OK' || r.quality_status === 'NORMAL') {
       qClass = (r.incomplete_data_count || r.data_insufficient_count) ? 'background:rgba(234,179,8,0.15); color:var(--amber); font-weight:700;' : 'background:rgba(0,212,161,0.1); color:var(--accent); font-weight:700;';

@@ -4969,10 +4969,10 @@ class QualityCompounderValueV2Scanner:
                     f"Incomplete ({incomplete_count}) + Evaluable ({fully_evaluable_count}) or "
                     f"Evaluable != Alerts ({alerts_count}) + Rejected ({rejected_count})"
                 )
-            elif incomplete_count > 10 or (incomplete_count / max(1, scanned_count)) > 0.02 or price_df_count > 5:
+            elif incomplete_count > 5:
                 _health_status = "DEGRADED"
                 _health_error = (
-                    f"DATA_DEGRADED: {incomplete_count} stocks incomplete (>{min(10, int(scanned_count*0.02))} threshold) "
+                    f"DATA_DEGRADED: {incomplete_count} stocks incomplete (>5 threshold) "
                     f"({', '.join(incomplete_symbols[:10])})"
                 )
             elif incomplete_count > 0:
