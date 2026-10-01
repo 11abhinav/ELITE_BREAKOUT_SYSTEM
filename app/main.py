@@ -1934,7 +1934,20 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             curr_status = curr_health.get("status") if curr_health else "OK"
             if curr_status in ("PAUSED", "STOPPED"):
                 return
-            final_status = curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "FAILED") else "OK"
+
+            has_data_gaps = False
+            if curr_health and curr_health.get("outcome") == "PARTIAL":
+                has_data_gaps = True
+            if isinstance(stats, dict) and (stats.get("data_insufficient_count", 0) > 0 or stats.get("outcome") == "PARTIAL"):
+                has_data_gaps = True
+
+            if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "FAILED"):
+                final_status = curr_status
+            elif has_data_gaps:
+                final_status = "DEGRADED"
+            else:
+                final_status = "OK"
+
             final_err = curr_health.get("error_msg") if (final_status != "OK" and curr_health) else None
             now_str = datetime.now(IST).isoformat() if final_status == "OK" else (curr_health.get("last_success") if curr_health else None)
 

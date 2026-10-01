@@ -4391,8 +4391,8 @@ def upsert_scanner_health(
         allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED'}
         if status == 'ERROR':
             status = 'DOWN'
-        elif status == 'DATA_BLOCKED':
-            # V2 valuation unavailable for >=50% of universe — treat as DEGRADED (not IDLE)
+        elif status in ('DATA_BLOCKED', 'OK_WITH_DATA_GAPS', 'PARTIAL'):
+            # Data gaps / valuation unavailable — treat as DEGRADED (never IDLE or OK)
             status = 'DEGRADED'
         elif status == 'BLOCKED':
             # V2 zero-price candidate defect — treat as DOWN (data integrity failure)

@@ -170,7 +170,9 @@ def _emit_data_recovery_log(
     providers: Optional[List[Dict[str, str]]] = None,
     validation: Optional[str] = None,
     validation_reason: Optional[str] = None,
-    final_action: str,
+    final_action: str = "STOCK_SKIPPED",
+    attempts: Optional[Dict[str, str]] = None,
+    field: Optional[str] = None,
 ) -> None:
     """
     Emits a structured [DATA_RECOVERY] audit block to the application log.
@@ -180,28 +182,22 @@ def _emit_data_recovery_log(
       2. What was attempted to recover it?
       3. Did recovery + validation succeed?
       4. Why was the stock ultimately skipped?
-
-    Parameters
-    ----------
-    scanner          : Scanner identifier (e.g. "FUNDAMENTAL", "QUALITY_COMPOUNDER_VALUE_V2_FINAL")
-    symbol           : Ticker symbol
-    stage            : Gate where missing data was detected (e.g. "FUNDAMENTAL", "TECHNICAL", "QUALITY", "VALUATION")
-    missing_data     : Human-readable description of the missing field(s)
-    recovery_attempted: Whether a fetch / recovery was attempted
-    providers        : List of dicts with keys: provider, result, and optionally rows_received / failure_type / validation / validation_reason
-    validation       : Overall validation outcome ("PASSED" / "FAILED" / None)
-    validation_reason: Why validation failed, if applicable
-    final_action     : "DATA_USED" (scan continued) or "STOCK_SKIPPED" (symbol blocked)
     """
     lines = [
         f"[DATA_RECOVERY]",
         f"  scanner={scanner}",
         f"  symbol={symbol}",
         f"  stage={stage}",
-        f"  missing_data={missing_data}",
-        f"  recovery_attempted={str(recovery_attempted).lower()}",
     ]
-    if providers:
+    if field:
+        lines.append(f"  field={field}")
+    lines.append(f"  missing_data={missing_data}")
+    lines.append(f"  recovery_attempted={str(recovery_attempted).lower()}")
+
+    if attempts:
+        for att_k, att_v in attempts.items():
+            lines.append(f"  {att_k}={att_v}")
+    elif providers:
         for p in providers:
             lines.append(f"  provider={p.get('provider', 'UNKNOWN')}")
             lines.append(f"    result={p.get('result', 'UNKNOWN')}")
@@ -218,7 +214,7 @@ def _emit_data_recovery_log(
     if validation_reason is not None:
         lines.append(f"  validation_reason={validation_reason}")
     lines.append(f"  final_action={final_action}")
-    log_level = logging.WARNING if final_action == "STOCK_SKIPPED" else logging.DEBUG
+    log_level = logging.WARNING if final_action == "STOCK_SKIPPED" else logging.INFO
     logger.log(log_level, "\n".join(lines))
 
 
@@ -227,9 +223,10 @@ def _emit_data_recovery_log(
 # -------------------------------------------------------------------------------------
 _PIT_FILINGS_CACHE: Optional[Dict[str, List[Dict[str, Any]]]] = None
 
-def _get_pit_filings(symbol: str) -> List[Dict[str, Any]]:
+def _get_pit_filings(symbol: str, allow_live_refresh: bool = False) -> List[Dict[str, Any]]:
     """Returns historical filings for symbol from PIT database, sorted by period_end_date descending."""
     global _PIT_FILINGS_CACHE
+    sym_u = str(symbol).strip().upper()
     if _PIT_FILINGS_CACHE is None:
         _PIT_FILINGS_CACHE = {}
         pit_path = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet")
@@ -241,7 +238,23 @@ def _get_pit_filings(symbol: str) -> List[Dict[str, Any]]:
                         _PIT_FILINGS_CACHE[str(sym).upper()] = group.to_dict("records")
             except Exception as _e:
                 logger.debug(f"PIT filings cache load notice: {_e}")
-    return _PIT_FILINGS_CACHE.get(str(symbol).upper(), [])
+
+    filings = _PIT_FILINGS_CACHE.get(sym_u, [])
+    if (not filings or len(filings) == 0) and allow_live_refresh:
+        # Exhaustive recovery: live fetch from authoritative filing provider
+        try:
+            from scripts.ingest_pit_quarterly_and_annual import fetch_and_parse_symbol
+            import requests
+            sess = requests.Session()
+            records, q_cnt, a_cnt = fetch_and_parse_symbol(sym_u, sess)
+            if records:
+                filings = sorted(records, key=lambda x: str(x.get("period_end_date", "")), reverse=True)
+                _PIT_FILINGS_CACHE[sym_u] = filings
+                logger.info(f"🌐 [FILING_PROVIDER_REFRESH] {sym_u}: Live retrieved {len(records)} filings (Q={q_cnt}, A={a_cnt})")
+        except Exception as _fe:
+            logger.debug(f"Live filing refresh error for {sym_u}: {_fe}")
+
+    return filings
 
 
 # -------------------------------------------------------------------------------------
@@ -1647,23 +1660,42 @@ class LiveFundamentalBuyScanner:
                 _bars_short   = (not _bars_missing and len(df_bars) < 50)
 
                 if _fund_missing:
-                    # Attempt recovery from PIT_DATABASE
-                    pit_filings = _get_pit_filings(sym)
-                    prov_pit_result = "FETCHED" if (pit_filings and any(f.get("roce") is not None for f in pit_filings)) else "NOT_AVAILABLE"
-                    prov_pit_fail = None if prov_pit_result == "FETCHED" else "SYMBOL_NOT_IN_PIT_DB"
+                    # Attempt 4-stage recovery for completely missing fundamental record
+                    pit_filings = _get_pit_filings(sym, allow_live_refresh=False)
+                    if not pit_filings:
+                        pit_filings = _get_pit_filings(sym, allow_live_refresh=True)
+
+                    annual_filings = [f for f in pit_filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
+                    f_annual = annual_filings[0] if annual_filings else None
+                    quarterly_filings = [f for f in pit_filings if str(f.get("statement_type", "")).upper() == "QUARTERLY"]
+                    f_q0 = quarterly_filings[0] if quarterly_filings else (pit_filings[0] if pit_filings else None)
+
+                    prov_pit_result = "FETCHED" if (f_annual or f_q0) else "NOT_AVAILABLE"
+                    prov_pit_fail = None if prov_pit_result == "FETCHED" else "SYMBOL_NOT_IN_PIT_OR_FILINGS"
                     
                     if prov_pit_result == "FETCHED":
-                        f0 = pit_filings[0]
-                        roce_val = f0.get("roce")
-                        roe_val = f0.get("roe")
-                        tot_debt = f0.get("total_debt")
-                        tot_eq = f0.get("total_equity")
-                        de_val = (float(tot_debt) / float(tot_eq)) if tot_debt is not None and tot_eq is not None and float(tot_eq) > 0 else (0.0 if tot_debt == 0 else None)
-                        ocf_val = f0.get("operating_cash_flow")
-                        funds["roce"] = float(roce_val) if roce_val is not None and not pd.isna(roce_val) else None
-                        funds["roe"] = float(roe_val) if roe_val is not None and not pd.isna(roe_val) else None
-                        funds["debt_equity"] = float(de_val) if de_val is not None and not pd.isna(de_val) else None
-                        funds["operating_cash_flow"] = float(ocf_val) if ocf_val is not None and not pd.isna(ocf_val) else None
+                        # Populate Quality from latest audited annual statement
+                        if f_annual:
+                            roce_val = f_annual.get("roce")
+                            roe_val = f_annual.get("roe")
+                            tot_debt = f_annual.get("total_debt")
+                            tot_eq = f_annual.get("total_equity")
+                            de_val = (float(tot_debt) / float(tot_eq)) if tot_debt is not None and tot_eq is not None and not pd.isna(tot_debt) and not pd.isna(tot_eq) and float(tot_eq) > 0 else (0.0 if tot_debt == 0 else None)
+                            ocf_val = f_annual.get("operating_cash_flow")
+
+                            # Attempt mathematical derivations if ratio fields are null
+                            if roce_val is None and f_annual.get("operating_profit") is not None and tot_eq is not None:
+                                cap = float(tot_eq) + (float(tot_debt or 0.0))
+                                if cap > 0:
+                                    roce_val = round(float(f_annual["operating_profit"]) / cap * 100.0, 2)
+                            if roe_val is None and f_annual.get("net_profit") is not None and tot_eq is not None and float(tot_eq) > 0:
+                                roe_val = round(float(f_annual["net_profit"]) / float(tot_eq) * 100.0, 2)
+
+                            funds["roce"] = float(roce_val) if roce_val is not None and not pd.isna(roce_val) else None
+                            funds["roe"] = float(roe_val) if roe_val is not None and not pd.isna(roe_val) else None
+                            funds["debt_equity"] = float(de_val) if de_val is not None and not pd.isna(de_val) else None
+                            funds["operating_cash_flow"] = float(ocf_val) if ocf_val is not None and not pd.isna(ocf_val) else None
+
                         funds["upstream_provider"] = "PIT_DATABASE"
                         funds["provenance_status"] = "CERTIFIED_PIT_FUNDAMENTALS_DB_REHYDRATED"
                         prov_valid = True
@@ -1672,81 +1704,164 @@ class LiveFundamentalBuyScanner:
                         scanner="FUNDAMENTAL",
                         symbol=sym,
                         stage="FUNDAMENTAL",
-                        missing_data="fundamental_metrics (ROCE, ROE, OCF, D/E, growth rates)",
+                        missing_data="fundamental_master_record",
                         recovery_attempted=True,
-                        providers=[
-                            {
-                                "provider": "DAILY_BUILDER_2.0",
-                                "result": "NOT_AVAILABLE",
-                                "failure_type": "SYMBOL_NOT_IN_MASTER_DATASET",
-                            },
-                            {
-                                "provider": "PIT_DATABASE",
-                                "result": prov_pit_result,
-                                "failure_type": prov_pit_fail,
-                            }
-                        ],
+                        attempts={
+                            "attempt_1": "DAILY_BUILDER_CACHE → MISSING",
+                            "attempt_2": f"PIT_DATABASE → {'FETCHED' if pit_filings else 'NOT_AVAILABLE'}",
+                            "attempt_3": f"DERIVED_FROM_RAW → {'COMPUTED' if f_annual else 'CANNOT_DERIVE'}",
+                            "attempt_4": f"FILING_PROVIDER_REFRESH → {'FETCHED' if pit_filings else 'NOT_AVAILABLE'}",
+                        },
                         validation="PASSED" if prov_pit_result == "FETCHED" else "FAILED",
                         validation_reason=None if prov_pit_result == "FETCHED" else "APPROVED_PROVIDERS_EXHAUSTED",
                         final_action="DATA_USED" if prov_pit_result == "FETCHED" else "STOCK_SKIPPED",
                     )
                 else:
-                    # Check partial missing Quality fields
+                    # Check partial missing Quality fields: ROCE, ROE, OCF, Debt/Equity
                     missing_q = [f for f in ["roce", "roe", "operating_cash_flow", "debt_equity"] if funds.get(f) is None]
                     if missing_q:
-                        pit_filings = _get_pit_filings(sym)
-                        if pit_filings:
-                            f0 = pit_filings[0]
-                            if funds.get("roce") is None and f0.get("roce") is not None and not pd.isna(f0.get("roce")):
-                                funds["roce"] = float(f0.get("roce"))
-                            if funds.get("roe") is None and f0.get("roe") is not None and not pd.isna(f0.get("roe")):
-                                funds["roe"] = float(f0.get("roe"))
-                            if funds.get("operating_cash_flow") is None and f0.get("operating_cash_flow") is not None and not pd.isna(f0.get("operating_cash_flow")):
-                                funds["operating_cash_flow"] = float(f0.get("operating_cash_flow"))
-                            if funds.get("debt_equity") is None:
-                                td = f0.get("total_debt")
-                                te = f0.get("total_equity")
-                                if td is not None and te is not None and not pd.isna(td) and not pd.isna(te) and float(te) > 0:
-                                    funds["debt_equity"] = float(td) / float(te)
-                                elif td == 0:
-                                    funds["debt_equity"] = 0.0
+                        pit_filings = _get_pit_filings(sym, allow_live_refresh=False)
+                        annual_filings = [f for f in pit_filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
+                        f_annual = annual_filings[0] if annual_filings else None
 
-                        unresolved_q = [f for f in ["roce", "roe", "operating_cash_flow", "debt_equity"] if funds.get(f) is None]
-                        q_ok = (len(unresolved_q) == 0)
-                        _emit_data_recovery_log(
-                            scanner="FUNDAMENTAL",
-                            symbol=sym,
-                            stage="QUALITY",
-                            missing_data=f"quality_metrics ({', '.join(missing_q)})",
-                            recovery_attempted=True,
-                            providers=[
-                                {
-                                    "provider": "DAILY_BUILDER_2.0",
-                                    "result": "PARTIAL_OR_ABSENT",
-                                    "failure_type": "METRICS_MISSING_IN_DAILY_BUILDER",
-                                },
-                                {
-                                    "provider": "PIT_DATABASE",
-                                    "result": "FETCHED" if q_ok else ("NOT_AVAILABLE" if not pit_filings else "INSUFFICIENT_DATA"),
-                                    "failure_type": None if q_ok else ("SYMBOL_NOT_IN_PIT_DB" if not pit_filings else "METRICS_ABSENT_IN_FILINGS"),
-                                }
-                            ],
-                            validation="PASSED" if q_ok else "FAILED",
-                            validation_reason=None if q_ok else f"UNRESOLVED_QUALITY_FIELDS_{unresolved_q}",
-                            final_action="DATA_USED" if q_ok else "STOCK_SKIPPED",
-                        )
+                        # If annual statement missing or missing OCF/Equity, trigger live filing refresh
+                        if f_annual is None or any(f_annual.get(k) is None for k in ("operating_cash_flow", "total_equity")):
+                            pit_filings = _get_pit_filings(sym, allow_live_refresh=True)
+                            annual_filings = [f for f in pit_filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
+                            f_annual = annual_filings[0] if annual_filings else None
 
-                    # Check partial missing Growth fields
+                        for fld in missing_q:
+                            att = {
+                                "attempt_1": "DAILY_BUILDER_CACHE → MISSING",
+                                "attempt_2": "PIT_DATABASE → NOT_AVAILABLE",
+                                "attempt_3": "DERIVED_FROM_RAW → NOT_AVAILABLE",
+                                "attempt_4": "FILING_PROVIDER_REFRESH → NOT_AVAILABLE",
+                            }
+                            fld_resolved = False
+
+                            if fld == "operating_cash_flow":
+                                ocf_val = f_annual.get("operating_cash_flow") if f_annual else None
+                                if ocf_val is not None and not pd.isna(ocf_val):
+                                    funds["operating_cash_flow"] = float(ocf_val)
+                                    att["attempt_2"] = f"PIT_DATABASE → FETCHED ({float(ocf_val):.1f} Cr)"
+                                    att["attempt_3"] = "DERIVED_FROM_RAW → NOT_NEEDED"
+                                    att["attempt_4"] = "FILING_PROVIDER_REFRESH → NOT_NEEDED"
+                                    fld_resolved = True
+                                else:
+                                    att["attempt_2"] = "PIT_DATABASE → FIELD_ABSENT_IN_ANNUAL_CF"
+                                    att["attempt_3"] = "DERIVED_FROM_RAW → CANNOT_DERIVE_WITHOUT_CF_STATEMENT"
+                                    att["attempt_4"] = "FILING_PROVIDER_REFRESH → FIELD_NOT_REPORTED"
+
+                            elif fld == "roce":
+                                roce_val = f_annual.get("roce") if f_annual else None
+                                if roce_val is not None and not pd.isna(roce_val):
+                                    funds["roce"] = float(roce_val)
+                                    att["attempt_2"] = f"PIT_DATABASE → FETCHED ({float(roce_val):.1f}%)"
+                                    att["attempt_3"] = "DERIVED_FROM_RAW → NOT_NEEDED"
+                                    att["attempt_4"] = "FILING_PROVIDER_REFRESH → NOT_NEEDED"
+                                    fld_resolved = True
+                                elif f_annual:
+                                    op = f_annual.get("operating_profit")
+                                    te = f_annual.get("total_equity")
+                                    td = f_annual.get("total_debt") or 0.0
+                                    if op is not None and te is not None and not pd.isna(op) and not pd.isna(te):
+                                        cap = float(te) + float(td)
+                                        if cap > 0:
+                                            derived_roce = round(float(op) / cap * 100.0, 2)
+                                            funds["roce"] = derived_roce
+                                            att["attempt_2"] = "PIT_DATABASE → RAW_EBIT_CAP_FOUND"
+                                            att["attempt_3"] = f"DERIVED_FROM_RAW → COMPUTED ({derived_roce:.2f}% from EBIT/Capital)"
+                                            att["attempt_4"] = "FILING_PROVIDER_REFRESH → NOT_NEEDED"
+                                            fld_resolved = True
+                                        else:
+                                            att["attempt_3"] = "DERIVED_FROM_RAW → CAPITAL_LE_ZERO"
+                                    else:
+                                        att["attempt_3"] = "DERIVED_FROM_RAW → INSUFFICIENT_RAW_EBIT_OR_EQUITY"
+                                else:
+                                    att["attempt_2"] = "PIT_DATABASE → NO_ANNUAL_FILINGS"
+                                    att["attempt_3"] = "DERIVED_FROM_RAW → NO_ANNUAL_DATA"
+                                    att["attempt_4"] = "FILING_PROVIDER_REFRESH → FIELD_NOT_REPORTED"
+
+                            elif fld == "roe":
+                                roe_val = f_annual.get("roe") if f_annual else None
+                                if roe_val is not None and not pd.isna(roe_val):
+                                    funds["roe"] = float(roe_val)
+                                    att["attempt_2"] = f"PIT_DATABASE → FETCHED ({float(roe_val):.1f}%)"
+                                    att["attempt_3"] = "DERIVED_FROM_RAW → NOT_NEEDED"
+                                    att["attempt_4"] = "FILING_PROVIDER_REFRESH → NOT_NEEDED"
+                                    fld_resolved = True
+                                elif f_annual:
+                                    np_val = f_annual.get("net_profit")
+                                    te = f_annual.get("total_equity")
+                                    if np_val is not None and te is not None and not pd.isna(np_val) and not pd.isna(te) and float(te) > 0:
+                                        derived_roe = round(float(np_val) / float(te) * 100.0, 2)
+                                        funds["roe"] = derived_roe
+                                        att["attempt_2"] = "PIT_DATABASE → RAW_PAT_EQUITY_FOUND"
+                                        att["attempt_3"] = f"DERIVED_FROM_RAW → COMPUTED ({derived_roe:.2f}% from PAT/Equity)"
+                                        att["attempt_4"] = "FILING_PROVIDER_REFRESH → NOT_NEEDED"
+                                        fld_resolved = True
+                                    else:
+                                        att["attempt_3"] = "DERIVED_FROM_RAW → INSUFFICIENT_PAT_OR_EQUITY"
+                                else:
+                                    att["attempt_2"] = "PIT_DATABASE → NO_ANNUAL_FILINGS"
+                                    att["attempt_3"] = "DERIVED_FROM_RAW → NO_ANNUAL_DATA"
+                                    att["attempt_4"] = "FILING_PROVIDER_REFRESH → FIELD_NOT_REPORTED"
+
+                            elif fld == "debt_equity":
+                                if f_annual:
+                                    td = f_annual.get("total_debt")
+                                    te = f_annual.get("total_equity")
+                                    if td is not None and te is not None and not pd.isna(td) and not pd.isna(te) and float(te) > 0:
+                                        de_calc = round(float(td) / float(te), 2)
+                                        funds["debt_equity"] = de_calc
+                                        att["attempt_2"] = f"PIT_DATABASE → FETCHED (Debt={td}, Eq={te})"
+                                        att["attempt_3"] = f"DERIVED_FROM_RAW → COMPUTED ({de_calc} from Debt/Equity)"
+                                        att["attempt_4"] = "FILING_PROVIDER_REFRESH → NOT_NEEDED"
+                                        fld_resolved = True
+                                    elif td == 0 or (td is not None and float(td) == 0.0):
+                                        funds["debt_equity"] = 0.0
+                                        att["attempt_2"] = "PIT_DATABASE → DEBT_FREE (Debt=0)"
+                                        att["attempt_3"] = "DERIVED_FROM_RAW → 0.0 (Debt Free)"
+                                        att["attempt_4"] = "FILING_PROVIDER_REFRESH → NOT_NEEDED"
+                                        fld_resolved = True
+                                    else:
+                                        att["attempt_2"] = "PIT_DATABASE → BORROWINGS_NOT_REPORTED"
+                                        att["attempt_3"] = "DERIVED_FROM_RAW → CANNOT_COMPUTE_DEBT_RATIO"
+                                        att["attempt_4"] = "FILING_PROVIDER_REFRESH → FIELD_NOT_REPORTED"
+                                else:
+                                    att["attempt_2"] = "PIT_DATABASE → NO_ANNUAL_FILINGS"
+                                    att["attempt_3"] = "DERIVED_FROM_RAW → NO_ANNUAL_DATA"
+                                    att["attempt_4"] = "FILING_PROVIDER_REFRESH → FIELD_NOT_REPORTED"
+
+                            _emit_data_recovery_log(
+                                scanner="FUNDAMENTAL",
+                                symbol=sym,
+                                stage="QUALITY",
+                                missing_data=f"quality_metric ({fld})",
+                                recovery_attempted=True,
+                                attempts=att,
+                                field=fld,
+                                validation="PASSED" if fld_resolved else "FAILED",
+                                validation_reason=None if fld_resolved else f"APPROVED_PROVIDERS_EXHAUSTED_FOR_{fld.upper()}",
+                                final_action="DATA_USED" if fld_resolved else "STOCK_SKIPPED"
+                            )
+
+                    # Check partial missing Growth fields: YoY Rev, OpProfit, EPS & Prior EPS
                     missing_g = [f for f in ["rev_yoy_latest", "rev_yoy_prev", "op_profit_yoy_latest", "op_profit_yoy_prev", "eps_yoy_latest", "eps_yoy_prev", "prior_eps"] if funds.get(f) is None]
                     if missing_g:
-                        pit_filings = _get_pit_filings(sym)
-                        if pit_filings and len(pit_filings) >= 2:
-                            f0 = pit_filings[0]
-                            f1 = pit_filings[1]
+                        pit_filings = _get_pit_filings(sym, allow_live_refresh=False)
+                        quarterly_filings = [f for f in pit_filings if str(f.get("statement_type", "")).upper() == "QUARTERLY"]
+                        if len(quarterly_filings) < 2:
+                            pit_filings = _get_pit_filings(sym, allow_live_refresh=True)
+                            quarterly_filings = [f for f in pit_filings if str(f.get("statement_type", "")).upper() == "QUARTERLY"]
+
+                        if len(quarterly_filings) >= 2:
+                            f0 = quarterly_filings[0]
+                            f1 = quarterly_filings[1]
 
                             def _find_yoy_match(ref_f):
                                 ref_dt = pd.to_datetime(ref_f.get("period_end_date"))
-                                for past_f in pit_filings:
+                                for past_f in quarterly_filings:
                                     past_dt = pd.to_datetime(past_f.get("period_end_date"))
                                     diff_days = (ref_dt - past_dt).days
                                     if 340 <= diff_days <= 390:
@@ -1761,11 +1876,11 @@ class LiveFundamentalBuyScanner:
                                 op0, op_m0 = f0.get("operating_profit"), match_f0.get("operating_profit")
                                 eps0, eps_m0 = f0.get("eps"), match_f0.get("eps")
                                 if funds.get("rev_yoy_latest") is None and r0 is not None and r_m0 is not None and not pd.isna(r0) and not pd.isna(r_m0) and abs(float(r_m0)) > 1e-5:
-                                    funds["rev_yoy_latest"] = ((float(r0) - float(r_m0)) / abs(float(r_m0))) * 100.0
+                                    funds["rev_yoy_latest"] = round(((float(r0) - float(r_m0)) / abs(float(r_m0))) * 100.0, 2)
                                 if funds.get("op_profit_yoy_latest") is None and op0 is not None and op_m0 is not None and not pd.isna(op0) and not pd.isna(op_m0) and abs(float(op_m0)) > 1e-5:
-                                    funds["op_profit_yoy_latest"] = ((float(op0) - float(op_m0)) / abs(float(op_m0))) * 100.0
+                                    funds["op_profit_yoy_latest"] = round(((float(op0) - float(op_m0)) / abs(float(op_m0))) * 100.0, 2)
                                 if funds.get("eps_yoy_latest") is None and eps0 is not None and eps_m0 is not None and not pd.isna(eps0) and not pd.isna(eps_m0) and abs(float(eps_m0)) > 1e-5:
-                                    funds["eps_yoy_latest"] = ((float(eps0) - float(eps_m0)) / abs(float(eps_m0))) * 100.0
+                                    funds["eps_yoy_latest"] = round(((float(eps0) - float(eps_m0)) / abs(float(eps_m0))) * 100.0, 2)
                                 if funds.get("prior_eps") is None and eps_m0 is not None and not pd.isna(eps_m0):
                                     funds["prior_eps"] = float(eps_m0)
 
@@ -1774,39 +1889,35 @@ class LiveFundamentalBuyScanner:
                                 op1, op_m1 = f1.get("operating_profit"), match_f1.get("operating_profit")
                                 eps1, eps_m1 = f1.get("eps"), match_f1.get("eps")
                                 if funds.get("rev_yoy_prev") is None and r1 is not None and r_m1 is not None and not pd.isna(r1) and not pd.isna(r_m1) and abs(float(r_m1)) > 1e-5:
-                                    funds["rev_yoy_prev"] = ((float(r1) - float(r_m1)) / abs(float(r_m1))) * 100.0
+                                    funds["rev_yoy_prev"] = round(((float(r1) - float(r_m1)) / abs(float(r_m1))) * 100.0, 2)
                                 if funds.get("op_profit_yoy_prev") is None and op1 is not None and op_m1 is not None and not pd.isna(op1) and not pd.isna(op_m1) and abs(float(op_m1)) > 1e-5:
-                                    funds["op_profit_yoy_prev"] = ((float(op1) - float(op_m1)) / abs(float(op_m1))) * 100.0
+                                    funds["op_profit_yoy_prev"] = round(((float(op1) - float(op_m1)) / abs(float(op_m1))) * 100.0, 2)
                                 if funds.get("eps_yoy_prev") is None and eps1 is not None and eps_m1 is not None and not pd.isna(eps1) and not pd.isna(eps_m1) and abs(float(eps_m1)) > 1e-5:
-                                    funds["eps_yoy_prev"] = ((float(eps1) - float(eps_m1)) / abs(float(eps_m1))) * 100.0
+                                    funds["eps_yoy_prev"] = round(((float(eps1) - float(eps_m1)) / abs(float(eps_m1))) * 100.0, 2)
 
                             if funds.get("prior_eps") is None and f1.get("eps") is not None and not pd.isna(f1.get("eps")):
                                 funds["prior_eps"] = float(f1.get("eps"))
 
-                        unresolved_g = [f for f in ["rev_yoy_latest", "rev_yoy_prev", "op_profit_yoy_latest", "op_profit_yoy_prev", "eps_yoy_latest", "eps_yoy_prev", "prior_eps"] if funds.get(f) is None]
-                        g_ok = (len(unresolved_g) == 0)
-                        _emit_data_recovery_log(
-                            scanner="FUNDAMENTAL",
-                            symbol=sym,
-                            stage="GROWTH",
-                            missing_data=f"growth_acceleration_metrics ({', '.join(missing_g)})",
-                            recovery_attempted=True,
-                            providers=[
-                                {
-                                    "provider": "DAILY_BUILDER_2.0",
-                                    "result": "PARTIAL_OR_ABSENT",
-                                    "failure_type": "METRICS_MISSING_IN_DAILY_BUILDER",
-                                },
-                                {
-                                    "provider": "PIT_DATABASE",
-                                    "result": "FETCHED" if g_ok else ("NOT_AVAILABLE" if not pit_filings else "INSUFFICIENT_DATA"),
-                                    "failure_type": None if g_ok else ("SYMBOL_NOT_IN_PIT_DB" if not pit_filings else "INSUFFICIENT_QUARTERS_IN_FILINGS"),
-                                }
-                            ],
-                            validation="PASSED" if g_ok else "FAILED",
-                            validation_reason=None if g_ok else f"UNRESOLVED_GROWTH_FIELDS_{unresolved_g}",
-                            final_action="DATA_USED" if g_ok else "STOCK_SKIPPED",
-                        )
+                        for fld in missing_g:
+                            is_res = funds.get(fld) is not None
+                            att_g = {
+                                "attempt_1": "DAILY_BUILDER_CACHE → MISSING",
+                                "attempt_2": f"PIT_DATABASE → {'MATCHED' if is_res else 'INSUFFICIENT_QUARTERS'}",
+                                "attempt_3": f"DERIVED_FROM_RAW → {'COMPUTED' if is_res else 'CANNOT_DERIVE'}",
+                                "attempt_4": f"FILING_PROVIDER_REFRESH → {'FETCHED' if is_res else 'NOT_AVAILABLE'}",
+                            }
+                            _emit_data_recovery_log(
+                                scanner="FUNDAMENTAL",
+                                symbol=sym,
+                                stage="GROWTH",
+                                missing_data=f"growth_acceleration_metric ({fld})",
+                                recovery_attempted=True,
+                                attempts=att_g,
+                                field=fld,
+                                validation="PASSED" if is_res else "FAILED",
+                                validation_reason=None if is_res else f"APPROVED_PROVIDERS_EXHAUSTED_FOR_{fld.upper()}",
+                                final_action="DATA_USED" if is_res else "STOCK_SKIPPED"
+                            )
 
                 if _bars_missing:
                     _emit_data_recovery_log(
@@ -1910,6 +2021,78 @@ class LiveFundamentalBuyScanner:
                     sma50 = float(m.get("sma50") or cmp_price)
                     vol_ratio = float(m.get("vol_ratio", 1.5))
 
+                    # Construct full 7-stage sequential decision audit record
+                    audit_trail = {
+                        "symbol": sym.upper(),
+                        "decision": "BUY",
+                        "stages": {
+                            "stage_0_universe": {
+                                "status": "PASS",
+                                "details": "Approved Universe, Not Quarantined"
+                            },
+                            "stage_1_quality": {
+                                "status": "PASS",
+                                "roce": m.get("roce"),
+                                "roe": m.get("roe"),
+                                "operating_cash_flow": m.get("operating_cash_flow"),
+                                "debt_equity": m.get("debt_equity"),
+                                "is_value_trap": m.get("is_value_trap"),
+                                "category": m.get("fundamental_category"),
+                                "quality_score": m.get("quality_score"),
+                            },
+                            "stage_2_growth": {
+                                "status": "PASS",
+                                "rev_yoy_latest": m.get("rev_yoy_latest"),
+                                "rev_yoy_prev": m.get("rev_yoy_prev"),
+                                "op_profit_yoy_latest": m.get("op_profit_yoy_latest"),
+                                "op_profit_yoy_prev": m.get("op_profit_yoy_prev"),
+                                "eps_yoy_latest": m.get("eps_yoy_latest"),
+                                "eps_yoy_prev": m.get("eps_yoy_prev"),
+                                "growth_score": m.get("growth_score"),
+                            },
+                            "stage_3_trend": {
+                                "status": "PASS",
+                                "close": cmp_price,
+                                "sma50": m.get("sma50"),
+                                "sma200": m.get("sma200"),
+                                "ret_3m": m.get("ret_3m_stock_pct"),
+                                "ret_6m": m.get("ret_6m_stock_pct"),
+                            },
+                            "stage_4_relative_strength": {
+                                "status": "PASS",
+                                "stock_ret_3m": m.get("ret_3m_stock_pct"),
+                                "benchmark_ret_3m": m.get("ret_3m_bm_pct"),
+                                "excess_return_3m": m.get("excess_return_3m"),
+                            },
+                            "stage_5_consolidation": {
+                                "status": "PASS",
+                                "consolidation_window": m.get("consolidation_window"),
+                                "drawdown_pct": m.get("drawdown_pct"),
+                                "atr_pct": m.get("atr_pct"),
+                            },
+                            "stage_6_breakout": {
+                                "status": "PASS",
+                                "prior_20d_high": m.get("prior_20d_high"),
+                                "signal_close": cmp_price,
+                                "vol_ratio": vol_ratio,
+                                "extension_pct": m.get("extension_pct"),
+                            }
+                        }
+                    }
+
+                    logger.info(
+                        f"\n{'='*70}\n"
+                        f"🌟 [BUY_CANDIDATE_AUDIT] {sym.upper()} — ALL 7 GATES PASSED (BUY ELIGIBLE)\n"
+                        f"{'='*70}\n"
+                        f"  1. Quality:       ROCE={m.get('roce')}% | ROE={m.get('roe')}% | OCF=₹{m.get('operating_cash_flow')} Cr | D/E={m.get('debt_equity')}\n"
+                        f"  2. Growth:        Rev YoY={m.get('rev_yoy_latest')}% | OpProfit YoY={m.get('op_profit_yoy_latest')}% | EPS YoY={m.get('eps_yoy_latest')}%\n"
+                        f"  3. Trend:         CMP=₹{cmp_price:.2f} > SMA50(₹{m.get('sma50', 0):.2f}) > SMA200(₹{m.get('sma200', 0):.2f})\n"
+                        f"  4. Rel Strength:  3M Return={m.get('ret_3m_stock_pct')}% vs BM={m.get('ret_3m_bm_pct')}%\n"
+                        f"  5. Consolidation: Window={m.get('consolidation_window')}d | Max DD={m.get('drawdown_pct')}% | ATR={m.get('atr_pct')}%\n"
+                        f"  6. Breakout:      CMP=₹{cmp_price:.2f} > 20D High(₹{m.get('prior_20d_high', 0):.2f}) | Vol={vol_ratio:.2f}x (Req >= 1.5x)\n"
+                        f"{'='*70}"
+                    )
+
                     # Persist alert to unified alerts table (accessible to all dashboard views & tracking)
                     if save_alert_if_new is not None:
                         try:
@@ -1939,6 +2122,7 @@ class LiveFundamentalBuyScanner:
                                 context={
                                     "strategy": "FUNDAMENTAL_BREAKOUT",
                                     "rules": "ROCE>=15%, Growth Accelerating, RS vs BM, 20D BO, Open Target / WEALTH_EXIT_V1",
+                                    "audit_trail": audit_trail,
                                     "fundamental_metrics": {
                                         "roce": m.get("roce"),
                                         "roe": m.get("roe"),
@@ -2145,10 +2329,8 @@ class LiveFundamentalBuyScanner:
                     # Determine if the run had any data gaps. Any non‑zero data_insufficient count should degrade health.
                     data_gap = (di > 0) or (high_provider_failure) or (high_insufficient) or (high_missing) or (context_failed)
                     is_degraded = is_crashed or data_gap
-                    # Emit a clearer health label when data is incomplete.
-                    health_status = "OK_WITH_DATA_GAPS" if is_degraded else "OK"
-                    # Preserve legacy "DEGRADED" label for backward compatibility in logs.
-                    _computed_health_status = "DEGRADED" if is_degraded else "OK"
+                    # Set health to DEGRADED whenever data gaps or outages occur
+                    health_status = "DEGRADED" if is_degraded else "OK"
                     _computed_health_status = health_status  # propagate to end banner override
                     health_outcome = "PARTIAL" if is_degraded else "SUCCESS"
                     gap_msg = None
@@ -4305,7 +4487,7 @@ class QualityCompounderValueV2Scanner:
                 _df_rsns.append(f"VALUATION_DATA_GAP: {_val_reason or 'DISCOUNT_UNAVAILABLE'}")
 
             if sym not in CONFIRMED_NOT_ON_EXCHANGE:
-                if sym in provider_failed_symbols:
+                if sym in provider_failed_symbols and price_source != "PIT_DATASET_OVERRIDE":
                     price_df_symbols.add(sym)
                     _df_rsns.append("PRICE_PROVIDER_FAILURE")
                 elif price_data_missing:

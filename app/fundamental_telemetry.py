@@ -863,9 +863,10 @@ class FundamentalScanTelemetry:
         """
         total_time_ms = round((time.time() - self.start_time) * 1000.0, 2)
         evaluated_count = len(self.dispositions)
-        avg_symbol_ms = round(total_time_ms / max(evaluated_count, 1), 2)
-        
         latencies = list(self.symbol_latencies_ms.values())
+        avg_symbol_ms = round(float(np.mean(latencies)), 2) if latencies else 0.0
+        wall_clock_pace_ms = round(total_time_ms / max(evaluated_count, 1), 2)
+        
         p50_symbol_ms = round(float(np.percentile(latencies, 50)), 2) if latencies else 0.0
         p95_symbol_ms = round(float(np.percentile(latencies, 95)), 2) if latencies else 0.0
         max_symbol_ms = round(max(latencies), 2) if latencies else 0.0
@@ -986,6 +987,7 @@ TOP REJECTION REASONS
 
 PERFORMANCE
 total_runtime_ms={total_time_ms}
+wall_clock_pace_ms_per_symbol={wall_clock_pace_ms}
 average_symbol_ms={avg_symbol_ms}
 p50_symbol_ms={p50_symbol_ms}
 p95_symbol_ms={p95_symbol_ms}
@@ -1032,6 +1034,7 @@ TELEMETRY_INTEGRITY={'PASS' if reconciled else 'FAIL'}
             "top_rejection_reasons": dict(sorted(self.rejection_frequencies.items(), key=lambda x: x[1], reverse=True)[:12]),
             "performance": {
                 "total_runtime_ms": total_time_ms,
+                "wall_clock_pace_ms_per_symbol": wall_clock_pace_ms,
                 "average_symbol_ms": avg_symbol_ms,
                 "p50_symbol_ms": p50_symbol_ms,
                 "p95_symbol_ms": p95_symbol_ms,
