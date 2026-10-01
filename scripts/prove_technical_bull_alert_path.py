@@ -78,10 +78,7 @@ def run_proof_battery():
     is_perm, reason = check_production_alert_permission("TECHNICAL", "BULL")
     assert is_perm, f"Permission check failed for BULL: {reason}"
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM alerts WHERE symbol = 'SAMHI_PROOFA';")
-        conn.commit()
+
 
     inserted, persist_reason, alloc, shares = save_alert_if_new(
         symbol="SAMHI_PROOFA",
@@ -171,10 +168,7 @@ def run_proof_battery():
     # TEST D — DUPLICATE ALERT DEDUPLICATION
     # ─────────────────────────────────────────────────────────────
     print("\n--- TEST D: DUPLICATE ALERT HANDLING ---")
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM alerts WHERE symbol = 'SAMHI_PROOFD';")
-        conn.commit()
+
 
     ins_1, _, _, _ = save_alert_if_new(
         symbol="SAMHI_PROOFD",
