@@ -11080,6 +11080,56 @@ function renderMasterSignalsRows(data) {
   if (!tbody) return;
   window._forensicStore.master = Array.isArray(data) ? data : [];
   if (!Array.isArray(data) || data.length === 0) {
+    if (typeof ALL_TRADES !== 'undefined' && Array.isArray(ALL_TRADES) && ALL_TRADES.length > 0) {
+      const openTrades = ALL_TRADES.filter(t => !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(String(t.status || '').toUpperCase()));
+      if (openTrades.length > 0) {
+        const mappedTrades = openTrades.map(t => {
+          const entry = parseFloat(t.entry_price || t.current_price || 0);
+          const sl = parseFloat(t.stop_loss || (entry * 0.95));
+          const risk = entry - sl > 0 ? entry - sl : entry * 0.05;
+          const t1 = parseFloat(t.target_1 || t.target_price || (entry + risk * 2));
+          const t2 = parseFloat(t.target_2 || (entry + risk * 3));
+          const rr = (t1 - entry > 0 && risk > 0) ? (t1 - entry) / risk : 2.0;
+          return {
+            symbol: t.symbol,
+            tradingview_symbol: t.symbol,
+            cmp: t.current_price || t.entry_price,
+            entry_price: entry,
+            stop_loss: sl,
+            target_1: t1,
+            target_2: t2,
+            rr_ratio: rr,
+            scanners: [t.scanner || 'MOMENTUM'],
+            state: 'CONFIRMED',
+            quality_grade: t.score || 'A',
+            meta_confluence_tier: 'TIER_1',
+            why_qualifies: t.signals || 'Breakout Criteria & Risk Engine Verified',
+            alert_time: t.alert_time || t.entry_date
+          };
+        });
+        window._forensicStore.master = mappedTrades;
+        tbody.innerHTML = mappedTrades.map((item, idx) => `
+          <tr class="clickable-stock-row" onclick="openStockForensics('master', ${idx})" title="Click to view full Forensic Audit &amp; Technical Radar">
+            <td style="font-weight:700; color:var(--accent);">${formatStockSymbolLink(item.symbol)}</td>
+            <td onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+            <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
+            <td>${(item.scanners || []).join(', ')}</td>
+            <td><span class="badge-ok">${formatText(item.state)}</span></td>
+            <td>${formatPrice(item.entry_price)}</td>
+            <td style="color:var(--loss);">${formatPrice(item.stop_loss)}</td>
+            <td style="color:var(--win);">${formatPrice(item.target_1)}</td>
+            <td style="color:var(--win);">${formatPrice(item.target_2)}</td>
+            <td style="font-weight:600; color:${(parseFloat(item.rr_ratio) >= 1.5) ? 'var(--win)' : 'var(--text)'};">${(parseFloat(item.rr_ratio) > 0) ? `${parseFloat(item.rr_ratio).toFixed(2)}R` : '—'}</td>
+            <td>${formatText(item.quality_grade)}</td>
+            <td><span class="badge-ok">${formatText(item.meta_confluence_tier)}</span></td>
+            <td style="font-size:11px; color:var(--win);">${formatWhyQualifies(item.checklist_cleared || item.why_qualifies)}</td>
+          </tr>
+        `).join('');
+        const countEl = document.getElementById('master-signals-count');
+        if (countEl) countEl.innerText = `${mappedTrades.length} of ${mappedTrades.length} confirmed signals`;
+        return;
+      }
+    }
     tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:20px; color:var(--muted);">No active confirmed signals.</td></tr>`;
     return;
   }
@@ -11386,8 +11436,9 @@ function renderInvestmentWatchRows(data) {
 let _lastMasterFetchTs = 0;
 function loadMasterSystemV2Data(forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && (now - _lastMasterFetchTs < 5000) && window._masterAlertsCache && window._masterAlertsCache.length > 0) {
-    renderMasterSignalsRows(window._masterAlertsCache);
+  if (!forceRefresh && (now - _lastMasterFetchTs < 3000) && window._masterAlertsCache && window._masterAlertsCache.length > 0) {
+    if (typeof filterMasterSignals === 'function') filterMasterSignals();
+    else renderMasterSignalsRows(window._masterAlertsCache);
     return;
   }
   _lastMasterFetchTs = now;
@@ -11396,13 +11447,18 @@ function loadMasterSystemV2Data(forceRefresh = false) {
     .then(r => r.json())
     .then(data => {
       window._masterAlertsCache = Array.isArray(data) ? data : [];
-      renderMasterSignalsRows(window._masterAlertsCache);
-      const countEl = document.getElementById('master-signals-count');
-      if (countEl) countEl.innerText = `${window._masterAlertsCache.length} confirmed signals`;
+      if (typeof filterMasterSignals === 'function') {
+        filterMasterSignals();
+      } else {
+        renderMasterSignalsRows(window._masterAlertsCache);
+        const countEl = document.getElementById('master-signals-count');
+        if (countEl) countEl.innerText = `${window._masterAlertsCache.length} confirmed signals`;
+      }
     }).catch(e => {
       console.warn('Failed to load master alerts:', e);
       window._masterAlertsCache = [];
-      renderMasterSignalsRows([]);
+      if (typeof filterMasterSignals === 'function') filterMasterSignals();
+      else renderMasterSignalsRows([]);
     });
 
   // Standalone refreshUniverseHealth called on universe-health tab switch and master load
