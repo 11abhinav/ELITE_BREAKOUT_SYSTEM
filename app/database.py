@@ -2936,11 +2936,48 @@ def save_alert_if_new(
         )
 
         # ─────────────────────────────────────────────────────────────────
-        # 🛡️ PER-SCANNER DAILY DEDUPLICATION GATE
-        # 1. Scanners independently generate alerts for the same symbol.
-        # 2. Duplicate alerts for the SAME scanner on the SAME trading date are blocked.
-        # 3. On a NEW DAY, any scanner can alert again even if previous alerts are OPEN.
+        # 🛡️ PER-SCANNER OPEN POSITION & DEDUPLICATION GATE
+        # INVARIANT: If an alert for this symbol is ALREADY OPEN under the same scanner
+        # (even on next date or future date), DO NOT allow a new alert to be raised!
         # ─────────────────────────────────────────────────────────────────
+        cur.execute("""
+            SELECT id, symbol, entry_price, stop_loss, target_1, alert_date, alert_time, scanner, status, breakout_type
+            FROM alerts
+            WHERE symbol = %s 
+              AND status IN ('OPEN', 'ACTIVE')
+              AND is_rejected = FALSE
+              AND (
+                  COALESCE(UPPER(scanner), '') IN (%s, %s)
+                  OR COALESCE(UPPER(breakout_type), '') IN (%s, %s)
+              )
+            ORDER BY id DESC LIMIT 1
+        """, (
+            symbol,
+            eff_canonical_upper, eff_scanner_upper,
+            eff_canonical_upper, eff_breakout_upper
+        ))
+        prior_open_alert = cur.fetchone()
+
+        if prior_open_alert:
+            prior_id = prior_open_alert[0]
+            prior_date = prior_open_alert[5]
+            prior_status = prior_open_alert[8]
+            logger.info(
+                f"🛡️ [OPEN_ALERT_GUARD] Alert for {symbol} ({canonical_scanner}) suppressed — "
+                f"Position is already {prior_status} under this scanner (Alert ID: {prior_id}, Date: {prior_date})"
+            )
+            try:
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event(canonical_scanner, "ALERT_DEDUPLICATED", {
+                    "symbol": symbol, "scanner": canonical_scanner, "source_trading_date": str(source_trading_date),
+                    "entry_price": eff_entry, "alert_raised": False, "duplicate": True, "persisted": False,
+                    "reason": f"ALREADY_OPEN_{prior_status}"
+                })
+            except Exception:
+                pass
+            return False, f"Alert blocked: Position for {symbol} is already {prior_status} under scanner {canonical_scanner} (Alert ID: {prior_id}, Date: {prior_date})", 0.0, 0
+
+        # Duplicate alerts for the SAME scanner on the SAME trading date are blocked
         cur.execute("""
             SELECT id, symbol, entry_price, stop_loss, target_1, target_2, target_3, signals, score, alert_date, alert_time, context,
                    COALESCE(trade_evolution_state, 'INITIAL'), COALESCE(evidence_count, 1), COALESCE(distinct_patterns_count, 1), scanner, status,
@@ -2973,29 +3010,22 @@ def save_alert_if_new(
         if prior_same_date_alert:
             prior_id = prior_same_date_alert[0]
             prior_status = prior_same_date_alert[16]
-            if prior_status == 'OPEN':
-                # An active OPEN position exists for this scanner on this same trading date:
-                # Route into Trade Evolution to evaluate intra-day re-triggers / pyramid confirmations.
-                existing_alert = prior_same_date_alert
-            else:
-                # Setup was already recorded for this scanner on this date (and is no longer OPEN):
-                # Suppress duplicate re-entry into alerts.
-                logger.info(
-                    f"🔁 [SAME_DAY_DEDUP] {symbol} ({canonical_scanner}) alert RAISED @ ₹{eff_entry:.2f}, "
-                    f"but DB persistence suppressed — alert already recorded for this date "
-                    f"(Alert ID: {prior_id}, Date: {prior_same_date_alert[9]}, Status: {prior_status})"
-                )
-                try:
-                    from telemetry_manager import telemetry
-                    telemetry.log_scheduler_event(canonical_scanner, "ALERT_DEDUPLICATED", {
-                        "symbol": symbol, "scanner": canonical_scanner, "source_trading_date": str(source_trading_date),
-                        "entry_price": eff_entry, "alert_raised": True, "duplicate": True, "persisted": False, "notification_sent": False
-                    })
-                except Exception:
-                    pass
-                return False, f"Duplicate: Alert already persisted for {symbol} ({canonical_scanner}) on {effective_alert_date} (ID {prior_id})", 0.0, 0
-        else:
-            existing_alert = None
+            logger.info(
+                f"🔁 [SAME_DAY_DEDUP] {symbol} ({canonical_scanner}) alert RAISED @ ₹{eff_entry:.2f}, "
+                f"but DB persistence suppressed — alert already recorded for this date "
+                f"(Alert ID: {prior_id}, Date: {prior_same_date_alert[9]}, Status: {prior_status})"
+            )
+            try:
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event(canonical_scanner, "ALERT_DEDUPLICATED", {
+                    "symbol": symbol, "scanner": canonical_scanner, "source_trading_date": str(source_trading_date),
+                    "entry_price": eff_entry, "alert_raised": True, "duplicate": True, "persisted": False, "notification_sent": False
+                })
+            except Exception:
+                pass
+            return False, f"Duplicate: Alert already persisted for {symbol} ({canonical_scanner}) on {effective_alert_date} (ID {prior_id})", 0.0, 0
+
+        existing_alert = None
 
         if existing_alert:
             # ─────────────────────────────────────────────────────────────────
@@ -12016,15 +12046,14 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
             return True, "INSERTED_DUMMY_CANDIDATE"
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, status, watchlist_state FROM alerts
+                SELECT id, status, watchlist_state, alert_date FROM alerts
                 WHERE symbol = %s AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
                   AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
-                  AND alert_date = %s
                 ORDER BY alert_time DESC LIMIT 1
-            """, (sym, today_date))
+            """, (sym,))
             row = cur.fetchone()
             if row:
-                alert_id = row[0]
+                alert_id, prev_status, prev_state, prev_date = row[0], row[1], row[2], row[3]
                 cur.execute("""
                     UPDATE alerts
                     SET current_price = %s,
@@ -12043,7 +12072,8 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                     alert_id
                 ))
                 conn.commit()
-                return True, f"UPDATED_EXISTING_ALERT_{alert_id}"
+                logger.info(f"🛡️ [V2_ALERT_GUARD] Alert for {sym} already {prev_status} from {prev_date} (ID: {alert_id}). Updated tracking without raising duplicate alert.")
+                return False, f"ALREADY_OPEN_UPDATED_ALERT_{alert_id}"
             else:
                 cur.execute("""
                     INSERT INTO alerts (

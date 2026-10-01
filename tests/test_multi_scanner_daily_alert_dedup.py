@@ -42,47 +42,65 @@ class InMemoryAlertsCursor:
         if "SELECT" in sql_upper and "FROM ALERTS" in sql_upper:
             sym = str(params[0]).strip().upper() if params else ""
             matches = [a for a in self.db.alerts if str(a["symbol"]).upper() == sym]
-            if "STATUS = 'OPEN'" in sql_upper:
-                matches = [a for a in matches if a.get("status") == "OPEN"]
-            if len(params) >= 8:
+            if "STATUS = 'OPEN'" in sql_upper or "STATUS IN ('OPEN'" in sql_upper:
+                matches = [a for a in matches if a.get("status") in ("OPEN", "ACTIVE")]
+            if len(params) >= 5:
                 sc_list = [str(params[1]).upper(), str(params[2]).upper()]
                 bt_list = [str(params[3]).upper(), str(params[4]).upper()]
-                eff_date = str(params[6]).split(" ")[0].split("T")[0]
-                src_date = str(params[7]).split(" ")[0].split("T")[0]
                 filtered = []
                 for a in matches:
                     a_sc = str(a.get("scanner", "")).upper()
                     a_bt = str(a.get("breakout_type", "")).upper()
-                    a_date = str(a.get("alert_date", "")).split(" ")[0].split("T")[0]
-                    a_src = str(a.get("source_trading_date", a_date)).split(" ")[0].split("T")[0]
                     sc_matches = (a_sc in sc_list or a_bt in bt_list or a_sc in bt_list or a_bt in sc_list)
-                    date_matches = (a_date == eff_date or a_src == src_date or a_date == src_date or a_src == eff_date)
-                    if sc_matches and date_matches:
-                        filtered.append(a)
+                    if len(params) >= 8:
+                        eff_date = str(params[6]).split(" ")[0].split("T")[0]
+                        src_date = str(params[7]).split(" ")[0].split("T")[0]
+                        a_date = str(a.get("alert_date", "")).split(" ")[0].split("T")[0]
+                        a_src = str(a.get("source_trading_date", a_date)).split(" ")[0].split("T")[0]
+                        date_matches = (a_date == eff_date or a_src == src_date or a_date == src_date or a_src == eff_date)
+                        if sc_matches and date_matches:
+                            filtered.append(a)
+                    else:
+                        if sc_matches:
+                            filtered.append(a)
                 matches = filtered
             if matches:
                 latest = matches[-1]
-                self._last_result = (
-                    latest["id"],
-                    latest["symbol"],
-                    latest["entry_price"],
-                    latest.get("stop_loss"),
-                    latest.get("target_1"),
-                    latest.get("target_2"),
-                    latest.get("target_3"),
-                    latest.get("signals"),
-                    latest.get("score"),
-                    latest["alert_date"],
-                    latest.get("alert_time"),
-                    latest.get("context"),
-                    latest.get("trade_evolution_state", "INITIAL"),
-                    latest.get("evidence_count", 1),
-                    latest.get("distinct_patterns_count", 1),
-                    latest.get("scanner"),
-                    latest.get("status", "OPEN"),
-                    latest.get("breakout_type"),
-                    latest.get("source_trading_date", latest["alert_date"])
-                )
+                if len(params) >= 8:
+                    self._last_result = (
+                        latest["id"],
+                        latest["symbol"],
+                        latest["entry_price"],
+                        latest.get("stop_loss"),
+                        latest.get("target_1"),
+                        latest.get("target_2"),
+                        latest.get("target_3"),
+                        latest.get("signals"),
+                        latest.get("score"),
+                        latest["alert_date"],
+                        latest.get("alert_time"),
+                        latest.get("context"),
+                        latest.get("trade_evolution_state", "INITIAL"),
+                        latest.get("evidence_count", 1),
+                        latest.get("distinct_patterns_count", 1),
+                        latest.get("scanner"),
+                        latest.get("status", "OPEN"),
+                        latest.get("breakout_type"),
+                        latest.get("source_trading_date", latest["alert_date"])
+                    )
+                else:
+                    self._last_result = (
+                        latest["id"],
+                        latest["symbol"],
+                        latest["entry_price"],
+                        latest.get("stop_loss"),
+                        latest.get("target_1"),
+                        latest["alert_date"],
+                        latest.get("alert_time"),
+                        latest.get("scanner"),
+                        latest.get("status", "OPEN"),
+                        latest.get("breakout_type")
+                    )
             else:
                 self._last_result = None
 
@@ -194,15 +212,17 @@ class TestMultiScannerDailyAlertDedup:
         )
         assert ins2 is False
         assert (
-            "DUPLICATE" in str(reason2).upper()
+            "BLOCKED" in str(reason2).upper()
+            or "OPEN" in str(reason2).upper()
+            or "DUPLICATE" in str(reason2).upper()
             or "MATERIAL" in str(reason2).upper()
             or "RE-TRIGGER" in str(reason2).upper()
         )
         # Verify no duplicate row was created in DB
         assert len(self.db.alerts) == 1
 
-    def test_same_scanner_new_day_alert_is_allowed(self):
-        """Same scanner on a new day must be allowed to alert even if Day 1 is still OPEN."""
+    def test_same_scanner_new_day_alert_is_blocked_if_open(self):
+        """Same scanner on a new day must be BLOCKED if previous alert is still OPEN."""
         sym = "TEST_DEDUP_SYM2"
         # Day 1 alert (Monday 2026-08-03)
         ins1, reason1, _, _ = save_alert_if_new(
@@ -222,7 +242,7 @@ class TestMultiScannerDailyAlertDedup:
         assert ins1 is True
         assert len(self.db.alerts) == 1
 
-        # Day 2 alert (Tuesday 2026-08-04, new day) — MUST SUCCEED even though Day 1 is OPEN
+        # Day 2 alert (Tuesday 2026-08-04, next day) — MUST BE BLOCKED because Day 1 is still OPEN
         ins2, reason2, _, _ = save_alert_if_new(
             symbol=sym,
             breakout_type="TECHNICAL",
@@ -237,37 +257,31 @@ class TestMultiScannerDailyAlertDedup:
             bayesian_regime="BULL",
             conn=self.db,
         )
-        assert ins2 is True
-        assert "Inserted" in reason2
+        assert ins2 is False
+        assert "OPEN" in str(reason2).upper()
+        # Verify DB still has only 1 alert for this symbol
+        assert len(self.db.alerts) == 1
 
-        # Verify DB has 2 alerts for this symbol
-        assert len(self.db.alerts) == 2
-        dates = [a["alert_date"] for a in self.db.alerts]
-        assert "2026-08-03" in dates
-        assert "2026-08-04" in dates
+        # Now simulate Day 1 position being closed (e.g. exit reached)
+        self.db.alerts[0]["status"] = "CLOSED"
 
-        # Day 2 duplicate alert — MUST BE BLOCKED
+        # Day 3 alert (Wednesday 2026-08-05) after Day 1 is CLOSED — MUST BE ALLOWED
         ins3, reason3, _, _ = save_alert_if_new(
             symbol=sym,
             breakout_type="TECHNICAL",
-            alert_time="2026-08-04 14:00:00",
+            alert_time="2026-08-05 09:30:00",
             scanner="TECHNICAL",
             category="WYCKOFF SPRING TYPE 2",
-            entry_price=255.2,
-            stop_loss=245.0,
-            target_1=275.0,
+            entry_price=260.0,
+            stop_loss=250.0,
+            target_1=280.0,
             signals="WYCKOFF SPRING TYPE 2",
-            score=88,
+            score=90,
             bayesian_regime="BULL",
             conn=self.db,
         )
-        assert ins3 is False
-        assert (
-            "DUPLICATE" in str(reason3).upper()
-            or "MATERIAL" in str(reason3).upper()
-            or "RE-TRIGGER" in str(reason3).upper()
-        )
-        # Count still remains 2
+        assert ins3 is True
+        assert "Inserted" in reason3
         assert len(self.db.alerts) == 2
 
     def test_different_scanners_same_day_are_allowed(self):
@@ -331,34 +345,39 @@ class TestMultiScannerDailyAlertDedup:
         assert ins2 is True
         assert len(self.db.alerts) == 2
 
-        # Day 2: Both TECHNICAL and FUNDAMENTAL can alert again on the new day
-        ins3, _, _, _ = save_alert_if_new(
+        # Day 2: Both TECHNICAL and FUNDAMENTAL alerts are BLOCKED because Day 1 is still OPEN
+        ins3, reason3, _, _ = save_alert_if_new(
             symbol=sym, breakout_type="TECHNICAL", alert_time="2026-08-04 09:30:00",
             scanner="TECHNICAL", category="WYCKOFF SPRING TYPE 2", entry_price=105.0,
             stop_loss=100.0, target_1=115.0, score=88, bayesian_regime="BULL", conn=self.db,
         )
-        assert ins3 is True
+        assert ins3 is False
+        assert "OPEN" in str(reason3).upper()
 
-        ins4, _, _, _ = save_alert_if_new(
+        ins4, reason4, _, _ = save_alert_if_new(
             symbol=sym, breakout_type="FUNDAMENTAL_BREAKOUT", alert_time="2026-08-04 15:30:00",
             scanner="FUNDAMENTAL", category="OPEN_TARGET", entry_price=106.0,
             score=96, bayesian_regime="BULL", conn=self.db,
         )
-        assert ins4 is True
-        assert len(self.db.alerts) == 4
+        assert ins4 is False
+        assert "OPEN" in str(reason4).upper()
+        assert len(self.db.alerts) == 2
 
-        # Day 2 duplicate alerts must be blocked
+        # Once Day 1 positions are CLOSED, both scanners can alert again on the new day
+        for a in self.db.alerts:
+            a["status"] = "CLOSED"
+
         ins5, _, _, _ = save_alert_if_new(
-            symbol=sym, breakout_type="TECHNICAL", alert_time="2026-08-04 11:00:00",
-            scanner="TECHNICAL", category="WYCKOFF SPRING TYPE 2", entry_price=105.5,
+            symbol=sym, breakout_type="TECHNICAL", alert_time="2026-08-04 09:30:00",
+            scanner="TECHNICAL", category="WYCKOFF SPRING TYPE 2", entry_price=105.0,
             stop_loss=100.0, target_1=115.0, score=88, bayesian_regime="BULL", conn=self.db,
         )
-        assert ins5 is False
+        assert ins5 is True
 
         ins6, _, _, _ = save_alert_if_new(
-            symbol=sym, breakout_type="FUNDAMENTAL_BREAKOUT", alert_time="2026-08-04 15:45:00",
-            scanner="FUNDAMENTAL", category="OPEN_TARGET", entry_price=106.2,
+            symbol=sym, breakout_type="FUNDAMENTAL_BREAKOUT", alert_time="2026-08-04 15:30:00",
+            scanner="FUNDAMENTAL", category="OPEN_TARGET", entry_price=106.0,
             score=96, bayesian_regime="BULL", conn=self.db,
         )
-        assert ins6 is False
+        assert ins6 is True
         assert len(self.db.alerts) == 4
