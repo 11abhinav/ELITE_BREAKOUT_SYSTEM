@@ -1197,9 +1197,17 @@ def run_system_scheduler():
         # boot, so the production container never received pe_3y_median / ev_ebitda_3y_median.
         # This block runs unconditionally at every boot, independent of watchlist state.
         try:
-            from database import upload_parquet_to_db, download_parquet_from_db, download_parquet_from_db_today
-            pit_parquet_dir = os.path.join(DATA_DIR, "pit_fundamentals_v1")
-            pit_parquet_path = os.path.join(pit_parquet_dir, "pit_fundamentals_v1.parquet")
+            import glob, shutil
+            # Step 0: Ensure pit_raw_filings directory exists and is populated
+            pit_raw_dir = os.path.join(DATA_DIR, "pit_raw_filings")
+            if not os.path.exists(pit_raw_dir) or len(glob.glob(os.path.join(pit_raw_dir, "*.json"))) == 0:
+                for seed_cand in ["/app/data_seed/pit_raw_filings", "/app/data/pit_raw_filings", os.path.join(BASE_DIR, "data", "pit_raw_filings")]:
+                    if os.path.isdir(seed_cand) and len(glob.glob(os.path.join(seed_cand, "*.json"))) > 0:
+                        os.makedirs(pit_raw_dir, exist_ok=True)
+                        for f_src in glob.glob(os.path.join(seed_cand, "*.json")):
+                            shutil.copy2(f_src, pit_raw_dir)
+                        logger.info(f"⚡ [PIT BOOT] Seeded {len(glob.glob(os.path.join(pit_raw_dir, '*.json')))} raw filings from {seed_cand}")
+                        break
 
             # Step 1: If pit_fundamentals_v1.parquet exists locally → upload to DB so containers can restore it
             if os.path.exists(pit_parquet_path) and os.path.getsize(pit_parquet_path) > 0:

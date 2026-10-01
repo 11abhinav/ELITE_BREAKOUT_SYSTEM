@@ -6,6 +6,12 @@ echo "🚀 Starting Elite Breakout System Supervisor..."
 export MALLOC_ARENA_MAX=2
 export PYTHONPATH="/app:/app/app:$PYTHONPATH"
 
+# Ensure /app/data has all required seed data (e.g. pit_raw_filings) even if persistent volume is mounted
+if [ -d "/app/data_seed" ]; then
+    mkdir -p /app/data
+    cp -rn /app/data_seed/* /app/data/ 2>/dev/null || true
+fi
+
 while true; do
     echo "▶️ Launching app/main.py..."
     python3 app/main.py

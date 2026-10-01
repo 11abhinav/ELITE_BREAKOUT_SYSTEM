@@ -16,6 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN cp -r /app/data /app/data_seed 2>/dev/null || true
 
 EXPOSE 8000
 EXPOSE 8080

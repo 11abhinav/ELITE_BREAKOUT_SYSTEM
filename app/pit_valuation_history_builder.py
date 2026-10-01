@@ -248,9 +248,14 @@ def build_pit_valuation_history(
         if len(df_3y) < 10:
             continue
 
-        f_sym = df_pit[df_pit['symbol'] == sym].copy()
+        # CRITICAL: Use ANNUAL statements only for EBITDA/EPS/Shares metrics.
+        # Quarterly operating_profit = single quarter (≈1/4 of annual) — mixing quarterly rows
+        # with annual rows via merge_asof causes EV / quarterly_EBITDA which is ~4× EV / annual_EBITDA,
+        # producing wildly inflated medians and destroying strategy gate integrity.
+        f_sym = df_pit[(df_pit['symbol'] == sym) & (df_pit['statement_type'].astype(str).str.upper() == 'ANNUAL')].copy()
         if f_sym.empty:
             continue
+
 
         try:
             f_sym['dt'] = pd.to_datetime(f_sym[avail_col]).dt.tz_localize(None)

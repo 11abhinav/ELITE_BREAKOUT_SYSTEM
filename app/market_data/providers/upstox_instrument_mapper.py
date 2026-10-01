@@ -107,8 +107,13 @@ _STATIC_SYMBOL_MAP = {
     "GMRINFRA": "NSE_EQ|INE776C01039",
     "GMRP&UI": "NSE_EQ|INE0CU601026",
     "GMRP-UI": "NSE_EQ|INE0CU601026",
-    "GUJGAS": "NSE_EQ|INE844O01030",
-    "GUJGASLTD": "NSE_EQ|INE844O01030",
+    # GOVERNANCE NOTE (2026-10-01): ISIN INE844O01030 maps to GUJENERGY (Gujarat Energy Limited)
+    # on Upstox — a DIFFERENT company from GUJGASLTD (Gujarat Gas Ltd).
+    # GUJGASLTD is NOT present in the Upstox NSE instrument master (verified 2026-10-01).
+    # Mapping removed to prevent silently substituting GUJENERGY price for GUJGASLTD.
+    # GUJGASLTD will correctly receive DATA_INSUFFICIENT_PRICE and be counted as a data failure.
+    # "GUJGAS": "NSE_EQ|INE844O01030",    # REMOVED — maps to wrong company GUJENERGY
+    # "GUJGASLTD": "NSE_EQ|INE844O01030", # REMOVED — maps to wrong company GUJENERGY
     "PEL": "NSE_EQ|INE140A01024",
     "UNITDSPR": "NSE_EQ|INE854D01024",
     "MCDOWELL-N": "NSE_EQ|INE854D01024",

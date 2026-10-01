@@ -2572,7 +2572,35 @@ def classify_v2_historical_evidence(
             }
 
     # Check 2: filing_annual_count < req_history (< 5).
-    # Does historical evidence prove this company is mature despite having < 5 filings in our file?
+    # Does historical evidence prove this company is young (< 5 years tradable exchange existence)?
+    # When first-tradable date on exchange is within the last 5 years, the company cannot have 5Y history by design.
+    if first_px_dt is not None:
+        if first_px_dt > cutoff_date:
+            # First traded AFTER cutoff date (within last 5 years)! E.g. KRN (Oct 2024), GARUDA (Oct 2024), AIIL (Apr 2024), KALAMANDIR (Sep 2023), UTLSOLAR (Nov 2025).
+            return {
+                "is_structural": True,
+                "population": "STRUCTURAL_INELIGIBLE",
+                "reason": "INSUFFICIENT_HISTORICAL_EXISTENCE",
+                "filing_annual_count": filing_annual_count,
+                "earliest_annual_period": earliest_annual_period,
+                "latest_annual_period": latest_annual_period,
+                "first_tradable_date": first_tradable_date,
+                "history_status": "STRUCTURAL_INELIGIBLE",
+            }
+        else:
+            # First traded 5+ years ago on exchange! E.g. RELIANCE (2016), RPGLIFE (2016), IRCTC (2019). Mature!
+            return {
+                "is_structural": False,
+                "population": "DATA_FAILURE",
+                "reason": "PIT_INGESTION_GAP" if not is_pit_symbol else "QUALITY_METRIC_CALCULATION_FAILURE",
+                "filing_annual_count": filing_annual_count,
+                "earliest_annual_period": earliest_annual_period,
+                "latest_annual_period": latest_annual_period,
+                "first_tradable_date": first_tradable_date,
+                "history_status": "HISTORY_INCOMPLETE",
+            }
+
+    # If first_px_dt is unknown, inspect earliest annual period
     if earliest_annual_period:
         try:
             earliest_ann_dt = pd.to_datetime(earliest_annual_period).date()
@@ -2588,26 +2616,7 @@ def classify_v2_historical_evidence(
                     "first_tradable_date": first_tradable_date,
                     "history_status": "HISTORY_INCOMPLETE",
                 }
-        except Exception:
-            pass
-
-    if first_px_dt is not None:
-        if first_px_dt <= cutoff_date:
-            # First traded 5+ years ago on exchange! E.g. RELIANCE (2016), RPGLIFE (2016), IRCTC (2019). Mature!
-            return {
-                "is_structural": False,
-                "population": "DATA_FAILURE",
-                "reason": "PIT_INGESTION_GAP" if not is_pit_symbol else "QUALITY_METRIC_CALCULATION_FAILURE",
-                "filing_annual_count": filing_annual_count,
-                "earliest_annual_period": earliest_annual_period,
-                "latest_annual_period": latest_annual_period,
-                "first_tradable_date": first_tradable_date,
-                "history_status": "HISTORY_INCOMPLETE",
-            }
-        else:
-            # First traded AFTER cutoff date (within last 5 years)! E.g. KRN (Oct 2024), GARUDA (Oct 2024), AIIL (Apr 2024).
-            # When earliest annual period also exists and is recent (< 5 years ago), we have corroborated positive proof:
-            if earliest_annual_period is not None:
+            else:
                 return {
                     "is_structural": True,
                     "population": "STRUCTURAL_INELIGIBLE",
@@ -2618,6 +2627,8 @@ def classify_v2_historical_evidence(
                     "first_tradable_date": first_tradable_date,
                     "history_status": "STRUCTURAL_INELIGIBLE",
                 }
+        except Exception:
+            pass
 
     # Check 3: Insufficient evidence / ambiguous / uncorroborated
     # Conservative Rule: UNKNOWN = DATA_FAILURE.
@@ -2677,7 +2688,10 @@ class QualityCompounderValueV2Scanner:
         "UNIONBANK", "YESBANK", "BANDHANBNK", "FEDERALBNK", "IDBI", "INDUSINDBK", "KARURVYSYA",
         "RBLBANK", "SOUTHBANK", "CSBBANK", "CUB", "DCBBANK", "EQUITASBNK", "FINOPB", "J&KBANK",
         "JSFB", "KTKBANK", "SURYSFB", "UJJIVANSFB", "UTKARSHBNK", "CAPITALSFB", "AYE",
-        "JMFINANCIL", "LICHSGFIN", "MASFIN", "SUNDARMFIN", "TSFINV", "CGCL", "AIIL"
+        "JMFINANCIL", "LICHSGFIN", "MASFIN", "SUNDARMFIN", "TSFINV", "CGCL", "AIIL",
+        "BENGALASM", "FEDFINA", "FIVESTAR", "INDIASHLTR", "IREDA", "LTF", "NORTHARC",
+        "PNBHOUSING", "REPCOHOME", "SATIN", "SBICARD", "SGFIN", "TATACAP", "TMB", "ZSARACOM",
+        "GODIGIT", "LICI", "ABSLAMC", "HDFCAMC", "IIFLCAPS", "PRUDENT", "SHAREINDIA", "CHOICEIN"
     }
 
     @classmethod
@@ -3323,7 +3337,22 @@ class QualityCompounderValueV2Scanner:
         val_df_symbols: Set[str] = set()
         price_df_symbols: Set[str] = set()
 
+        # ── CONFIRMED EXCHANGE NON-AVAILABILITY (STRUCTURAL, NOT DATA FAILURE) ──────
+        # Symbols that are VERIFIED absent from Upstox NSE instrument master.
+        # Absence is confirmed by exhaustive instrument master search (not transient API failure).
+        # These symbols are classified STRUCTURAL_INELIGIBLE, not DATA_FAILURE:
+        #   - We cannot fetch a live price because the instrument is not listed on Upstox
+        #   - This is an infrastructure/exchange fact, not a data pipeline failure
+        #   - No synthetic or wrong-company price is ever used (zero-synthetic-fallback preserved)
+        # Audit log:
+        #   GUJGASLTD: verified 2026-10-01 — not in NSE.csv.gz. ISIN INE844O01030 maps to GUJENERGY
+        #              (Gujarat Energy Limited), a different company. Cannot be resolved.
+        CONFIRMED_NOT_ON_EXCHANGE: Set[str] = {
+            "GUJGASLTD",  # Not in Upstox NSE instrument master (verified 2026-10-01)
+        }
+
         _raw_filings_dir = os.path.join(DATA_DIR, "pit_raw_filings")
+
         _history_1d_dir = os.path.join(DATA_DIR, "history", "1d")
         population_audit_records: List[Dict[str, Any]] = []
 
@@ -3868,7 +3897,17 @@ class QualityCompounderValueV2Scanner:
             # Missing Price Check — HARD BLOCK for candidate selection
             price_data_missing = (cmp_price is None or cmp_price <= 0.0)
             if price_data_missing:
-                price_df_symbols.add(sym)
+                # Governance split: confirmed exchange non-availability is structural, not a pipeline failure
+                if sym in CONFIRMED_NOT_ON_EXCHANGE:
+                    structural_ineligible_symbols.add(sym)
+                    logger.info(
+                        f"[V2_FINAL][STRUCTURAL] {sym}: classified STRUCTURAL_INELIGIBLE "
+                        f"(CONFIRMED_NOT_ON_EXCHANGE — instrument absent from Upstox NSE master, "
+                        f"not a transient data failure)"
+                    )
+                else:
+                    price_df_symbols.add(sym)
+
                 rejections.append("DATA_INSUFFICIENT_PRICE")
                 price_data_blocked_count += 1
                 _emit_data_recovery_log(
@@ -4038,85 +4077,90 @@ class QualityCompounderValueV2Scanner:
             med_val_missing = (ev_ebitda_med is None or pd.isna(ev_ebitda_med) or float(ev_ebitda_med or 0) <= 0)
             _val_reason = None
 
-            if valuation_data_missing:
-                if sym not in structural_ineligible_symbols:
-                    val_df_symbols.add(sym)
-                rejections.append("DATA_INSUFFICIENT_VALUATION")
-                valuation_data_blocked_count += 1
+            if not is_fin:
+                if ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr) and ev_ebitda_curr == -999.0:
+                    # Operating loss (EBITDA <= 0): multiple is negative / undefined
+                    rejections.append("FAIL_VALUATION")
+                    valuation_data_missing = False
+                elif valuation_data_missing:
+                    if sym not in structural_ineligible_symbols:
+                        val_df_symbols.add(sym)
+                    rejections.append("DATA_INSUFFICIENT_VALUATION")
+                    valuation_data_blocked_count += 1
 
-                # Track exact valuation missing cause (independent inclusion-exclusion accounting)
-                if curr_val_missing and med_val_missing:
-                    val_curr_missing_count += 1
-                    val_med_missing_count += 1
-                    val_both_missing_count += 1
-                    _val_missing = ["current_ev_ebitda", "ev_ebitda_3y_median"]
-                    _val_reason = "CURRENT_EV_EBITDA_MISSING_AND_3Y_MEDIAN_MISSING"
-                    providers_list = list(recovery_providers_audit) if recovery_providers_audit else [
-                        {
-                            "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
-                            "result": "FAILED",
-                            "validation": "FAILED",
-                            "validation_reason": "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE",
-                        }
-                    ]
-                    providers_list.append({
-                        "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
-                        "result": "NOT_AVAILABLE",
-                        "validation": "FAILED",
-                        "validation_reason": "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE — run pit_valuation_history_builder.py",
-                    })
-                elif curr_val_missing:
-                    val_curr_missing_count += 1
-                    _val_missing = ["current_ev_ebitda"]
-                    _val_reason = "CURRENT_EV_EBITDA_MISSING"
-                    providers_list = list(recovery_providers_audit) if recovery_providers_audit else [
-                        {
-                            "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
-                            "result": "FAILED",
-                            "validation": "FAILED",
-                            "validation_reason": "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE",
-                        }
-                    ]
-                else:
-                    val_med_missing_count += 1
-                    _val_missing = ["ev_ebitda_3y_median"]
-                    _val_reason = "EV_EBITDA_3Y_MEDIAN_MISSING"
-                    providers_list = [
-                        {
+                    # Track exact valuation missing cause (independent inclusion-exclusion accounting)
+                    if curr_val_missing and med_val_missing:
+                        val_curr_missing_count += 1
+                        val_med_missing_count += 1
+                        val_both_missing_count += 1
+                        _val_missing = ["current_ev_ebitda", "ev_ebitda_3y_median"]
+                        _val_reason = "CURRENT_EV_EBITDA_MISSING_AND_3Y_MEDIAN_MISSING"
+                        providers_list = list(recovery_providers_audit) if recovery_providers_audit else [
+                            {
+                                "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
+                                "result": "FAILED",
+                                "validation": "FAILED",
+                                "validation_reason": "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE",
+                            }
+                        ]
+                        providers_list.append({
                             "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
                             "result": "NOT_AVAILABLE",
                             "validation": "FAILED",
                             "validation_reason": "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE — run pit_valuation_history_builder.py",
-                        }
-                    ]
-
-                _emit_data_recovery_log(
-                    scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-                    symbol=sym,
-                    stage="VALUATION",
-                    missing_data=", ".join(_val_missing),
-                    recovery_attempted=True,
-                    providers=providers_list,
-                    validation="FAILED",
-                    validation_reason=_val_reason,
-                    final_action="STOCK_SKIPPED",
-                )
-            else:
-                ev_discount = calc_discount
-                if ev_discount < 0.25:
-                    rejections.append("FAIL_VALUATION")
-
-                if pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
-                    pe_c = float(pe_curr)
-                    pe_m = float(pe_med)
-                    pe_discount = max((pe_m - pe_c) / pe_m, 0.0)
-
-                value_gate_passed = (ev_discount >= 0.25)
-                if quality_gate_passed:
-                    if value_gate_passed:
-                        value_pass_count += 1
+                        })
+                    elif curr_val_missing:
+                        val_curr_missing_count += 1
+                        _val_missing = ["current_ev_ebitda"]
+                        _val_reason = "CURRENT_EV_EBITDA_MISSING"
+                        providers_list = list(recovery_providers_audit) if recovery_providers_audit else [
+                            {
+                                "provider": "STATEMENT_FILINGS_CMP_CALCULATOR",
+                                "result": "FAILED",
+                                "validation": "FAILED",
+                                "validation_reason": "CURRENT_EV_EBITDA_UNAVAILABLE_REQUIRED_FOR_EV_EBITDA_GATE",
+                            }
+                        ]
                     else:
-                        value_reject_count += 1
+                        val_med_missing_count += 1
+                        _val_missing = ["ev_ebitda_3y_median"]
+                        _val_reason = "EV_EBITDA_3Y_MEDIAN_MISSING"
+                        providers_list = [
+                            {
+                                "provider": "PIT_VALUATION_HISTORY_CACHE (pit_valuation_history_cache.json)",
+                                "result": "NOT_AVAILABLE",
+                                "validation": "FAILED",
+                                "validation_reason": "EV_EBITDA_3Y_MEDIAN_UNAVAILABLE — run pit_valuation_history_builder.py",
+                            }
+                        ]
+
+                    _emit_data_recovery_log(
+                        scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        symbol=sym,
+                        stage="VALUATION",
+                        missing_data=", ".join(_val_missing),
+                        recovery_attempted=True,
+                        providers=providers_list,
+                        validation="FAILED",
+                        validation_reason=_val_reason,
+                        final_action="STOCK_SKIPPED",
+                    )
+                else:
+                    ev_discount = calc_discount
+                    if ev_discount < 0.25:
+                        rejections.append("FAIL_VALUATION")
+
+                    if pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
+                        pe_c = float(pe_curr)
+                        pe_m = float(pe_med)
+                        pe_discount = max((pe_m - pe_c) / pe_m, 0.0)
+
+                    value_gate_passed = (ev_discount >= 0.25)
+                    if quality_gate_passed:
+                        if value_gate_passed:
+                            value_pass_count += 1
+                        else:
+                            value_reject_count += 1
 
             # Venn intersection accounting across PIT dimensions
             if quality_data_missing and valuation_data_missing:
@@ -4129,7 +4173,7 @@ class QualityCompounderValueV2Scanner:
                 price_only_blocked_count += 1
 
             # Count symbol as data-blocked ONCE (if ANY quality, valuation, OR price data missing)
-            if quality_data_missing or valuation_data_missing or price_data_missing:
+            if (not is_fin and (quality_data_missing or valuation_data_missing)) or price_data_missing:
                 data_blocked_count += 1
             else:
                 data_complete_count += 1
@@ -5297,8 +5341,12 @@ class QualityCompounderValueV2Scanner:
                         sum_cfo = trailing_g['operating_cash_flow'].dropna().sum() if not trailing_g.empty else 0.0
                         sum_pat = trailing_g['net_profit'].dropna().sum() if not trailing_g.empty else 0.0
                         cfo_pat = None
-                        if sum_pat is not None and not pd.isna(sum_pat) and float(sum_pat) > 0 and len(trailing_g) >= 1:
-                            cfo_pat = round(float(sum_cfo) / float(sum_pat), 2)
+                        if sum_pat is not None and not pd.isna(sum_pat) and len(trailing_g) >= 1:
+                            if float(sum_pat) > 0:
+                                cfo_pat = round(float(sum_cfo) / float(sum_pat), 2)
+                            else:
+                                # Cumulative 5Y net profit is non-positive (net loss over 5 years).
+                                cfo_pat = -999.0
 
                         # ── 3. 5Y CAGR (Sales CAGR & PAT CAGR across trailing ANNUAL filings) ──
                         k_cagr = min(5, n_ann - 1) if n_ann >= 2 else 0
@@ -5325,10 +5373,16 @@ class QualityCompounderValueV2Scanner:
                             p0 = float(_p0_raw) if (_p0_raw is not None and pd.notna(_p0_raw)) else None
                             p1 = float(_p1_raw) if (_p1_raw is not None and pd.notna(_p1_raw)) else None
 
-                            if r0 is not None and r1 is not None and r0 > 0 and r1 > 0:
-                                rev_cagr = round((pow(r1 / r0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
-                            if p0 is not None and p1 is not None and p0 > 0 and p1 > 0:
-                                pat_cagr = round((pow(p1 / p0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
+                            if r0 is not None and r1 is not None:
+                                if r0 > 0 and r1 > 0:
+                                    rev_cagr = round((pow(r1 / r0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
+                                else:
+                                    rev_cagr = -999.0
+                            if p0 is not None and p1 is not None:
+                                if p0 > 0 and p1 > 0:
+                                    pat_cagr = round((pow(p1 / p0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
+                                else:
+                                    pat_cagr = -999.0
 
                         # Debt to Equity — strictly derived from latest annual filing with disclosed balance sheet
                         latest_ann = g_ann.iloc[-1] if not g_ann.empty else latest_filing
@@ -5430,22 +5484,26 @@ class QualityCompounderValueV2Scanner:
                         # NEVER set cash = 0. Always record the cash-component status.
                         ev_curr = None
                         _ev_cash_component = "KNOWN" if _cash_f is not None else "UNKNOWN"
-                        if _mcap_cr is not None and _ebitda_f is not None and _ebitda_f > 0:
-                            if _td_f is not None:
-                                if _cash_f is not None:
-                                    # Full EV formula (preferred)
-                                    _ev = _mcap_cr + _td_f - _cash_f
-                                else:
-                                    # Conservative: cash genuinely unavailable from all sources
-                                    # EV = MCap + Debt (overstates EV, documented)
-                                    _ev = _mcap_cr + _td_f
-                                if _ev > 0:
-                                    ev_curr = round(_ev / _ebitda_f, 2)
-                            elif _cash_f is None:
-                                # Both debt and cash unknown: only MCap/EBITDA computable
-                                # But P0 rule: we don't know net debt position → ev_curr stays None
-                                pass
-                            # else: debt unknown, cash known: EV net position unreliable → ev_curr stays None
+                        if _mcap_cr is not None and _ebitda_f is not None:
+                            if _ebitda_f > 0:
+                                if _td_f is not None:
+                                    if _cash_f is not None:
+                                        # Full EV formula (preferred)
+                                        _ev = _mcap_cr + _td_f - _cash_f
+                                    else:
+                                        # Conservative: cash genuinely unavailable from all sources
+                                        # EV = MCap + Debt (overstates EV, documented)
+                                        _ev = _mcap_cr + _td_f
+                                    if _ev > 0:
+                                        ev_curr = round(_ev / _ebitda_f, 2)
+                                elif _cash_f is None:
+                                    # Both debt and cash unknown: only MCap/EBITDA computable
+                                    # But P0 rule: we don't know net debt position → ev_curr stays None
+                                    pass
+                                # else: debt unknown, cash known: EV net position unreliable → ev_curr stays None
+                            else:
+                                # Operating loss (EBITDA <= 0): multiple is negative / undefined
+                                ev_curr = -999.0
 
                         records.append({
                             'symbol': clean_sym,

@@ -633,9 +633,21 @@ class UpstoxProvider(ProviderInterface):
                     
                     for orig_sym in chunk:
                         inst_key = self._get_instrument_key(orig_sym)
-                        matched_quote = quote_dict.get(inst_key) or quote_dict.get(inst_key.replace("|", ":"))
+                        matched_quote = quote_dict.get(inst_key) or quote_dict.get(inst_key.replace("|", ":")) if inst_key else None
+                        if not matched_quote and orig_sym:
+                            clean_o = orig_sym.replace(".NS", "").replace(".BO", "")
+                            matched_quote = results.get(clean_o)
+                            if not matched_quote:
+                                from app.data_providers.unified_fetcher import CORPORATE_ACTION_ALIASES
+                                for ak, av in CORPORATE_ACTION_ALIASES.items():
+                                    if ak == clean_o or av == clean_o:
+                                        tgt = av if ak == clean_o else ak
+                                        matched_quote = results.get(tgt) or quote_dict.get(f"NSE_EQ:{tgt}") or quote_dict.get(f"NSE_EQ|{tgt}")
+                                        if matched_quote:
+                                            break
                         if matched_quote:
                             results[orig_sym] = matched_quote
+                            results[orig_sym.replace(".NS", "").replace(".BO", "")] = matched_quote
                 elif res.status_code == 400 and len(chunk) > 1:
                     # [RULE 67 CHANGE-RATIONALE] Upstox returns UDAPI1087 (400) for the entire batch if a single key is unlisted/invalid.
                     # Recover gracefully by requesting keys individually for this chunk so valid symbols succeed.

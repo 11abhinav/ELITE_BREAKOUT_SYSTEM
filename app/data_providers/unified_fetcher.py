@@ -315,6 +315,13 @@ class UnifiedFetcher:
                                         clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                         quote_data = (resp.get(orig) or resp.get(clean_orig) or resp.get(clean_orig + ".NS") or
                                                       resp.get(clean_sym) or resp.get(raw_key) or resp.get(raw_key.replace("|", ":")))
+                                        if not quote_data:
+                                            for ak, av in CORPORATE_ACTION_ALIASES.items():
+                                                if ak == clean_orig or av == clean_orig:
+                                                    tgt = av if ak == clean_orig else ak
+                                                    quote_data = (resp.get(tgt) or resp.get(tgt + ".NS") or resp.get(f"NSE_EQ:{tgt}") or resp.get(f"NSE_EQ|{tgt}"))
+                                                    if quote_data:
+                                                        break
                                         
                                         if quote_data and isinstance(quote_data, dict):
                                             val = quote_data.get("last_price") or quote_data.get("lp") or quote_data.get("cp")
@@ -325,6 +332,16 @@ class UnifiedFetcher:
                                                 results[orig] = {"v": {"cmd": {"c": val_flt}}}
                                                 results[clean_orig] = {"v": {"cmd": {"c": val_flt}}}
                                                 results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
+                                                for ak, av in CORPORATE_ACTION_ALIASES.items():
+                                                    if ak == clean_orig or av == clean_orig:
+                                                        results[ak] = {"v": {"cmd": {"c": val_flt}}}
+                                                        results[av] = {"v": {"cmd": {"c": val_flt}}}
+                                                        results[ak + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
+                                                        results[av + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
+                                                        pending.discard(ak)
+                                                        pending.discard(av)
+                                                        pending.discard(ak + ".NS")
+                                                        pending.discard(av + ".NS")
                                                 logger.debug(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{val_flt:.2f}")
                                                 pending.discard(orig)
                                                 pending.discard(clean_orig)
