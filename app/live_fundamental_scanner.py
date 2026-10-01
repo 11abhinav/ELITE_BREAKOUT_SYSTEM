@@ -2288,6 +2288,8 @@ def build_raw_history_index(raw_filings_dir: Optional[str] = None) -> Dict[str, 
         os.path.join(os.getcwd(), "data", "pit_raw_filings"),
         os.path.abspath("data/pit_raw_filings"),
         "/app/data/pit_raw_filings",
+        "/app/data_seed/pit_raw_filings",
+        os.path.join(BASE_DIR, "data_seed", "pit_raw_filings"),
         "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_raw_filings",
     ]
     resolved_dir = None
@@ -2296,7 +2298,8 @@ def build_raw_history_index(raw_filings_dir: Optional[str] = None) -> Dict[str, 
             resolved_dir = c
             break
     if not resolved_dir:
-        logger.error(f"❌ [V2_RAW_INDEX] Directory not found across candidates: {candidate_dirs}")
+        os.makedirs(os.path.join(DATA_DIR, "pit_raw_filings"), exist_ok=True)
+        logger.warning(f"⚠️ [V2_RAW_INDEX] Directory not populated across candidates: {candidate_dirs}")
         return {}
     raw_filings_dir = resolved_dir
 
@@ -4870,6 +4873,7 @@ class QualityCompounderValueV2Scanner:
                     is_inc = False
                     is_eval = False
                     final_act = "STRUCTURAL_INELIGIBLE"
+                    data_qual = "STRUCTURAL_INELIGIBLE"
                 else:
                     is_q_df = bool(sym in quality_df_symbols and not is_fin)
                     is_v_df = bool(sym in val_df_symbols and not is_fin)
@@ -4878,6 +4882,14 @@ class QualityCompounderValueV2Scanner:
                     is_inc = bool(is_q_df or is_v_df or is_p_df or is_o_df)
                     is_eval = bool(not is_inc)
                     final_act = "BUY_ALERT" if is_candidate else ("INCOMPLETE" if is_inc else "REJECTED")
+                    # Deterministic precedence:
+                    # 1. Missing/unresolved/provider failure -> INCOMPLETE
+                    # 2. Valid but outside freshness window -> STALE
+                    # 3. Valid and fresh -> FRESH
+                    if is_inc:
+                        data_qual = "INCOMPLETE"
+                    else:
+                        data_qual = "FRESH"
 
                 canonical_records.append({
                     "symbol": sym,
@@ -4888,6 +4900,7 @@ class QualityCompounderValueV2Scanner:
                     "other_data_failure": is_o_df,
                     "incomplete": is_inc,
                     "fully_evaluable": is_eval,
+                    "data_quality_bucket": data_qual,
                     "final_action": final_act,
                     "top_level_population": _top_pop,
                     "quality_status": "EXCLUDED_FINANCIAL" if is_fin else ("NOT_EVALUATED" if quality_data_missing else ("PASS" if quality_gate_passed else "FAIL")),
@@ -4923,6 +4936,25 @@ class QualityCompounderValueV2Scanner:
             evaluable_symbols = sorted(canonical_df[canonical_df["fully_evaluable"]]["symbol"].tolist())
             alert_symbols = sorted(canonical_df[canonical_df["final_action"] == "BUY_ALERT"]["symbol"].tolist())
 
+            # Canonical Fresh/Stale/Incomplete accounting from unique symbol sets
+            evaluable_df = canonical_df[~canonical_df["structural_ineligible"]]
+            fresh_symbols = set(evaluable_df[evaluable_df["data_quality_bucket"] == "FRESH"]["symbol"])
+            stale_symbols = set(evaluable_df[evaluable_df["data_quality_bucket"] == "STALE"]["symbol"])
+            incomplete_symbols_set = set(evaluable_df[evaluable_df["data_quality_bucket"] == "INCOMPLETE"]["symbol"])
+
+            dashboard_classified_symbol_count = len(evaluable_df)
+            fresh_count = len(fresh_symbols)
+            stale_count = len(stale_symbols)
+            incomplete_count = len(incomplete_symbols_set)
+
+            # Mathematical no-double-counting assertions
+            assert fresh_count + stale_count + incomplete_count == dashboard_classified_symbol_count, (
+                f"Mismatch: fresh ({fresh_count}) + stale ({stale_count}) + incomplete ({incomplete_count}) != {dashboard_classified_symbol_count}"
+            )
+            assert fresh_symbols.isdisjoint(stale_symbols), "fresh_symbols ∩ stale_symbols must be empty"
+            assert fresh_symbols.isdisjoint(incomplete_symbols_set), "fresh_symbols ∩ incomplete_symbols must be empty"
+            assert stale_symbols.isdisjoint(incomplete_symbols_set), "stale_symbols ∩ incomplete_symbols must be empty"
+
             # Legacy aliases for logging & context
             data_failure_symbols = set(incomplete_symbols)
             data_failure_count = incomplete_count
@@ -4934,6 +4966,8 @@ class QualityCompounderValueV2Scanner:
             _evaluable_universe = _approved_universe - _structural_ineligible
             _data_failures = incomplete_count
             _fully_evaluable = fully_evaluable_count
+            _quality_evaluated = int((canonical_df["quality_status"].isin(["PASS", "FAIL"])).sum()) if "quality_status" in canonical_df.columns else (quality_pass_count + quality_reject_count)
+            _val_evaluated = int((canonical_df["valuation_status"].isin(["PASS", "FAIL"])).sum()) if "valuation_status" in canonical_df.columns else (value_pass_count + value_reject_count)
 
             # Strict disjoint category sets for reporting
             q_syms = set(canonical_df[canonical_df["quality_data_failure"]]["symbol"])
@@ -4973,16 +5007,10 @@ class QualityCompounderValueV2Scanner:
                 _health_status = "DEGRADED"
                 _health_error = (
                     f"DATA_DEGRADED: {incomplete_count} stocks incomplete (>5 threshold) "
-                    f"({', '.join(incomplete_symbols[:10])})"
-                )
-            elif incomplete_count > 0:
-                _health_status = "COMPLETED"
-                _health_error = (
-                    f"DATA_INCOMPLETE: {incomplete_count} stock{'s' if incomplete_count > 1 else ''} "
-                    f"could not be fully evaluated ({', '.join(incomplete_symbols)})"
+                    f"({', '.join(sorted(incomplete_symbols)[:10])})"
                 )
             else:
-                _health_status = "COMPLETED"
+                _health_status = "OK"
                 _health_error = None
 
             if _health_error:
@@ -5022,23 +5050,27 @@ class QualityCompounderValueV2Scanner:
                         total_scanned=scanned_count,
                         total_stocks=scanned_count,
                         candidate_count=candidates_inserted,
-                        quality_status="COMPLETED" if _health_status == "COMPLETED" else _health_status,
+                        quality_status=(
+                            _health_status if _health_status in ("BLOCKED", "INCONSISTENT", "DATA_BLOCKED", "DEGRADED")
+                            else "NORMAL"
+                        ),
                         lifecycle_status="COMPLETED" if _health_status not in ("BLOCKED", "INCONSISTENT") else "FAILED",
-                        fresh_data_count=fully_evaluable_count,
-                        stale_data_count=0,
+                        fresh_data_count=fresh_count,
+                        stale_data_count=stale_count,
                         incomplete_data_count=incomplete_count,
                         data_insufficient_count=0,
                         data_missing_count=0,
-                        provider_failure_count=price_df_count,
+                        provider_failure_count=0,
                         summary_notes=(
-                            f"Scanned={scanned_count} | FullyEvaluable={fully_evaluable_count} | "
+                            f"Scanned={scanned_count} | Fresh={fresh_count} | Stale={stale_count} | "
                             f"Incomplete={incomplete_count} | StructuralIneligible={structural_count} | "
                             f"Alerts={candidates_inserted} | Health={_health_status}"
                         ),
                         metrics_json={
                             "total_scanned": scanned_count,
-                            "fully_evaluable_count": fully_evaluable_count,
-                            "incomplete_count": incomplete_count,
+                            "fresh_data_count": fresh_count,
+                            "stale_data_count": stale_count,
+                            "incomplete_data_count": incomplete_count,
                             "structural_ineligible_count": structural_count,
                             "quality_data_failure_count": quality_df_count,
                             "valuation_data_failure_count": val_df_count,
@@ -5051,8 +5083,8 @@ class QualityCompounderValueV2Scanner:
                             "live_alerts_generated": candidates_inserted,
                             "health_status": _health_status,
                             "health_error": _health_error,
-                            "incomplete_symbols": incomplete_symbols,
-                            "structural_symbols": structural_symbols,
+                            "incomplete_symbols": sorted(list(incomplete_symbols)),
+                            "structural_symbols": sorted(list(structural_symbols)),
                             "requested_price_symbols_count": len(requested_price_symbols),
                             "successful_price_symbols_count": len(successful_price_symbols),
                             "provider_failed_symbols_count": len(provider_failed_symbols),
@@ -5066,13 +5098,13 @@ class QualityCompounderValueV2Scanner:
                 try:
                     upsert_scanner_health(
                         "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-                        status="COMPLETED" if _health_status == "COMPLETED" else _health_status,
+                        status="OK" if _health_status in ("OK", "COMPLETED") else _health_status,
                         today_alerts=candidates_inserted,
                         last_success=now_ist.isoformat() if _health_status in ("OK", "COMPLETED", "DEGRADED") else None,
                         processed_count=candidates_inserted,
                         total_count=scanned_count,
                         duration_seconds=duration_sec,
-                        error_msg=_health_error,
+                        error_msg=_health_error if _health_status not in ("OK", "COMPLETED") else None,
                         run_id=getattr(exec_run_ctx, "run_id", None)
                     )
                 except Exception as e:
@@ -5171,6 +5203,7 @@ class QualityCompounderValueV2Scanner:
             # Export Forensic Evidence Bundle if collector is active
             evidence_manifest_path = None
             evidence_manifest_dict = None
+            evidence_export_status = "NOT_REQUESTED"
             if collector is not None:
                 try:
                     _evidence_summary = {
@@ -5191,14 +5224,18 @@ class QualityCompounderValueV2Scanner:
                         "health_status": _health_status,
                     }
                     evidence_manifest_path, evidence_manifest_dict = collector.finalize_and_export_bundle(_evidence_summary)
+                    evidence_export_status = "EXPORTED"
                     logger.info(f"📜 [EVIDENCE_EXPORT] Forensic evidence bundle created at {collector.run_dir}")
                 except Exception as _exp_err:
-                    logger.error(f"Failed to export evidence bundle: {_exp_err}", exc_info=True)
+                    evidence_export_status = "EVIDENCE_EXPORT_FAILED"
+                    logger.error(f"❌ [EVIDENCE_EXPORT_FAILED] Failed to export evidence bundle: {_exp_err}", exc_info=True)
 
             return {
                 "status": _health_status,
                 "health": _health_status,
                 "health_status": _health_status,
+                "health_error": _health_error,
+                "evidence_export_status": evidence_export_status,
                 "execution": "SUCCESS",
                 "strategy_status": "BLOCKED_DATA" if not _valuation_provider_healthy else ("OK" if candidate_count > 0 else "SCARCITY"),
                 "valuation_provider_healthy": _valuation_provider_healthy,

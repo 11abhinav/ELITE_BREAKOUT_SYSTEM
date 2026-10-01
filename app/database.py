@@ -10988,6 +10988,13 @@ def complete_scanner_execution_run(
     # 4. Resolve quality_status and stale_ratio
     if quality_status is not None:
         final_quality = str(quality_status).upper()
+        if final_quality in ("COMPLETED", "SUCCESS", "OK"):
+            if final_incomplete > 5:
+                final_quality = "DEGRADED"
+            elif final_incomplete > 0:
+                final_quality = "PARTIAL"
+            else:
+                final_quality = "NORMAL"
     elif ctx and hasattr(ctx, 'evaluate_quality_status'):
         final_quality = ctx.evaluate_quality_status()
     else:

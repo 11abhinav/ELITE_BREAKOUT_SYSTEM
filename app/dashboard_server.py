@@ -1478,7 +1478,7 @@ _perf_data_build_lock = threading.Lock()
 
 def invalidate_performance_cache():
     """[RULE 67 CHANGE-RATIONALE]: Thread-safe cache invalidator called on alert status modifications.
-    Cascades invalidation to confirmed_signals and master_summary so new alerts/mutations are reflected instantly."""
+    Cascades invalidation to master_summary so new alerts/mutations are reflected instantly."""
     global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag, _INSTANT_PERF_CACHE
     with _dashboard_cache_lock:
         _perf_data_mem_cache = None
@@ -1840,11 +1840,6 @@ def get_v2_master_summary():
     from master_orchestrator import orchestrator_v2
     return jsonify(orchestrator_v2.get_master_summary())
 
-@app.route("/api/v2/master_alerts")
-@app.route("/api/v2/confirmed_signals")
-def get_v2_master_alerts():
-    from master_orchestrator import orchestrator_v2
-    return jsonify(orchestrator_v2.get_confirmed_signals())
 
 @app.route("/api/v2/stocks_to_watch")
 def get_v2_stocks_to_watch():
@@ -4160,6 +4155,35 @@ def api_accumulation_health():
 def api_restore_multibagger_positions():
     """Admin endpoint to restore healthy Multibagger positions back to OPEN status (Decommissioned)."""
     return jsonify({"status": "error", "message": "MULTIBAGGER scanner has been decommissioned by governance.", "count": 0}), 400
+
+@app.route("/api/admin/purge_decommissioned_data", methods=["POST"])
+@admin_required
+def api_purge_decommissioned_data():
+    """Purges all data belonging to decommissioned scanners across PostgreSQL tables.
+    Retains only: DAILY_BUILDER, TECHNICAL, QUALITY_COMPOUNDER_VALUE_V2_FINAL and core system daemons.
+    Accepts JSON: {"dry_run": false} to execute, defaults to dry_run: true.
+    """
+    data = request.json or {}
+    dry_run = bool(data.get("dry_run", True))
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            import sys
+            import os
+            scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+            if scripts_dir not in sys.path:
+                sys.path.insert(0, scripts_dir)
+            from purge_decommissioned_scanners import purge_decommissioned_data
+            stats = purge_decommissioned_data(conn, dry_run=dry_run)
+            return jsonify({
+                "status": "ok",
+                "dry_run": dry_run,
+                "retained_scanners": ["DAILY_BUILDER", "TECHNICAL", "QUALITY_COMPOUNDER_VALUE_V2_FINAL"],
+                "stats": stats
+            }), 200
+    except Exception as e:
+        logger.exception("❌ /api/admin/purge_decommissioned_data failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/admin/reset_all_positions", methods=["POST"])
 @admin_required
