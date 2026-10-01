@@ -17,7 +17,7 @@ import os
 import sys
 import argparse
 import psycopg2
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 
 # Active scanners that MUST be preserved
 RETAINED_SCANNERS = (
@@ -64,7 +64,7 @@ def purge_decommissioned_data(conn, dry_run: bool = True) -> Dict[str, Any]:
         stats["obsolete_tables"] = {}
         for tbl in OBSOLETE_TABLES:
             try:
-                cur.execute(f"SELECT COUNT(*) FROM information_schema.tables WHERE table_name = %s", (tbl,))
+                cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = %s", (tbl,))
                 exists = cur.fetchone()[0] > 0
                 if exists:
                     cur.execute(f"SELECT COUNT(*) FROM {tbl}")
@@ -78,124 +78,182 @@ def purge_decommissioned_data(conn, dry_run: bool = True) -> Dict[str, Any]:
             except Exception as e:
                 stats["obsolete_tables"][tbl] = f"ERROR: {e}"
 
+        alerts_subquery = "SELECT id FROM alerts WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s"
+
         # 2. alerts table
-        cur.execute("SELECT COUNT(*) FROM alerts WHERE scanner NOT IN %s AND scanner_name NOT IN %s", (RETAINED_SCANNERS, RETAINED_SCANNERS))
-        alerts_to_delete = cur.fetchone()[0]
-        stats["alerts"] = alerts_to_delete
+        cur.execute("SELECT COUNT(*) FROM alerts WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+        stats["alerts"] = cur.fetchone()[0]
 
         # 3. candidates table
-        cur.execute("SELECT COUNT(*) FROM candidates WHERE scanner NOT IN %s", (RETAINED_SCANNERS,))
-        candidates_to_delete = cur.fetchone()[0]
-        stats["candidates"] = candidates_to_delete
+        cur.execute("SELECT COUNT(*) FROM candidates WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+        stats["candidates"] = cur.fetchone()[0]
 
         # 4. rejected_alerts table
-        cur.execute("SELECT COUNT(*) FROM rejected_alerts WHERE scanner NOT IN %s", (RETAINED_SCANNERS,))
-        rejected_to_delete = cur.fetchone()[0]
-        stats["rejected_alerts"] = rejected_to_delete
+        cur.execute("SELECT COUNT(*) FROM rejected_alerts WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+        stats["rejected_alerts"] = cur.fetchone()[0]
 
-        # 5. alert_outcomes and alert_events (child records of alerts to delete)
-        cur.execute("""
-            SELECT COUNT(*) FROM alert_outcomes
-            WHERE alert_id IN (
-                SELECT id FROM alerts WHERE scanner NOT IN %s AND scanner_name NOT IN %s
-            )
-        """, (RETAINED_SCANNERS, RETAINED_SCANNERS))
-        outcomes_to_delete = cur.fetchone()[0]
-        stats["alert_outcomes"] = outcomes_to_delete
+        # 5. Dependent child records of alerts to delete
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM trade_audit_log WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            stats["trade_audit_log"] = cur.fetchone()[0]
+        except Exception:
+            stats["trade_audit_log"] = 0
 
-        cur.execute("""
-            SELECT COUNT(*) FROM alert_events
-            WHERE alert_id IN (
-                SELECT id FROM alerts WHERE scanner NOT IN %s AND scanner_name NOT IN %s
-            )
-        """, (RETAINED_SCANNERS, RETAINED_SCANNERS))
-        events_to_delete = cur.fetchone()[0]
-        stats["alert_events"] = events_to_delete
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM alert_outcomes WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            stats["alert_outcomes"] = cur.fetchone()[0]
+        except Exception:
+            stats["alert_outcomes"] = 0
 
-        # 6. scanner_execution_history
-        cur.execute("SELECT COUNT(*) FROM scanner_execution_history WHERE scanner_name NOT IN %s", (ALL_ALLOWED_ENTITIES,))
-        exec_hist_to_delete = cur.fetchone()[0]
-        stats["scanner_execution_history"] = exec_hist_to_delete
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM alert_events WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            stats["alert_events"] = cur.fetchone()[0]
+        except Exception:
+            stats["alert_events"] = 0
 
-        # 7. scanner_health
-        cur.execute("SELECT COUNT(*) FROM scanner_health WHERE scanner_name NOT IN %s", (ALL_ALLOWED_ENTITIES,))
-        health_to_delete = cur.fetchone()[0]
-        stats["scanner_health"] = health_to_delete
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM telegram_queue WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            stats["telegram_queue"] = cur.fetchone()[0]
+        except Exception:
+            stats["telegram_queue"] = 0
 
-        # 8. scanner_control
-        cur.execute("SELECT COUNT(*) FROM scanner_control WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
-        control_to_delete = cur.fetchone()[0]
-        stats["scanner_control"] = control_to_delete
+        try:
+            cur.execute(f"SELECT COUNT(*) FROM global_notifications WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            stats["global_notifications"] = cur.fetchone()[0]
+        except Exception:
+            stats["global_notifications"] = 0
 
-        # 9. scan_failures
-        cur.execute("SELECT COUNT(*) FROM scan_failures WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
-        failures_to_delete = cur.fetchone()[0]
-        stats["scan_failures"] = failures_to_delete
+        # 6. scanner_execution_history (column: scanner_name)
+        cur.execute("SELECT COUNT(*) FROM scanner_execution_history WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (ALL_ALLOWED_ENTITIES,))
+        stats["scanner_execution_history"] = cur.fetchone()[0]
 
-        # 10. funnel_telemetry
-        cur.execute("SELECT COUNT(*) FROM funnel_telemetry WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
-        telemetry_to_delete = cur.fetchone()[0]
-        stats["funnel_telemetry"] = telemetry_to_delete
+        # 7. scanner_health (column: scanner_name)
+        cur.execute("SELECT COUNT(*) FROM scanner_health WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (ALL_ALLOWED_ENTITIES,))
+        stats["scanner_health"] = cur.fetchone()[0]
 
-        # 11. scanner_evaluation_log
-        cur.execute("SELECT COUNT(*) FROM scanner_evaluation_log WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
-        eval_log_to_delete = cur.fetchone()[0]
-        stats["scanner_evaluation_log"] = eval_log_to_delete
+        # 8. scanner_control (column: scanner_name)
+        try:
+            cur.execute("SELECT COUNT(*) FROM scanner_control WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            stats["scanner_control"] = cur.fetchone()[0]
+        except Exception:
+            stats["scanner_control"] = 0
 
-        # 12. near_misses
-        cur.execute("SELECT COUNT(*) FROM near_misses WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
-        near_misses_to_delete = cur.fetchone()[0]
-        stats["near_misses"] = near_misses_to_delete
+        # 9. scan_failures (column: scanner_name)
+        try:
+            cur.execute("SELECT COUNT(*) FROM scan_failures WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            stats["scan_failures"] = cur.fetchone()[0]
+        except Exception:
+            stats["scan_failures"] = 0
+
+        # 10. funnel_telemetry (column: scanner)
+        try:
+            cur.execute("SELECT COUNT(*) FROM funnel_telemetry WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            stats["funnel_telemetry"] = cur.fetchone()[0]
+        except Exception:
+            stats["funnel_telemetry"] = 0
+
+        # 11. scanner_evaluation_log (column: scanner)
+        try:
+            cur.execute("SELECT COUNT(*) FROM scanner_evaluation_log WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            stats["scanner_evaluation_log"] = cur.fetchone()[0]
+        except Exception:
+            stats["scanner_evaluation_log"] = 0
+
+        # 12. near_misses (column: scanner)
+        try:
+            cur.execute("SELECT COUNT(*) FROM near_misses WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            stats["near_misses"] = cur.fetchone()[0]
+        except Exception:
+            stats["near_misses"] = 0
 
         if not dry_run:
             print("🚀 Executing deletions...")
-            # Delete child alert records first
-            cur.execute("""
-                DELETE FROM alert_outcomes
-                WHERE alert_id IN (
-                    SELECT id FROM alerts WHERE scanner NOT IN %s AND scanner_name NOT IN %s
-                )
-            """, (RETAINED_SCANNERS, RETAINED_SCANNERS))
+            # 1. Delete dependent child alert records first
+            try:
+                cur.execute(f"DELETE FROM trade_audit_log WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            except Exception as e:
+                print(f"  [WARN] Failed to delete from trade_audit_log: {e}")
 
-            cur.execute("""
-                DELETE FROM alert_events
-                WHERE alert_id IN (
-                    SELECT id FROM alerts WHERE scanner NOT IN %s AND scanner_name NOT IN %s
-                )
-            """, (RETAINED_SCANNERS, RETAINED_SCANNERS))
+            try:
+                cur.execute(f"DELETE FROM alert_outcomes WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            except Exception as e:
+                print(f"  [WARN] Failed to delete from alert_outcomes: {e}")
 
-            # Delete alerts
-            cur.execute("DELETE FROM alerts WHERE scanner NOT IN %s AND scanner_name NOT IN %s", (RETAINED_SCANNERS, RETAINED_SCANNERS))
+            try:
+                cur.execute(f"DELETE FROM alert_events WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            except Exception as e:
+                print(f"  [WARN] Failed to delete from alert_events: {e}")
 
-            # Delete candidates
-            cur.execute("DELETE FROM candidates WHERE scanner NOT IN %s", (RETAINED_SCANNERS,))
+            try:
+                cur.execute(f"DELETE FROM telegram_queue WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            except Exception as e:
+                print(f"  [WARN] Failed to delete from telegram_queue: {e}")
 
-            # Delete rejected_alerts
-            cur.execute("DELETE FROM rejected_alerts WHERE scanner NOT IN %s", (RETAINED_SCANNERS,))
+            try:
+                cur.execute(f"DELETE FROM global_notifications WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            except Exception as e:
+                print(f"  [WARN] Failed to delete from global_notifications: {e}")
 
-            # Delete scanner_execution_history
-            cur.execute("DELETE FROM scanner_execution_history WHERE scanner_name NOT IN %s", (ALL_ALLOWED_ENTITIES,))
+            # 2. Delete alerts
+            cur.execute("DELETE FROM alerts WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
 
-            # Delete scanner_health
-            cur.execute("DELETE FROM scanner_health WHERE scanner_name NOT IN %s", (ALL_ALLOWED_ENTITIES,))
+            # 3. Delete candidates
+            cur.execute("DELETE FROM candidates WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
 
-            # Delete scanner_control
-            cur.execute("DELETE FROM scanner_control WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
+            # 4. Delete rejected_alerts
+            cur.execute("DELETE FROM rejected_alerts WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
 
-            # Delete scan_failures
-            cur.execute("DELETE FROM scan_failures WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
+            # 5. Delete scanner_execution_history
+            cur.execute("DELETE FROM scanner_execution_history WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (ALL_ALLOWED_ENTITIES,))
 
-            # Delete funnel_telemetry
-            cur.execute("DELETE FROM funnel_telemetry WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
+            # 6. Delete scanner_health
+            cur.execute("DELETE FROM scanner_health WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (ALL_ALLOWED_ENTITIES,))
 
-            # Delete scanner_evaluation_log
-            cur.execute("DELETE FROM scanner_evaluation_log WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
+            # 7. Delete scanner_control
+            try:
+                cur.execute("DELETE FROM scanner_control WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            except Exception:
+                pass
 
-            # Delete near_misses
-            cur.execute("DELETE FROM near_misses WHERE scanner_name NOT IN %s", (RETAINED_SCANNERS,))
+            # 8. Delete scan_failures
+            try:
+                cur.execute("DELETE FROM scan_failures WHERE COALESCE(NULLIF(scanner_name, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            except Exception:
+                pass
+
+            # 9. Delete funnel_telemetry
+            try:
+                cur.execute("DELETE FROM funnel_telemetry WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            except Exception:
+                pass
+
+            # 10. Delete scanner_evaluation_log
+            try:
+                cur.execute("DELETE FROM scanner_evaluation_log WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            except Exception:
+                pass
+
+            # 11. Delete near_misses
+            try:
+                cur.execute("DELETE FROM near_misses WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s", (RETAINED_SCANNERS,))
+            except Exception:
+                pass
+
+            # 12. Clear system_state performance_data cache
+            try:
+                cur.execute("DELETE FROM system_state WHERE key = 'performance_data'")
+            except Exception:
+                pass
 
             conn.commit()
             print("✅ All deletions committed successfully.")
+
+            # Trigger background performance rebuild to refresh UI cache
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild(force=True)
+            except Exception as pe:
+                print(f"  [INFO] trigger_performance_rebuild notice: {pe}")
 
     return stats
 

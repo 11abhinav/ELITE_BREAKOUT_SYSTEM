@@ -10602,6 +10602,36 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
 
 
+def purge_decommissioned_scanner_data_on_boot(cur=None):
+    """
+    On server boot, permanently purges historical alerts, candidates, health records,
+    and telemetry belonging to decommissioned scanners across PostgreSQL tables.
+    Retains strictly the 3 ACTIVE SCANNERS:
+      - DAILY_BUILDER
+      - TECHNICAL
+      - QUALITY_COMPOUNDER_VALUE_V2_FINAL
+    and core system daemons.
+    """
+    try:
+        import sys
+        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from purge_decommissioned_scanners import purge_decommissioned_data
+        
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                stats = purge_decommissioned_data(conn, dry_run=False)
+                deleted_alerts = stats.get("alerts", 0)
+                deleted_candidates = stats.get("candidates", 0)
+                if deleted_alerts > 0 or deleted_candidates > 0:
+                    logger.info(f"🧹 [BOOT PURGE] Successfully purged decommissioned data: {deleted_alerts} alerts, {deleted_candidates} candidates.")
+                else:
+                    logger.debug("🧹 [BOOT PURGE] Decommissioned data check completed: 0 rows to purge.")
+    except Exception as e:
+        logger.warning(f"Failed to purge decommissioned scanner data on boot: {e}")
+
+
 def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, check_system_wide: bool = False) -> bool:
     """
     [VERSION: SCANNER_DUPLICATE_GUARD_FIX_v3.0]
