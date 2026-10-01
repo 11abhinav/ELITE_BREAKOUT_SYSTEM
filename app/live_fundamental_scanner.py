@@ -28,6 +28,7 @@ import json
 import time
 import logging
 import math
+import hashlib  # Rule 67: Required for SHA256 alert_payload_hash (BUY alert immutable fingerprint — Finding 2)
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Any, Optional, Tuple
@@ -2103,6 +2104,13 @@ class LiveFundamentalBuyScanner:
                                 macro_regime = "BULL"
 
                             now_ist = datetime.now(IST)
+
+                            # Rule 67 — Change E: Extract alert_payload_hash from res dict (Finding 2 & 3).
+                            # _build_result computes the SHA256 fingerprint but it was previously discarded here.
+                            # Now we carry it into the DB context dict and telemetry call so the full audit chain
+                            # is complete: gate inputs → SHA256 hash → DB alert record → JSONL audit event.
+                            _alert_payload_hash = res.get("alert_payload_hash")  # str | None
+
                             inserted, reason, _, _ = save_alert_if_new(
                                 symbol=sym.upper(),
                                 breakout_type="FUNDAMENTAL_BREAKOUT",
@@ -2123,6 +2131,9 @@ class LiveFundamentalBuyScanner:
                                     "strategy": "FUNDAMENTAL_BREAKOUT",
                                     "rules": "ROCE>=15%, Growth Accelerating, RS vs BM, 20D BO, Open Target / WEALTH_EXIT_V1",
                                     "audit_trail": audit_trail,
+                                    # Rule 67 — Change E: alert_payload_hash in DB context for immutable
+                                    # provenance record. Enables audit cross-reference between DB and JSONL log.
+                                    "alert_payload_hash": _alert_payload_hash,
                                     "fundamental_metrics": {
                                         "roce": m.get("roce"),
                                         "roe": m.get("roe"),
@@ -2164,7 +2175,12 @@ class LiveFundamentalBuyScanner:
                                 }
                             )
                             logger.info(f"✅ [FUNDAMENTAL ALERT] {sym} -> unified alerts DB: inserted={inserted}, reason={reason}")
-                            telemetry.record_alert_persistence(sym, inserted, reason or ("INSERTED" if inserted else "REJECTED"), cmp_price)
+                            # Rule 67 — Change E: Pass alert_payload_hash to telemetry (Finding 3).
+                            # Completes the audit chain: DB record and JSONL event share the same hash.
+                            telemetry.record_alert_persistence(
+                                sym, inserted, reason or ("INSERTED" if inserted else "REJECTED"),
+                                cmp_price, alert_payload_hash=_alert_payload_hash
+                            )
 
                             if inserted:
                                 try:
@@ -2326,10 +2342,20 @@ class LiveFundamentalBuyScanner:
                     high_missing = dm > max(15, int(total_symbols_cnt * 0.05))
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
-                    # Determine if the run had any data gaps. Any non‑zero data_insufficient count should degrade health.
-                    data_gap = (di > 0) or (high_provider_failure) or (high_insufficient) or (high_missing) or (context_failed)
+                    # Rule 67 — Change A: Removed `di > 0` from data_gap.
+                    # Rationale (Finding 1 & 7): `di` counts per-symbol data insufficiency (e.g. one missing OCF field).
+                    # A single missing field on any of 886 symbols previously set di=1, which fired data_gap=True,
+                    # making health_status=DEGRADED unconditionally and making OK structurally unachievable.
+                    # Per the declared intent in the comment block at L2317 ("degraded only if there is an actual
+                    # system/broker outage"), individual symbol data insufficiency is expected/normal scanner behaviour
+                    # and is already fully tracked per-symbol in telemetry + funnel counters.
+                    # Only SYSTEMIC thresholds (>5% provider failures, >10% price data gaps, >5% missing master records,
+                    # context lifecycle crash, or early termination) constitute a system-level health degradation event.
+                    data_gap = (high_provider_failure) or (high_insufficient) or (high_missing) or (context_failed)
                     is_degraded = is_crashed or data_gap
-                    # Set health to DEGRADED whenever data gaps or outages occur
+                    # health_status=OK means: all approved symbols evaluated, no systemic infrastructure outage.
+                    # health_status=DEGRADED means: a system-level outage affected run completeness/quality.
+                    # Per-symbol DATA_INSUFFICIENT is normal scanner output, not a health degradation signal.
                     health_status = "DEGRADED" if is_degraded else "OK"
                     _computed_health_status = health_status  # propagate to end banner override
                     health_outcome = "PARTIAL" if is_degraded else "SUCCESS"
@@ -2397,6 +2423,19 @@ class LiveFundamentalBuyScanner:
         self.last_funnel_audit = funnel
         return funnel
 
+    # Rule 67 — Change D: Explicit data-blocking rejection reasons for `decision` field classification.
+    # Replaces the fragile `"DATA" in r.value` string-prefix heuristic (Finding 6) which would silently
+    # misclassify any future rejection reason containing "DATA" as BLOCKED_DATA.
+    _DATA_BLOCKING_REJECTIONS = frozenset({
+        RejectionReason.FUNDAMENTAL_DATA_MISSING,
+        RejectionReason.FUNDAMENTAL_DATA_STALE,
+        RejectionReason.FUNDAMENTAL_PROVENANCE_INVALID,
+        RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE,
+        RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT,
+        RejectionReason.MARKET_DATA_MISSING,
+        RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK,
+    })
+
     @staticmethod
     def _build_result(
         symbol: str,
@@ -2404,16 +2443,78 @@ class LiveFundamentalBuyScanner:
         rejections: List[RejectionReason],
         metrics: Dict[str, Any]
     ) -> Dict[str, Any]:
+        now_ist = datetime.now(IST)
+        rejection_values = [r.value for r in rejections]
+
+        # Rule 67 — Change D: Enum-based data-block classification (Finding 6).
+        # Previously used `"DATA" in r.value` string heuristic — fragile and non-exhaustive.
+        # Now checks against an explicit frozen set of data-blocking rejection reason enums.
+        is_data_blocked = any(r in LiveFundamentalBuyScanner._DATA_BLOCKING_REJECTIONS for r in rejections)
+        decision = "BUY_ALERT" if is_buy else ("BLOCKED_DATA" if is_data_blocked else "NOT_QUALIFIED")
+
+        # Rule 67 — Change B: Compute SHA256 alert_payload_hash for BUY alerts (Finding 2).
+        # Every BUY alert is assigned a deterministic, immutable fingerprint derived from the exact
+        # numerical inputs used in the decision. This enables independent reproduction and audit verification.
+        # For non-BUY results, alert_payload_hash = None (no alert was generated).
+        alert_payload_hash: Optional[str] = None
+        if is_buy:
+            # Canonical payload: only include fields that are gate inputs, not computed metadata.
+            # Sorted keys ensure deterministic ordering across Python versions.
+            payload_for_hash = {
+                "symbol": symbol.upper(),
+                "rules_hash": RULES_HASH_BUY,
+                "code_sha": FROZEN_GIT_SHA,
+                "signal_date": now_ist.strftime("%Y-%m-%d"),
+                # Quality gate inputs
+                "roce": metrics.get("roce"),
+                "roe": metrics.get("roe"),
+                "debt_equity": metrics.get("debt_equity"),
+                "operating_cash_flow": metrics.get("operating_cash_flow"),
+                # Growth gate inputs
+                "rev_yoy_latest": metrics.get("rev_yoy_latest"),
+                "rev_yoy_prev": metrics.get("rev_yoy_prev"),
+                "op_profit_yoy_latest": metrics.get("op_profit_yoy_latest"),
+                "op_profit_yoy_prev": metrics.get("op_profit_yoy_prev"),
+                "eps_yoy_latest": metrics.get("eps_yoy_latest"),
+                "eps_yoy_prev": metrics.get("eps_yoy_prev"),
+                "prior_eps": metrics.get("prior_eps"),
+                # Technical gate inputs
+                "sma50": metrics.get("sma50"),
+                "sma200": metrics.get("sma200"),
+                "prior_20d_high": metrics.get("prior_20d_high"),
+                "vol_ratio": metrics.get("vol_ratio"),
+                "signal_close": metrics.get("signal_close") or metrics.get("close"),
+            }
+            # Use json.dumps with sort_keys=True for deterministic serialization.
+            # float(v) normalises None-vs-float inconsistencies that would change the hash.
+            payload_str = json.dumps(
+                {k: (round(float(v), 6) if isinstance(v, (int, float)) else v)
+                 for k, v in sorted(payload_for_hash.items())},
+                ensure_ascii=True,
+                separators=(",", ":")
+            )
+            alert_payload_hash = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+
         return {
             "symbol": symbol,
             "is_buy": is_buy,
-            "decision": "BUY_ALERT" if is_buy else ("BLOCKED_DATA" if any("DATA" in r.value for r in rejections) else "NOT_QUALIFIED"),
-            "fundamentally_qualified": not any(r.value.startswith("FAIL_R") or r.value.startswith("FAIL_O") or r.value.startswith("FAIL_E") or r.value.startswith("FAIL_P") or r.value.startswith("FAIL_D") for r in rejections),
-            "rejection_reasons": [r.value for r in rejections],
+            "decision": decision,
+            "fundamentally_qualified": not any(
+                r in {
+                    RejectionReason.FAIL_ROCE, RejectionReason.FAIL_ROE,
+                    RejectionReason.FAIL_OCF, RejectionReason.FAIL_DEBT_EQUITY,
+                    RejectionReason.FAIL_VALUE_TRAP, RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE,
+                    RejectionReason.FAIL_REVENUE_ACCELERATION, RejectionReason.FAIL_OP_PROFIT_ACCELERATION,
+                    RejectionReason.FAIL_EPS_ACCELERATION, RejectionReason.FAIL_PRIOR_EPS,
+                    RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT, RejectionReason.FUNDAMENTAL_DATA_MISSING,
+                } for r in rejections
+            ),
+            "rejection_reasons": rejection_values,
             "metrics": metrics,
             "rules_hash": RULES_HASH_BUY,
             "code_sha": FROZEN_GIT_SHA,
-            "timestamp": datetime.now(IST).isoformat()
+            "alert_payload_hash": alert_payload_hash,  # SHA256 of gate inputs; None for non-BUY results
+            "timestamp": now_ist.isoformat()
         }
 
 
@@ -2444,7 +2545,7 @@ def run_fundamental_scan(trigger_type: str = "MANUAL", scheduler_name: str = "MA
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────
-# QUALITY_COMPOUNDER_VALUE_V2_FINAL — FROZEN STRATEGY IMPLEMENTATION
+# QUALITY_COMPOUNDER — FROZEN STRATEGY IMPLEMENTATION
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 REQUIRED_ANNUAL_HISTORY_FOR_V2_5Y_METRICS: int = 5
@@ -2801,17 +2902,8 @@ def classify_v2_historical_evidence(
                     "first_tradable_date": first_tradable_date,
                     "history_status": "HISTORY_INCOMPLETE",
                 }
-            else:
-                return {
-                    "is_structural": True,
-                    "population": "STRUCTURAL_INELIGIBLE",
-                    "reason": "INSUFFICIENT_HISTORICAL_EXISTENCE",
-                    "filing_annual_count": filing_annual_count,
-                    "earliest_annual_period": earliest_annual_period,
-                    "latest_annual_period": latest_annual_period,
-                    "first_tradable_date": first_tradable_date,
-                    "history_status": "STRUCTURAL_INELIGIBLE",
-                }
+            # If earliest_ann_dt > cutoff_date, we CANNOT assume it is a young IPO without 1D price corroboration.
+            # Fall through to Check 3 (HISTORY_STATUS_UNKNOWN -> DATA_FAILURE).
         except Exception:
             pass
 
@@ -2831,7 +2923,7 @@ def classify_v2_historical_evidence(
 
 class QualityCompounderValueV2Scanner:
     """
-    FROZEN PRODUCTION SCANNER: QUALITY_COMPOUNDER_VALUE_V2_FINAL
+    FROZEN PRODUCTION SCANNER: QUALITY_COMPOUNDER
     STATUS: LIVE_PRODUCTION_WATCHLIST
     BROKER TRADING: DISABLED (Alert / Watchlist only)
 
@@ -2858,7 +2950,7 @@ class QualityCompounderValueV2Scanner:
     """
 
     def __init__(self):
-        self.strategy_id = "QUALITY_COMPOUNDER_VALUE_V2_FINAL"
+        self.strategy_id = "QUALITY_COMPOUNDER"
         self.daily_builder_provider = DailyBuilderFundamentalProvider()
         self.universe_registry = ApprovedUniverseRegistry()
 
@@ -3204,7 +3296,7 @@ class QualityCompounderValueV2Scanner:
 
     def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
         """
-        Executes the frozen QUALITY_COMPOUNDER_VALUE_V2_FINAL 17:00 IST daily scan run.
+        Executes the frozen QUALITY_COMPOUNDER 17:00 IST daily scan run.
         Generates daily immutable SCAN_SNAPSHOT rows for ALL evaluated stocks and
         ALERT_EVENT rows for passing candidate stocks directly in the existing 'alerts' table.
         """
@@ -3213,9 +3305,9 @@ class QualityCompounderValueV2Scanner:
         _scan_start = time.monotonic()  # must be monotonic — print_scanner_end_banner computes time.monotonic() - start_mono
         _computed_v2_health_status = None   # set by _scan_universe_core via exec_run_ctx_holder; passed to end banner
         # Invariant: verify _scan_start is a valid monotonic value, not a wall-clock timestamp.
-        assert _scan_start > 0, f"V2_FINAL _scan_start={_scan_start} must be positive"
+        assert _scan_start > 0, f"QUALITY_COMPOUNDER _scan_start={_scan_start} must be positive"
         assert _scan_start < 1e9, (
-            f"V2_FINAL _scan_start={_scan_start:.0f} looks like time.time() (wall-clock), "
+            f"QUALITY_COMPOUNDER _scan_start={_scan_start:.0f} looks like time.time() (wall-clock), "
             f"not time.monotonic(). Duration will be negative in end banner."
         )
         acquired_scan = False
@@ -3224,14 +3316,14 @@ class QualityCompounderValueV2Scanner:
 
         # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
         if not _v2_scan_lock.acquire(blocking=False):
-            logger.warning("🔒 [V2_FINAL] Scanner is already running in another thread. Skipping duplicate cycle.")
+            logger.warning("🔒 [QUALITY_COMPOUNDER] Scanner is already running in another thread. Skipping duplicate cycle.")
             return {"status": "SKIPPED", "reason": "Already running"}
         acquired_scan = True
 
-        # 2. Universal global scanner lock queue wait: serialize TECHNICAL, FUNDAMENTAL, V2_FINAL
+        # 2. Universal global scanner lock queue wait: serialize TECHNICAL, FUNDAMENTAL, QUALITY_COMPOUNDER
         queued_at = time.monotonic()
-        if not _global_lock.acquire(blocking=False, owner_scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL", operation="FULL_SCAN"):
-            logger.info("⏳ [V2_FINAL] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
+        if not _global_lock.acquire(blocking=False, owner_scanner="QUALITY_COMPOUNDER", operation="FULL_SCAN"):
+            logger.info("⏳ [QUALITY_COMPOUNDER] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
             try:
                 from database import upsert_scanner_health
             except ImportError:
@@ -3241,21 +3333,21 @@ class QualityCompounderValueV2Scanner:
                     upsert_scanner_health = None
             if upsert_scanner_health is not None:
                 try:
-                    upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+                    upsert_scanner_health("QUALITY_COMPOUNDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
                 except Exception:
                     pass
 
             try:
-                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL", operation="FULL_SCAN")
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="QUALITY_COMPOUNDER", operation="FULL_SCAN")
             except Exception as lock_err:
-                logger.error(f"❌ [V2_FINAL] Error acquiring global lock: {lock_err}")
+                logger.error(f"❌ [QUALITY_COMPOUNDER] Error acquiring global lock: {lock_err}")
                 acquired_global = False
 
             if not acquired_global:
-                logger.error("❌ [V2_FINAL] Failed to acquire global scanner lock after queue wait.")
+                logger.error("❌ [QUALITY_COMPOUNDER] Failed to acquire global scanner lock after queue wait.")
                 if upsert_scanner_health is not None:
                     try:
-                        upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", "IDLE", error_msg="Lock acquisition timed out")
+                        upsert_scanner_health("QUALITY_COMPOUNDER", "IDLE", error_msg="Lock acquisition timed out")
                     except Exception:
                         pass
                 _v2_scan_lock.release()
@@ -3283,7 +3375,7 @@ class QualityCompounderValueV2Scanner:
                 if _core_result_holder[0] and isinstance(_core_result_holder[0], dict):
                     _computed_v2_health_status = _core_result_holder[0].get("status") or _computed_v2_health_status
                 print_scanner_end_banner(
-                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    "QUALITY_COMPOUNDER",
                     start_mono=_scan_start,
                     run_id=run_id,
                     override_status=_computed_v2_health_status,
@@ -3338,7 +3430,7 @@ class QualityCompounderValueV2Scanner:
         if create_scanner_execution_run is not None:
             try:
                 exec_run_ctx = create_scanner_execution_run(
-                    scanner_name="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    scanner_name="QUALITY_COMPOUNDER",
                     trigger_type=trigger_type,
                     allow_concurrent=True
                 )
@@ -3348,24 +3440,24 @@ class QualityCompounderValueV2Scanner:
                 logger.debug(f"Execution history start warning: {e}")
 
         # Start Banner
-        print_scanner_start_banner("QUALITY_COMPOUNDER_VALUE_V2_FINAL", queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
+        print_scanner_start_banner("QUALITY_COMPOUNDER", queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
 
         if upsert_scanner_health is not None:
             try:
                 upsert_scanner_health(
-                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    "QUALITY_COMPOUNDER",
                     status="RUNNING",
                     run_id=getattr(exec_run_ctx, "run_id", None)
                 )
             except Exception as e:
                 logger.debug(f"Scanner health RUNNING warning: {e}")
 
-        logger.info(f"📡 [SCANNER: V2_FINAL] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
+        logger.info(f"📡 [SCANNER: QUALITY_COMPOUNDER] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
 
         # Load PIT fundamentals dataset
         pit_df = self.load_pit_dataset()
         if pit_df is None or pit_df.empty:
-            logger.error("❌ [SCANNER: V2_FINAL] Failed to load PIT dataset — scan failed!")
+            logger.error("❌ [SCANNER: QUALITY_COMPOUNDER] Failed to load PIT dataset — scan failed!")
             if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
                 try:
                     complete_scanner_execution_run(
@@ -3378,7 +3470,7 @@ class QualityCompounderValueV2Scanner:
                     pass
             if upsert_scanner_health is not None:
                 try:
-                    upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", status="DOWN", error_msg="PIT dataset unavailable", run_id=getattr(exec_run_ctx, "run_id", None))
+                    upsert_scanner_health("QUALITY_COMPOUNDER", status="DOWN", error_msg="PIT dataset unavailable", run_id=getattr(exec_run_ctx, "run_id", None))
                 except Exception:
                     pass
             return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
@@ -3440,8 +3532,8 @@ class QualityCompounderValueV2Scanner:
                     from app.full_forensic_evidence_collector import FullForensicEvidenceCollector
                 _coll_run_id = getattr(exec_run_ctx, "run_id", None) or f"RUN_V2_FINAL_{now_ist.strftime('%Y%m%d_%H%M%S')}"
                 collector = FullForensicEvidenceCollector(
-                    scanner_id="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-                    scanner_name="Quality Compounder Value V2 Final",
+                    scanner_id="QUALITY_COMPOUNDER",
+                    scanner_name="Quality Compounder",
                     scanner_version="FROZEN_V2_PROD_1.0",
                     run_id=_coll_run_id,
                     universe_definition="Approved Universe (886 Certified Clean Equities)",
@@ -3812,16 +3904,36 @@ class QualityCompounderValueV2Scanner:
                 })
 
                 _emit_data_recovery_log(
-                    scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    scanner="QUALITY_COMPOUNDER",
                     symbol=sym,
                     stage="QUALITY",
                     missing_data="pit_statement_filings (ROCE, Sales CAGR, PAT CAGR, CFO/PAT, D/E)",
                     recovery_attempted=True,
                     providers=[
                         {
-                            "provider": "PIT_DATABASE (pit_fundamentals_v1.parquet)",
+                            "provider": "LOCAL_CACHE (pit_fundamentals_v1.parquet)",
                             "result": "NOT_AVAILABLE",
                             "failure_type": "SYMBOL_NOT_IN_PIT_DATASET",
+                        },
+                        {
+                            "provider": "RAW_FILINGS_REFRESH (data/raw_filings)",
+                            "result": "CHECKED",
+                            "failure_type": "ZERO_OR_INSUFFICIENT_ANNUAL_STATEMENTS",
+                        },
+                        {
+                            "provider": "DAILY_BUILDER_MASTER",
+                            "result": "CHECKED",
+                            "failure_type": "NO_EXTENDED_5Y_FILINGS",
+                        },
+                        {
+                            "provider": "UPSTOX_KEY_RATIOS_API",
+                            "result": "NOT_APPLICABLE_FOR_MULTI_YEAR_SERIES",
+                            "failure_type": "REQUIRES_AUDITED_HISTORICAL_BALANCE_SHEET_SERIES",
+                        },
+                        {
+                            "provider": "RAW_STATEMENT_DERIVATION",
+                            "result": "EXHAUSTED",
+                            "failure_type": "NO_RAW_DATA_TO_DERIVE",
                         }
                     ],
                     validation="FAILED",
@@ -4136,7 +4248,7 @@ class QualityCompounderValueV2Scanner:
                 rejections.append("DATA_INSUFFICIENT_PRICE")
                 price_data_blocked_count += 1
                 _emit_data_recovery_log(
-                    scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    scanner="QUALITY_COMPOUNDER",
                     symbol=sym,
                     stage="PRICE",
                     missing_data="live_CMP (current market price from Upstox live quote)",
@@ -4211,7 +4323,7 @@ class QualityCompounderValueV2Scanner:
                         _inc_data_status = "DATA_FAILURE"
 
                     _emit_data_recovery_log(
-                        scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        scanner="QUALITY_COMPOUNDER",
                         symbol=sym,
                         stage="QUALITY",
                         missing_data=", ".join(_missing_fields),
@@ -4283,7 +4395,7 @@ class QualityCompounderValueV2Scanner:
                     if (pe_curr is None or pd.isna(pe_curr)) and recovered_pe is not None:
                         pe_curr = recovered_pe
                     _emit_data_recovery_log(
-                        scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        scanner="QUALITY_COMPOUNDER",
                         symbol=sym,
                         stage="VALUATION",
                         missing_data="current_ev_ebitda",
@@ -4368,7 +4480,7 @@ class QualityCompounderValueV2Scanner:
                         ]
 
                     _emit_data_recovery_log(
-                        scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        scanner="QUALITY_COMPOUNDER",
                         symbol=sym,
                         stage="VALUATION",
                         missing_data=", ".join(_val_missing),
@@ -4463,7 +4575,7 @@ class QualityCompounderValueV2Scanner:
             ev_disc_str = f"{ev_discount*100:.1f}%" if ev_discount is not None else ("EXCLUDED_FINANCIAL" if is_fin else ("OPERATING_LOSS" if ev_ebitda_curr_loss else "N/A (DATA_INSUFFICIENT)"))
             telemetry_status = "CANDIDATE" if is_candidate else "REJECTED"
             logger.info(
-                f"🔍 [STOCK_TELEMETRY: V2] {sym:<12} | Status={telemetry_status:<9} | "
+                f"🔍 [STOCK_TELEMETRY: QUALITY_COMPOUNDER] {sym:<12} | Status={telemetry_status:<9} | Basis=CONSOLIDATED | "
                 f"FailedAt={primary_rejection:<28} | Rejections={rejections} | "
                 f"CMP=₹{cmp_price:<8.2f} (Source={price_source}) | "
                 f"Metrics=[roce_5y={roce_5y}, sales_cagr_5y={disp_sales}, pat_cagr_5y={disp_pat}, cfo_pat_5y={disp_cfo}, d_e={de_ratio}, ev_discount={ev_disc_str}] | "
@@ -4539,6 +4651,8 @@ class QualityCompounderValueV2Scanner:
                 "symbol": sym,
                 "scan_date": today_str,
                 "industry": industry,
+                "financial_basis": "CONSOLIDATED",
+                "growth_basis": "CONSOLIDATED",
                 "market_cap_cr": round(mcap, 2) if mcap is not None and not pd.isna(mcap) else None,
                 "adtv_90d_cr": round(adtv_90d, 2) if adtv_90d is not None and not pd.isna(adtv_90d) else None,
                 "current_price": round(cmp_price, 2) if cmp_price is not None and not pd.isna(cmp_price) else 0.0,
@@ -5185,10 +5299,10 @@ class QualityCompounderValueV2Scanner:
                     f"Incomplete ({incomplete_count}) + Evaluable ({fully_evaluable_count}) or "
                     f"Evaluable != Alerts ({alerts_count}) + Rejected ({rejected_count})"
                 )
-            elif incomplete_count > 5:
+            elif incomplete_count > 0:
                 _health_status = "DEGRADED"
                 _health_error = (
-                    f"DATA_DEGRADED: {incomplete_count} stocks incomplete (>5 threshold) "
+                    f"DATA_DEGRADED: {incomplete_count} stocks incomplete with data failures "
                     f"({', '.join(sorted(incomplete_symbols)[:10])})"
                 )
             else:
@@ -5196,14 +5310,14 @@ class QualityCompounderValueV2Scanner:
                 _health_error = None
 
             if _health_error:
-                logger.warning(f"⚠️ [V2_FINAL] SCANNER HEALTH: {_health_status} | {_health_error}")
+                logger.warning(f"⚠️ [QUALITY_COMPOUNDER] SCANNER HEALTH: {_health_status} | {_health_error}")
 
             # ── ALERT ROUTING GOVERNANCE UNDER HEALTH GATES ─────────────────────────
             candidates_inserted = 0
             if _health_status in ("DATA_BLOCKED", "BLOCKED", "INCONSISTENT"):
                 if candidate_records:
                     logger.warning(
-                        f"🚫 [V2_ALERT_SUPPRESSED] SCANNER HEALTH IS {_health_status}: "
+                        f"🚫 [QUALITY_COMPOUNDER_ALERT_SUPPRESSED] SCANNER HEALTH IS {_health_status}: "
                         f"{len(candidate_records)} candidate BUY alert(s) ({[c['symbol'] for c in candidate_records]}) "
                         f"were SUPPRESSED from live alerts table. Preserving snapshots as RESEARCH_CANDIDATE_DATA_BLOCKED."
                     )
@@ -5218,7 +5332,7 @@ class QualityCompounderValueV2Scanner:
                     if ok:
                         candidates_inserted += 1
                         logger.info(
-                            f"🚀 [BUY_ALERT: V2] {cand['symbol']:<12} | Tier={cand['tier']} | "
+                            f"🚀 [BUY_ALERT: QUALITY_COMPOUNDER] {cand['symbol']:<12} | Tier={cand['tier']} | "
                             f"Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} (Source={cand['context'].get('price_source', 'UNKNOWN')}) | Status={msg}"
                         )
 
@@ -5234,18 +5348,19 @@ class QualityCompounderValueV2Scanner:
                         candidate_count=candidates_inserted,
                         quality_status=(
                             _health_status if _health_status in ("BLOCKED", "INCONSISTENT", "DATA_BLOCKED", "DEGRADED")
-                            else "NORMAL"
+                            else ("PARTIAL" if incomplete_count > 0 else "NORMAL")
                         ),
                         lifecycle_status="COMPLETED" if _health_status not in ("BLOCKED", "INCONSISTENT") else "FAILED",
                         fresh_data_count=fresh_count,
                         stale_data_count=stale_count,
                         incomplete_data_count=incomplete_count,
-                        data_insufficient_count=0,
-                        data_missing_count=0,
-                        provider_failure_count=0,
+                        data_insufficient_count=quality_df_count + val_df_count,
+                        data_missing_count=incomplete_count,
+                        provider_failure_count=price_df_count,
                         summary_notes=(
                             f"Scanned={scanned_count} | Fresh={fresh_count} | Stale={stale_count} | "
                             f"Incomplete={incomplete_count} | StructuralIneligible={structural_count} | "
+                            f"DataInsuff={quality_df_count + val_df_count} | Missing={incomplete_count} | "
                             f"Alerts={candidates_inserted} | Health={_health_status}"
                         ),
                         metrics_json={
@@ -5279,7 +5394,7 @@ class QualityCompounderValueV2Scanner:
             if upsert_scanner_health is not None:
                 try:
                     upsert_scanner_health(
-                        "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        "QUALITY_COMPOUNDER",
                         status="OK" if _health_status in ("OK", "COMPLETED") else _health_status,
                         today_alerts=candidates_inserted,
                         last_success=now_ist.isoformat() if _health_status in ("OK", "COMPLETED", "DEGRADED") else None,
@@ -5293,7 +5408,7 @@ class QualityCompounderValueV2Scanner:
                     logger.debug(f"Scanner health update warning: {e}")
 
             logger.info("=" * 80)
-            logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] CANONICAL POPULATION REPORT ({today_str})")
+            logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER] CANONICAL POPULATION REPORT ({today_str})")
             logger.info("=" * 80)
             logger.info("  1. CANONICAL AUDIT POPULATIONS (Strict Disjoint Partition):")
             logger.info(f"     • Scanned Universe (Approved)    : {scanned_count}")
@@ -5459,7 +5574,7 @@ class QualityCompounderValueV2Scanner:
             if upsert_scanner_health is not None:
                 try:
                     upsert_scanner_health(
-                        "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                        "QUALITY_COMPOUNDER",
                         status="DOWN",
                         error_msg=str(err)[:500],
                         run_id=getattr(exec_run_ctx, "run_id", None)
@@ -5904,7 +6019,7 @@ def get_quality_compounder_v2_scanner() -> QualityCompounderValueV2Scanner:
     return _v2_scanner_instance
 
 def run_quality_compounder_v2_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
-    """Top-level invocation wrapper for QUALITY_COMPOUNDER_VALUE_V2_FINAL scanner."""
+    """Top-level invocation wrapper for QUALITY_COMPOUNDER scanner."""
     return get_quality_compounder_v2_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence)
 
 

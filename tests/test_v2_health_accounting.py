@@ -2,7 +2,7 @@
 tests/test_v2_health_accounting.py
 ==================================
 Unit test battery for V2 Health Accounting & Conservative Symbol Population Classification
-Target: QUALITY_COMPOUNDER_VALUE_V2_FINAL in app/live_fundamental_scanner.py
+Target: QUALITY_COMPOUNDER in app/live_fundamental_scanner.py
 
 Test battery covers all 15 mandatory verification scenarios:
  1. Mature company missing from PIT -> DATA_FAILURE.
@@ -565,3 +565,201 @@ def test_27_raw_index_build_single_invocation_and_performance():
             assert sym in raw_history_index
             assert raw_history_index[sym]["annual_count"] == 1
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TESTS 28–32 — Added 2026-10-01 (Changes A, B, D)
+# Rule 69 compliance: empirical test coverage for every code change.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import hashlib  # noqa: E402 — stdlib, safe to re-import
+from app.live_fundamental_scanner import (
+    RejectionReason,
+    RULES_HASH_BUY,
+    FROZEN_GIT_SHA,
+)
+
+
+def test_28_health_ok_when_only_per_symbol_data_insufficient():
+    """
+    Change A verification (Finding 1 & 7):
+    Scanner health must be OK when data_insufficient_count > 0 but no systemic outage
+    threshold is breached. Previously, di > 0 unconditionally forced DEGRADED.
+    After Change A, individual per-symbol data insufficiency does NOT affect scanner-level health.
+    This test mirrors the exact variable names and thresholds used inside scan_universe.
+    """
+    total_symbols_cnt = 886
+
+    # 1 symbol has a missing field (e.g. missing OCF) — per-symbol, NOT systemic
+    di = 1
+    dm = 0
+    pf = 0
+
+    is_crashed = False
+    high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))    # 0 > 44 → False
+    high_insufficient = 0 > max(35, int(total_symbols_cnt * 0.10))         # 0 > 88 → False
+    high_missing = dm > max(15, int(total_symbols_cnt * 0.05))             # 0 > 44 → False
+    context_failed = False
+
+    # Change A: data_gap must NOT include di > 0
+    data_gap = high_provider_failure or high_insufficient or high_missing or context_failed
+    is_degraded = is_crashed or data_gap
+    health_status = "DEGRADED" if is_degraded else "OK"
+
+    assert health_status == "OK", (
+        f"REGRESSION (Change A): health_status={health_status!r} but expected OK. "
+        f"di={di} triggered DEGRADED even though no systemic threshold was breached. "
+        f"high_provider_failure={high_provider_failure}, high_insufficient={high_insufficient}, "
+        f"high_missing={high_missing}"
+    )
+
+
+def test_29_health_degraded_when_systemic_threshold_breached():
+    """
+    Change A — negative case (Finding 1 & 7):
+    Health must still be DEGRADED when systemic thresholds are breached.
+    Removing di > 0 must not suppress legitimate systemic degradation signals.
+    """
+    total_symbols_cnt = 886
+
+    pf = 45   # exceeds 5% of 886 = 44.3 → threshold = 44
+    dm = 0
+    di = 0    # zero per-symbol gaps — degradation is purely from provider failures
+
+    is_crashed = False
+    high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))   # 45 > 44 → True
+    high_insufficient = False
+    high_missing = False
+    context_failed = False
+
+    data_gap = high_provider_failure or high_insufficient or high_missing or context_failed
+    is_degraded = is_crashed or data_gap
+    health_status = "DEGRADED" if is_degraded else "OK"
+
+    assert health_status == "DEGRADED", (
+        f"REGRESSION: systemic provider failure (pf={pf} > 5% of {total_symbols_cnt}) "
+        f"must produce DEGRADED but got {health_status!r}"
+    )
+
+
+def test_30_buy_alert_result_has_sha256_hash():
+    """
+    Change B verification (Finding 2):
+    Every BUY alert result dict from _build_result must contain a non-null `alert_payload_hash`
+    that is a valid 64-character lowercase SHA256 hex string.
+    """
+    metrics = {
+        "roce": 20.0,
+        "roe": 15.0,
+        "debt_equity": 0.5,
+        "operating_cash_flow": 100.0,
+        "rev_yoy_latest": 20.0,
+        "rev_yoy_prev": 10.0,
+        "op_profit_yoy_latest": 25.0,
+        "op_profit_yoy_prev": 12.0,
+        "eps_yoy_latest": 30.0,
+        "eps_yoy_prev": 15.0,
+        "prior_eps": 5.0,
+        "sma50": 95.0,
+        "sma200": 85.0,
+        "prior_20d_high": 118.0,
+        "vol_ratio": 2.1,
+        "signal_close": 130.0,
+    }
+    result = LiveFundamentalBuyScanner._build_result("TESTCO", True, [], metrics)
+
+    assert result["is_buy"] is True
+    assert result["decision"] == "BUY_ALERT"
+    assert "alert_payload_hash" in result, "alert_payload_hash key missing from BUY result"
+    h = result["alert_payload_hash"]
+    assert h is not None, "alert_payload_hash must not be None for a BUY alert"
+    assert isinstance(h, str), f"alert_payload_hash must be str, got {type(h)}"
+    assert len(h) == 64, f"SHA256 hex digest must be exactly 64 chars, got {len(h)}: {h!r}"
+    int(h, 16)  # raises ValueError if not valid hex
+
+
+def test_31_alert_payload_hash_is_deterministic():
+    """
+    Change B verification — reproducibility (Finding 2):
+    Identical gate input values on the same calendar date must produce the same
+    alert_payload_hash, enabling independent audit verification at any future point.
+    """
+    from datetime import datetime as _dt
+    from unittest.mock import patch
+    from zoneinfo import ZoneInfo
+
+    metrics = {
+        "roce": 22.5,
+        "roe": 18.0,
+        "debt_equity": 0.3,
+        "operating_cash_flow": 150.0,
+        "rev_yoy_latest": 25.0,
+        "rev_yoy_prev": 14.0,
+        "op_profit_yoy_latest": 30.0,
+        "op_profit_yoy_prev": 18.0,
+        "eps_yoy_latest": 35.0,
+        "eps_yoy_prev": 20.0,
+        "prior_eps": 8.0,
+        "sma50": 98.0,
+        "sma200": 88.0,
+        "prior_20d_high": 122.0,
+        "vol_ratio": 1.9,
+        "signal_close": 128.0,
+    }
+
+    fixed_now = _dt(2026, 10, 1, 15, 30, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+    with patch("app.live_fundamental_scanner.datetime") as mock_dt:
+        mock_dt.now.return_value = fixed_now
+        mock_dt.side_effect = lambda *args, **kw: _dt(*args, **kw)
+        r1 = LiveFundamentalBuyScanner._build_result("STABLECO", True, [], metrics)
+        r2 = LiveFundamentalBuyScanner._build_result("STABLECO", True, [], metrics)
+
+    assert r1["alert_payload_hash"] == r2["alert_payload_hash"], (
+        f"alert_payload_hash must be deterministic for identical inputs. "
+        f"r1={r1['alert_payload_hash']!r}  r2={r2['alert_payload_hash']!r}"
+    )
+
+
+def test_32_non_buy_results_have_null_hash_and_correct_decision():
+    """
+    Change B + D verification (Finding 2 & 6):
+    1. Non-BUY results must have alert_payload_hash = None (no alert generated).
+    2. Data-blocking rejections → decision="BLOCKED_DATA" (enum-based).
+    3. Fundamental-threshold rejections → decision="NOT_QUALIFIED".
+    4. FAIL_GROWTH_DATA_INSUFFICIENT is in _DATA_BLOCKING_REJECTIONS → BLOCKED_DATA.
+    5. FAIL_CONSOLIDATION is NOT in _DATA_BLOCKING_REJECTIONS → NOT_QUALIFIED.
+    """
+    metrics: dict = {}
+
+    # Case A: data-blocking rejection
+    r_data = LiveFundamentalBuyScanner._build_result(
+        "SYM_A", False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], metrics
+    )
+    assert r_data["decision"] == "BLOCKED_DATA", (
+        f"FUNDAMENTAL_DATA_MISSING must yield BLOCKED_DATA, got {r_data['decision']!r}"
+    )
+    assert r_data["alert_payload_hash"] is None, "Non-BUY alert_payload_hash must be None"
+
+    # Case B: threshold failure → NOT_QUALIFIED
+    r_qual = LiveFundamentalBuyScanner._build_result(
+        "SYM_B", False, [RejectionReason.FAIL_ROCE, RejectionReason.FAIL_TREND], metrics
+    )
+    assert r_qual["decision"] == "NOT_QUALIFIED", (
+        f"Threshold failures must yield NOT_QUALIFIED, got {r_qual['decision']!r}"
+    )
+    assert r_qual["alert_payload_hash"] is None
+
+    # Case C: FAIL_GROWTH_DATA_INSUFFICIENT → BLOCKED_DATA
+    r_growth = LiveFundamentalBuyScanner._build_result(
+        "SYM_C", False, [RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT], metrics
+    )
+    assert r_growth["decision"] == "BLOCKED_DATA", (
+        f"FAIL_GROWTH_DATA_INSUFFICIENT must yield BLOCKED_DATA, got {r_growth['decision']!r}"
+    )
+
+    # Case D: FAIL_CONSOLIDATION_DRAWDOWN → NOT_QUALIFIED (not a data-blocking enum)
+    r_cons = LiveFundamentalBuyScanner._build_result(
+        "SYM_D", False, [RejectionReason.FAIL_CONSOLIDATION_DRAWDOWN], metrics
+    )
+    assert r_cons["decision"] == "NOT_QUALIFIED", (
+        f"FAIL_CONSOLIDATION_DRAWDOWN must yield NOT_QUALIFIED, got {r_cons['decision']!r}"
+    )

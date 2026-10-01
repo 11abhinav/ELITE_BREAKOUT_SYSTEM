@@ -144,7 +144,7 @@ def _eval_symbol(mod, sym, pit_map, prices, capture):
     # ── 1. PIT filings missing ────────────────────────────────────────────────
     if sym not in pit_map:
         mod._emit_data_recovery_log(
-            scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+            scanner="QUALITY_COMPOUNDER",
             symbol=sym,
             stage="QUALITY",
             missing_data="pit_statement_filings (ROCE, Sales CAGR, PAT CAGR, CFO/PAT, D/E)",
@@ -167,7 +167,7 @@ def _eval_symbol(mod, sym, pit_map, prices, capture):
     # ── 2. Missing live CMP ───────────────────────────────────────────────────
     if cmp_price <= 0.0:
         mod._emit_data_recovery_log(
-            scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+            scanner="QUALITY_COMPOUNDER",
             symbol=sym,
             stage="PRICE",
             missing_data="live_CMP (current market price from Upstox live quote)",
@@ -207,7 +207,7 @@ def _eval_symbol(mod, sym, pit_map, prices, capture):
                 ] if _is_missing(val)
             ]
             mod._emit_data_recovery_log(
-                scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                scanner="QUALITY_COMPOUNDER",
                 symbol=sym,
                 stage="QUALITY",
                 missing_data=", ".join(missing_fields),
@@ -251,7 +251,7 @@ def _eval_symbol(mod, sym, pit_map, prices, capture):
         if not _ok(ev_curr): val_missing.append("current_ev_ebitda")
         if not _ok(ev_med):  val_missing.append("ev_ebitda_3y_median")
         mod._emit_data_recovery_log(
-            scanner="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+            scanner="QUALITY_COMPOUNDER",
             symbol=sym,
             stage="VALUATION",
             missing_data=", ".join(val_missing) if val_missing else "ev_ebitda_discount",

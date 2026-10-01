@@ -47,6 +47,15 @@ def audit_and_correct_closed_trades(rebuild_perf=False):
                         actual_entry_price = COALESCE(actual_entry_price, entry_price)
                     WHERE execution_state = 'PENDING_ENTRY' AND (entry_mode IN ('MARKET', 'LEGACY_UNKNOWN') OR entry_mode IS NULL);
                 """)
+                # 2.2b Heals Fundamental Compounder alerts stuck in PENDING_ENTRY
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = 'OPEN',
+                        entry_mode = 'CMP',
+                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
+                        actual_entry_price = COALESCE(actual_entry_price, entry_price, current_price)
+                    WHERE execution_state = 'PENDING_ENTRY' AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL');
+                """)
                 # 2.3 Populates actual_entry_price for OPEN alerts
                 cur.execute("""
                     UPDATE alerts

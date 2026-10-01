@@ -803,9 +803,19 @@ class FundamentalScanTelemetry:
         symbol: str,
         persisted: bool,
         reason: str,
-        entry_price: float
+        entry_price: float,
+        alert_payload_hash: Optional[str] = None
     ) -> None:
-        """Records alert creation or suppression by database/governance (§13, §14)."""
+        """Records alert creation or suppression by database/governance (§13, §14).
+
+        Rule 67 — Change C: Added `alert_payload_hash` parameter (Finding 3).
+        Rationale: The BUY_ALERT_CREATED JSONL event record previously had no immutable fingerprint
+        of the exact gate input values that produced the alert. Without this, the audit log could not
+        be independently self-validated: a reviewer could not confirm that the values in the alert
+        matched the values used in the gate evaluations. Now, `alert_payload_hash` (SHA256, computed
+        in _build_result) is stamped directly into the BUY_ALERT_CREATED record, making each alert
+        independently reproducible and verifiable against the full_forensic_evidence_collector output.
+        """
         sym = symbol.upper()
         if sym not in self.dispositions:
             return
@@ -824,6 +834,10 @@ class FundamentalScanTelemetry:
                 "symbol": sym,
                 "cmp": entry_price,
                 "signal_timestamp": now_ist.isoformat(),
+                # Rule 67 — Change C: SHA256 fingerprint of gate inputs (Finding 3).
+                # Enables independent verification: recompute hash from gate inputs and compare.
+                # None when alert_payload_hash was not supplied (backward-compatible callers).
+                "alert_payload_hash": alert_payload_hash,
                 "target_1": None,
                 "target_2": None,
                 "target_3": None,
@@ -836,7 +850,10 @@ class FundamentalScanTelemetry:
                 "no_fixed_time_expiry": True,
                 "broker_orders_enabled": False
             }
-            logger.info(f"💎 [BUY_ALERT_CREATED] {sym} at ₹{entry_price} (OPEN-ENDED / V1 LIVE EXIT)")
+            logger.info(
+                f"💎 [BUY_ALERT_CREATED] {sym} at ₹{entry_price} "
+                f"(OPEN-ENDED / V1 LIVE EXIT) | alert_payload_hash={alert_payload_hash}"
+            )
         else:
             disp["status"] = "BUY_ALERT_SUPPRESSED"
             norm_suppress_reason = normalize_reason_code(reason)

@@ -159,7 +159,7 @@ class TestScannerExecutionHistoryReporting(unittest.TestCase):
     def test_complete_scanner_execution_run_with_kwargs(self):
         """Verifies complete_scanner_execution_run works seamlessly when invoked with kwargs like V2."""
         mock_cursor = MagicMock()
-        mock_cursor.fetchone.return_value = ("QUALITY_COMPOUNDER_VALUE_V2_FINAL",)
+        mock_cursor.fetchone.return_value = ("QUALITY_COMPOUNDER",)
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 

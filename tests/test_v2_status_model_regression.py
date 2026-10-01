@@ -1,7 +1,7 @@
 """
 tests/test_v2_status_model_regression.py
 ========================================
-Regression test suite for QUALITY_COMPOUNDER_VALUE_V2_FINAL data quality & status model.
+Regression test suite for QUALITY_COMPOUNDER data quality & status model.
 Verifies:
 1. 886 symbols, 0 issues => Fresh=886, Stale=0, Incomplete=0 => COMPLETED / OK.
 2. 886 symbols, 3 incomplete => Fresh=883, Stale=0, Incomplete=3 => COMPLETED / OK, no Fail count, no DATA_INCOMPLETE banner.

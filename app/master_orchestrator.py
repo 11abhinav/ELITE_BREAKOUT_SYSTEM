@@ -562,7 +562,7 @@ class MasterOrchestratorV2:
             query_alerts = """
                 SELECT symbol, score as quality_score, status as investment_state, current_price as cmp, signals as why_qualifies
                 FROM alerts
-                WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+                WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
                 ORDER BY alert_time DESC LIMIT 50
             """
             inv_list = self._run_query(query_alerts)
@@ -572,7 +572,7 @@ class MasterOrchestratorV2:
             query_cand = """
                 SELECT symbol, quality_score, state as investment_state, last_seen_price as cmp, setup_type as why_qualifies
                 FROM scanner_candidates
-                WHERE scanner_name IN ('QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'DAILY_BUILDER', 'TECHNICAL')
+                WHERE scanner_name IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'DAILY_BUILDER', 'TECHNICAL')
                 ORDER BY updated_at DESC LIMIT 50
             """
             inv_list = self._run_query(query_cand)
@@ -813,7 +813,7 @@ class MasterOrchestratorV2:
                    category as sector, score as valuation_status, current_price as cmp,
                    signals as notes, 'V2 Elite Compounder Alert' as entry_signal
             FROM alerts
-            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL' AND status = 'OPEN'
+            WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL') AND status = 'OPEN'
             ORDER BY alert_time DESC LIMIT 100
         """
         actions = self._run_query(query)

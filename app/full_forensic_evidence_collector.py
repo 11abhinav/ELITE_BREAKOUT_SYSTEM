@@ -69,8 +69,8 @@ class FullForensicEvidenceCollector:
 
     def __init__(
         self,
-        scanner_id: str = "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-        scanner_name: str = "Quality Compounder Value V2 Final",
+        scanner_id: str = "QUALITY_COMPOUNDER",
+        scanner_name: str = "Quality Compounder",
         scanner_version: str = "FROZEN_V2_PROD_1.0",
         run_id: Optional[str] = None,
         universe_definition: str = "Certified Clean Approved Universe (886 Indian Equities)",
@@ -994,8 +994,8 @@ def _deprecated_generate_full_scanner_evidence_bundle_standalone(trigger_type: s
     run_id = f"RUN_V2_FINAL_{now_ist.strftime('%Y%m%d_%H%M%S')}"
 
     collector = FullForensicEvidenceCollector(
-        scanner_id="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
-        scanner_name="Quality Compounder Value V2 Final",
+        scanner_id="QUALITY_COMPOUNDER",
+        scanner_name="Quality Compounder",
         scanner_version="FROZEN_V2_PROD_1.0",
         run_id=run_id,
         universe_definition="Approved Universe (886 Certified Clean Equities)",
@@ -1460,7 +1460,7 @@ def _deprecated_generate_full_scanner_evidence_bundle_standalone(trigger_type: s
 
     summary_stats = {
         "run_id": run_id,
-        "scanner_id": "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+        "scanner_id": "QUALITY_COMPOUNDER",
         "universe_count": len(universe_symbols),
         "structural_ineligible_count": len(structural_ineligible_symbols),
         "data_failure_count": len(data_failure_symbols),

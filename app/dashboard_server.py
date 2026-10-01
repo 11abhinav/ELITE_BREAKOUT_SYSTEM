@@ -1231,7 +1231,7 @@ def api_get_near_misses():
                         where_clauses.append(f"nm.scanner IN ({placeholders})")
                         params.extend(sc_list)
                 else:
-                    where_clauses.append("nm.scanner IN ('TECHNICAL', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'DAILY_BUILDER')")
+                    where_clauses.append("nm.scanner IN ('TECHNICAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'DAILY_BUILDER')")
 
                 where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -6598,10 +6598,11 @@ def api_admin_refresh_master_symbols():
         logger.exception("❌ Admin master symbols refresh error")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route("/api/quality_compounder/alerts", methods=["GET"])
 @app.route("/api/v2_quality_compounder/alerts", methods=["GET"])
 @login_required
 def api_v2_quality_compounder_alerts():
-    """Returns candidate alerts and state transitions for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
+    """Returns candidate alerts and state transitions for QUALITY_COMPOUNDER."""
     try:
         from database import get_connection, RealDictCursor, DummyConnection
         status_filter = request.args.get("status")
@@ -6614,7 +6615,7 @@ def api_v2_quality_compounder_alerts():
                    current_price, entry_price, stop_loss, target_price, score, status,
                    watchlist_state, tier, signals, context
             FROM alerts
-            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+            WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
               AND (record_type = 'ALERT_EVENT' OR record_type IS NULL OR breakout_type = 'QUALITY_COMPOUNDER_V2')
         """
         params = []
@@ -6650,14 +6651,15 @@ def api_v2_quality_compounder_alerts():
 
         return jsonify({"success": True, "count": len(alerts), "alerts": alerts})
     except Exception as e:
-        logger.exception("❌ Error fetching V2 Quality Compounder alerts")
+        logger.exception("❌ Error fetching Quality Compounder alerts")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/quality_compounder/snapshots", methods=["GET"])
 @app.route("/api/v2_quality_compounder/snapshots", methods=["GET"])
 @login_required
 def api_v2_quality_compounder_snapshots():
-    """Returns daily immutable scan snapshots for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
+    """Returns daily immutable scan snapshots for QUALITY_COMPOUNDER."""
     try:
         from database import get_connection, RealDictCursor, DummyConnection
         date_filter = request.args.get("scan_date")
@@ -6669,21 +6671,22 @@ def api_v2_quality_compounder_snapshots():
         # Snapshots are decoupled from the alerts table to keep alerts strictly for genuine trading signals
         return jsonify({"success": True, "count": 0, "limit": limit, "offset": offset, "snapshots": []})
     except Exception as e:
-        logger.exception("❌ Error fetching V2 Quality Compounder snapshots")
+        logger.exception("❌ Error fetching Quality Compounder snapshots")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/quality_compounder/export", methods=["GET"])
 @app.route("/api/v2_quality_compounder/export", methods=["GET"])
 @login_required
 def api_v2_quality_compounder_export():
-    """Exports prospective candidate alerts for QUALITY_COMPOUNDER_VALUE_V2_FINAL."""
+    """Exports prospective candidate alerts for QUALITY_COMPOUNDER."""
     try:
         from database import get_connection, RealDictCursor, DummyConnection
         query = """
             SELECT id, symbol, scanner, alert_date, alert_time, current_price, entry_price,
                    stop_loss, target_price, score, status, signals, context
             FROM alerts
-            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+            WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
               AND COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
               AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
             ORDER BY alert_date ASC, alert_time ASC
@@ -6702,13 +6705,13 @@ def api_v2_quality_compounder_export():
                     r[k] = v.isoformat()
 
         return jsonify({
-            "strategy_id": "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+            "strategy_id": "QUALITY_COMPOUNDER",
             "exported_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
             "total_records": len(records),
             "records": records
         })
     except Exception as e:
-        logger.exception("❌ Error exporting V2 dataset")
+        logger.exception("❌ Error exporting dataset")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

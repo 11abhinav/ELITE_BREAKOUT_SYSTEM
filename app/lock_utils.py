@@ -36,8 +36,10 @@ SCANNER_CONFIG = {
     "TECHNICAL":                          {"emoji": "📐", "display": "TECHNICAL SCANNER",                "db_name": "TECHNICAL"},
     "fundamental":                        {"emoji": "🔬", "display": "FUNDAMENTAL BREAKOUT",             "db_name": "FUNDAMENTAL"},
     "FUNDAMENTAL":                        {"emoji": "🔬", "display": "FUNDAMENTAL BREAKOUT",             "db_name": "FUNDAMENTAL"},
-    "quality_compounder_v2":              {"emoji": "💎", "display": "QUALITY COMPOUNDER VALUE V2 FINAL", "db_name": "QUALITY_COMPOUNDER_VALUE_V2_FINAL"},
-    "QUALITY_COMPOUNDER_VALUE_V2_FINAL": {"emoji": "💎", "display": "QUALITY COMPOUNDER VALUE V2 FINAL", "db_name": "QUALITY_COMPOUNDER_VALUE_V2_FINAL"},
+    "quality_compounder":                 {"emoji": "💎", "display": "QUALITY COMPOUNDER",               "db_name": "QUALITY_COMPOUNDER"},
+    "QUALITY_COMPOUNDER":                 {"emoji": "💎", "display": "QUALITY COMPOUNDER",               "db_name": "QUALITY_COMPOUNDER"},
+    "quality_compounder_v2":              {"emoji": "💎", "display": "QUALITY COMPOUNDER",               "db_name": "QUALITY_COMPOUNDER"},
+    "QUALITY_COMPOUNDER_VALUE_V2_FINAL": {"emoji": "💎", "display": "QUALITY COMPOUNDER",               "db_name": "QUALITY_COMPOUNDER"},
 }
 
 _BAR_LEN = 30

@@ -4614,7 +4614,7 @@ def get_all_scanner_health() -> list[dict]:
         "DAILY_BUILDER": "Daily 05:00 IST",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
         "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
-        "QUALITY_COMPOUNDER_VALUE_V2_FINAL": "Daily 17:00 IST (Fundamental Quality Compounder V2 · ALL Regimes)",
+        "QUALITY_COMPOUNDER": "Daily 17:00 IST (Fundamental Quality Compounder · ALL Regimes)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
         "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
@@ -4870,8 +4870,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "WEALTH_EXIT_V1"
     elif upper in ["WEALTH_EXIT_V2", "WEALTH_V2_EXIT", "WEALTH_EXIT_V2_SHADOW"]:
         return "WEALTH_EXIT_V2"
-    elif upper in ["QUALITY_COMPOUNDER_VALUE_V2_FINAL", "QUALITY_COMPOUNDER_VALUE_V2", "QUALITY_COMPOUNDER_V2", "V2_QUALITY_COMPOUNDER", "QUALITY_VALUE_GEM"]:
-        return "QUALITY_COMPOUNDER_VALUE_V2_FINAL"
+    elif upper in ["QUALITY_COMPOUNDER", "QUALITY_COMPOUNDER_VALUE_V2_FINAL", "QUALITY_COMPOUNDER_VALUE_V2", "QUALITY_COMPOUNDER_V2", "V2_QUALITY_COMPOUNDER", "QUALITY_VALUE_GEM"]:
+        return "QUALITY_COMPOUNDER"
     elif upper in ["FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY", "FUNDAMENTAL_BUY", "FUNDAMENTAL_SCANNER", "FUNDAMENTAL_BUY_SCANNER"]:
         return "FUNDAMENTAL"
     elif upper in ["MULTIBAGGER"]:
@@ -12014,23 +12014,25 @@ def get_current_company_intelligence(symbol: str) -> dict:
 
 def save_v2_scan_snapshots(snapshot_records: List[Dict[str, Any]]) -> int:
     """
-    Log daily evaluated stock snapshots for QUALITY_COMPOUNDER_VALUE_V2_FINAL.
+    Log daily evaluated stock snapshots for QUALITY_COMPOUNDER.
     INVARIANT: The 'alerts' table is strictly reserved for genuine candidate alerts
     (stocks passing BOTH Quality and Valuation gates).
     Non-alerted / rejected stocks must NEVER be inserted into 'alerts'.
     """
     if not snapshot_records:
         return 0
-    logger.info(f"📊 [V2 SNAPSHOT AUDIT] Processed evaluation for {len(snapshot_records)} symbols — non-alert stocks are not inserted into 'alerts'.")
+    logger.info(f"📊 [QUALITY_COMPOUNDER SNAPSHOT AUDIT] Processed evaluation for {len(snapshot_records)} symbols — non-alert stocks are not inserted into 'alerts'.")
     return len(snapshot_records)
 
 
 def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
     """
-    Persist or update candidate alert for QUALITY_COMPOUNDER_VALUE_V2_FINAL in existing 'alerts' table.
+    Persist or update candidate alert for QUALITY_COMPOUNDER in existing 'alerts' table.
     record_type = 'ALERT_EVENT'
     breakout_type = 'QUALITY_COMPOUNDER_V2'
-    scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+    scanner = 'QUALITY_COMPOUNDER'
+    execution_state = 'OPEN' (Immediate entry at CMP; no technical breakout trigger pending)
+    entry_mode = 'CMP'
     """
     init_db()
     sym = str(candidate.get("symbol", "")).strip().upper()
@@ -12039,15 +12041,16 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
 
     sanitized_ctx = _sanitize_for_json(candidate.get("context", {}))
     ctx_str = json.dumps(sanitized_ctx, default=str)
+    entry_px = candidate.get("entry_price") or candidate.get("current_price")
 
     with get_connection() as conn:
         if isinstance(conn, DummyConnection):
-            logger.info(f"DummyConnection active: simulated persistence of V2 candidate alert for {sym}")
+            logger.info(f"DummyConnection active: simulated persistence of QUALITY_COMPOUNDER candidate alert for {sym}")
             return True, "INSERTED_DUMMY_CANDIDATE"
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, status, watchlist_state, alert_date FROM alerts
-                WHERE symbol = %s AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+                WHERE symbol = %s AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
                   AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
                 ORDER BY alert_time DESC LIMIT 1
             """, (sym,))
@@ -12061,6 +12064,9 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         tier = %s,
                         watchlist_state = %s,
                         context = %s::jsonb,
+                        execution_state = 'OPEN',
+                        entry_mode = 'CMP',
+                        actual_entry_price = COALESCE(actual_entry_price, %s),
                         updated_at = NOW()
                     WHERE id = %s
                 """, (
@@ -12069,6 +12075,7 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                     candidate.get("tier"),
                     candidate.get("watchlist_state", "GREEN"),
                     ctx_str,
+                    entry_px,
                     alert_id
                 ))
                 conn.commit()
@@ -12081,24 +12088,28 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         entry_price, current_price, status, record_type, watchlist_state,
                         rejection_reason, quality_gate_status, value_gate_status, tier,
                         ranking_score, signal_date, next_trading_day, reference_entry_open,
-                        governance_status, context, signals, score
+                        governance_status, context, signals, score,
+                        execution_state, entry_mode, actual_entry_price
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
                     SET current_price = EXCLUDED.current_price,
                         ranking_score = EXCLUDED.ranking_score,
                         tier = EXCLUDED.tier,
                         watchlist_state = EXCLUDED.watchlist_state,
                         context = EXCLUDED.context,
+                        execution_state = 'OPEN',
+                        entry_mode = 'CMP',
+                        actual_entry_price = COALESCE(alerts.actual_entry_price, EXCLUDED.actual_entry_price),
                         updated_at = NOW()
                 """, (
                     sym,
                     "QUALITY_COMPOUNDER_V2",
                     now_ist.isoformat(),
                     today_date,
-                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+                    "QUALITY_COMPOUNDER",
                     "LIVE_PRODUCTION_WATCHLIST",
-                    candidate.get("entry_price"),
+                    entry_px,
                     candidate.get("current_price"),
                     "OPEN",
                     "ALERT_EVENT",
@@ -12113,8 +12124,11 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                     candidate.get("reference_entry_open"),
                     "GOVERNANCE_PENDING",
                     ctx_str,
-                    "QUALITY_COMPOUNDER_VALUE_V2_FINAL (PASS ALL GATES)",
-                    int(candidate.get("ranking_score", 90))
+                    "QUALITY_COMPOUNDER (PASS ALL GATES)",
+                    int(candidate.get("ranking_score", 90)),
+                    "OPEN",
+                    "CMP",
+                    entry_px
                 ))
                 conn.commit()
                 return True, "INSERTED_NEW_ALERT"
@@ -12130,7 +12144,7 @@ def save_v2_exit_event(
     context_update: dict = None
 ) -> bool:
     """
-    Record state transition or exit event for QUALITY_COMPOUNDER_VALUE_V2_FINAL in existing 'alerts' table.
+    Record state transition or exit event for QUALITY_COMPOUNDER in existing 'alerts' table.
     """
     init_db()
     sym = symbol.strip().upper()
@@ -12143,7 +12157,7 @@ def save_v2_exit_event(
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, status, watchlist_state, exit_history, context FROM alerts
-                WHERE symbol = %s AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+                WHERE symbol = %s AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
                   AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
                 ORDER BY alert_time DESC LIMIT 1
             """, (sym,))
@@ -12207,5 +12221,36 @@ def save_v2_exit_event(
                 ))
             conn.commit()
             return True
+
+
+def heal_quality_compounder_pending_states() -> int:
+    """
+    Heals QUALITY_COMPOUNDER and QUALITY_COMPOUNDER_VALUE_V2_FINAL alerts from PENDING_ENTRY to OPEN.
+    Fundamental compounders do NOT wait for a technical breakout trigger; their execution_state is OPEN at CMP.
+    """
+    init_db()
+    healed_count = 0
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                return 0
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = 'OPEN',
+                        entry_mode = 'CMP',
+                        actual_entry_price = COALESCE(actual_entry_price, entry_price, current_price),
+                        updated_at = NOW()
+                    WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
+                      AND execution_state = 'PENDING_ENTRY';
+                """)
+                healed_count = cur.rowcount
+                conn.commit()
+                if healed_count > 0:
+                    logger.info(f"🔄 [AUTO_HEAL] Healed {healed_count} QUALITY_COMPOUNDER alerts from PENDING_ENTRY to OPEN.")
+    except Exception as e:
+        logger.debug(f"Healing quality compounder pending states warning: {e}")
+    return healed_count
+
 
 

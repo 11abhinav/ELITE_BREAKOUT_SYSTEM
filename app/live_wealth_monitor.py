@@ -1257,12 +1257,12 @@ def get_live_wealth_monitor() -> LiveWealthMonitorEngine:
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────
-# QUALITY_COMPOUNDER_VALUE_V2_FINAL — 15:15 & 18:30 EXIT PULSE CHECKER
+# QUALITY_COMPOUNDER — 15:15 & 18:30 EXIT PULSE CHECKER
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
     """
-    Executes V2 exit checks for QUALITY_COMPOUNDER_VALUE_V2_FINAL:
+    Executes V2 exit checks for QUALITY_COMPOUNDER:
     - check_type = 'PRE_CLOSE' (15:15 IST pulse): Warning check, GREEN -> ORANGE on intraday SMA200 breach, NO final exit.
     - check_type = 'EOD' (18:30 IST pulse): Definitive EOD check, evaluates 2 consecutive daily closes < SMA200 & fundamental deterioration, confirms FINAL_EXIT -> CLOSED / RED.
     """
@@ -1277,7 +1277,7 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
     now_ist = datetime.now(IST)
     today_str = now_ist.strftime("%Y-%m-%d")
 
-    logger.info(f"🛡️ [V2_EXIT_MONITOR] Running {check_type} exit check pulse for QUALITY_COMPOUNDER_VALUE_V2_FINAL at {now_ist.strftime('%H:%M:%S IST')}...")
+    logger.info(f"🛡️ [V2_EXIT_MONITOR] Running {check_type} exit check pulse for QUALITY_COMPOUNDER at {now_ist.strftime('%H:%M:%S IST')}...")
 
     active_alerts = []
     try:
@@ -1286,7 +1286,7 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
                         SELECT * FROM alerts
-                        WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
+                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
                           AND record_type = 'ALERT_EVENT'
                           AND status IN ('OPEN', 'ACTIVE')
                     """)
@@ -1296,7 +1296,7 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
         return {"status": "FAILED", "error": str(e)}
 
     if not active_alerts:
-        logger.info("ℹ️ [V2_EXIT_MONITOR] Zero active QUALITY_COMPOUNDER_VALUE_V2_FINAL alerts found.")
+        logger.info("ℹ️ [V2_EXIT_MONITOR] Zero active QUALITY_COMPOUNDER alerts found.")
         return {"status": "SUCCESS", "active_count": 0, "processed": 0}
 
     history_dir = os.path.join(DATA_DIR, "history", "1d")

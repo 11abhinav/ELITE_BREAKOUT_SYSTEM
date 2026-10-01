@@ -1592,7 +1592,8 @@ def check_scanner_staleness(now):
         "PERFORMANCE_TRACKER":                15,       # runs every 5 min
         "WEALTH_EXIT":                        15,       # runs every 5 min during market hours
         "Wealth Engine":                      "DAILY",  # runs full scan once daily at 17:00 IST
-        "QUALITY_COMPOUNDER_VALUE_V2_FINAL":  "DAILY",  # runs full scan once daily at 17:00 IST
+        "QUALITY_COMPOUNDER":                 "DAILY",  # runs full scan once daily at 17:00 IST
+        "QUALITY_COMPOUNDER_VALUE_V2_FINAL":  "DAILY",  # alias for backward compat
         "DAILY_BUILDER":                      "DAILY",
     }
     
@@ -1836,6 +1837,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         # Active production and operational workers
         "DAILY_BUILDER":                      _trigger_daily_builder,
         "FUNDAMENTAL":                        _trigger_fundamental,
+        "QUALITY_COMPOUNDER":                 _trigger_quality_compounder_v2,
         "QUALITY_COMPOUNDER_VALUE_V2_FINAL": _trigger_quality_compounder_v2,
         "Wealth Engine":                      _trigger_wealth_engine,
         "AI Worker":                          _trigger_ai_worker,
@@ -1852,6 +1854,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     LOCK_MAP = {
         "DAILY_BUILDER":                      lambda: __import__('daily_builder')._build_lock,
         "FUNDAMENTAL":                        lambda: __import__('live_fundamental_scanner')._fundamental_scan_lock,
+        "QUALITY_COMPOUNDER":                 lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "QUALITY_COMPOUNDER_VALUE_V2_FINAL": lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "Wealth Engine":                      lambda: __import__('wealth_engine')._scan_lock,
         "AI Worker":                          lambda: __import__('ai_worker')._scan_lock,
@@ -2088,10 +2091,10 @@ def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL", sessi
     run_wealth_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 def _trigger_quality_compounder_v2(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
     from database import is_scanner_stopped
-    if is_scanner_stopped("QUALITY_COMPOUNDER_VALUE_V2_FINAL"):
-        logger.info("⏸️ [QUALITY_COMPOUNDER_VALUE_V2_FINAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+    if is_scanner_stopped("QUALITY_COMPOUNDER") or is_scanner_stopped("QUALITY_COMPOUNDER_VALUE_V2_FINAL"):
+        logger.info("⏸️ [QUALITY_COMPOUNDER] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return
-    logger.info(f"🚀 [SCANNER: QUALITY_COMPOUNDER_VALUE_V2_FINAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
+    logger.info(f"🚀 [SCANNER: QUALITY_COMPOUNDER] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     from live_fundamental_scanner import run_quality_compounder_v2_scan
     return run_quality_compounder_v2_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
 
