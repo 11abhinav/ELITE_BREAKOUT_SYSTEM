@@ -42,6 +42,12 @@ data/*
 !data/pit_valuation_history_cache.parquet
 !data/fundamentals_cache.json
 !data/multibagger_fundamentals_cache.json
+!data/pit_raw_filings/
+!data/pit_raw_filings/**
+!data/pit_raw_filings_deep/
+!data/pit_raw_filings_deep/**
+!data/pit_raw_nse_quarterly/
+!data/pit_raw_nse_quarterly/**
 !reports/full_scanner_evidence/**/*.parquet
 *.feather
 *.pkl

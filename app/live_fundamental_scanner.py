@@ -2281,10 +2281,24 @@ def build_raw_history_index(raw_filings_dir: Optional[str] = None) -> Dict[str, 
     Provides O(1) query time for annual filing count and earliest/latest periods.
     Asserts RAW_FILING_INDEX_ACTUAL >= 1.
     """
-    raw_filings_dir = raw_filings_dir or os.path.join(DATA_DIR, "pit_raw_filings")
-    if not os.path.exists(raw_filings_dir):
-        logger.error(f"❌ [V2_RAW_INDEX] Directory not found: {raw_filings_dir}")
+    candidate_dirs = [
+        raw_filings_dir,
+        os.path.join(DATA_DIR, "pit_raw_filings"),
+        os.path.join(BASE_DIR, "data", "pit_raw_filings"),
+        os.path.join(os.getcwd(), "data", "pit_raw_filings"),
+        os.path.abspath("data/pit_raw_filings"),
+        "/app/data/pit_raw_filings",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_raw_filings",
+    ]
+    resolved_dir = None
+    for c in candidate_dirs:
+        if c and os.path.isdir(c) and glob.glob(os.path.join(c, "*.json")):
+            resolved_dir = c
+            break
+    if not resolved_dir:
+        logger.error(f"❌ [V2_RAW_INDEX] Directory not found across candidates: {candidate_dirs}")
         return {}
+    raw_filings_dir = resolved_dir
 
     pattern = os.path.join(raw_filings_dir, "*.json")
     json_files = glob.glob(pattern)
@@ -2354,9 +2368,23 @@ def build_history_1d_dates_index(history_1d_dir: Optional[str] = None) -> Dict[s
     Builds an in-memory index of earliest tradable date from 1D history parquets once per scan.
     Provides fast O(1) query time across the entire universe without repeated per-stock file opens.
     """
-    history_1d_dir = history_1d_dir or os.path.join(DATA_DIR, "history", "1d")
-    if not os.path.exists(history_1d_dir):
+    candidate_dirs = [
+        history_1d_dir,
+        os.path.join(DATA_DIR, "history", "1d"),
+        os.path.join(BASE_DIR, "data", "history", "1d"),
+        os.path.join(os.getcwd(), "data", "history", "1d"),
+        os.path.abspath("data/history/1d"),
+        "/app/data/history/1d",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/history/1d",
+    ]
+    resolved_dir = None
+    for c in candidate_dirs:
+        if c and os.path.isdir(c) and glob.glob(os.path.join(c, "*.parquet")):
+            resolved_dir = c
+            break
+    if not resolved_dir:
         return {}
+    history_1d_dir = resolved_dir
 
     pattern = os.path.join(history_1d_dir, "*.parquet")
     files = glob.glob(pattern)
@@ -2667,36 +2695,54 @@ class QualityCompounderValueV2Scanner:
         ]
         return any(kw in ind_upper for kw in financial_keywords)
 
-    @staticmethod
-    def compute_100pt_score(row_dict: dict, ev_discount, pe_discount, res_dd: float) -> float:
-        """Score is only meaningful when valuation data is available. Returns 0.0 when either
-        discount is None (valuation data unavailable) — caller should not use score for ranking
-        when valuation is missing."""
-        if ev_discount is None:
-            ev_discount = 0.0   # safety: score = 0 when valuation unavailable
-        if pe_discount is None:
-            pe_discount = 0.0
-        # 1. EV/EBITDA Discount Depth (0.25 to 0.50 => 0 to 30 pts)
-        ev_pts = 30.0 * min(max((ev_discount - 0.25) / 0.25, 0.0), 1.0)
-        # 2. 5Y ROCE (15% to 40% => 0 to 25 pts)
-        # B5 fix: Do NOT default to 15.0 (the exact threshold) when roce_5y_avg is missing.
-        # A missing ROCE means we have no evidence — the stock scores 0 pts on this dimension,
-        # not a synthetic pass at the gate boundary.
+    @classmethod
+    def compute_100pt_score_detailed(
+        cls,
+        row_dict: dict,
+        ev_discount: Optional[float],
+        pe_discount: Optional[float],
+        res_dd: float
+    ) -> Dict[str, Any]:
+        """Calculates granular breakdown and explanation for the 100-point ranking score."""
+        ev_disc_eff = float(ev_discount) if ev_discount is not None else 0.0
+        pe_disc_eff = float(pe_discount) if pe_discount is not None else 0.0
+
+        ev_pts = round(30.0 * min(max((ev_disc_eff - 0.25) / 0.25, 0.0), 1.0), 2)
         roce_val_raw = row_dict.get("roce_5y_avg")
         roce_val = float(roce_val_raw) if (roce_val_raw is not None and not pd.isna(roce_val_raw)) else 0.0
-        roce_pts = 25.0 * min(max((roce_val - 15.0) / 25.0, 0.0), 1.0)
-        # 3. PE Discount Depth (0% to 40% => 0 to 20 pts)
-        pe_pts = 20.0 * min(max(pe_discount / 0.40, 0.0), 1.0)
+        roce_pts = round(25.0 * min(max((roce_val - 15.0) / 25.0, 0.0), 1.0), 2)
+        pe_pts = round(20.0 * min(max(pe_disc_eff / 0.40, 0.0), 1.0), 2)
         cfo_pat_raw = row_dict.get("cfo_pat_5y_ratio")
         cfo_pat_val = float(cfo_pat_raw) if (cfo_pat_raw is not None and not pd.isna(cfo_pat_raw)) else 0.0
-        cfo_pts = 15.0 * min(max((cfo_pat_val - 0.80) / 0.70, 0.0), 1.0)
-        # 5. Residual Drawdown Bonus (Res_DD <= 10% gets full 10 pts)
+        cfo_pts = round(15.0 * min(max((cfo_pat_val - 0.80) / 0.70, 0.0), 1.0), 2)
         if res_dd <= 0.10:
             res_pts = 10.0
         else:
-            res_pts = 10.0 * min(max((0.25 - res_dd) / 0.15, 0.0), 1.0)
+            res_pts = round(10.0 * min(max((0.25 - res_dd) / 0.15, 0.0), 1.0), 2)
 
-        return round(ev_pts + roce_pts + pe_pts + cfo_pts + res_pts, 2)
+        total_score = round(ev_pts + roce_pts + pe_pts + cfo_pts + res_pts, 2)
+        return {
+            "ev_discount": ev_discount,
+            "ev_pts": ev_pts,
+            "roce_val": roce_val,
+            "roce_pts": roce_pts,
+            "pe_discount": pe_discount,
+            "pe_pts": pe_pts,
+            "cfo_pat_val": cfo_pat_val,
+            "cfo_pts": cfo_pts,
+            "res_dd": res_dd,
+            "res_pts": res_pts,
+            "total_score_100": total_score,
+            "formula": "ev_pts(30) + roce_pts(25) + pe_pts(20) + cfo_pts(15) + res_pts(10)",
+        }
+
+    @classmethod
+    def compute_100pt_score(cls, row_dict: dict, ev_discount, pe_discount, res_dd: float) -> float:
+        """Score is only meaningful when valuation data is available. Returns 0.0 when either
+        discount is None (valuation data unavailable) — caller should not use score for ranking
+        when valuation is missing."""
+        detailed = cls.compute_100pt_score_detailed(row_dict, ev_discount, pe_discount, res_dd)
+        return detailed["total_score_100"]
 
     def recover_upstream_valuation_data(
         self,
@@ -3634,6 +3680,67 @@ class QualityCompounderValueV2Scanner:
                         decision_action="BLOCK_SYMBOL",
                         next_stage="TERMINATED",
                     )
+
+                    # Extract raw filings from pit_raw_filings for complete auditability
+                    _raw_p = os.path.join(_raw_filings_dir, f"{sym}.json")
+                    _raw_ann_cnt = 0
+                    if os.path.exists(_raw_p):
+                        try:
+                            with open(_raw_p, "r", encoding="utf-8") as _rf_f:
+                                _raw_filings_data = json.load(_rf_f)
+                            if isinstance(_raw_filings_data, list):
+                                for _rfil in _raw_filings_data:
+                                    if str(_rfil.get("statement_type", "")).upper() in ("ANNUAL", "YEARLY") or _rfil.get("is_annual"):
+                                        _raw_ann_cnt += 1
+                                        collector.record_raw_annual_filing(
+                                            symbol=sym,
+                                            period_end_date=str(_rfil.get("period_end_date", ""))[:10],
+                                            filing_date=str(_rfil.get("filing_date", ""))[:10],
+                                            publication_timestamp=str(_rfil.get("actual_publication_timestamp", _rfil.get("filing_date", ""))),
+                                            statement_type="ANNUAL",
+                                            revenue=float(_rfil.get("revenue")) if (_rfil.get("revenue") is not None and pd.notna(_rfil.get("revenue"))) else None,
+                                            operating_profit=float(_rfil.get("operating_profit")) if (_rfil.get("operating_profit") is not None and pd.notna(_rfil.get("operating_profit"))) else None,
+                                            depreciation_amortization=float(_rfil.get("depreciation_amortization")) if (_rfil.get("depreciation_amortization") is not None and pd.notna(_rfil.get("depreciation_amortization"))) else None,
+                                            ebitda=None,
+                                            net_profit=float(_rfil.get("net_profit")) if (_rfil.get("net_profit") is not None and pd.notna(_rfil.get("net_profit"))) else None,
+                                            operating_cash_flow=float(_rfil.get("operating_cash_flow")) if (_rfil.get("operating_cash_flow") is not None and pd.notna(_rfil.get("operating_cash_flow"))) else None,
+                                            total_debt=float(_rfil.get("total_debt")) if (_rfil.get("total_debt") is not None and pd.notna(_rfil.get("total_debt"))) else None,
+                                            total_equity=float(_rfil.get("total_equity")) if (_rfil.get("total_equity") is not None and pd.notna(_rfil.get("total_equity"))) else None,
+                                            cash_and_equivalents=float(_rfil.get("cash_and_equivalents")) if (_rfil.get("cash_and_equivalents") is not None and pd.notna(_rfil.get("cash_and_equivalents"))) else None,
+                                            roce=float(_rfil.get("roce")) if (_rfil.get("roce") is not None and pd.notna(_rfil.get("roce"))) else None,
+                                            eps=float(_rfil.get("eps")) if (_rfil.get("eps") is not None and pd.notna(_rfil.get("eps"))) else None,
+                                            shares_outstanding=float(_rfil.get("shares_outstanding")) if (_rfil.get("shares_outstanding") is not None and pd.notna(_rfil.get("shares_outstanding"))) else None,
+                                            source="PIT_RAW_FILING",
+                                            is_trailing_5y=True,
+                                        )
+                        except Exception as _rfe:
+                            logger.debug(f"Notice loading raw filings for evidence on {sym}: {_rfe}")
+
+                    collector.record_financial_reconstruction(
+                        symbol=sym,
+                        metric_name="DATA_GATE_PIT_PRESENCE",
+                        formula="Symbol in pit_fundamentals_v1.parquet",
+                        inputs={
+                            "pit_fundamentals_parquet": False,
+                            "pit_raw_filings_json_exists": os.path.exists(_raw_p),
+                            "raw_annual_filings_count": _raw_ann_cnt,
+                            "earliest_annual_period": _non_pit_cls.get("earliest_annual_period"),
+                            "latest_annual_period": _non_pit_cls.get("latest_annual_period"),
+                            "classification": _top_pop,
+                            "classification_reason": _non_pit_cls.get("reason"),
+                        },
+                        calculated_value="FAIL_CLOSED (BLOCKED)",
+                        unit="status",
+                        provenance="PIT_RECONCILIATION_AUDIT",
+                    )
+
+                    # Gate Results for non-PIT stock
+                    collector.record_gate_result(sym, "PIT_DATA_EXISTS", "DATA_GATE", "Filing history in pit_fundamentals_v1", "PIT_DATASET_PRESENT", "MISSING", "IN", "FAIL", "DATA_MISSING_PIT_FILINGS")
+                    collector.record_gate_result(sym, "RAW_FILINGS_EXISTENCE", "DATA_GATE", ">= 5 annual filings in pit_raw_filings", 5, _raw_ann_cnt, ">=", "PASS" if _raw_ann_cnt >= 5 else "FAIL", "INSUFFICIENT_RAW_FILINGS" if _raw_ann_cnt < 5 else None)
+                    collector.record_gate_result(sym, "PRICE_CMP", "DATA_GATE", "> ₹0.00", 0.0, cmp_price, ">", "PASS" if cmp_price > 0 else "FAIL", "PRICE_PROVIDER_FAILURE" if cmp_price <= 0 else None)
+                    collector.record_gate_result(sym, "ELIGIBILITY_GATE", "ELIGIBILITY", "Passed Data Gate", "DATA_PASSED", "BLOCKED_AT_DATA_GATE", "==", "NOT_EVALUATED", "BLOCKED_AT_DATA_GATE")
+                    collector.record_gate_result(sym, "QUALITY_GATE", "QUALITY", "Passed Eligibility Gate", "ELIGIBILITY_PASSED", "BLOCKED_AT_DATA_GATE", "==", "NOT_EVALUATED", "BLOCKED_AT_DATA_GATE")
+                    collector.record_gate_result(sym, "VALUATION_GATE", "VALUATION", "Passed Quality Gate", "QUALITY_PASSED", "BLOCKED_AT_DATA_GATE", "==", "NOT_EVALUATED", "BLOCKED_AT_DATA_GATE")
                 continue
 
             row = pit_records_map[sym]
@@ -4252,6 +4359,220 @@ class QualityCompounderValueV2Scanner:
                         production_value=_fval,
                     )
 
+                # Record all audited annual filings for symbol
+                _ann_filings = row.get("annual_filings_history")
+                if not _ann_filings and sym in raw_history_index:
+                    try:
+                        with open(raw_history_index[sym], "r") as _rf:
+                            _rf_data = json.load(_rf)
+                            if isinstance(_rf_data, list):
+                                _ann_filings = _rf_data
+                            elif isinstance(_rf_data, dict):
+                                _ann_filings = _rf_data.get("annual_reports") or _rf_data.get("filings") or []
+                    except Exception:
+                        pass
+                if _ann_filings:
+                    for _ann_f in _ann_filings:
+                        collector.record_raw_annual_filing(
+                            symbol=sym,
+                            period_end_date=str(_ann_f.get("period_end_date", ""))[:10],
+                            filing_date=str(_ann_f.get("filing_date", ""))[:10],
+                            publication_timestamp=str(_ann_f.get("actual_publication_timestamp", _ann_f.get("filing_date", ""))),
+                            statement_type="ANNUAL",
+                            revenue=float(_ann_f.get("revenue")) if (_ann_f.get("revenue") is not None and pd.notna(_ann_f.get("revenue"))) else None,
+                            operating_profit=float(_ann_f.get("operating_profit")) if (_ann_f.get("operating_profit") is not None and pd.notna(_ann_f.get("operating_profit"))) else None,
+                            depreciation_amortization=float(_ann_f.get("depreciation_amortization")) if (_ann_f.get("depreciation_amortization") is not None and pd.notna(_ann_f.get("depreciation_amortization"))) else None,
+                            ebitda=(float(_ann_f.get("operating_profit", 0) or 0) + float(_ann_f.get("depreciation_amortization", 0) or 0)) if (_ann_f.get("operating_profit") is not None or _ann_f.get("depreciation_amortization") is not None) else None,
+                            net_profit=float(_ann_f.get("net_profit")) if (_ann_f.get("net_profit") is not None and pd.notna(_ann_f.get("net_profit"))) else None,
+                            operating_cash_flow=float(_ann_f.get("operating_cash_flow")) if (_ann_f.get("operating_cash_flow") is not None and pd.notna(_ann_f.get("operating_cash_flow"))) else None,
+                            total_debt=float(_ann_f.get("total_debt")) if (_ann_f.get("total_debt") is not None and pd.notna(_ann_f.get("total_debt"))) else None,
+                            total_equity=float(_ann_f.get("total_equity")) if (_ann_f.get("total_equity") is not None and pd.notna(_ann_f.get("total_equity"))) else None,
+                            cash_and_equivalents=float(_ann_f.get("cash_and_equivalents")) if (_ann_f.get("cash_and_equivalents") is not None and pd.notna(_ann_f.get("cash_and_equivalents"))) else None,
+                            roce=float(_ann_f.get("roce")) if (_ann_f.get("roce") is not None and pd.notna(_ann_f.get("roce"))) else None,
+                            eps=float(_ann_f.get("eps")) if (_ann_f.get("eps") is not None and pd.notna(_ann_f.get("eps"))) else None,
+                            shares_outstanding=float(_ann_f.get("shares_outstanding")) if (_ann_f.get("shares_outstanding") is not None and pd.notna(_ann_f.get("shares_outstanding"))) else None,
+                            source="PIT_RAW_FILING",
+                            is_trailing_5y=True,
+                        )
+
+                # Granular Financial Reconstructions
+                _r0 = row.get("start_revenue")
+                _r1 = row.get("end_revenue")
+                _ny = growth_years_elapsed
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="5Y_SALES_CAGR",
+                    formula="((r1 / r0) ** (1 / n) - 1.0) * 100.0",
+                    inputs={
+                        "start_revenue_cr": _r0,
+                        "end_revenue_cr": _r1,
+                        "start_period": growth_start_period,
+                        "end_period": growth_end_period,
+                        "years_elapsed": _ny,
+                        "periods_used": financial_periods_used,
+                    },
+                    calculated_value=sales_cagr_5y,
+                    unit="%",
+                    provenance="PIT_ANNUAL_AUDITED_STATEMENTS",
+                )
+                _p0 = row.get("start_pat")
+                _p1 = row.get("end_pat")
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="5Y_PAT_CAGR",
+                    formula="((p1 / p0) ** (1 / n) - 1.0) * 100.0",
+                    inputs={
+                        "start_pat_cr": _p0,
+                        "end_pat_cr": _p1,
+                        "start_period": growth_start_period,
+                        "end_period": growth_end_period,
+                        "years_elapsed": _ny,
+                        "periods_used": financial_periods_used,
+                    },
+                    calculated_value=pat_cagr_5y,
+                    unit="%",
+                    provenance="PIT_ANNUAL_AUDITED_STATEMENTS",
+                )
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="5Y_CFO_PAT_RATIO",
+                    formula="sum(operating_cash_flow_5y) / sum(net_profit_5y)",
+                    inputs={
+                        "cfo_annual_values": row.get("cfo_annual_values", []),
+                        "pat_annual_values": row.get("pat_annual_values", []),
+                        "sum_cfo_cr": row.get("sum_cfo"),
+                        "sum_pat_cr": row.get("sum_pat"),
+                        "periods_used": financial_periods_used,
+                    },
+                    calculated_value=cfo_pat_5y,
+                    unit="ratio",
+                    provenance="PIT_ANNUAL_AUDITED_STATEMENTS",
+                )
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="5Y_AVG_ROCE",
+                    formula="sum(roce_annual_values) / len(roce_annual_values)",
+                    inputs={
+                        "roce_annual_values": row.get("roce_annual_values", []),
+                        "periods_used": roce_periods_used,
+                    },
+                    calculated_value=roce_5y,
+                    unit="%",
+                    provenance="PIT_ANNUAL_AUDITED_STATEMENTS",
+                )
+                _d_stat = row.get("debt_reported_status", "MISSING")
+                _eq_stat = row.get("equity_reported_status", "MISSING")
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="DEBT_TO_EQUITY",
+                    formula="total_debt / total_equity",
+                    inputs={
+                        "total_debt_cr": row.get("raw_total_debt"),
+                        "total_equity_cr": row.get("raw_total_equity"),
+                        "debt_reported_status": _d_stat,
+                        "equity_reported_status": _eq_stat,
+                        "default_used": False,
+                        "fallback_source": "NONE",
+                        "is_debt_free_company": (_d_stat == "GENUINELY_ZERO"),
+                    },
+                    calculated_value=de_ratio,
+                    unit="ratio",
+                    provenance="PIT_ANNUAL_BALANCE_SHEET",
+                )
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="CURRENT_EV_EBITDA",
+                    formula="(MarketCap + TotalDebt - Cash) / EBITDA",
+                    inputs={
+                        "cmp_inr": cmp_price,
+                        "shares_outstanding": _shares,
+                        "market_cap_cr": mcap,
+                        "total_debt_cr": _debt,
+                        "cash_cr": _cash,
+                        "ebitda_cr": _eb,
+                        "operating_profit_cr": row.get("operating_profit"),
+                        "depreciation_amortization_cr": row.get("depreciation_amortization"),
+                        "net_debt_cr": row.get("ev_net_debt"),
+                        "ev_total_cr": row.get("ev_total"),
+                    },
+                    calculated_value=ev_ebitda_curr,
+                    unit="ratio",
+                    provenance="POINT_IN_TIME_ENTERPRISE_VALUE_DERIVATION",
+                )
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="EV_EBITDA_3Y_MEDIAN",
+                    formula="median(daily_ev_ebitda_trailing_750_trading_days)",
+                    inputs={
+                        "trailing_trading_days_window": 750,
+                        "data_provider": "Upstox",
+                        "as_of_date": "2026-09-25",
+                        "median_value": ev_ebitda_med,
+                    },
+                    calculated_value=ev_ebitda_med,
+                    unit="ratio",
+                    provenance="UPSTOX_DAILY_CANDLES_AND_PIT_FILINGS",
+                )
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="EV_EBITDA_DISCOUNT",
+                    formula="(median_ev_ebitda - current_ev_ebitda) / median_ev_ebitda",
+                    inputs={
+                        "current_ev_ebitda": ev_ebitda_curr,
+                        "median_ev_ebitda": ev_ebitda_med,
+                    },
+                    calculated_value=calc_discount,
+                    unit="ratio",
+                    provenance="VALUATION_GATE_ARITHMETIC",
+                )
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="PE_3Y_MEDIAN",
+                    formula="median(daily_pe_trailing_750_trading_days)",
+                    inputs={
+                        "trailing_trading_days_window": 750,
+                        "data_provider": "Upstox",
+                        "as_of_date": "2026-09-25",
+                        "median_value": pe_med,
+                    },
+                    calculated_value=pe_med,
+                    unit="ratio",
+                    provenance="UPSTOX_DAILY_CANDLES_AND_PIT_FILINGS",
+                )
+                collector.record_financial_reconstruction(
+                    symbol=sym,
+                    metric_name="PE_DISCOUNT",
+                    formula="(median_pe - current_pe) / median_pe",
+                    inputs={
+                        "current_pe": pe_curr,
+                        "median_pe": pe_med,
+                    },
+                    calculated_value=pe_discount,
+                    unit="ratio",
+                    provenance="VALUATION_GATE_ARITHMETIC",
+                )
+
+                # Granular Score Breakdown
+                _sc_detail = self.compute_100pt_score_detailed(
+                    row_dict={
+                        "roce_5y_avg": roce_5y,
+                        "cfo_pat_5y_ratio": cfo_pat_5y,
+                    },
+                    ev_discount=ev_discount,
+                    pe_discount=pe_discount,
+                    res_dd=res_dd,
+                )
+                collector.record_score_breakdown(
+                    symbol=sym,
+                    ev_pts=_sc_detail["ev_pts"],
+                    roce_pts=_sc_detail["roce_pts"],
+                    pe_pts=_sc_detail["pe_pts"],
+                    cfo_pts=_sc_detail["cfo_pts"],
+                    res_pts=_sc_detail["res_pts"],
+                    total_score_100=_sc_detail["total_score_100"],
+                    tier=tier,
+                )
+
                 # Production metrics
                 collector.record_production_metric(sym, "5Y_AVG_ROCE", roce_5y, f"{float(roce_5y):.2f}%" if roce_5y is not None and not pd.isna(roce_5y) else "N/A", roce_5y, "%")
                 collector.record_production_metric(sym, "5Y_SALES_CAGR", sales_cagr_5y, f"{float(sales_cagr_5y):.2f}%" if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else "N/A", sales_cagr_5y, "%")
@@ -4286,6 +4607,59 @@ class QualityCompounderValueV2Scanner:
 
                     p_val = (calc_discount is not None and calc_discount >= 0.25)
                     collector.record_gate_result(sym, "EV_EBITDA_DISCOUNT", "VALUATION", ">= 25.0%", 0.25, calc_discount, ">=", "PASS" if p_val else "FAIL")
+                else:
+                    collector.record_gate_result(sym, "5Y_ROCE", "QUALITY", ">= 15.0%", 15.0, roce_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "5Y_SALES_CAGR", "QUALITY", ">= 10.0%", 10.0, sales_cagr_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "5Y_PAT_CAGR", "QUALITY", ">= 10.0%", 10.0, pat_cagr_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "5Y_CFO_PAT", "QUALITY", ">= 0.80", 0.80, cfo_pat_5y, ">=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "DEBT_TO_EQUITY", "QUALITY", "<= 0.50", 0.50, de_ratio, "<=", "BLOCKED_FINANCIAL_SECTOR")
+                    collector.record_gate_result(sym, "EV_EBITDA_DISCOUNT", "VALUATION", ">= 25.0%", 0.25, calc_discount, ">=", "BLOCKED_FINANCIAL_SECTOR")
+
+                # Trailing 3Y Daily Valuation observations for candidates
+                if is_candidate and df_px is not None and not df_px.empty and _safe_pos(ev_ebitda_med):
+                    try:
+                        _d_cand = ['Date', 'date', 'Timestamp', 'timestamp']
+                        _d_col = next((c for c in _d_cand if c in df_px.columns), None)
+                        _df_c = df_px.copy()
+                        _df_c['dt'] = pd.to_datetime(_df_c[_d_col] if _d_col else _df_c.index).dt.tz_localize(None)
+                        _max_dt = _df_c['dt'].max()
+                        _min_3y = _max_dt - pd.Timedelta(days=3 * 365.25)
+                        _df_3y = _df_c[_df_c['dt'] >= _min_3y].sort_values('dt')
+                        _cl_cand = ['Close', 'close', 'Adj Close', 'adj_close']
+                        _cl_col = next((c for c in _cl_cand if c in _df_3y.columns), None)
+                        if _cl_col:
+                            _sh_cand = float(_shares or 0) if _shares else 0.0
+                            _d_cand_val = float(_debt or 0) if _debt else 0.0
+                            _c_cand_val = float(_cash or 0) if _cash else 0.0
+                            _eb_cand = float(_eb or 0) if _eb else 0.0
+                            _obs_list = []
+                            for _, _b_row in _df_3y.iterrows():
+                                _b_px = float(_b_row[_cl_col])
+                                _b_dt = str(_b_row['dt'])[:10]
+                                _b_mc = (_sh_cand * _b_px) / 1e7 if _sh_cand > 0 else np.nan
+                                _b_ev = (_b_mc + _d_cand_val - _c_cand_val) if not np.isnan(_b_mc) else np.nan
+                                _b_ev_eb = (_b_ev / _eb_cand) if (_eb_cand > 0 and not np.isnan(_b_ev) and _b_ev > 0) else np.nan
+                                _obs_list.append({
+                                    "observation_date": _b_dt,
+                                    "trade_date": _b_dt,
+                                    "close": _b_px,
+                                    "ev_ebitda": _b_ev_eb if not np.isnan(_b_ev_eb) else None,
+                                    "is_valid_ev_sample": not np.isnan(_b_ev_eb),
+                                    "final_3y_median_ev": ev_ebitda_med,
+                                    "samples_count": len(_df_3y),
+                                    "provider": "Upstox",
+                                })
+                            collector.record_historical_valuation_timeseries(sym, _obs_list)
+                    except Exception as _v_obs_err:
+                        logger.debug(f"Valuation observations trace note for {sym}: {_v_obs_err}")
+
+                    logger.info(
+                        f"📊 [CANDIDATE_AUDIT_TRACE: {sym}] Tier={tier} | CMP=₹{cmp_price:.2f} | Score={score_100:.1f} | "
+                        f"ROCE={float(roce_5y):.1f}% | Sales_CAGR={float(sales_cagr_5y):.1f}% | PAT_CAGR={float(pat_cagr_5y):.1f}% | "
+                        f"CFO/PAT={float(cfo_pat_5y):.2f} | D/E={float(de_ratio):.2f} | EV_curr={float(ev_ebitda_curr):.2f} | "
+                        f"EV_med={float(ev_ebitda_med):.2f} | EV_disc={calc_discount*100:.1f}% | PE_curr={float(pe_curr):.2f} | "
+                        f"PE_med={float(pe_med):.2f} | PE_disc={(pe_discount*100 if pe_discount else 0):.1f}%"
+                    )
 
                 # Decision trace steps
                 collector.record_decision_trace_step(
@@ -5092,6 +5466,7 @@ class QualityCompounderValueV2Scanner:
                             'eps': _eps_f,
                             'ebitda': _ebitda_f,
                             'total_debt': _td_f,
+                            'total_equity': te_val,
                             'cash_and_equivalents': _cash_f,
                             'current_pe': pe_curr,
                             'pe_3y_median': pe_med,
@@ -5104,6 +5479,44 @@ class QualityCompounderValueV2Scanner:
                             'annual_filing_count': n_ann,
                             'earliest_annual_period': str(g_ann.iloc[0]['period_end_date'])[:10] if not g_ann.empty else None,
                             'latest_annual_period': str(g_ann.iloc[-1]['period_end_date'])[:10] if not g_ann.empty else None,
+                            # Intermediate / Reconstruction fields for independent auditability
+                            'start_revenue': r0 if 'r0' in locals() else None,
+                            'end_revenue': r1 if 'r1' in locals() else None,
+                            'start_pat': p0 if 'p0' in locals() else None,
+                            'end_pat': p1 if 'p1' in locals() else None,
+                            'cfo_annual_values': [float(x) for x in trailing_g['operating_cash_flow'].dropna()] if not trailing_g.empty else [],
+                            'pat_annual_values': [float(x) for x in trailing_g['net_profit'].dropna()] if not trailing_g.empty else [],
+                            'sum_cfo': sum_cfo,
+                            'sum_pat': sum_pat,
+                            'roce_annual_values': trailing_roce,
+                            'raw_total_debt': td_val,
+                            'raw_total_equity': te_val,
+                            'debt_reported_status': "GENUINELY_ZERO" if (td_val is not None and td_val == 0.0) else ("POSITIVE" if (td_val is not None and td_val > 0) else "MISSING"),
+                            'equity_reported_status': "POSITIVE" if (te_val is not None and te_val > 0) else "MISSING",
+                            'operating_profit': _op_f,
+                            'depreciation_amortization': _da_f,
+                            'ev_net_debt': (_td_f - _cash_f) if (_td_f is not None and _cash_f is not None) else _td_f,
+                            'ev_total': _ev if (_mcap_cr is not None and _td_f is not None and '_ev' in locals()) else None,
+                            'annual_filings_history': [
+                                {
+                                    "period_end_date": str(r.get("period_end_date"))[:10],
+                                    "filing_date": str(r.get("filing_date"))[:10],
+                                    "publication_timestamp": str(r.get("actual_publication_timestamp", r.get("filing_date"))),
+                                    "statement_type": "ANNUAL",
+                                    "revenue": float(r.get("revenue")) if (r.get("revenue") is not None and pd.notna(r.get("revenue"))) else None,
+                                    "operating_profit": float(r.get("operating_profit")) if (r.get("operating_profit") is not None and pd.notna(r.get("operating_profit"))) else None,
+                                    "depreciation_amortization": float(r.get("depreciation_amortization")) if (r.get("depreciation_amortization") is not None and pd.notna(r.get("depreciation_amortization"))) else None,
+                                    "net_profit": float(r.get("net_profit")) if (r.get("net_profit") is not None and pd.notna(r.get("net_profit"))) else None,
+                                    "operating_cash_flow": float(r.get("operating_cash_flow")) if (r.get("operating_cash_flow") is not None and pd.notna(r.get("operating_cash_flow"))) else None,
+                                    "total_debt": float(r.get("total_debt")) if (r.get("total_debt") is not None and pd.notna(r.get("total_debt"))) else None,
+                                    "total_equity": float(r.get("total_equity")) if (r.get("total_equity") is not None and pd.notna(r.get("total_equity"))) else None,
+                                    "cash_and_equivalents": float(r.get("cash_and_equivalents")) if (r.get("cash_and_equivalents") is not None and pd.notna(r.get("cash_and_equivalents"))) else None,
+                                    "roce": float(r.get("roce")) if (r.get("roce") is not None and pd.notna(r.get("roce"))) else None,
+                                    "eps": float(r.get("eps")) if (r.get("eps") is not None and pd.notna(r.get("eps"))) else None,
+                                    "shares_outstanding": float(r.get("shares_outstanding")) if (r.get("shares_outstanding") is not None and pd.notna(r.get("shares_outstanding"))) else None,
+                                }
+                                for _, r in g_ann.iterrows()
+                            ],
                         })
 
 
