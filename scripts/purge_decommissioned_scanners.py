@@ -100,13 +100,13 @@ def purge_decommissioned_data(conn, dry_run: bool = True) -> Dict[str, Any]:
             stats["trade_audit_log"] = 0
 
         try:
-            cur.execute(f"SELECT COUNT(*) FROM alert_outcomes WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            cur.execute(f"SELECT COUNT(*) FROM alert_outcomes WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s OR alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS, RETAINED_SCANNERS))
             stats["alert_outcomes"] = cur.fetchone()[0]
         except Exception:
             stats["alert_outcomes"] = 0
 
         try:
-            cur.execute(f"SELECT COUNT(*) FROM alert_events WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+            cur.execute(f"SELECT COUNT(*) FROM alert_events WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s OR alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS, RETAINED_SCANNERS))
             stats["alert_events"] = cur.fetchone()[0]
         except Exception:
             stats["alert_events"] = 0
@@ -175,12 +175,12 @@ def purge_decommissioned_data(conn, dry_run: bool = True) -> Dict[str, Any]:
                 print(f"  [WARN] Failed to delete from trade_audit_log: {e}")
 
             try:
-                cur.execute(f"DELETE FROM alert_outcomes WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+                cur.execute(f"DELETE FROM alert_outcomes WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s OR alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS, RETAINED_SCANNERS))
             except Exception as e:
                 print(f"  [WARN] Failed to delete from alert_outcomes: {e}")
 
             try:
-                cur.execute(f"DELETE FROM alert_events WHERE alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS,))
+                cur.execute(f"DELETE FROM alert_events WHERE COALESCE(NULLIF(scanner, ''), 'UNKNOWN') NOT IN %s OR alert_id IN ({alerts_subquery})", (RETAINED_SCANNERS, RETAINED_SCANNERS))
             except Exception as e:
                 print(f"  [WARN] Failed to delete from alert_events: {e}")
 
