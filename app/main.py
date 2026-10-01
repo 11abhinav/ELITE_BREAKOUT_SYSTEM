@@ -838,9 +838,8 @@ def run_all_seven_scanners_non_market_boot():
         logger.info("======================================================================")
         
         try:
-            from database import cleanup_orphaned_scanner_runs_on_boot, purge_decommissioned_scanner_data_on_boot
+            from database import cleanup_orphaned_scanner_runs_on_boot
             cleanup_orphaned_scanner_runs_on_boot()
-            purge_decommissioned_scanner_data_on_boot()
         except Exception as e:
             logger.warning(f"⚠️ [NON-MARKET BOOT] Cleanup warning: {e}")
 
@@ -2255,12 +2254,11 @@ if __name__ == "__main__":
         # Historical rebuilds should only be done manually via the admin dashboard API.
 
 
-        # ORPHANED SCANNER RUNS CLEANUP & DECOMMISSIONED DATA PURGE
+        # ORPHANED SCANNER RUNS CLEANUP
         try:
-            from database import cleanup_orphaned_scanner_runs_on_boot, purge_decommissioned_scanner_data_on_boot
+            from database import cleanup_orphaned_scanner_runs_on_boot
             cleanup_orphaned_scanner_runs_on_boot()
             logger.info("🧹 [BOOT] Cleaned up any orphaned scanner runs.")
-            purge_decommissioned_scanner_data_on_boot()
         except Exception as e:
             logger.warning(f"⚠️ [BOOT] Boot scanner cleanup warning: {e}")
 

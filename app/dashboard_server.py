@@ -1222,19 +1222,16 @@ def api_get_near_misses():
                     where_clauses.append("nm.logged_date >= %s")
                     params.append(cutoff_date)
 
-                from engine.production.governance_registry import DECOMMISSIONED_SCANNERS
                 if sc_list:
                     if len(sc_list) == 1:
-                        where_clauses.append("(nm.scanner = %s OR UPPER(nm.scanner) = UPPER(%s))")
-                        params.extend([sc_list[0], sc_list[0]])
+                        where_clauses.append("nm.scanner = %s")
+                        params.append(sc_list[0])
                     else:
-                        placeholders = ", ".join(["UPPER(%s)"] * len(sc_list))
-                        where_clauses.append(f"UPPER(nm.scanner) IN ({placeholders})")
+                        placeholders = ", ".join(["%s"] * len(sc_list))
+                        where_clauses.append(f"nm.scanner IN ({placeholders})")
                         params.extend(sc_list)
                 else:
-                    placeholders = ", ".join(["UPPER(%s)"] * len(DECOMMISSIONED_SCANNERS))
-                    where_clauses.append(f"UPPER(nm.scanner) NOT IN ({placeholders})")
-                    params.extend(list(DECOMMISSIONED_SCANNERS))
+                    where_clauses.append("nm.scanner IN ('TECHNICAL', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'DAILY_BUILDER')")
 
                 where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -4155,35 +4152,6 @@ def api_accumulation_health():
 def api_restore_multibagger_positions():
     """Admin endpoint to restore healthy Multibagger positions back to OPEN status (Decommissioned)."""
     return jsonify({"status": "error", "message": "MULTIBAGGER scanner has been decommissioned by governance.", "count": 0}), 400
-
-@app.route("/api/admin/purge_decommissioned_data", methods=["POST"])
-@admin_required
-def api_purge_decommissioned_data():
-    """Purges all data belonging to decommissioned scanners across PostgreSQL tables.
-    Retains only: DAILY_BUILDER, TECHNICAL, QUALITY_COMPOUNDER_VALUE_V2_FINAL and core system daemons.
-    Accepts JSON: {"dry_run": false} to execute, defaults to dry_run: true.
-    """
-    data = request.json or {}
-    dry_run = bool(data.get("dry_run", True))
-    try:
-        from database import get_connection
-        with get_connection() as conn:
-            import sys
-            import os
-            scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
-            if scripts_dir not in sys.path:
-                sys.path.insert(0, scripts_dir)
-            from purge_decommissioned_scanners import purge_decommissioned_data
-            stats = purge_decommissioned_data(conn, dry_run=dry_run)
-            return jsonify({
-                "status": "ok",
-                "dry_run": dry_run,
-                "retained_scanners": ["DAILY_BUILDER", "TECHNICAL", "QUALITY_COMPOUNDER_VALUE_V2_FINAL"],
-                "stats": stats
-            }), 200
-    except Exception as e:
-        logger.exception("❌ /api/admin/purge_decommissioned_data failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/api/admin/reset_all_positions", methods=["POST"])
 @admin_required

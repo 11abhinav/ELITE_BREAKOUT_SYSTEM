@@ -438,63 +438,22 @@ class MasterOrchestratorV2:
         return []
 
     def _get_stocks_to_watch_uncached(self) -> List[Dict[str, Any]]:
+        # [OPTIMIZED]: Single indexed query on scanner_candidates with fallback to candidates
         query_v2 = """
-            WITH all_watch AS (
-                SELECT 
-                    symbol, 
-                    scanner_name as scanner, 
-                    state as stage, 
-                    quality_score,
-                    quality_score as maturity_score, 
-                    last_seen_price as cmp, 
-                    trigger_level, 
-                    distance_to_trigger_pct as distance_pct, 
-                    COALESCE(primary_blocker_type, status_reason) as primary_blocker,
-                    COALESCE(last_change_summary, status_reason) as why_qualifies,
-                    updated_at
-                FROM scanner_candidates
-                WHERE state IN ('WATCH', 'CANDIDATE', 'ARMED', 'DEVELOPING', 'PRE_BREAKOUT', 'ACCUMULATION_WATCH', 'BASE_BUILDING')
-                
-                UNION ALL
-                
-                SELECT
-                    symbol,
-                    'ACCUMULATION' AS scanner,
-                    state AS stage,
-                    score AS quality_score,
-                    score AS maturity_score,
-                    close AS cmp,
-                    breakout_level AS trigger_level,
-                    CASE WHEN close > 0 THEN ((breakout_level - close) / close * 100) ELSE NULL END AS distance_pct,
-                    'Volume Surge & Breakout Trigger Pending' AS primary_blocker,
-                    'Institutional Accumulation & Volatility Contraction' AS why_qualifies,
-                    created_at AS updated_at
-                FROM accumulation_alerts
-                WHERE state IN ('PRE_BREAKOUT', 'ACCUMULATION_WATCH')
-                  AND created_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata' - INTERVAL '7 days')
-                
-                UNION ALL
-                
-                SELECT
-                    symbol,
-                    COALESCE(category, 'MULTI_TF') AS scanner,
-                    current_state AS stage,
-                    80.0 AS quality_score,
-                    80.0 AS maturity_score,
-                    NULL AS cmp,
-                    COALESCE(trigger_level, breakout_level) AS trigger_level,
-                    buffer_pct AS distance_pct,
-                    'Volume Surge & Breakout Trigger Pending' AS primary_blocker,
-                    'Multi-Timeframe Breakout Base Setup' AS why_qualifies,
-                    last_updated AS updated_at
-                FROM breakout_watchlist
-                WHERE is_active = TRUE 
-                  AND current_state IN ('WATCH', 'ARMED', 'DEVELOPING', 'BASE_BUILDING', 'CANDIDATE', 'HOURLY_APPROVED', 'SETUP_ARMED', 'ENTRY_READY', 'WATCHING')
-            )
             SELECT DISTINCT ON (symbol)
-                symbol, scanner, stage, quality_score, maturity_score, cmp, trigger_level,
-                distance_pct, primary_blocker, why_qualifies, updated_at
-            FROM all_watch
+                symbol, 
+                scanner_name as scanner, 
+                state as stage, 
+                quality_score,
+                quality_score as maturity_score, 
+                last_seen_price as cmp, 
+                trigger_level, 
+                distance_to_trigger_pct as distance_pct, 
+                COALESCE(primary_blocker_type, status_reason) as primary_blocker,
+                COALESCE(last_change_summary, status_reason) as why_qualifies,
+                updated_at
+            FROM scanner_candidates
+            WHERE state IN ('WATCH', 'CANDIDATE', 'ARMED', 'DEVELOPING', 'PRE_BREAKOUT', 'BASE_BUILDING')
             ORDER BY symbol, updated_at DESC
             LIMIT 100
         """
@@ -509,10 +468,6 @@ class MasterOrchestratorV2:
                 ORDER BY created_at DESC LIMIT 100
             """
             watchlist = self._run_query(query_fallback)
-            source = "legacy_fallback"
-
-        if not watchlist:
-            watchlist = self._run_query("SELECT symbol, category as stage, current_state as status FROM breakout_watchlist LIMIT 100")
             source = "legacy_fallback"
 
         # [RULE 67 CHANGE-RATIONALE]: Batch resolve CMPs across all tiers for any missing symbols
@@ -592,46 +547,35 @@ class MasterOrchestratorV2:
 
     def _get_investment_watch_uncached(self) -> List[Dict[str, Any]]:
         # [RULE 67 CHANGE-RATIONALE]:
-        # 1. Primary: Multibagger watchlist table in PostgreSQL
-        query_mb_watchlist = """
-            SELECT symbol, total_score as quality_score, status as investment_state, latest_price as cmp, bucket, notes as why_qualifies, growth_score, value_score, trend_score
-            FROM watchlist
-            WHERE status IN ('WAITING_BUY_ZONE', 'ALERT_TRIGGERED', 'ACTIVE', 'WATCHLIST')
-            ORDER BY total_score DESC NULLS LAST LIMIT 50
+        # 1. Primary: Daily Watchlist V2 (Elite Quality Compounders)
+        query_wl_v2 = """
+            SELECT symbol, universe_quality_score as quality_score, universe_status as investment_state, price as cmp,
+                   business_quality as why_qualifies, growth_quality as growth_score, valuation_context as value_score, governance as trend_score
+            FROM daily_watchlist_v2
+            WHERE universe_status IN ('ELITE', 'COMPOUNDER', 'WATCHLIST')
+            ORDER BY universe_quality_score DESC NULLS LAST LIMIT 50
         """
-        inv_list = self._run_query(query_mb_watchlist)
+        inv_list = self._run_query(query_wl_v2)
 
-        if not inv_list:
-            query = """
-                SELECT symbol, technical_score as quality_score, status as investment_state, NULL as cmp, metadata
-                FROM candidates
-                WHERE scanner IN ('MULTIBAGGER', 'WEALTH')
-                ORDER BY created_at DESC LIMIT 50
-            """
-            inv_list = self._run_query(query)
-
+        # 2. Secondary fallback: Active V2 Alerts
         if not inv_list:
             query_alerts = """
                 SELECT symbol, score as quality_score, status as investment_state, current_price as cmp, signals as why_qualifies
                 FROM alerts
-                WHERE scanner IN ('MULTIBAGGER', 'WEALTH')
+                WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
                 ORDER BY alert_time DESC LIMIT 50
             """
             inv_list = self._run_query(query_alerts)
 
+        # 3. Tertiary fallback: scanner_candidates for active scanners
         if not inv_list:
-            inv_list = self._run_query("SELECT symbol, category as investment_state FROM breakout_watchlist LIMIT 100")
-
-        if not inv_list:
-            from config import DATA_DIR
-            mb_path = os.path.join(DATA_DIR, "multibagger_watchlist.parquet")
-            if os.path.exists(mb_path):
-                try:
-                    df = pd.read_parquet(mb_path)
-                    if not df.empty:
-                        inv_list = df.head(100).to_dict(orient="records")
-                except Exception:
-                    pass
+            query_cand = """
+                SELECT symbol, quality_score, state as investment_state, last_seen_price as cmp, setup_type as why_qualifies
+                FROM scanner_candidates
+                WHERE scanner_name IN ('QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'DAILY_BUILDER', 'TECHNICAL')
+                ORDER BY updated_at DESC LIMIT 50
+            """
+            inv_list = self._run_query(query_cand)
 
         resolved_symbols = []
         symbol_to_canonical = {}
@@ -865,8 +809,11 @@ class MasterOrchestratorV2:
 
     def _get_portfolio_actions_uncached(self) -> List[Dict[str, Any]]:
         query = """
-            SELECT symbol, breakout_type as action, position_pct as target_position_pct, position_pct as current_position_pct, portfolio_bucket as sector, valuation_score as valuation_status, current_price as cmp, notes, entry_signal
-            FROM wealth_buy_alert
+            SELECT symbol, breakout_type as action, 5.0 as target_position_pct, 0.0 as current_position_pct,
+                   category as sector, score as valuation_status, current_price as cmp,
+                   signals as notes, 'V2 Elite Compounder Alert' as entry_signal
+            FROM alerts
+            WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL' AND status = 'OPEN'
             ORDER BY alert_time DESC LIMIT 100
         """
         actions = self._run_query(query)
@@ -874,7 +821,9 @@ class MasterOrchestratorV2:
         if not actions:
             is_fallback = True
             query_fb = """
-                SELECT symbol, 'WATCHLIST_BASELINE' as action, 5.0 as target_position_pct, 0.0 as current_position_pct, 'ELITE_COMPOUNDER' as sector, quality_tier as valuation_status, price as cmp, business_quality as notes, 'Passed Quality Checklist (Tier ' || quality_tier || ')' as entry_signal
+                SELECT symbol, 'WATCHLIST_BASELINE' as action, 5.0 as target_position_pct, 0.0 as current_position_pct,
+                       'ELITE_COMPOUNDER' as sector, quality_tier as valuation_status, price as cmp,
+                       business_quality as notes, 'Passed Quality Checklist (Tier ' || quality_tier || ')' as entry_signal
                 FROM daily_watchlist_v2
                 WHERE universe_status = 'ELITE'
                 ORDER BY universe_quality_score DESC LIMIT 40

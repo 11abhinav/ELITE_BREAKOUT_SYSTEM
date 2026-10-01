@@ -495,6 +495,8 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_scanner_created ON candidates(scanner, created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_alert_date ON candidates(alert_date DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_symbol ON candidates(symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_status_created ON candidates(status, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_scanner_status ON candidates(scanner, status, created_at DESC)")
 
                 # 4. alerts
                 cur.execute("""
@@ -657,7 +659,10 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_confirmed_active ON alerts (alert_time DESC) WHERE is_rejected = FALSE AND status IN ('OPEN', 'ACTIVE') AND scanner NOT IN ('MULTIBAGGER')")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_perf_tracker ON alerts(alert_time ASC) WHERE status IN ('OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING') AND is_rejected = FALSE AND scanner NOT IN ('MULTIBAGGER', 'WEALTH')")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_buy_alert_date ON wealth_buy_alert(alert_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_scanner_time_desc ON alerts(scanner, alert_time DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_scanner ON alerts(status, scanner, alert_time DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_active_feed ON alerts(alert_time DESC) WHERE COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT' AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date_time_desc ON alerts(alert_date DESC, alert_time DESC)")
 
 
                 # 4.5. scanner_evaluation_log table
@@ -751,6 +756,9 @@ def init_db():
                         context JSONB
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_rejected_alerts_date ON rejected_alerts(alert_date DESC, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_rejected_alerts_scanner_date ON rejected_alerts(scanner, alert_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_rejected_alerts_symbol ON rejected_alerts(symbol)")
 
                 # 7. trade_audit_log
                 cur.execute("""
@@ -939,6 +947,8 @@ def init_db():
                         CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%')
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_scanner_health_status ON scanner_health(status)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_scanner_health_upper ON scanner_health(UPPER(scanner_name))")
 
                 # 11. wealth_score_history
                 cur.execute("""
@@ -1547,8 +1557,10 @@ def init_db():
                         PRIMARY KEY (alert_id, leg)
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_alert_id ON alert_outcomes(alert_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner ON alert_outcomes(scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_regime ON alert_outcomes(regime)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner_regime ON alert_outcomes(scanner, regime)")
 
                 # [INSTITUTIONAL ALERT QUALITY & EXCURSION TELEMETRY] Safe column migrations
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS r1_hit_before_sl BOOLEAN DEFAULT FALSE")
@@ -1831,6 +1843,7 @@ def init_db():
                     CREATE INDEX IF NOT EXISTS idx_seh_life_started ON scanner_execution_history(lifecycle_status, started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_perf_composite ON scanner_execution_history(lifecycle_status, quality_status, started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_scanner_life ON scanner_execution_history(scanner_name, lifecycle_status, started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_running_heartbeat ON scanner_execution_history(scanner_name, heartbeat_at, started_at) WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
 
                     ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_insufficient_count INT DEFAULT 0;
                     ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_missing_count INT DEFAULT 0;
@@ -1978,6 +1991,8 @@ def init_db():
                     cur.execute("""
                         CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_date_status ON daily_watchlist_v2(build_date DESC, universe_status);
                         CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_sym_date ON daily_watchlist_v2(symbol, build_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_status_qs ON daily_watchlist_v2(universe_status, universe_quality_score DESC NULLS LAST);
+                        CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_qs ON daily_watchlist_v2(universe_quality_score DESC NULLS LAST);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_date ON daily_excluded_watchlist_v2(build_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_sym_date ON daily_excluded_watchlist_v2(symbol, build_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_class ON daily_excluded_watchlist_v2(exclusion_class, build_date DESC);
@@ -10601,35 +10616,6 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
     except Exception as e:
         logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
 
-
-def purge_decommissioned_scanner_data_on_boot(cur=None):
-    """
-    On server boot, permanently purges historical alerts, candidates, health records,
-    and telemetry belonging to decommissioned scanners across PostgreSQL tables.
-    Retains strictly the 3 ACTIVE SCANNERS:
-      - DAILY_BUILDER
-      - TECHNICAL
-      - QUALITY_COMPOUNDER_VALUE_V2_FINAL
-    and core system daemons.
-    """
-    try:
-        import sys
-        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
-        if scripts_dir not in sys.path:
-            sys.path.insert(0, scripts_dir)
-        from purge_decommissioned_scanners import purge_decommissioned_data
-        
-        with get_connection() as conn:
-            if not isinstance(conn, DummyConnection):
-                stats = purge_decommissioned_data(conn, dry_run=False)
-                deleted_alerts = stats.get("alerts", 0)
-                deleted_candidates = stats.get("candidates", 0)
-                if deleted_alerts > 0 or deleted_candidates > 0:
-                    logger.info(f"🧹 [BOOT PURGE] Successfully purged decommissioned data: {deleted_alerts} alerts, {deleted_candidates} candidates.")
-                else:
-                    logger.debug("🧹 [BOOT PURGE] Decommissioned data check completed: 0 rows to purge.")
-    except Exception as e:
-        logger.warning(f"Failed to purge decommissioned scanner data on boot: {e}")
 
 
 def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, check_system_wide: bool = False) -> bool:

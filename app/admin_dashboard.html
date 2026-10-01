@@ -3378,12 +3378,9 @@ function changeAdminPage(type, delta) {
         <!-- Filter & Search Bar -->
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; gap:12px; flex-wrap:wrap;">
           <input type="text" id="db-table-search-input" onkeyup="filterDatabaseExplorerGrid()" placeholder="🔍 Search table name or description..." style="padding:10px 16px; background:var(--card2); border:1px solid var(--border); border-radius:10px; color:var(--text); font-size:13px; min-width:280px; flex:1;" />
-          <div style="display:flex; gap:8px; align-items:center;" id="db-category-filter-btns">
+          <div style="display:flex; gap:8px;" id="db-category-filter-btns">
             <!-- Filter category buttons injected by JS -->
           </div>
-          <button id="btn-purge-decommissioned" onclick="triggerPurgeDecommissionedData()" class="btn btn-outline" style="border-color:var(--loss); color:var(--loss); font-size:12px; font-weight:700; display:flex; align-items:center; gap:6px;">
-            <span>🧹</span> Purge Decommissioned Data
-          </button>
         </div>
 
         <!-- Grid of Tables -->
@@ -10470,41 +10467,6 @@ function filterDatabaseCategory(cat) {
 
 function filterDatabaseExplorerGrid() {
   renderDatabaseExplorerGrid();
-}
-
-async function triggerPurgeDecommissionedData() {
-  if (!confirm("Are you sure you want to permanently delete all alerts, candidates, health records, and tables belonging to decommissioned scanners? (Only DAILY_BUILDER, TECHNICAL, and QUALITY_COMPOUNDER_VALUE_V2_FINAL will be retained)")) {
-    return;
-  }
-  const btn = document.getElementById('btn-purge-decommissioned');
-  if (btn) {
-    btn.disabled = true;
-    btn.innerText = '⏳ Purging...';
-  }
-  try {
-    const res = await fetch('/api/admin/purge_decommissioned_data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dry_run: false })
-    });
-    const data = await res.json();
-    if (data.status === 'ok') {
-      alert(`✅ Purge Completed Successfully!\nAlerts deleted: ${data.stats?.alerts || 0}\nCandidates deleted: ${data.stats?.candidates || 0}\nObsolete tables: ${Object.keys(data.stats?.obsolete_tables || {}).length}`);
-      location.reload();
-    } else {
-      alert(`❌ Purge Failed: ${data.message || 'Unknown error'}`);
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<span>🧹</span> Purge Decommissioned Data';
-      }
-    }
-  } catch (err) {
-    alert(`❌ Purge Request Failed: ${err.message}`);
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<span>🧹</span> Purge Decommissioned Data';
-    }
-  }
 }
 
 function renderDatabaseExplorerGrid() {
