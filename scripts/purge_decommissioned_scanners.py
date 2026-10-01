@@ -265,6 +265,15 @@ def main():
 
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
+        try:
+            from dotenv import load_dotenv
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            load_dotenv(os.path.join(base_dir, ".env"))
+            db_url = os.getenv("DATABASE_URL")
+        except Exception:
+            pass
+
+    if not db_url:
         print("❌ ERROR: DATABASE_URL environment variable is not set.")
         sys.exit(1)
 
