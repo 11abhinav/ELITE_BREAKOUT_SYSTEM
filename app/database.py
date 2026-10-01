@@ -5230,28 +5230,8 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                     WHERE a.alert_date = %s
                       AND COALESCE(a.record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
                       AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
-                    UNION ALL
-                    SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
-                        NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares, w.entry_signal as signals, w.fm_score::int as score,
-                        CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected, w.exit_signal,
-                        COALESCE(w.alert_price, 0.0)                             AS current_price,
-                        0.0                                                      AS pnl_pct,
-                        0.0                                                      AS pnl_rs,
-                        NULL::real                                               AS exit_price,
-                        FALSE                                                    AS earnings_flag,
-                        999                                                      AS days_to_earnings,
-                        NULL::DATE                                               AS earnings_date,
-                        'NONE'::TEXT                                             AS earnings_severity,
-                        ''                                                       AS warning_msg,
-                        'INITIAL'::TEXT                                          AS trade_evolution_state,
-                        1::INT                                                   AS evidence_count,
-                        1::INT                                                   AS distinct_patterns_count,
-                        'INITIAL'::TEXT                                          AS confirmation_quality,
-                        'NEW_ENTRY'::TEXT                                        AS last_event_type
-                    FROM wealth_buy_alert w
-                    WHERE w.alert_date = %s
-                    ORDER BY alert_time DESC
-                """, (today_str, today_str))
+                    ORDER BY a.alert_time DESC
+                """, (today_str,))
                 return [dict(row) for row in cur.fetchall()]
             except Exception:
                 logger.exception("❌ get_todays_alerts failed")
@@ -5297,37 +5277,6 @@ def get_alert_by_symbol(symbol: str) -> Optional[Dict[str, Any]]:
                 row = cur.fetchone()
                 if row:
                     return dict(row)
-
-                # Fallback to wealth_buy_alert if not in alerts
-                cur.execute("""
-                    SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.alert_date::text as alert_date,
-                           w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
-                           NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2,
-                           NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares,
-                           w.entry_signal as signals, w.fm_score::int as score,
-                           CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status,
-                           FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected, w.exit_signal,
-                           COALESCE(w.alert_price, 0.0)                             AS current_price,
-                           0.0                                                      AS pnl_pct,
-                           0.0                                                      AS pnl_rs,
-                           NULL::real                                               AS exit_price,
-                           FALSE                                                    AS earnings_flag,
-                           999                                                      AS days_to_earnings,
-                           NULL::DATE                                               AS earnings_date,
-                           'NONE'::TEXT                                             AS earnings_severity,
-                           ''                                                       AS warning_msg,
-                           'INITIAL'::TEXT                                          AS trade_evolution_state,
-                           1::INT                                                   AS evidence_count,
-                           1::INT                                                   AS distinct_patterns_count,
-                           'INITIAL'::TEXT                                          AS confirmation_quality,
-                           'NEW_ENTRY'::TEXT                                        AS last_event_type
-                    FROM wealth_buy_alert w
-                    WHERE UPPER(w.symbol) = %s
-                    ORDER BY w.id DESC LIMIT 1
-                """, (sym_clean,))
-                wrow = cur.fetchone()
-                if wrow:
-                    return dict(wrow)
                 return None
             except Exception as e:
                 logger.debug(f"get_alert_by_symbol failed for {sym_clean}: {e}")
@@ -5372,36 +5321,6 @@ def get_alert_by_id(alert_id: int) -> Optional[Dict[str, Any]]:
                 row = cur.fetchone()
                 if row:
                     return dict(row)
-
-                # Fallback to wealth_buy_alert if not in alerts
-                cur.execute("""
-                    SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.alert_date::text as alert_date,
-                           w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
-                           NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2,
-                           NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares,
-                           w.entry_signal as signals, w.fm_score::int as score,
-                           CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status,
-                           FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected, w.exit_signal,
-                           COALESCE(w.alert_price, 0.0)                             AS current_price,
-                           0.0                                                      AS pnl_pct,
-                           0.0                                                      AS pnl_rs,
-                           NULL::real                                               AS exit_price,
-                           FALSE                                                    AS earnings_flag,
-                           999                                                      AS days_to_earnings,
-                           NULL::DATE                                               AS earnings_date,
-                           'NONE'::TEXT                                             AS earnings_severity,
-                           ''                                                       AS warning_msg,
-                           'INITIAL'::TEXT                                          AS trade_evolution_state,
-                           1::INT                                                   AS evidence_count,
-                           1::INT                                                   AS distinct_patterns_count,
-                           'INITIAL'::TEXT                                          AS confirmation_quality,
-                           'NEW_ENTRY'::TEXT                                        AS last_event_type
-                    FROM wealth_buy_alert w
-                    WHERE w.id = %s
-                """, (aid,))
-                wrow = cur.fetchone()
-                if wrow:
-                    return dict(wrow)
                 return None
             except Exception as e:
                 logger.debug(f"get_alert_by_id failed for ID {aid}: {e}")
@@ -9233,6 +9152,12 @@ def reallocate_capital_multiple(alert_ids: list):
 import secrets
 from werkzeug.security import generate_password_hash, check_password_hash
 
+def _safe_generate_password_hash(password: str) -> str:
+    try:
+        return generate_password_hash(password, method='scrypt')
+    except (AttributeError, ValueError):
+        return generate_password_hash(password, method='pbkdf2:sha256')
+
 def bootstrap_admin(cur=None):
     """
     [FRESH DEPLOY GUARD] Called at every startup.
@@ -9260,7 +9185,7 @@ def bootstrap_admin(cur=None):
 
             if user_count == 0 or force_bootstrap:
                 # Need to bootstrap an admin
-                admin_hash = generate_password_hash('admin123', method='scrypt')
+                admin_hash = _safe_generate_password_hash('admin123')
                 active_cur.execute("""
                     INSERT INTO users (username, email, mobile, password_hash, role, is_active, must_change_password, account_status)
                     VALUES ('admin', 'admin@elitebreakout.temp', '9999999999', %s, 'admin', TRUE, TRUE, 'approved')
@@ -9319,7 +9244,7 @@ def create_user(username, email, mobile, password, first_name='', last_name='', 
                     if existing_mobile == mobile:
                         raise ValueError("Mobile already exists")
 
-                p_hash = generate_password_hash(password, method='scrypt')
+                p_hash = _safe_generate_password_hash(password)
                 cur.execute("""
                     INSERT INTO users (username, email, mobile, password_hash, first_name, last_name, role, is_active, account_status)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, 'approved')
@@ -11255,6 +11180,11 @@ def get_scanner_execution_history(
                             where_clauses.append(f"UPPER(scanner_name) IN ({placeholders})")
                             for s in sc_list:
                                 params.append(normalize_scanner_name(s))
+                    else:
+                        from engine.production.governance_registry import DECOMMISSIONED_SCANNERS
+                        placeholders = ", ".join(["UPPER(%s)"] * len(DECOMMISSIONED_SCANNERS))
+                        where_clauses.append(f"UPPER(scanner_name) NOT IN ({placeholders})")
+                        params.extend(list(DECOMMISSIONED_SCANNERS))
 
                 if lifecycle_status and lifecycle_status.upper() != "ALL":
                     where_clauses.append("lifecycle_status = %s")

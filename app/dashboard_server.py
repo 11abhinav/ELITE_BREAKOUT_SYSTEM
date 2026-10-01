@@ -1222,6 +1222,7 @@ def api_get_near_misses():
                     where_clauses.append("nm.logged_date >= %s")
                     params.append(cutoff_date)
 
+                from engine.production.governance_registry import DECOMMISSIONED_SCANNERS
                 if sc_list:
                     if len(sc_list) == 1:
                         where_clauses.append("(nm.scanner = %s OR UPPER(nm.scanner) = UPPER(%s))")
@@ -1230,6 +1231,10 @@ def api_get_near_misses():
                         placeholders = ", ".join(["UPPER(%s)"] * len(sc_list))
                         where_clauses.append(f"UPPER(nm.scanner) IN ({placeholders})")
                         params.extend(sc_list)
+                else:
+                    placeholders = ", ".join(["UPPER(%s)"] * len(DECOMMISSIONED_SCANNERS))
+                    where_clauses.append(f"UPPER(nm.scanner) NOT IN ({placeholders})")
+                    params.extend(list(DECOMMISSIONED_SCANNERS))
 
                 where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
@@ -1251,42 +1256,6 @@ def api_get_near_misses():
                 """
                 cur.execute(query, params + [fetch_limit, offset_val])
                 rows = [dict(r) for r in cur.fetchall()]
-
-                # If no rows within date range, fall back to latest near_misses entries
-                if not rows and offset_val == 0:
-                    cur.execute("""
-                        SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
-                               nm.threshold_value, nm.delta_pct, nm.score,
-                               nm.entry_price,
-                               COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
-                               COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
-                               COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
-                               nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
-                               nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
-                        FROM near_misses nm
-                        LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
-                        ORDER BY nm.logged_date DESC, nm.logged_at DESC
-                        LIMIT %s
-                    """, (fetch_limit,))
-                    rows = [dict(r) for r in cur.fetchall()]
-
-                if not rows and offset_val == 0:
-                    cur.execute("""
-                        SELECT id, symbol, 'EOD' as scanner, 'EXCLUDED' as breakout_type, primary_exclusion_code as gate_name,
-                               universe_quality_score as observed_value, 60.0 as threshold_value, 5.0 as delta_pct,
-                               universe_quality_score as score, NULL as entry_price, NULL as stop_loss, NULL as target_1,
-                               build_date as logged_at, build_date as logged_date, 'FORENSIC_EXCLUSION_FALLBACK' as status, NULL as realized_rr, NULL as max_mfe_r,
-                               true as is_fallback
-                        FROM daily_excluded_watchlist_v2
-                        WHERE (
-                            (universe_quality_score >= 45.0 AND COALESCE(exclusion_class, 'SOFT_FAIL') NOT IN ('HARD_FAIL', 'JUNK_DATA', 'SERIOUS_GOVERNANCE_FAIL'))
-                            OR primary_exclusion_code IN ('NEAR_LIQUIDITY', 'MIN_BASE_AGE_FAIL', 'VOLATILITY_SPIKE_FAIL')
-                        )
-                        AND COALESCE(exclusion_class, '') NOT IN ('HARD_FAIL', 'JUNK_DATA', 'SERIOUS_GOVERNANCE_FAIL')
-                        ORDER BY universe_quality_score DESC NULLS LAST LIMIT %s
-                    """, (fetch_limit,))
-                    rows = [dict(r) for r in cur.fetchall()]
 
         # High-Performance RAM Price Resolution (Zero Synchronous Disk Scans)
         # Only active Day 0-5 candidates without closed returns need live CMP.
@@ -5447,33 +5416,6 @@ def get_multibagger_watchlist():
                 cur.execute(query_sql, tuple(params))
                 rows = [dict(r) for r in cur.fetchall()]
 
-                # Fallback Tier 1: If watchlist table has 0 rows, check candidates table for MULTIBAGGER candidates
-                if not rows:
-                    cur.execute("""
-                        SELECT c.symbol, NULL AS buy_zone_low, NULL AS buy_zone_high,
-                               NULL AS latest_price, c.technical_score AS total_score, c.technical_score AS growth_score,
-                               'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, c.market_context AS notes, NULL AS last_alert_price,
-                               c.created_at AS last_alert_at, c.created_at AS last_updated
-                        FROM candidates c
-                        WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type LIKE 'MULTIBAGGER%'
-                        ORDER BY c.created_at DESC
-                        LIMIT 200
-                    """)
-                    rows = [dict(r) for r in cur.fetchall()]
-
-                # Fallback Tier 2: If candidates table also has 0 rows, check alerts table for MULTIBAGGER alerts
-                if not rows:
-                    cur.execute("""
-                        SELECT a.symbol, a.entry_price AS buy_zone_low, a.target_price AS buy_zone_high,
-                               a.entry_price AS latest_price, a.score AS total_score, a.score AS growth_score,
-                               'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, a.signals AS notes, a.entry_price AS last_alert_price,
-                               a.alert_time AS last_alert_at, a.alert_time AS last_updated
-                        FROM alerts a
-                        WHERE a.scanner = 'MULTIBAGGER' OR a.breakout_type LIKE 'MULTIBAGGER%'
-                        ORDER BY a.alert_time DESC
-                        LIMIT 200
-                    """)
-                    rows = [dict(r) for r in cur.fetchall()]
 
                 # Fallback Tier 3: If DB tables have 0 rows, check elite_fundamental_watchlist.csv
                 if not rows:
@@ -6676,7 +6618,10 @@ def api_v2_quality_compounder_alerts():
         tier_filter = request.args.get("tier")
 
         query = """
-            SELECT * FROM alerts
+            SELECT id, symbol, scanner, breakout_type, alert_time, alert_date,
+                   current_price, entry_price, stop_loss, target_price, score, status,
+                   watchlist_state, tier, signals, context
+            FROM alerts
             WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
               AND (record_type = 'ALERT_EVENT' OR record_type IS NULL OR breakout_type = 'QUALITY_COMPOUNDER_V2')
         """
@@ -6743,11 +6688,14 @@ def api_v2_quality_compounder_export():
     try:
         from database import get_connection, RealDictCursor, DummyConnection
         query = """
-            SELECT * FROM alerts
+            SELECT id, symbol, scanner, alert_date, alert_time, current_price, entry_price,
+                   stop_loss, target_price, score, status, signals, context
+            FROM alerts
             WHERE scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'
               AND COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
               AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
             ORDER BY alert_date ASC, alert_time ASC
+            LIMIT 2000
         """
         records = []
         with get_connection() as conn:

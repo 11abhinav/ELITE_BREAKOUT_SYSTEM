@@ -9031,19 +9031,12 @@ let mbWatchlistLoaded = false;
 let allMbWatchlistItems = [];
 
 async function loadMultibaggerWatchlist() {
-  try {
-    const res = await fetch('/api/multibagger/watchlist');
-    if (!res.ok) throw new Error('Failed to fetch watchlist');
-    allMbWatchlistItems = await res.json();
-    renderMultibaggerWatchlist();
-    mbWatchlistLoaded = true;
-  } catch (e) {
-    console.error('Failed to load multibagger watchlist:', e);
-    const tbody = document.getElementById('mb-watchlist-body');
-    const empty = document.getElementById('mb-watchlist-empty');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:30px; color:var(--red);">⚠️ Failed to load multibagger watchlist. Click Refresh to retry.</td></tr>';
-    if (empty) empty.style.display = 'none';
-  }
+  allMbWatchlistItems = [];
+  mbWatchlistLoaded = true;
+  const tbody = document.getElementById('mb-watchlist-body');
+  const empty = document.getElementById('mb-watchlist-empty');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:30px; color:var(--muted);">🚫 Multibagger scanner permanently decommissioned by governance.</td></tr>';
+  if (empty) empty.style.display = 'none';
 }
 
 let currentMbSortCol = '';
@@ -11488,78 +11481,13 @@ function loadWealthEngineTab(forceRefresh = false) {
   }
   _lastWealthFetchTs = now;
 
-  fetch('/api/v2/portfolio_actions')
-    .then(r => r.json())
-    .then(data => {
-      const tbody = document.getElementById('wealth-portfolio-actions-tbody');
-      if (!tbody) return;
-      if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">No active portfolio rebalancing actions required.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map(item => `
-        <tr>
-          <td style="font-weight:700; color:var(--accent);">${formatStockSymbolLink(item.symbol || item.Stock)}</td>
-          <td>${formatTvLink(item.tradingview_symbol, item.symbol || item.Stock)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
-          <td><span class="${item.is_fallback ? 'badge-review' : (item.action === 'BUY' || item.action === 'ADD_ON' ? 'badge-ok' : 'badge-queued')}">${item.is_fallback ? 'BASELINE / NO LIVE ALERT' : formatText(item.action)}</span></td>
-          <td>${formatPct(item.target_position_pct)}</td>
-          <td>${formatPct(item.current_position_pct || 0)}</td>
-          <td>${formatText(item.sector)}</td>
-          <td>${formatPct(item.sector_exposure_pct || 0)}</td>
-          <td>${formatPct(item.risk_budget_pct || 1.0)}</td>
-          <td>${formatText(item.valuation_status || 'FAIR')}</td>
-          <td>${(item.scanner_confirmations || []).join(', ')}</td>
-          <td><span class="badge-ok">${formatText(item.confluence_tier || 'STANDARD')}</span></td>
-        </tr>
-      `).join('');
-    })
-    .catch(e => console.warn('Failed to load portfolio actions:', e));
-
-  // Fetch Wealth Buy Alerts logged entries
-  fetch('/api/wealth/alerts?today=false')
-    .then(r => r.json())
-    .then(alerts => {
-      window.ALL_WEALTH_ALERTS_CACHE = Array.isArray(alerts) ? alerts : [];
-      renderWealthAlertsTable(window.ALL_WEALTH_ALERTS_CACHE, window.ACTIVE_WEALTH_CATEGORY || 'ALL');
-    })
-    .catch(e => console.warn('Failed to load wealth buy alerts:', e));
-
-  fetch('/api/wealth')
-    .then(r => r.json())
-    .then(data => {
-      const tbody = document.getElementById('wealth-holdings-tbody');
-      const countEl = document.getElementById('wealth-active-count');
-      const coreEl = document.getElementById('wealth-core-count');
-      const growthEl = document.getElementById('wealth-growth-count');
-      const saleEl = document.getElementById('wealth-sale-count');
-      const oppEl = document.getElementById('wealth-opp-count');
-      const buyEl = document.getElementById('wealth-buy-count');
-
-      const items = Array.isArray(data) ? data : (data.data || []);
-      if (countEl) countEl.innerText = items.length;
-
-      let cCount = 0, gCount = 0, sCount = 0, oCount = 0, bCount = 0;
-      items.forEach(i => {
-        const b = String(i.Portfolio_Bucket || '');
-        if (b.includes('Core') || i.Core_Selected) cCount++;
-        if (b.includes('Growth')) gCount++;
-        if (b.includes('Quality-On-Sale')) sCount++;
-        if (b.includes('Opportunistic')) oCount++;
-        const sig = String(i.Signal || i.Signal_Code || '').toUpperCase();
-        if (sig.includes('BUY')) bCount++;
-      });
-
-      if (coreEl) coreEl.innerText = cCount;
-      if (growthEl) growthEl.innerText = gCount;
-      if (saleEl) saleEl.innerText = sCount;
-      if (oppEl) oppEl.innerText = oCount;
-      if (buyEl) buyEl.innerText = bCount;
-
-      window.ALL_WEALTH_HOLDINGS_CACHE = items;
-      renderWealthHoldingsTable(items, window.ACTIVE_WEALTH_CATEGORY || 'ALL');
-    })
-    .catch(e => console.warn('Failed to load wealth engine data:', e));
+  // Wealth Engine is permanently decommissioned per governance
+  const actionsTbody = document.getElementById('wealth-portfolio-actions-tbody');
+  if (actionsTbody) actionsTbody.innerHTML = '<tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">🚫 Wealth Engine scanner permanently decommissioned by governance.</td></tr>';
+  const tbody = document.getElementById('wealth-holdings-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">🚫 Wealth Engine scanner permanently decommissioned by governance.</td></tr>';
+  window.ALL_WEALTH_ALERTS_CACHE = [];
+  window.ALL_WEALTH_HOLDINGS_CACHE = [];
 }
 
 function renderWealthAlertsTable(alerts, filterBucket) {

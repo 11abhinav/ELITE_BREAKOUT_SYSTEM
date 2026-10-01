@@ -42,6 +42,7 @@ data/*
 !data/pit_valuation_history_cache.parquet
 !data/fundamentals_cache.json
 !data/multibagger_fundamentals_cache.json
+!reports/full_scanner_evidence/**/*.parquet
 *.feather
 *.pkl
 *.pickle

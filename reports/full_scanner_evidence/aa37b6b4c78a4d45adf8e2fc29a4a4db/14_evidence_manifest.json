@@ -1,0 +1,53 @@
+{
+  "run_id": "aa37b6b4c78a4d45adf8e2fc29a4a4db",
+  "scanner": "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+  "scanner_version": "FROZEN_V2_PROD_1.0",
+  "execution_timestamp": "2026-10-01T09:49:58.486556+05:30",
+  "universe_count": 886,
+  "stock_record_count": 886,
+  "unique_symbols_count": 886,
+  "alerts_count": 40,
+  "rejections_count": 846,
+  "cross_file_consistency": {
+    "universe_equals_master": true,
+    "master_symbols_unique": true,
+    "all_universe_members_in_master": true,
+    "alert_counts_reconciled": true,
+    "rejections_plus_alerts_equals_universe": true,
+    "evidence_status": "READY_FOR_EXTERNAL_INDEPENDENT_AUDIT"
+  },
+  "row_counts": {
+    "00_run_metadata": 1,
+    "01_universe": 886,
+    "02_stock_master": 886,
+    "03_raw_financial_inputs": 7164,
+    "04_raw_price_inputs": 886,
+    "05_production_metrics": 9552,
+    "06_gate_results": 7672,
+    "07_decision_trace": 4160,
+    "08_provider_results": 886,
+    "09_rejections": 846,
+    "10_alerts": 40,
+    "11_historical_valuation_observations": 789,
+    "12_pit_observations": 15058,
+    "13_scanner_summary": 1
+  },
+  "sha256_checksums": {
+    "00_run_metadata.json": "45a64623e1ed1175b8fe363e8749d64cf536cbaadc540c2133e7aacdab06d7da",
+    "01_universe.csv": "ae2b0ab3af459ec1953144bd47c10e4f41a37650f18669c4ea9e75b2af63e8c7",
+    "02_stock_master.csv": "e7a1b4095db99d1317d0f519f4c4c57f38343202f5145b10fa6aba797805ab23",
+    "03_raw_financial_inputs.parquet": "66e76d143dbcbee5712bd1297f98891287c1e2010c9a09a5f7736b2956ddb001",
+    "04_raw_price_inputs.parquet": "23887a7e8a376d3d397675165fb35ad312eb0b0808ae5f5646f362bb9cfb2ad6",
+    "05_production_metrics.parquet": "d28454a3ab02e185c6e064605e865aac13dfb64178e5b3846d81b59e5907ee27",
+    "06_gate_results.parquet": "34f1af75797c27b0d2c86aaa3448f0f6c0261d0d570e3b880de11fa3a039d583",
+    "07_decision_trace.parquet": "49a436aea16a667c2994ccf092a52668c237b223443450a264a522277fe219e1",
+    "08_provider_results.parquet": "5cd56ba92a99165eecb6d3ce9fad9f7248272ff9446dd2b3e024c2f0accb042b",
+    "09_rejections.parquet": "5a9de6af38a2def29aa99d0ba6eed12053a114c300ef3c712b7ecfe3653235ad",
+    "10_alerts.parquet": "649059da42852c815228c3a7355a09789f11d4904e927a5b0c4d49fc867e25b4",
+    "11_historical_valuation_observations.parquet": "2458b7ca131ca8a2d40713b11dd931b662c1276bf0d1e02c326906b7e96d2b2e",
+    "12_pit_observations.parquet": "7232c5828b619cb15d510162f4ef22b8ca97344abac82405fc68ae11df70c0ed",
+    "13_scanner_summary.json": "c9ec1da11d453b1dffd88360d2256f9844f9725519628662ae2180a548075664"
+  },
+  "git_commit": "2751a82f269a834e8705374e14ca47eee24620ab",
+  "configuration_hash": "35fe412d"
+}
