@@ -2227,7 +2227,7 @@ def _trigger_wealth_exit(check_type="EOD"):
 def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON"):
     from database import is_scanner_stopped
     if is_scanner_stopped("FILING_WATCHER"):
-        logger.info("⏸️ [FILING_WATCHER] Watcher is PAUSED/STOPPED by Admin. Skipping trigger.")
+        logger.info("⏸️ [filling scanner] Watcher is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
     try:
         from scripts.financial_filing_watcher import FinancialFilingWatcher

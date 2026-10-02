@@ -68,7 +68,7 @@ from app.live_fundamental_scanner import (
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("FILING_WATCHER")
+logger = logging.getLogger("filling scanner")
 
 STATE_FILE = BASE_DIR / "data" / "filing_watcher_state.json"
 EVENTS_LOG_FILE = BASE_DIR / "data" / "filing_invalidation_events.jsonl"
@@ -247,7 +247,7 @@ class FinancialFilingWatcher:
             self._log_event(event)
 
             logger.info(
-                f"📢 [FILING_EVENT: {event_type.value}] {sym}: filing_id={filing_id} "
+                f"📢 [filling scanner] [FILING_EVENT: {event_type.value}] {sym}: filing_id={filing_id} "
                 f"period={period_end} ({st_type}) | affected={len(affected_metrics)} metrics"
             )
 
@@ -319,7 +319,7 @@ class FinancialFilingWatcher:
         """
         as_of = as_of_date or date.today()
         sym_target = symbol.strip().upper() if symbol else "ALL_PENDING"
-        logger.info(f"🔄 [SNAPSHOT_REBUILD] Target: {sym_target} as of {as_of.isoformat()}...")
+        logger.info(f"🔄 [filling scanner] [SNAPSHOT_REBUILD] Target: {sym_target} as of {as_of.isoformat()}...")
 
         try:
             from scripts.rebuild_pit_from_exchange import rebuild_canonical_pit_dataset
@@ -352,10 +352,10 @@ class FinancialFilingWatcher:
                         s["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
             self._save_state()
 
-            logger.info(f"✅ [SNAPSHOT_REBUILD: SUCCESS] Rebuilt {len(df)} rows. Status set to FRESH.")
+            logger.info(f"✅ [filling scanner] [SNAPSHOT_REBUILD: SUCCESS] Rebuilt {len(df)} rows. Status set to FRESH.")
             return True
         except Exception as e:
-            logger.error(f"❌ [SNAPSHOT_REBUILD: FAILED] {e}")
+            logger.error(f"❌ [filling scanner] [SNAPSHOT_REBUILD: FAILED] {e}")
             if symbol and symbol.upper() in self.state:
                 self.state[symbol.upper()]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
                 self._save_state()
@@ -409,7 +409,7 @@ class FinancialFilingWatcher:
         now_ist = datetime.now(IST)
 
         if not _WATCHER_LOCK.acquire(blocking=False):
-            logger.info("⏳ [FILING_WATCHER] Watcher cycle is already actively executing in this process. Skipping duplicate trigger.")
+            logger.info("⏳ [filling scanner] Watcher cycle is already actively executing in this process. Skipping duplicate trigger.")
             return {"status": "ALREADY_RUNNING", "message": "Already actively running"}
 
         run_ctx = None
@@ -445,9 +445,9 @@ class FinancialFilingWatcher:
                 )
             except Exception as run_err:
                 if "already actively running" in str(run_err).lower():
-                    logger.info("⏳ [FILING_WATCHER] Active execution already registered in DB. Skipping duplicate.")
+                    logger.info("⏳ [filling scanner] Active execution already registered in DB. Skipping duplicate.")
                     return {"status": "ALREADY_RUNNING", "message": "Already running in database"}
-                logger.warning(f"Failed to insert execution run in scanner_execution_history: {run_err}")
+                logger.warning(f"[filling scanner] Failed to insert execution run in scanner_execution_history: {run_err}")
 
             # 2. Update health to RUNNING
             upsert_scanner_health(
@@ -471,7 +471,7 @@ class FinancialFilingWatcher:
 
             if rebuild_needed:
                 logger.info(
-                    f"🔄 [FILING_WATCHER] Triggering snapshot rebuild: "
+                    f"🔄 [filling scanner] Triggering snapshot rebuild: "
                     f"force={force_rebuild}, snapshot_missing={snapshot_missing}, "
                     f"pending_count={len(pending_symbols)}, symbol={symbol}"
                 )
@@ -519,7 +519,7 @@ class FinancialFilingWatcher:
                     }
                 )
 
-            logger.info(f"✅ [FILING_WATCHER: COMPLETE] Successfully audited {processed} stocks in {duration}s.")
+            logger.info(f"✅ [filling scanner: COMPLETE] Successfully audited {processed} stocks in {duration}s.")
             return {
                 "status": "SUCCESS",
                 "processed_count": processed,
@@ -531,7 +531,7 @@ class FinancialFilingWatcher:
         except Exception as e:
             duration = round(time.time() - start_ts, 2)
             err_msg = f"Filing Watcher failed: {str(e)[:300]}"
-            logger.exception(f"❌ [FILING_WATCHER: DOWN] {err_msg}")
+            logger.exception(f"❌ [filling scanner: DOWN] {err_msg}")
 
             # 1. Update scanner_health to DOWN with full error_msg
             try:
@@ -544,7 +544,7 @@ class FinancialFilingWatcher:
                     run_id=run_ctx.run_id if run_ctx else None,
                 )
             except Exception as h_err:
-                logger.error(f"Failed to upsert scanner_health DOWN: {h_err}")
+                logger.error(f"[filling scanner] Failed to upsert scanner_health DOWN: {h_err}")
 
             # 2. Record in fetch_errors for Admin error grid
             try:
@@ -557,7 +557,7 @@ class FinancialFilingWatcher:
                     error_msg=err_msg,
                 )
             except Exception as fe_err:
-                logger.error(f"Failed to upsert fetch_error: {fe_err}")
+                logger.error(f"[filling scanner] Failed to upsert fetch_error: {fe_err}")
 
             # 3. Insert failure trace in scan_failures for admin audit trail
             try:
@@ -574,7 +574,7 @@ class FinancialFilingWatcher:
                         ))
                         conn.commit()
             except Exception as sf_err:
-                logger.debug(f"Failed to insert scan_failures record: {sf_err}")
+                logger.debug(f"[filling scanner] Failed to insert scan_failures record: {sf_err}")
 
             # 4. Complete execution run as FAILED in scanner_execution_history
             if run_ctx:
@@ -587,7 +587,7 @@ class FinancialFilingWatcher:
                         summary_notes=f"Execution crashed after {duration}s: {err_msg}",
                     )
                 except Exception as c_err:
-                    logger.error(f"Failed to complete failed execution run: {c_err}")
+                    logger.error(f"[filling scanner] Failed to complete failed execution run: {c_err}")
 
             return {
                 "status": "FAILED",

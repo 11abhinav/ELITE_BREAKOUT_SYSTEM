@@ -54,7 +54,7 @@ from app.live_fundamental_scanner import (
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("REBUILD_PIT_EXCHANGE")
+logger = logging.getLogger("filling scanner")
 
 
 def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
@@ -208,7 +208,7 @@ def rebuild_canonical_pit_dataset(
 
     total_symbols = len(symbols_to_process)
     logger.info(
-        f"🚀 [CANONICAL_PIT_REBUILD] Target: {total_symbols} equities as of {as_of.isoformat()} "
+        f"🚀 [filling scanner] [CANONICAL_PIT_REBUILD] Target: {total_symbols} equities as of {as_of.isoformat()} "
         f"(delta_mode={is_delta}) -> {out_file}"
     )
 
@@ -231,13 +231,13 @@ def rebuild_canonical_pit_dataset(
                 rows.append(row)
             except Exception as row_err:
                 sym_failed = future_map[future]
-                logger.error(f"❌ [PIT_REBUILD] Failed to compute row for {sym_failed}: {row_err}")
+                logger.error(f"❌ [filling scanner] [PIT_REBUILD] Failed to compute row for {sym_failed}: {row_err}")
 
             # Pulse heartbeat and log progress every 50 symbols or on completion
             if idx % 50 == 0 or idx == total_symbols:
                 if run_ctx and hasattr(run_ctx, "heartbeat"):
                     run_ctx.heartbeat(force=True)
-                logger.info(f"⚡ [PIT_REBUILD] Progress: {idx}/{total_symbols} ({idx * 100 // total_symbols}%)")
+                logger.info(f"⚡ [filling scanner] [PIT_REBUILD] Progress: {idx}/{total_symbols} ({idx * 100 // total_symbols}%)")
 
     df_new = pd.DataFrame(rows)
 
@@ -249,7 +249,7 @@ def rebuild_canonical_pit_dataset(
             df_kept = df_existing[~df_existing["symbol"].isin(delta_syms)]
             df_final = pd.concat([df_kept, df_new], ignore_index=True).sort_values("symbol").reset_index(drop=True)
         except Exception as merge_err:
-            logger.warning(f"⚠️ Delta merge failed ({merge_err}). Falling back to full dataset.")
+            logger.warning(f"⚠️ [filling scanner] Delta merge failed ({merge_err}). Falling back to full dataset.")
             df_final = df_new
     else:
         df_final = df_new.sort_values("symbol").reset_index(drop=True)
@@ -280,7 +280,7 @@ def rebuild_canonical_pit_dataset(
         json.dump(meta, f, indent=2)
 
     logger.info(
-        f"✅ Rebuilt Canonical PIT dataset complete: {len(df_final)} symbols | "
+        f"✅ [filling scanner] Rebuilt Canonical PIT dataset complete: {len(df_final)} symbols | "
         f"Certified: {meta['certified_symbols']} | SHA256: {file_hash[:16]}..."
     )
     return df_final

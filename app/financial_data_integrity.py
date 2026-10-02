@@ -604,7 +604,7 @@ def compute_cagr(
     # Auto-resolve symbol from records if symbol is UNKNOWN or empty
     if not symbol or str(symbol).strip().upper() in ("UNKNOWN", "NONE", ""):
         for r in annual_rows_sorted:
-            _s = r.get("symbol")
+            _s = r.get("symbol") or r.get("Symbol") or r.get("name") or r.get("Name") or r.get("Stock")
             if _s and str(_s).strip().upper() not in ("", "UNKNOWN", "NONE"):
                 symbol = str(_s).strip().upper()
                 break
@@ -1305,6 +1305,14 @@ def compute_quarterly_yoy(
     Returns:
         YoYResult with full period provenance.
     """
+    # Auto-resolve symbol from records if symbol is UNKNOWN or empty
+    if not symbol or str(symbol).strip().upper() in ("UNKNOWN", "NONE", ""):
+        for r in quarterly_rows_sorted_desc:
+            _s = r.get("symbol") or r.get("Symbol") or r.get("name") or r.get("Name") or r.get("Stock")
+            if _s and str(_s).strip().upper() not in ("", "UNKNOWN", "NONE"):
+                symbol = str(_s).strip().upper()
+                break
+
     if scan_date is None:
         try:
             import pytz

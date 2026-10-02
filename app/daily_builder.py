@@ -1231,9 +1231,9 @@ def _v2_classify_single(row: dict) -> dict:
         logger.error(f"[V2] Import failure: {_imp_err}")
         return {}
 
-    symbol    = normalize_symbol(str(row.get("name", "UNKNOWN")))
-    sector    = str(row.get("sector", ""))
-    industry  = str(row.get("industry", "") or "")
+    symbol    = normalize_symbol(str(row.get("symbol") or row.get("Symbol") or row.get("name") or row.get("Name") or row.get("Stock") or row.get("ticker") or "UNKNOWN"))
+    sector    = str(row.get("sector", "") or row.get("Sector", ""))
+    industry  = str(row.get("industry", "") or row.get("Industry", "") or "")
     path      = _v2_industry_to_path(sector, industry)
     build_dt  = str(datetime.now(IST).date())
 
@@ -1696,8 +1696,8 @@ def _sweep_degradation_watch(
 # =====================================================================================
 
 def classify_stock(row: pd.Series) -> dict:
-    symbol = normalize_symbol(str(row.get("name", "UNKNOWN")))
-    sector = str(row.get("sector", ""))
+    symbol = normalize_symbol(str(row.get("symbol") or row.get("Symbol") or row.get("name") or row.get("Name") or row.get("Stock") or row.get("ticker") or "UNKNOWN"))
+    sector = str(row.get("sector", "") or row.get("Sector", ""))
     try:
         if _is_financial(sector):
             return _classify_fin(row, symbol)
