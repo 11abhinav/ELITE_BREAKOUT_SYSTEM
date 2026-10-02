@@ -100,13 +100,19 @@ def rehydrate_symbol_full(sym: str, sess: requests.Session, multibagger_cache: D
         "X-Requested-With": "XMLHttpRequest",
     }
     
+    # Symbol alias mappings for tickers whose Screener slug differs from NSE symbol
+    ALIASES = {
+        "GUJGASLTD": "GUJRATGAS",
+    }
+    target_sym = ALIASES.get(sym_u, sym_u)
+
     # Try multiple URL candidates (including encoded & and without special chars)
-    sym_variants = [sym_u]
-    if "&" in sym_u:
-        sym_variants.append(sym_u.replace("&", "%26"))
-        sym_variants.append(sym_u.replace("&", ""))
-    if "-" in sym_u:
-        sym_variants.append(sym_u.replace("-", ""))
+    sym_variants = [target_sym]
+    if "&" in target_sym:
+        sym_variants.append(target_sym.replace("&", "%26"))
+        sym_variants.append(target_sym.replace("&", ""))
+    if "-" in target_sym:
+        sym_variants.append(target_sym.replace("-", ""))
 
     r, used_url = None, None
     for var in sym_variants:

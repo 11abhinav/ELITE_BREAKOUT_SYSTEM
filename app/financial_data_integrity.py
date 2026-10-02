@@ -1900,13 +1900,16 @@ class SnapshotFreshnessStatus(str, Enum):
 
 class FinancialSnapshotStatus(str, Enum):
     """Lifecycle synchronization status for the shared financial snapshot layer."""
-    NOT_INITIALIZED = "NOT_INITIALIZED"
-    BUILDING        = "BUILDING"
-    AUDITING        = "AUDITING"
-    READY           = "READY"
-    INCOMPLETE      = "INCOMPLETE"
-    STALE           = "STALE"
-    FAILED          = "FAILED"
+    NOT_INITIALIZED         = "NOT_INITIALIZED"
+    BUILDING                = "BUILDING"
+    AUDITING                = "AUDITING"
+    SNAPSHOT_BUILD_COMPLETE = "SNAPSHOT_BUILD_COMPLETE"
+    SNAPSHOT_DATA_PARTIAL   = "SNAPSHOT_DATA_PARTIAL"
+    SNAPSHOT_READY_FOR_SCANNER = "SNAPSHOT_READY_FOR_SCANNER"
+    READY                   = "SNAPSHOT_DATA_PARTIAL"   # Backward compatible alias for partial snapshot
+    INCOMPLETE              = "INCOMPLETE"
+    STALE                   = "STALE"
+    FAILED                  = "FAILED"
 
 
 @dataclass

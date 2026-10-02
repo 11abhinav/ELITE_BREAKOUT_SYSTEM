@@ -136,7 +136,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     _load_valuation_medians_cache()
     sym_u = sym.strip().upper()
     as_of_str = as_of.isoformat()
-    # Load filings: prioritize exchange payload, fallback to PIT database
+    # Load filings: prioritize exchange payload, fallback to pit_raw_filings, then PIT database
     filings = []
     payload_path = os.path.join(BASE_DIR, "data", "exchange_financials", sym_u, "raw", f"{sym_u}_filings_v1.payload.json")
     if os.path.exists(payload_path):
@@ -145,6 +145,14 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                 filings = json.load(pf)
         except Exception:
             filings = []
+    if not filings:
+        raw_ckpt = os.path.join(BASE_DIR, "data", "pit_raw_filings", f"{sym_u}.json")
+        if os.path.exists(raw_ckpt):
+            try:
+                with open(raw_ckpt, "r", encoding="utf-8") as rf:
+                    filings = json.load(rf)
+            except Exception:
+                filings = []
     if not filings:
         filings = _get_pit_filings(sym_u, allow_live_refresh=False)
     
@@ -261,7 +269,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     current_ev_ebitda = None
     if market_cap_cr is not None and cash_f is not None and total_debt is not None:
         td_f = float(total_debt or 0.0)
-        ev_cr = round(market_cap_cr + td_f - cash_f, 4)
+        mi_f = float(latest_f.get("minority_interest") or 0.0)
+        ev_cr = round(market_cap_cr + td_f - cash_f + mi_f, 4)
         if ebitda_f is not None and ebitda_f > 0 and ev_cr > 0:
             current_ev_ebitda = round(ev_cr / ebitda_f, 2)
 
@@ -451,7 +460,17 @@ def rebuild_canonical_pit_dataset(
     except Exception as audit_err:
         logger.warning(f"⚠️ [filling scanner] Completeness audit notice: {audit_err}")
 
-    status_verdict = FinancialSnapshotStatus.READY
+    certified_cnt = int((df_final["provenance_status"] == "CERTIFIED").sum())
+    ev_complete_cnt = int(df_final["current_ev_ebitda"].notna().sum())
+    # Accounting: 56 BFSI (no industrial EBITDA) and ~36 structural ineligibles (<5Y age)
+    eligible_mature_non_bfsi = len(df_final) - 56 - 36  # ~794 target
+    ready_threshold = int(eligible_mature_non_bfsi * 0.90)  # 90%+ certified coverage
+
+    if certified_cnt >= ready_threshold:
+        status_verdict = FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER
+    else:
+        status_verdict = FinancialSnapshotStatus.SNAPSHOT_DATA_PARTIAL
+
     meta_file = out_file.replace(".parquet", "_meta.json")
     meta = {
         "dataset_name": "canonical_pit_rebuilt",

@@ -1,0 +1,36 @@
+{
+  "total_audited": 724,
+  "category_breakdown": {
+    "CASH_AND_SHARES_NEEDED": 616,
+    "RAW_FACTS_COMPLETE_DERIVABLE": 40,
+    "STRUCTURAL_INELIGIBLE": 36,
+    "CASH_SUB_SCHEDULE_NEEDED": 20,
+    "ANNUAL_FILINGS_ABSENT": 8,
+    "INCOMPLETE_CORE_STATEMENTS": 4
+  },
+  "bottleneck_breakdown": {
+    "SUB_SCHEDULE_AND_EQUITY": 616,
+    "NONE_COMPLETE": 40,
+    "LIMITED_HISTORICAL_EXISTENCE": 36,
+    "SUB_SCHEDULE_PARSER": 20,
+    "ACQUISITION_PENDING": 8,
+    "STATEMENT_LINE_ITEM_MISSING": 4
+  },
+  "source_breakdown": {
+    "PIT_RAW_FILINGS": 660,
+    "EXCHANGE_PAYLOAD": 64
+  },
+  "fact_availability": {
+    "cmp_available": 724,
+    "sales_available": 678,
+    "pat_available": 716,
+    "op_available": 678,
+    "da_available": 716,
+    "debt_available": 675,
+    "cash_available": 44,
+    "shares_available": 64,
+    "can_derive_ebitda": 678,
+    "can_derive_ev": 40,
+    "can_derive_ev_ebitda": 40
+  }
+}

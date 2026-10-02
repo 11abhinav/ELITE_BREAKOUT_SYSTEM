@@ -36,6 +36,10 @@ data/*
 !data/pattern_confluence_golden_dataset.json
 *.parquet
 # ── Certified PIT datasets required by V2_FINAL scanner at runtime ──
+!data/canonical_pit_rebuilt.parquet
+!data/canonical_pit_rebuilt_meta.json
+!data/reports/
+!data/reports/**
 !data/pit_fundamentals_v1/pit_fundamentals_v1.parquet
 !data/daily_builder_master_v2.parquet
 !data/pit_valuation_history_cache.json
