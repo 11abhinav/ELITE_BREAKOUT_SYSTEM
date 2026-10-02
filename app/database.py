@@ -4620,6 +4620,7 @@ def get_all_scanner_health() -> list[dict]:
         "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
         "Pledge Worker": "Continuous (Daily Refresh)",
         "AI Worker": "Continuous (Sat-Sun Active)",
+        "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
     }
 
 
@@ -4896,6 +4897,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "SHORT_COVERING"
     elif upper in ["BAYESIAN_UPDATER", "BAYESIANUPDATER"]:
         return "BayesianUpdater"
+    elif upper in ["FILING_WATCHER", "FINANCIAL_FILING_WATCHER", "FILINGWATCHER", "FINANCIAL_WATCHER"]:
+        return "FILING_WATCHER"
     return s
 
 

@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -112,6 +113,9 @@ class FilingEvent:
         d = asdict(self)
         d["event_type"] = self.event_type.value
         return d
+
+
+_WATCHER_LOCK = threading.Lock()
 
 
 class FinancialFilingWatcher:
@@ -356,6 +360,227 @@ class FinancialFilingWatcher:
         status_str = entry.get("snapshot_status", SnapshotFreshnessStatus.FRESH.value)
         return SnapshotFreshnessStatus(status_str)
 
+    # -------------------------------------------------------------------------
+    # 5. EXECUTION LIFECYCLE & TELEMETRY
+    # -------------------------------------------------------------------------
+
+    def run_watcher_cycle(
+        self,
+        trigger_type: str = "SCHEDULED",
+        scheduler_name: str = "CRON",
+        symbol: Optional[str] = None,
+        force_rebuild: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Executes a complete financial filing watcher cycle:
+          1. Acquires thread execution lock to prevent duplicate concurrent runs.
+          2. Creates an execution record in scanner_execution_history (start_scanner_execution_run).
+          3. Upserts scanner_health record to RUNNING.
+          4. Audits approved universe and verifies/rebuilds canonical snapshot.
+          5. On success:
+             - Updates scanner_health to OK (duration, processed_count, last_success).
+             - Finalizes scanner_execution_history as COMPLETED.
+          6. On failure / exception:
+             - Updates scanner_health to DOWN with detailed error message.
+             - Logs error into fetch_errors and scan_failures tables.
+             - Finalizes scanner_execution_history as FAILED.
+        """
+        from zoneinfo import ZoneInfo
+        IST = ZoneInfo("Asia/Kolkata")
+        start_ts = time.time()
+        now_ist = datetime.now(IST)
+
+        if not _WATCHER_LOCK.acquire(blocking=False):
+            logger.info("⏳ [FILING_WATCHER] Watcher cycle is already actively executing in this process. Skipping duplicate trigger.")
+            return {"status": "ALREADY_RUNNING", "message": "Already actively running"}
+
+        run_ctx = None
+        target_symbols = [symbol.strip().upper()] if symbol else list(self.approved_symbols)
+        total_count = len(target_symbols)
+
+        # Lazy import database telemetry utilities
+        try:
+            from app.database import (
+                start_scanner_execution_run,
+                complete_scanner_execution_run,
+                upsert_scanner_health,
+                upsert_fetch_error,
+                get_connection,
+            )
+        except ImportError:
+            from database import (
+                start_scanner_execution_run,
+                complete_scanner_execution_run,
+                upsert_scanner_health,
+                upsert_fetch_error,
+                get_connection,
+            )
+
+        try:
+            # 1. Register execution run in scanner_execution_history
+            try:
+                run_ctx = start_scanner_execution_run(
+                    scanner_name="FILING_WATCHER",
+                    trigger_type=trigger_type,
+                    scheduler_name=scheduler_name,
+                    total_stocks=total_count,
+                )
+            except Exception as run_err:
+                if "already actively running" in str(run_err).lower():
+                    logger.info("⏳ [FILING_WATCHER] Active execution already registered in DB. Skipping duplicate.")
+                    return {"status": "ALREADY_RUNNING", "message": "Already running in database"}
+                logger.warning(f"Failed to insert execution run in scanner_execution_history: {run_err}")
+
+            # 2. Update health to RUNNING
+            upsert_scanner_health(
+                scanner_name="FILING_WATCHER",
+                status="RUNNING",
+                error_msg="Polling corporate announcements and verifying canonical snapshot...",
+                processed_count=0,
+                total_count=total_count,
+                run_id=run_ctx.run_id if run_ctx else None,
+            )
+
+            # 3. Detect pending symbols or missing snapshot
+            pending_symbols = [
+                s for s, v in self.state.items()
+                if v.get("snapshot_status") == SnapshotFreshnessStatus.UPDATE_PENDING.value
+            ]
+            snapshot_missing = not SNAPSHOT_PATH.exists()
+
+            rebuild_needed = force_rebuild or snapshot_missing or len(pending_symbols) > 0 or bool(symbol)
+            rebuild_ok = True
+
+            if rebuild_needed:
+                logger.info(
+                    f"🔄 [FILING_WATCHER] Triggering snapshot rebuild: "
+                    f"force={force_rebuild}, snapshot_missing={snapshot_missing}, "
+                    f"pending_count={len(pending_symbols)}, symbol={symbol}"
+                )
+                rebuild_ok = self.invalidate_and_rebuild_snapshot(symbol=symbol)
+                if not rebuild_ok:
+                    raise RuntimeError(
+                        f"Canonical snapshot rebuild failed for target={symbol or 'ALL_PENDING'}"
+                    )
+
+            # 4. Verify canonical snapshot is on disk and valid
+            if not SNAPSHOT_PATH.exists():
+                raise FileNotFoundError(
+                    f"Canonical PIT snapshot not found at {SNAPSHOT_PATH} after cycle completion."
+                )
+
+            duration = round(time.time() - start_ts, 2)
+            processed = total_count
+
+            # 5. Success update to scanner_health
+            upsert_scanner_health(
+                scanner_name="FILING_WATCHER",
+                status="OK",
+                last_success=now_ist.isoformat(),
+                processed_count=processed,
+                total_count=processed,
+                duration_seconds=duration,
+                outcome="SUCCESS",
+                error_msg=None,
+                run_id=run_ctx.run_id if run_ctx else None,
+            )
+
+            # 6. Complete scanner_execution_history
+            if run_ctx:
+                complete_scanner_execution_run(
+                    run_ctx,
+                    lifecycle_status="COMPLETED",
+                    quality_status="NORMAL",
+                    total_stocks=processed,
+                    fresh_data_count=processed,
+                    summary_notes=f"Processed {processed} equities in {duration}s. Rebuild: {rebuild_needed}.",
+                    metrics_json={
+                        "rebuild_needed": rebuild_needed,
+                        "pending_symbols_resolved": len(pending_symbols),
+                        "duration_seconds": duration,
+                    }
+                )
+
+            logger.info(f"✅ [FILING_WATCHER: COMPLETE] Successfully audited {processed} stocks in {duration}s.")
+            return {
+                "status": "SUCCESS",
+                "processed_count": processed,
+                "total_count": processed,
+                "duration_seconds": duration,
+                "rebuilt": rebuild_needed,
+            }
+
+        except Exception as e:
+            duration = round(time.time() - start_ts, 2)
+            err_msg = f"Filing Watcher failed: {str(e)[:300]}"
+            logger.exception(f"❌ [FILING_WATCHER: DOWN] {err_msg}")
+
+            # 1. Update scanner_health to DOWN with full error_msg
+            try:
+                upsert_scanner_health(
+                    scanner_name="FILING_WATCHER",
+                    status="DOWN",
+                    error_msg=err_msg,
+                    duration_seconds=duration,
+                    outcome="FAILED",
+                    run_id=run_ctx.run_id if run_ctx else None,
+                )
+            except Exception as h_err:
+                logger.error(f"Failed to upsert scanner_health DOWN: {h_err}")
+
+            # 2. Record in fetch_errors for Admin error grid
+            try:
+                upsert_fetch_error(
+                    source_name="EXCHANGE_FILINGS",
+                    scanner_name="FILING_WATCHER",
+                    symbol=symbol or "UNIVERSE",
+                    interval="1D",
+                    category="CORPORATE_FILING",
+                    error_msg=err_msg,
+                )
+            except Exception as fe_err:
+                logger.error(f"Failed to upsert fetch_error: {fe_err}")
+
+            # 3. Insert failure trace in scan_failures for admin audit trail
+            try:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO scan_failures (scan_id, scanner_name, symbol, provider, failure_reason, failed_at)
+                            VALUES (%s, %s, %s, 'EXCHANGE_FILINGS', %s, NOW());
+                        """, (
+                            f"FAIL_FILING_WATCHER_{int(time.time())}",
+                            "FILING_WATCHER",
+                            symbol or "UNIVERSE",
+                            err_msg,
+                        ))
+                        conn.commit()
+            except Exception as sf_err:
+                logger.debug(f"Failed to insert scan_failures record: {sf_err}")
+
+            # 4. Complete execution run as FAILED in scanner_execution_history
+            if run_ctx:
+                try:
+                    complete_scanner_execution_run(
+                        run_ctx,
+                        exception=e,
+                        lifecycle_status="FAILED",
+                        stop_reason=err_msg,
+                        summary_notes=f"Execution crashed after {duration}s: {err_msg}",
+                    )
+                except Exception as c_err:
+                    logger.error(f"Failed to complete failed execution run: {c_err}")
+
+            return {
+                "status": "FAILED",
+                "error": err_msg,
+                "duration_seconds": duration,
+            }
+
+        finally:
+            if _WATCHER_LOCK.locked():
+                _WATCHER_LOCK.release()
+
 
 # -----------------------------------------------------------------------------
 # CLI Driver
@@ -363,7 +588,7 @@ class FinancialFilingWatcher:
 
 def main():
     parser = argparse.ArgumentParser(description="Financial Filing Watcher & Dependency Invalidation Engine")
-    parser.add_argument("--poll", action="store_true", help="Poll for new filings")
+    parser.add_argument("--poll", action="store_true", help="Poll for new filings and execute cycle")
     parser.add_argument("--symbol", type=str, default=None, help="Specific symbol to check/rebuild")
     parser.add_argument("--force-rebuild", action="store_true", help="Force rebuild canonical snapshot")
     parser.add_argument("--as-of-date", type=str, default=None, help="As-of date in YYYY-MM-DD")
@@ -372,8 +597,14 @@ def main():
     as_of = datetime.strptime(args.as_of_date, "%Y-%m-%d").date() if args.as_of_date else date.today()
     watcher = FinancialFilingWatcher()
 
-    if args.force_rebuild:
-        watcher.invalidate_and_rebuild_snapshot(symbol=args.symbol, as_of_date=as_of)
+    if args.poll or args.force_rebuild:
+        res = watcher.run_watcher_cycle(
+            trigger_type="MANUAL",
+            scheduler_name="CLI",
+            symbol=args.symbol,
+            force_rebuild=args.force_rebuild,
+        )
+        print(f"\n[FILING_WATCHER] Cycle finished with status: {res.get('status')}")
     else:
         print("\n" + "=" * 80)
         print("  FINANCIAL FILING WATCHER & FRESHNESS ENGINE STATUS")

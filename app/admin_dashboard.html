@@ -4184,7 +4184,8 @@ function changeAdminPage(type, delta) {
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
       'WEALTH_EXIT_V1': { label: 'Exit Monitor V1 (Live Primary)', desc: 'Canonical V1 Primary Exit Monitor · Market Hours 09:00–16:00 IST' },
       'WEALTH_EXIT_V2': { label: 'Exit Monitor V2 (Live Dual Pulse)', desc: 'Canonical V2 Live Dual Pulse Exit Monitor · 15:15 & 18:30 IST' },
-      'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' }
+      'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' },
+      'FILING_WATCHER': { label: 'Filing Watcher', desc: 'NSE/BSE Corporate Filings & Freshness Watcher · Periodic (08:00, 16:30, 21:00 IST)' }
     };
 
     // [VERSION: SCANNER_PERF_v1.0] In-memory grouped errors map – populated once per render cycle
@@ -4343,7 +4344,8 @@ function getEarningsBadgeHtml(item) {
         'WEALTH_EXIT_V1',
         'WEALTH_EXIT_V2',
         'Pledge Worker',
-        'AI Worker'
+        'AI Worker',
+        'FILING_WATCHER'
       ];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
@@ -4490,8 +4492,8 @@ function getEarningsBadgeHtml(item) {
           let dismissBtn = "";
           
           if (data.total_count != null) {
-              if (sc === 'DAILY_BUILDER' || sc === 'MULTIBAGGER_DISABLED_IF_NEEDED' || sc === 'Pledge Worker' || sc === 'AI Worker' || sc === 'Earnings Calendar') {
-                  alertLabel = "Processed / Watchlist";
+              if (sc === 'DAILY_BUILDER' || sc === 'MULTIBAGGER_DISABLED_IF_NEEDED' || sc === 'Pledge Worker' || sc === 'AI Worker' || sc === 'Earnings Calendar' || sc === 'FILING_WATCHER') {
+                  alertLabel = "Processed / Universe";
                   const proc = data.processed_count != null ? data.processed_count : data.today_alerts;
                   alertHtml = `
         <div class="scanner-alert-count ${proc === 0 ? 'zero' : ''}" style="display:flex; align-items:baseline; gap:4px;">
