@@ -319,6 +319,15 @@ def build_pit_valuation_history(
         if med_pe is not None:
             pe_count += 1
 
+        has_cash = bool(merged['cash_and_equivalents'].notna().any()) if 'cash_and_equivalents' in merged.columns else False
+        has_debt = bool(merged['total_debt'].notna().any()) if 'total_debt' in merged.columns else False
+        if has_cash and has_debt:
+            ev_prov_tier = "FULLY_SOURCED"
+        elif has_debt:
+            ev_prov_tier = "PARTIALLY_SOURCED_CASH_IMPUTED_ZERO"
+        else:
+            ev_prov_tier = "PARTIALLY_SOURCED_DEBT_AND_CASH_IMPUTED_ZERO"
+
         results[sym] = {
             "symbol": sym,
             "ev_ebitda_3y_median": round(med_ev, 2) if med_ev is not None else None,
@@ -326,6 +335,7 @@ def build_pit_valuation_history(
             "samples_3y": int(len(df_3y)),
             "valid_ev_samples": valid_ev_count,
             "valid_pe_samples": valid_pe_count,
+            "ev_provenance_tier": ev_prov_tier,
             # per-symbol provenance_status reflects whether THIS symbol has both required medians
             "provenance_status": "CERTIFIED" if (med_ev is not None and med_pe is not None) else "PARTIAL_INCOMPLETE",
             "data_provider": "Upstox",
