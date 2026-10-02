@@ -58,6 +58,7 @@ try:
     from app.live_fundamental_scanner import (
         ApprovedUniverseRegistry,
         _get_pit_filings,
+        QualityCompounderValueV2Scanner,
     )
 except ImportError:
     from financial_data_integrity import (
@@ -78,6 +79,7 @@ except ImportError:
     from live_fundamental_scanner import (
         ApprovedUniverseRegistry,
         _get_pit_filings,
+        QualityCompounderValueV2Scanner,
     )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -196,8 +198,10 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     latest_period = pit_eligible_annual[-1].get("period_end_date") if pit_eligible_annual else None
     freshness = check_pit_freshness(sym_u, latest_period, scan_date=as_of, fy_end_month=fy_end_month)
 
-    # Gap Detection (C2)
-    gaps = detect_annual_fiscal_gaps(pit_eligible_annual) if len(pit_eligible_annual) >= 2 else []
+    # Gap Detection (C2): Check for gaps in the 5Y evaluation window (and record full history gaps)
+    gaps_full = detect_annual_fiscal_gaps(pit_eligible_annual) if len(pit_eligible_annual) >= 2 else []
+    lookback_5y = pit_eligible_annual[-6:] if len(pit_eligible_annual) >= 6 else pit_eligible_annual
+    gaps = detect_annual_fiscal_gaps(lookback_5y) if len(lookback_5y) >= 2 else []
     has_gaps = len(gaps) > 0
 
     # Compute 5Y CAGR with strict gap protection (C15)
@@ -308,14 +312,24 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     # Strict Certification Governance: Shares MUST be filed exchange data (direct or scaled), NEVER derived from EPS
     is_filed_shares = shares_res.ok and shares_source in ("FILED_EXCHANGE_DATA", "FILED_UNIT_SCALED")
 
-    is_certified = (
-        freshness.ok
-        and not has_gaps
-        and is_filed_shares
-        and cash_f is not None
-        and total_debt is not None
-        and ebitda_f is not None
-    )
+    is_bfsi = sym_u in QualityCompounderValueV2Scanner.KNOWN_FINANCIAL_SYMBOLS
+    if is_bfsi:
+        is_certified = (
+            freshness.ok
+            and not has_gaps
+            and is_filed_shares
+            and (net_profit_val is not None and not pd.isna(net_profit_val))
+        )
+    else:
+        is_certified = (
+            freshness.ok
+            and not has_gaps
+            and is_filed_shares
+            and cash_f is not None
+            and total_debt is not None
+            and ebitda_f is not None
+        )
+
     if is_structural_ineligible:
         prov_status = "STRUCTURAL_INELIGIBLE"
     elif is_certified:
@@ -325,6 +339,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     return {
         "symbol": sym_u,
+        "is_bfsi": is_bfsi,
         "isin": str(latest_f.get("isin", "")),
         "as_of_date": as_of.isoformat(),
         "latest_annual_period": str(latest_period or ""),
