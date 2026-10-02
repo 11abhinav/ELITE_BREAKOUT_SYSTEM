@@ -166,6 +166,29 @@ def convert_to_inr_crores(
         return None
 
 
+def _parse_date_fast(val: Any) -> Optional[date]:
+    """
+    High-performance ISO date parser bypassing pd.to_datetime overhead.
+    Handles None, date, datetime, and ISO 'YYYY-MM-DD' strings.
+    """
+    if val is None or val == "" or pd.isna(val):
+        return None
+    if isinstance(val, date) and not isinstance(val, datetime):
+        return val
+    if isinstance(val, datetime):
+        return val.date()
+    val_str = str(val).strip()[:10]
+    if len(val_str) == 10 and val_str[4] == '-' and val_str[7] == '-':
+        try:
+            return date(int(val_str[0:4]), int(val_str[5:7]), int(val_str[8:10]))
+        except ValueError:
+            pass
+    try:
+        return pd.to_datetime(val_str).date()
+    except Exception:
+        return None
+
+
 class DerivationMethod(str, Enum):
     FILED_DIRECTLY           = "FILED_DIRECTLY"
     DERIVED_FROM_NET_PROFIT_EPS  = "DERIVED_FROM_NET_PROFIT_EPS"
@@ -415,12 +438,11 @@ def check_pit_freshness(
             detail={"symbol": symbol, "latest_annual_period": None},
         )
 
-    try:
-        latest_dt = pd.to_datetime(latest_annual_period).date()
-    except Exception as e:
+    latest_dt = _parse_date_fast(latest_annual_period)
+    if latest_dt is None:
         return IntegrityResult(
             status=DataStatus.DATA_INVALID,
-            reason=f"PIT_INVALID_PERIOD_DATE: {e}",
+            reason=f"PIT_INVALID_PERIOD_DATE: {latest_annual_period}",
             detail={"symbol": symbol, "latest_annual_period": str(latest_annual_period)},
         )
 
@@ -490,19 +512,20 @@ def detect_annual_fiscal_gaps(
         List of (period_A, period_B) tuples where a gap was detected.
     """
     gaps: List[Tuple[str, str]] = []
-    def _extract_dt(item: Any) -> pd.Timestamp:
+    def _extract_dt(item: Any) -> Optional[date]:
         if isinstance(item, dict):
-            return pd.to_datetime(item.get("period_end_date") or item.get("period_end") or item.get("date"))
-        return pd.to_datetime(item)
+            raw = item.get("period_end_date") or item.get("period_end") or item.get("date")
+            return _parse_date_fast(raw)
+        return _parse_date_fast(item)
 
     for i in range(1, len(annual_rows_sorted)):
         prev_dt = _extract_dt(annual_rows_sorted[i - 1])
         curr_dt = _extract_dt(annual_rows_sorted[i])
-        if pd.isna(prev_dt) or pd.isna(curr_dt):
+        if prev_dt is None or curr_dt is None:
             continue
         diff_days = (curr_dt - prev_dt).days
         if diff_days > gap_threshold_days:
-            gaps.append((str(prev_dt.date()), str(curr_dt.date())))
+            gaps.append((str(prev_dt), str(curr_dt)))
     return gaps
 
 
@@ -592,11 +615,8 @@ def compute_cagr(
         for r in annual_rows_sorted:
             fd = r.get("filing_date") or r.get("conservative_availability_timestamp")
             if fd is not None:
-                try:
-                    fd_dt = pd.to_datetime(fd).date()
-                    if fd_dt <= as_of_date:
-                        filtered.append(r)
-                except Exception:
+                fd_dt = _parse_date_fast(fd)
+                if fd_dt is not None and fd_dt <= as_of_date:
                     filtered.append(r)
             else:
                 filtered.append(r)
@@ -629,10 +649,12 @@ def compute_cagr(
     r1_row = valid_rows[-1]
     r0_val = float(r0_row[metric])
     r1_val = float(r1_row[metric])
-    period0 = str(pd.to_datetime(r0_row["period_end_date"]).date())
-    period1 = str(pd.to_datetime(r1_row["period_end_date"]).date())
+    p0_dt = _parse_date_fast(r0_row.get("period_end_date"))
+    p1_dt = _parse_date_fast(r1_row.get("period_end_date"))
+    period0 = str(p0_dt) if p0_dt else str(r0_row.get("period_end_date", ""))
+    period1 = str(p1_dt) if p1_dt else str(r1_row.get("period_end_date", ""))
 
-    elapsed_days = (pd.to_datetime(period1) - pd.to_datetime(period0)).days
+    elapsed_days = (p1_dt - p0_dt).days if (p0_dt and p1_dt) else int(target_years * 365.25)
     elapsed_years = elapsed_days / 365.25
 
     # ── Check for gaps within the 5Y lookback window ──

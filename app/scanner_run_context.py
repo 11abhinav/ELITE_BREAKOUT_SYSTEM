@@ -144,10 +144,13 @@ class ScannerRunContext:
         if force or (now - self.last_heartbeat >= 15.0):
             self.last_heartbeat = now
             try:
-                from database import update_scanner_run_heartbeat
+                try:
+                    from app.database import update_scanner_run_heartbeat
+                except ImportError:
+                    from database import update_scanner_run_heartbeat
                 update_scanner_run_heartbeat(self.run_id)
-            except Exception:
-                pass
+            except Exception as _hb_err:
+                logger.debug(f"Heartbeat pulse exception in run {self.run_id}: {_hb_err}")
 
     def mark_fresh(self, count: int = 1):
         with self._lock:

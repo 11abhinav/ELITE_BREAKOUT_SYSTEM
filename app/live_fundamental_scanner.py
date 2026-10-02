@@ -268,8 +268,13 @@ def _get_pit_filings(symbol: str, allow_live_refresh: bool = False) -> List[Dict
             try:
                 df_pit = pd.read_parquet(pit_path)
                 if not df_pit.empty and "symbol" in df_pit.columns:
-                    for sym, group in df_pit.sort_values("period_end_date", ascending=False).groupby("symbol"):
-                        _PIT_FILINGS_CACHE[str(sym).upper()] = group.to_dict("records")
+                    df_sorted = df_pit.sort_values("period_end_date", ascending=False)
+                    records = df_sorted.to_dict("records")
+                    for r in records:
+                        s_u = str(r["symbol"]).upper()
+                        if s_u not in _PIT_FILINGS_CACHE:
+                            _PIT_FILINGS_CACHE[s_u] = []
+                        _PIT_FILINGS_CACHE[s_u].append(r)
             except Exception as _e:
                 logger.debug(f"PIT filings cache load notice: {_e}")
 

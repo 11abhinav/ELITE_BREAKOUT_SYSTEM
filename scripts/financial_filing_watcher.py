@@ -310,10 +310,12 @@ class FinancialFilingWatcher:
         self,
         symbol: Optional[str] = None,
         as_of_date: Optional[date] = None,
+        run_ctx: Any = None,
     ) -> bool:
         """
         Recalculates dependent metrics and updates the canonical PIT dataset.
         Sets snapshot status to FRESH when successfully built.
+        Supports delta updates for individual or pending symbols.
         """
         as_of = as_of_date or date.today()
         sym_target = symbol.strip().upper() if symbol else "ALL_PENDING"
@@ -322,7 +324,23 @@ class FinancialFilingWatcher:
         try:
             from scripts.rebuild_pit_from_exchange import rebuild_canonical_pit_dataset
             from app.financial_data_integrity import clear_shared_snapshot_cache
-            df = rebuild_canonical_pit_dataset(as_of_date=as_of)
+
+            target_list = None
+            if symbol:
+                target_list = [symbol.strip().upper()]
+            elif SNAPSHOT_PATH.exists():
+                pending_symbols = [
+                    s for s, v in self.state.items()
+                    if v.get("snapshot_status") == SnapshotFreshnessStatus.UPDATE_PENDING.value
+                ]
+                if 0 < len(pending_symbols) < len(self.approved_symbols):
+                    target_list = pending_symbols
+
+            df = rebuild_canonical_pit_dataset(
+                as_of_date=as_of,
+                target_symbols=target_list,
+                run_ctx=run_ctx,
+            )
             clear_shared_snapshot_cache()
 
             # Mark state as FRESH
@@ -457,7 +475,7 @@ class FinancialFilingWatcher:
                     f"force={force_rebuild}, snapshot_missing={snapshot_missing}, "
                     f"pending_count={len(pending_symbols)}, symbol={symbol}"
                 )
-                rebuild_ok = self.invalidate_and_rebuild_snapshot(symbol=symbol)
+                rebuild_ok = self.invalidate_and_rebuild_snapshot(symbol=symbol, run_ctx=run_ctx)
                 if not rebuild_ok:
                     raise RuntimeError(
                         f"Canonical snapshot rebuild failed for target={symbol or 'ALL_PENDING'}"
