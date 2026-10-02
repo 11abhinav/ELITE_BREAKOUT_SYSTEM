@@ -1788,6 +1788,22 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 # (realized from earlier exit + floating on remaining shares). Do NOT overwrite
                 # that with a naive (cur_p - ep)/ep calculation which ignores partial exits.
                 _is_partial = t.get("status") in ("PARTIAL_WIN_1", "PARTIAL_WIN_2")
+                
+                # ── DAY-0 / MARKET CLOSED PRICE HARMONIZATION ─────────────────────────
+                # If market is closed OR trade was created today when market was closed,
+                # entry_price MUST be synchronized to cur_p (latest market close) so that
+                # a freshly raised alert starts with 0.00% P&L rather than an artificial loss.
+                try:
+                    from market_utils import is_market_open
+                    _is_mkt_open = is_market_open()
+                    _is_day0 = (t.get("days_held", 0) == 0) or (str(t.get("entry_date", ""))[:10] == now_ist.strftime('%Y-%m-%d'))
+                    if not _is_mkt_open and _is_day0 and ep and cur_p and ep != cur_p and not _is_partial:
+                        ep = cur_p
+                        t["entry_price"] = cur_p
+                        t["actual_entry_price"] = cur_p
+                except Exception:
+                    pass
+
                 if ep and ep > 0 and not _is_partial:
                     live_pnl_pct = round(((cur_p - ep) / ep) * 100.0, 2)
                     t["pnl_pct"] = live_pnl_pct

@@ -8,6 +8,7 @@ Comprehensive verification for the Shared Financial Snapshot Layer:
   - Fail-closed behavior on UPDATE_PENDING, STALE, and Normalization Failures
 """
 
+import os
 import json
 import pytest
 from datetime import date
@@ -299,3 +300,86 @@ def test_watcher_lifecycle_event_to_rebuild():
         # 3. Simulate normalization failure handling
         watcher.state["FAIL_CORP"] = {"snapshot_status": SnapshotFreshnessStatus.INVALID.value}
         assert watcher.get_symbol_freshness_status("FAIL_CORP") == SnapshotFreshnessStatus.INVALID
+
+
+def test_snapshot_persistence_and_fresh_reload():
+    """
+    P0: Proves that canonical shared financial snapshots persist to disk
+    and survive an in-memory cache clear and fresh-process reload.
+    """
+    import tempfile
+    from app.financial_data_integrity import (
+        persist_shared_financial_snapshots,
+        load_shared_financial_snapshot,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        snap_a = SharedFinancialSnapshot(
+            symbol="PERSIST_A",
+            isin="INE123456789",
+            latest_annual_period="2026-03-31",
+            roce_5y_avg=24.5,
+            sales_cagr_5y=18.2,
+            pat_cagr_5y=22.1,
+            cfo_pat_5y_ratio=1.05,
+            total_debt=50.0,
+            total_equity=1200.0,
+            debt_equity=0.042,
+            cash_and_equivalents=300.0,
+            ebitda=450.0,
+            current_ev=2250.0,
+            current_ev_ebitda=5.0,
+            ev_ebitda_3y_median=8.5,
+            current_pe=12.0,
+            pe_3y_median=18.0,
+            market_cap=2500.0,
+            provenance_status="CERTIFIED",
+        )
+        snap_b = SharedFinancialSnapshot(
+            symbol="PERSIST_B",
+            isin="INE987654321",
+            latest_annual_period="2026-03-31",
+            roce_5y_avg=31.0,
+            sales_cagr_5y=25.0,
+            pat_cagr_5y=28.0,
+            cfo_pat_5y_ratio=0.92,
+            total_debt=0.0,
+            total_equity=5000.0,
+            debt_equity=0.0,
+            cash_and_equivalents=1500.0,
+            ebitda=1200.0,
+            current_ev=13500.0,
+            current_ev_ebitda=11.25,
+            ev_ebitda_3y_median=16.0,
+            current_pe=22.0,
+            pe_3y_median=29.0,
+            market_cap=15000.0,
+            provenance_status="CERTIFIED",
+        )
+
+        snapshots = {"PERSIST_A": snap_a, "PERSIST_B": snap_b}
+
+        # 1. Persist snapshots to disk
+        pq_path = persist_shared_financial_snapshots(snapshots, data_dir=tmpdir)
+        assert os.path.exists(pq_path)
+        assert os.path.exists(os.path.join(tmpdir, "shared_financial_snapshots.json"))
+
+        # 2. Clear all in-memory caches to simulate a fresh Python process
+        clear_shared_snapshot_cache()
+
+        # 3. Reload from disk
+        reloaded_a = load_shared_financial_snapshot("PERSIST_A", data_dir=tmpdir)
+        reloaded_b = load_shared_financial_snapshot("PERSIST_B", data_dir=tmpdir)
+
+        # 4. Verify 100% field fidelity
+        assert reloaded_a.symbol == "PERSIST_A"
+        assert reloaded_a.roce_5y_avg == 24.5
+        assert reloaded_a.sales_cagr_5y == 18.2
+        assert reloaded_a.current_ev_ebitda == 5.0
+        assert reloaded_a.cash_and_equivalents == 300.0
+
+        assert reloaded_b.symbol == "PERSIST_B"
+        assert reloaded_b.roce_5y_avg == 31.0
+        assert reloaded_b.current_ev_ebitda == 11.25
+        assert reloaded_b.cash_and_equivalents == 1500.0
+        assert reloaded_b.market_cap == 15000.0

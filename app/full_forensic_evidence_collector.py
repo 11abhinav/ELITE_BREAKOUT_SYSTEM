@@ -700,6 +700,10 @@ class FullForensicEvidenceCollector:
         c6 = (px_cnt == 886)
         c7 = (gate_cnt == 886)
         c8 = (trace_cnt == 886)
+        struct_cnt = summary_stats.get('structural_ineligible_count', 0)
+        data_fail_cnt = summary_stats.get('data_failure_count', 0)
+        eval_cnt = summary_stats.get('fully_evaluable_count', 0)
+        c9 = (struct_cnt + data_fail_cnt + eval_cnt == univ_cnt)
 
         # Pre-manifest file checksums
         sha_map = {fname: _compute_sha256(finfo[0]) if os.path.exists(finfo[0]) else "PENDING" for fname, finfo in file_map.items()}
@@ -743,7 +747,8 @@ class FullForensicEvidenceCollector:
                 "raw_price_symbols_complete": c6,
                 "gate_results_symbols_complete": c7,
                 "decision_traces_symbols_complete": c8,
-                "evidence_status": "READY_FOR_EXTERNAL_INDEPENDENT_AUDIT" if (c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8) else "INCOMPLETE",
+                "population_partition_balanced": c9,
+                "evidence_status": "READY_FOR_EXTERNAL_INDEPENDENT_AUDIT" if (c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8 and c9) else "INCOMPLETE",
             },
             "row_counts": row_counts,
             "sha256_checksums": sha_map,
@@ -813,7 +818,7 @@ class FullForensicEvidenceCollector:
             })
 
         evidence_status = "READY_FOR_EXTERNAL_INDEPENDENT_AUDIT" if (
-            c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8 and all_readable
+            c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8 and c9 and all_readable
         ) else "VERIFICATION_FAILED"
 
         manifest_14["cross_file_consistency"]["evidence_status"] = evidence_status
@@ -837,7 +842,7 @@ class FullForensicEvidenceCollector:
         logger.info("CANONICAL POPULATION & CROSS-FILE RECONCILIATION:")
         logger.info(f"  • Approved Universe Count             : {univ_cnt} / 886  {'✅ MATCH' if c1 else '❌ MISMATCH'}")
         logger.info(f"  • Stock Master Total Records          : {master_cnt} / 886  {'✅ MATCH' if c2 else '❌ MISMATCH'}")
-        logger.info(f"  • Canonical Population Breakdown      : 886 = {summary_stats.get('structural_ineligible_count', 0)} Structural + {summary_stats.get('data_failure_count', 0)} Data Failures + {summary_stats.get('fully_evaluable_count', 0)} Fully Evaluable  ✅ BALANCED")
+        logger.info(f"  • Canonical Population Breakdown      : {univ_cnt} = {struct_cnt} Structural + {data_fail_cnt} Data Failures + {eval_cnt} Fully Evaluable  {'✅ BALANCED' if c9 else '❌ INCONSISTENT'}")
         logger.info(f"  • Gate Results Symbols Coverage       : {gate_cnt} / 886 symbols  {'✅ MATCH' if c7 else '❌ MISMATCH'}")
         logger.info(f"  • Decision Trace Symbols Coverage     : {trace_cnt} / 886 symbols  {'✅ MATCH' if c8 else '❌ MISMATCH'}")
         logger.info(f"  • Raw Price Inputs Symbols Coverage   : {px_cnt} / 886 symbols  {'✅ MATCH' if c6 else '❌ MISMATCH'}")

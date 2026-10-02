@@ -18,16 +18,16 @@ from typing import Tuple
 logger = logging.getLogger(__name__)
 
 # ── Score bucket thresholds ────────────────────────────────────────────────────
-BUCKET_HIGH   = 100_000.0   # ₹1,00,000 — score >= 85
-BUCKET_MEDIUM =  50_000.0   # ₹50,000   — score 70-84
-BUCKET_LOW    =  25_000.0   # ₹25,000   — score < 70
+BUCKET_HIGH   =  50_000.0   # ₹50,000 — score >= 90 (High Confidence)
+BUCKET_MEDIUM =  25_000.0   # ₹25,000 — score 75-89 (Medium Confidence)
+BUCKET_LOW    =  10_000.0   # ₹10,000 — score < 75  (Standard Confidence)
 
-SCORE_HIGH_THRESHOLD   = 85
-SCORE_MEDIUM_THRESHOLD = 70
+SCORE_HIGH_THRESHOLD   = 90
+SCORE_MEDIUM_THRESHOLD = 75
 
 
 def get_score_bucket(score) -> float:
-    """Return the fixed capital bucket for a given score."""
+    """Return the fixed capital bucket for a given score (10k/25k/50k)."""
     s = float(score) if score else 0.0
     if s >= SCORE_HIGH_THRESHOLD:
         return BUCKET_HIGH
@@ -39,15 +39,14 @@ def get_score_bucket(score) -> float:
 
 def calculate_score_bucket_allocation(entry_price: float, score) -> Tuple[float, int]:
     """
-    [VERSION: CAPITAL_BUCKET_v2.0] Score-based fixed bucket allocation.
+    [VERSION: CAPITAL_BUCKET_10K_25K_50K] Score-based confidence allocation.
     Returns (capital_allocated, shares_bought).
 
     Rules:
-      - score >= 85 → ₹1,00,000
-      - score 70-84 → ₹50,000
-      - score < 70  → ₹25,000
+      - score >= 90 → ₹50,000
+      - score 75-89 → ₹25,000
+      - score < 75  → ₹10,000
       - shares_bought = floor(bucket / entry_price)
-      - No available-cash check; no capital_history dependency.
     """
     try:
         entry_price = float(entry_price)

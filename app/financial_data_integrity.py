@@ -123,6 +123,49 @@ class StatementBasis(str, Enum):
     UNKNOWN      = "UNKNOWN"
 
 
+class MonetaryUnit(str, Enum):
+    """Explicit unit provenance for monetary financial figures."""
+    INR_CRORES   = "INR_CRORES"
+    RAW_INR      = "RAW_INR"
+    INR_LAKHS    = "INR_LAKHS"
+    INR_MILLIONS = "INR_MILLIONS"
+    INR_THOUSANDS = "INR_THOUSANDS"
+
+
+def convert_to_inr_crores(
+    value: Optional[Union[float, int]],
+    source_unit: Union[MonetaryUnit, str] = MonetaryUnit.INR_CRORES
+) -> Optional[float]:
+    """
+    Explicit, deterministic unit conversion to canonical INR Crores (₹ Cr).
+
+    RULE: NEVER use numeric magnitude heuristics (e.g. abs(v) > 1e6).
+    Magnitude heuristics corrupt companies with market cap or revenue > 1,000,000 Cr
+    (e.g., Reliance ₹18-20L Cr, TCS ₹15L Cr).
+    Conversion is strictly driven by the declared source_unit provenance.
+    """
+    if value is None or pd.isna(value):
+        return None
+    try:
+        val = float(value)
+        unit_str = str(source_unit.value if isinstance(source_unit, MonetaryUnit) else source_unit).upper()
+        if unit_str in ("INR_CRORES", "CRORES", "CR"):
+            return round(val, 2)
+        elif unit_str in ("RAW_INR", "INR", "RUPEES", "ABSOLUTE_INR"):
+            return round(val / 1e7, 2)
+        elif unit_str in ("INR_LAKHS", "LAKHS", "LAC"):
+            return round(val / 100.0, 2)
+        elif unit_str in ("INR_MILLIONS", "MILLIONS"):
+            return round(val / 10.0, 2)
+        elif unit_str in ("INR_THOUSANDS", "THOUSANDS"):
+            return round(val / 1e5, 2)
+        else:
+            # Default for statement filings which are authored in INR Crores
+            return round(val, 2)
+    except (ValueError, TypeError):
+        return None
+
+
 class DerivationMethod(str, Enum):
     FILED_DIRECTLY           = "FILED_DIRECTLY"
     DERIVED_FROM_NET_PROFIT_EPS  = "DERIVED_FROM_NET_PROFIT_EPS"
@@ -535,6 +578,14 @@ def compute_cagr(
     Returns:
         CAGRResult with status VALID or DATA_INSUFFICIENT / DATA_INVALID.
     """
+    # Auto-resolve symbol from records if symbol is UNKNOWN or empty
+    if not symbol or str(symbol).strip().upper() in ("UNKNOWN", "NONE", ""):
+        for r in annual_rows_sorted:
+            _s = r.get("symbol")
+            if _s and str(_s).strip().upper() not in ("", "UNKNOWN", "NONE"):
+                symbol = str(_s).strip().upper()
+                break
+
     # Apply PIT filter if as_of_date provided
     if as_of_date is not None:
         filtered = []
@@ -2069,11 +2120,11 @@ def load_all_shared_financial_snapshots(
     """
     global _SHARED_SNAPSHOT_CACHE
     as_of = as_of_date or date.today()
-    cache_key = f"{as_of.isoformat()}_{len(symbols) if symbols else 'ALL'}"
+    base_data = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    sym_key = hashlib.sha256(",".join(sorted(symbols)).encode()).hexdigest()[:12] if symbols else "ALL"
+    cache_key = f"{as_of.isoformat()}_{sym_key}_{base_data}"
     if not force_reload and cache_key in _SHARED_SNAPSHOT_CACHE:
         return _SHARED_SNAPSHOT_CACHE[cache_key]
-
-    base_data = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
     # 1. Load watcher state for filing freshness and pending updates
     watcher_state_file = os.path.join(base_data, "filing_watcher_state.json")
@@ -2085,14 +2136,21 @@ def load_all_shared_financial_snapshots(
         except Exception as e:
             logger.warning(f"Could not load watcher state: {e}")
 
-    # 2. Check if rebuilt canonical PIT parquet exists
-    canonical_parquet = os.path.join(base_data, "canonical_pit_rebuilt.parquet")
+    # 2. Check if rebuilt canonical PIT parquet exists, with fallbacks
     df_canonical = None
-    if os.path.exists(canonical_parquet):
-        try:
-            df_canonical = pd.read_parquet(canonical_parquet)
-        except Exception as e:
-            logger.warning(f"Could not read canonical parquet: {e}")
+    canonical_candidates = [
+        os.path.join(base_data, "canonical_pit_rebuilt.parquet"),
+        os.path.join(base_data, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet"),
+        os.path.join(base_data, "pit_fundamentals_v1.parquet"),
+    ]
+    for c_path in canonical_candidates:
+        if os.path.exists(c_path):
+            try:
+                df_canonical = pd.read_parquet(c_path)
+                if df_canonical is not None and not df_canonical.empty:
+                    break
+            except Exception as e:
+                logger.warning(f"Could not read canonical parquet at {c_path}: {e}")
 
     # 3. Load valuation cache
     val_cache = {}
@@ -2137,7 +2195,7 @@ def load_all_shared_financial_snapshots(
             val_rec = val_cache.get(sym, {})
             ev_med = val_rec.get("ev_ebitda_3y_median") or r.get("ev_ebitda_3y_median")
             pe_med = val_rec.get("pe_3y_median") or r.get("pe_3y_median")
-            curr_ev = r.get("current_ev")
+            curr_ev = convert_to_inr_crores(r.get("current_ev"), source_unit=MonetaryUnit.INR_CRORES)
             curr_ev_ebitda = r.get("current_ev_ebitda")
             curr_pe = r.get("current_pe")
 
@@ -2156,15 +2214,15 @@ def load_all_shared_financial_snapshots(
                 roce=r.get("roce") or (db_rec.get("roce") if db_rec else None),
                 roe=r.get("roe") or (db_rec.get("roe") if db_rec else None),
                 roce_5y_avg=r.get("roce_5y_avg"),
-                operating_cash_flow=r.get("operating_cash_flow") or (db_rec.get("operating_cash_flow") if db_rec else None),
+                operating_cash_flow=convert_to_inr_crores(r.get("operating_cash_flow"), source_unit=MonetaryUnit.INR_CRORES) or (convert_to_inr_crores(db_rec.get("operating_cash_flow"), source_unit=MonetaryUnit.INR_CRORES) if db_rec else None),
                 cfo_pat_5y_ratio=r.get("cfo_pat_5y_ratio"),
-                total_debt=r.get("total_debt"),
-                total_equity=r.get("total_equity"),
+                total_debt=convert_to_inr_crores(r.get("total_debt"), source_unit=MonetaryUnit.INR_CRORES),
+                total_equity=convert_to_inr_crores(r.get("total_equity"), source_unit=MonetaryUnit.INR_CRORES),
                 debt_equity=r.get("debt_to_equity") if r.get("debt_to_equity") is not None else (db_rec.get("debt_equity") if db_rec else None),
-                cash_and_equivalents=r.get("cash_and_equivalents"),
-                ebitda=r.get("ebitda"),
-                net_profit=r.get("net_profit"),
-                revenue=r.get("revenue"),
+                cash_and_equivalents=convert_to_inr_crores(r.get("cash_and_equivalents"), source_unit=MonetaryUnit.INR_CRORES),
+                ebitda=convert_to_inr_crores(r.get("ebitda"), source_unit=MonetaryUnit.INR_CRORES),
+                net_profit=convert_to_inr_crores(r.get("net_profit"), source_unit=MonetaryUnit.INR_CRORES),
+                revenue=convert_to_inr_crores(r.get("revenue"), source_unit=MonetaryUnit.INR_CRORES),
                 sales_cagr_5y=r.get("sales_cagr_5y"),
                 pat_cagr_5y=r.get("pat_cagr_5y"),
                 filing_gap_detected=bool(r.get("filing_gap_detected", False)),
@@ -2196,7 +2254,7 @@ def load_all_shared_financial_snapshots(
                 ev_ebitda_3y_median=ev_med,
                 current_pe=curr_pe,
                 pe_3y_median=pe_med,
-                market_cap=r.get("market_cap") or db_rec.get("market_cap"),
+                market_cap=convert_to_inr_crores(r.get("market_cap"), source_unit=MonetaryUnit.INR_CRORES) or (convert_to_inr_crores(db_rec.get("market_cap"), source_unit=MonetaryUnit.INR_CRORES) if db_rec else None),
                 industry=str(r.get("industry") or db_rec.get("industry") or ""),
             )
             # Compute SHA256 fingerprint
@@ -2206,6 +2264,34 @@ def load_all_shared_financial_snapshots(
 
     _SHARED_SNAPSHOT_CACHE[cache_key] = snapshots
     return snapshots
+
+
+def persist_shared_financial_snapshots(
+    snapshots: Dict[str, SharedFinancialSnapshot],
+    data_dir: Optional[str] = None,
+) -> str:
+    """
+    Persists canonical shared financial snapshots to disk for durable cross-process reuse.
+
+    Saves to:
+      1. <data_dir>/canonical_pit_rebuilt.parquet
+      2. <data_dir>/shared_financial_snapshots.json
+    """
+    base_data = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(base_data, exist_ok=True)
+    parquet_path = os.path.join(base_data, "canonical_pit_rebuilt.parquet")
+    json_path = os.path.join(base_data, "shared_financial_snapshots.json")
+
+    rows = [s.to_dict() for s in snapshots.values()]
+    df = pd.DataFrame(rows)
+    df.to_parquet(parquet_path, index=False)
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(rows, f, indent=2, default=str)
+
+    clear_shared_snapshot_cache()
+    logger.info(f"💾 Persisted {len(rows)} canonical snapshots to {parquet_path} and {json_path}")
+    return parquet_path
 
 
 def load_shared_financial_snapshot(

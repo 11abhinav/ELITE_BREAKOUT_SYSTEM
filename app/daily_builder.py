@@ -2460,7 +2460,7 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     import sqlite3
                     con = sqlite3.connect(pit_db_path, timeout=30)
                     q = """
-                    SELECT symbol, period_end_date, revenue, operating_profit, net_profit, eps,
+                    SELECT symbol, period_end_date, statement_type, revenue, operating_profit, net_profit, eps,
                            roce, roe, total_debt, total_equity, operating_cash_flow, free_cash_flow
                     FROM pit_fundamentals_v1
                     ORDER BY symbol, period_end_date DESC
@@ -2468,47 +2468,86 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     df_pit = pd.read_sql(q, con)
                     con.close()
                     if not df_pit.empty:
+                        try:
+                            from app.financial_data_integrity import MonetaryUnit, convert_to_inr_crores
+                        except ImportError:
+                            from financial_data_integrity import MonetaryUnit, convert_to_inr_crores
+
                         for sym_grp, grp in df_pit.groupby("symbol"):
                             filings = grp.to_dict("records")
                             if not filings:
                                 continue
-                            f0 = filings[0]
-                            roce_p = f0.get("roce")
-                            roe_p = f0.get("roe")
-                            tot_debt = f0.get("total_debt") or 0.0
-                            tot_eq = f0.get("total_equity") or 1.0
-                            de_p = tot_debt / tot_eq if tot_eq > 0 else 0.0
-                            ocf_p = f0.get("operating_cash_flow") or f0.get("free_cash_flow")
 
+                            annual_filings = [f for f in filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
+                            quarterly_filings = [f for f in filings if str(f.get("statement_type", "")).upper() == "QUARTERLY"]
+
+                            f0_ann = annual_filings[0] if annual_filings else filings[0]
+                            roce_p = f0_ann.get("roce")
+                            roe_p = f0_ann.get("roe")
+                            tot_debt = convert_to_inr_crores(f0_ann.get("total_debt"), source_unit=MonetaryUnit.INR_CRORES) or 0.0
+                            tot_eq = convert_to_inr_crores(f0_ann.get("total_equity"), source_unit=MonetaryUnit.INR_CRORES) or 1.0
+                            de_p = (float(tot_debt) / float(tot_eq)) if tot_debt is not None and tot_eq is not None and float(tot_eq) > 0 else (0.0 if tot_debt == 0 else None)
+                            
+                            # P0: Strict CFO mapping — NEVER fallback to free_cash_flow
+                            raw_ocf = f0_ann.get("operating_cash_flow")
+                            ocf_p = convert_to_inr_crores(raw_ocf, source_unit=MonetaryUnit.INR_CRORES)
+
+                            # Derive ROCE / ROE mathematically if missing from annual statement
+                            if (roce_p is None or pd.isna(roce_p)) and f0_ann.get("operating_profit") is not None and tot_eq is not None:
+                                cap = float(tot_eq) + float(tot_debt)
+                                if cap > 0:
+                                    roce_p = round((convert_to_inr_crores(f0_ann["operating_profit"], source_unit=MonetaryUnit.INR_CRORES) or 0.0) / cap * 100.0, 2)
+                            if (roe_p is None or pd.isna(roe_p)) and f0_ann.get("net_profit") is not None and tot_eq is not None and float(tot_eq) > 0:
+                                roe_p = round((convert_to_inr_crores(f0_ann["net_profit"], source_unit=MonetaryUnit.INR_CRORES) or 0.0) / float(tot_eq) * 100.0, 2)
+
+                            # P0: True Quarterly YoY acceleration (same fiscal quarter 1 year ago, 330-400 days prior)
                             rev_l, rev_p, op_l, op_p, eps_l, eps_p, p_eps = None, None, None, None, None, None, None
-                            if len(filings) >= 2:
-                                f1 = filings[1]
-                                rev0, rev1 = f0.get("revenue"), f1.get("revenue")
-                                op0, op1 = f0.get("operating_profit"), f1.get("operating_profit")
-                                eps0, eps1 = f0.get("eps"), f1.get("eps")
-                                if rev0 is not None and rev1 is not None and abs(rev1) > 1e-5:
-                                    rev_l = ((rev0 - rev1) / abs(rev1)) * 100.0
-                                if op0 is not None and op1 is not None and abs(op1) > 1e-5:
-                                    op_l = ((op0 - op1) / abs(op1)) * 100.0
-                                if eps0 is not None and eps1 is not None and abs(eps1) > 1e-5:
-                                    eps_l = ((eps0 - eps1) / abs(eps1)) * 100.0
-                                    p_eps = float(eps1)
-                            if len(filings) >= 3:
-                                f1, f2 = filings[1], filings[2]
-                                rev1, rev2 = f1.get("revenue"), f2.get("revenue")
-                                op1, op2 = f1.get("operating_profit"), f2.get("operating_profit")
-                                eps1, eps2 = f1.get("eps"), f2.get("eps")
-                                if rev1 is not None and rev2 is not None and abs(rev2) > 1e-5:
-                                    rev_p = ((rev1 - rev2) / abs(rev2)) * 100.0
-                                if op1 is not None and op2 is not None and abs(op2) > 1e-5:
-                                    op_p = ((op1 - op2) / abs(op2)) * 100.0
-                                if eps1 is not None and eps2 is not None and abs(eps2) > 1e-5:
-                                    eps_p = ((eps1 - eps2) / abs(eps2)) * 100.0
+                            q_filings = quarterly_filings if quarterly_filings else [f for f in filings if str(f.get("statement_type", "")).upper() != "ANNUAL"]
+
+                            def _find_yoy_match(ref_f):
+                                ref_dt = pd.to_datetime(ref_f.get("period_end_date"))
+                                for past_f in q_filings:
+                                    past_dt = pd.to_datetime(past_f.get("period_end_date"))
+                                    diff_days = (ref_dt - past_dt).days
+                                    if 330 <= diff_days <= 400:
+                                        return past_f
+                                return None
+
+                            if len(q_filings) >= 1:
+                                q0 = q_filings[0]
+                                match_q0 = _find_yoy_match(q0)
+                                if match_q0:
+                                    r0, r_m0 = q0.get("revenue"), match_q0.get("revenue")
+                                    op0, op_m0 = q0.get("operating_profit"), match_q0.get("operating_profit")
+                                    eps0, eps_m0 = q0.get("eps"), match_q0.get("eps")
+                                    if r0 is not None and r_m0 is not None and not pd.isna(r0) and not pd.isna(r_m0) and abs(float(r_m0)) > 1e-5:
+                                        rev_l = round(((float(r0) - float(r_m0)) / abs(float(r_m0))) * 100.0, 2)
+                                    if op0 is not None and op_m0 is not None and not pd.isna(op0) and not pd.isna(op_m0) and abs(float(op_m0)) > 1e-5:
+                                        op_l = round(((float(op0) - float(op_m0)) / abs(float(op_m0))) * 100.0, 2)
+                                    if eps0 is not None and eps_m0 is not None and not pd.isna(eps0) and not pd.isna(eps_m0) and abs(float(eps_m0)) > 1e-5:
+                                        eps_l = round(((float(eps0) - float(eps_m0)) / abs(float(eps_m0))) * 100.0, 2)
+                                        p_eps = float(eps_m0)
+
+                            if len(q_filings) >= 2:
+                                q1 = q_filings[1]
+                                match_q1 = _find_yoy_match(q1)
+                                if match_q1:
+                                    r1, r_m1 = q1.get("revenue"), match_q1.get("revenue")
+                                    op1, op_m1 = q1.get("operating_profit"), match_q1.get("operating_profit")
+                                    eps1, eps_m1 = q1.get("eps"), match_q1.get("eps")
+                                    if r1 is not None and r_m1 is not None and not pd.isna(r1) and not pd.isna(r_m1) and abs(float(r_m1)) > 1e-5:
+                                        rev_p = round(((float(r1) - float(r_m1)) / abs(float(r_m1))) * 100.0, 2)
+                                    if op1 is not None and op_m1 is not None and not pd.isna(op1) and not pd.isna(op_m1) and abs(float(op_m1)) > 1e-5:
+                                        op_p = round(((float(op1) - float(op_m1)) / abs(float(op_m1))) * 100.0, 2)
+                                    if eps1 is not None and eps_m1 is not None and not pd.isna(eps1) and not pd.isna(eps_m1) and abs(float(eps_m1)) > 1e-5:
+                                        eps_p = round(((float(eps1) - float(eps_m1)) / abs(float(eps_m1))) * 100.0, 2)
+                                if p_eps is None and q1.get("eps") is not None and not pd.isna(q1.get("eps")):
+                                    p_eps = float(q1.get("eps"))
 
                             pit_data[str(sym_grp).upper()] = {
                                 "roce": float(roce_p) if (roce_p is not None and not pd.isna(roce_p)) else None,
                                 "roe": float(roe_p) if (roe_p is not None and not pd.isna(roe_p)) else None,
-                                "debt_equity": float(de_p),
+                                "debt_equity": float(de_p) if de_p is not None else None,
                                 "operating_cash_flow": float(ocf_p) if (ocf_p is not None and not pd.isna(ocf_p)) else None,
                                 "rev_yoy_latest": rev_l,
                                 "rev_yoy_prev": rev_p,
@@ -2543,22 +2582,13 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                 if (de_val is None or pd.isna(de_val)) and pit_rec.get("debt_equity") is not None:
                     de_val = pit_rec["debt_equity"]
 
-                # Sourcing priority: Audited PIT DB filings -> Watchlist proxy fallbacks
-                # EA latest-period fields: allow watchlist YoY proxies (single-year, same semantic meaning)
-                rev_l = pit_rec.get("rev_yoy_latest") if pit_rec.get("rev_yoy_latest") is not None else r.get("YOY Revenue %")
-                op_l = pit_rec.get("op_profit_yoy_latest") if pit_rec.get("op_profit_yoy_latest") is not None else r.get("YOY Profit %")
-                eps_l = pit_rec.get("eps_yoy_latest") if pit_rec.get("eps_yoy_latest") is not None else r.get("YOY Profit %")
-                # EA PREV-period fields: ONLY sourced from PIT DB. Must NEVER fall back to 5Y CAGR
-                # or any composite/cross-metric proxy. A missing prev-period value must produce None
-                # so the EarningsAccelerationGate fails with DATA_MISSING rather than making a
-                # semantically invalid comparison (5Y Revenue CAGR ≠ prior-year YoY, 5Y EPS CAGR
-                # ≠ prior-year operating-profit YoY, etc.).
-                # B1 fix: rev_yoy_prev NEVER falls back to '5Y Revenue %'
-                rev_p = pit_rec.get("rev_yoy_prev")  # None if PIT absent → DATA_MISSING in EA gate
-                # B2 fix: op_profit_yoy_prev NEVER falls back to '5Y EPS %' (wrong metric entirely)
-                op_p = pit_rec.get("op_profit_yoy_prev")  # None if PIT absent → DATA_MISSING in EA gate
-                # B3 fix: eps_yoy_prev NEVER falls back to '5Y EPS %' (CAGR ≠ prior-year YoY)
-                eps_p = pit_rec.get("eps_yoy_prev")  # None if PIT absent → DATA_MISSING in EA gate
+                # P0: Strict Quarterly EA fields — NO Annual FY26 or TTM proxy fallbacks
+                rev_l = pit_rec.get("rev_yoy_latest")
+                op_l = pit_rec.get("op_profit_yoy_latest")
+                eps_l = pit_rec.get("eps_yoy_latest")
+                rev_p = pit_rec.get("rev_yoy_prev")
+                op_p = pit_rec.get("op_profit_yoy_prev")
+                eps_p = pit_rec.get("eps_yoy_prev")
                 p_eps = pit_rec.get("prior_eps")
 
                 fund_data = {

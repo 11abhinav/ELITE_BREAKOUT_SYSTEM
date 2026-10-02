@@ -1104,7 +1104,6 @@ function playDing() {
         <select id="filterCategory"><option value="">All categories</option></select>
         <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
         <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
-        <button id="aiDeepDiveBtn" class="refresh-btn" onclick="document.getElementById('aiModal').style.display='flex'" style="margin-left:8px;padding:6px 12px; background:rgba(178,102,255,0.15); color:#b266ff; border:1px solid #b266ff;">🤖 AI Deep Dive</button>
         <button class="refresh-btn" onclick="expandAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent);">↔️ Expand All</button>
         <button class="refresh-btn" onclick="collapseAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid var(--warn);">↕️ Collapse All</button>
       </div>
@@ -1117,8 +1116,8 @@ function playDing() {
               <th data-col="entry_date" style="text-align:left;">Date &amp; Time</th>
               <th data-col="scanner" style="text-align:left;">Scanner</th>
               <th data-col="status" class="sort-asc" style="text-align:left;">Status</th>
-              <th style="text-align:center;">🧠 AI Dossier</th>
-              <th data-col="current_price" style="cursor:pointer; text-align:right;">Price / Entry ₹</th>
+              <th data-col="entry_price" style="cursor:pointer; text-align:right;">Entry ₹</th>
+              <th data-col="current_price" style="cursor:pointer; text-align:right;">CMP ₹</th>
               <th data-col="pnl_pct" style="cursor:pointer; text-align:right;" class="desc">P&amp;L</th>
               <th data-col="score" style="cursor:pointer; text-align:center;">Score</th>
               <th data-col="category" class="col-opt" style="text-align:left;">Category</th>
@@ -1918,12 +1917,11 @@ function buildTradeRows(trades, maxAbs, prefix) {
         <span class="badge badge-scanner">${t.scanner||'—'}</span>
       </td>
       <td>${badgeHtml(t.status, t)}</td>
-      <td style="text-align:center;">
-        <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(168,85,247,0.2)); border:1px solid rgba(168,85,247,0.4); color:#c084fc; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(168,85,247,0.15); transition:all 0.2s;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" title="Open AI Corporate & Analyst Intelligence Dossier for ${cleanSym}">🧠 AI Analyser</button>
+      <td style="text-align:right; font-weight:800; font-size:12px; color:var(--text);">
+        ${fmt(t.actual_entry_price || t.entry_price)}
       </td>
       <td style="text-align:right;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
         <div style="font-weight:800; font-size:12px; color:var(--text);">${fmt(t.exit_price || t.current_price)}</div>
-        <div style="font-size:9.5px; color:var(--muted); margin-top:2px;">Entry: ${fmt(t.actual_entry_price || t.entry_price)}</div>
       </td>
       <td style="text-align:right;">
         <div class="pnl-wrap" style="justify-content:flex-end; gap:5px;">

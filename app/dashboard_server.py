@@ -1393,6 +1393,20 @@ def _build_instant_performance_fallback():
             cap = _safe_f(row.get("capital_allocated"))
             sh = row.get("shares_bought", 0)
 
+            # Day-0 / Market Closed Price Harmonization Invariant
+            try:
+                from market_utils import is_market_open
+                if not is_market_open() and st == "OPEN" and cp and ep and ep != cp:
+                    at_check = row.get("alert_date")
+                    at_check_str = at_check.isoformat()[:10] if hasattr(at_check, "isoformat") else str(at_check)[:10]
+                    if at_check_str == datetime.now(IST).strftime('%Y-%m-%d'):
+                        ep = cp
+                        aep = cp
+                        pnl = 0.0
+                        pnl_rs = 0.0
+            except Exception:
+                pass
+
             if (pnl_rs is None or pnl_rs == 0) and xp is not None and ep and sh:
                 pnl_rs = round((xp - ep) * sh, 2)
             elif (pnl_rs is None or pnl_rs == 0) and pnl is not None and cap:

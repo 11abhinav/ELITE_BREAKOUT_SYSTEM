@@ -833,7 +833,7 @@ class DailyBuilderFundamentalProvider:
                     # causing fall-through to empty Postgres table → empty funds_map → DATA_MISSING.
                     con = sqlite3.connect(pit_db, timeout=30)
                     query = """
-                    SELECT symbol, period_end_date, revenue, operating_profit, net_profit, eps,
+                    SELECT symbol, period_end_date, statement_type, revenue, operating_profit, net_profit, eps,
                            roce, roe, total_debt, total_equity, operating_cash_flow, free_cash_flow
                     FROM pit_fundamentals_v1
                     ORDER BY symbol, period_end_date DESC
@@ -842,56 +842,90 @@ class DailyBuilderFundamentalProvider:
                     con.close()
 
                     if not df_all.empty:
+                        try:
+                            from app.financial_data_integrity import MonetaryUnit, convert_to_inr_crores
+                        except ImportError:
+                            from financial_data_integrity import MonetaryUnit, convert_to_inr_crores
+
                         rows_list = []
                         for sym, group in df_all.groupby("symbol"):
                             filings = group.to_dict("records")
                             if not filings:
                                 continue
-                            f0 = filings[0]
-                            roce_val = f0.get("roce")
-                            roe_val = f0.get("roe")
-                            tot_debt = f0.get("total_debt")
-                            tot_eq = f0.get("total_equity")
+
+                            annual_filings = [f for f in filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
+                            quarterly_filings = [f for f in filings if str(f.get("statement_type", "")).upper() == "QUARTERLY"]
+
+                            f0_ann = annual_filings[0] if annual_filings else filings[0]
+                            roce_val = f0_ann.get("roce")
+                            roe_val = f0_ann.get("roe")
+                            tot_debt = convert_to_inr_crores(f0_ann.get("total_debt"), source_unit=MonetaryUnit.INR_CRORES)
+                            tot_eq = convert_to_inr_crores(f0_ann.get("total_equity"), source_unit=MonetaryUnit.INR_CRORES)
                             de_val = (float(tot_debt) / float(tot_eq)) if tot_debt is not None and tot_eq is not None and float(tot_eq) > 0 else (0.0 if tot_debt == 0 else None)
-                            ocf_raw = f0.get("operating_cash_flow")
-                            ocf_val = float(ocf_raw) if (ocf_raw is not None and not pd.isna(ocf_raw)) else None
+                            
+                            # P0: Strict CFO mapping — NEVER fallback to free_cash_flow
+                            raw_ocf = f0_ann.get("operating_cash_flow")
+                            ocf_val = convert_to_inr_crores(raw_ocf, source_unit=MonetaryUnit.INR_CRORES)
 
+                            # Derive ROCE / ROE mathematically if missing from annual statement
+                            if (roce_val is None or pd.isna(roce_val)) and f0_ann.get("operating_profit") is not None and tot_eq is not None:
+                                cap = float(tot_eq) + float(tot_debt or 0.0)
+                                if cap > 0:
+                                    roce_val = round((convert_to_inr_crores(f0_ann["operating_profit"], source_unit=MonetaryUnit.INR_CRORES) or 0.0) / cap * 100.0, 2)
+                            if (roe_val is None or pd.isna(roe_val)) and f0_ann.get("net_profit") is not None and tot_eq is not None and float(tot_eq) > 0:
+                                roe_val = round((convert_to_inr_crores(f0_ann["net_profit"], source_unit=MonetaryUnit.INR_CRORES) or 0.0) / float(tot_eq) * 100.0, 2)
+
+                            # P0: True Quarterly YoY acceleration (same fiscal quarter 1 year ago, 330-400 days prior)
                             rev_l, rev_p, op_l, op_p, eps_l, eps_p, p_eps = None, None, None, None, None, None, None
+                            q_filings = quarterly_filings if quarterly_filings else [f for f in filings if str(f.get("statement_type", "")).upper() != "ANNUAL"]
 
-                            if len(filings) >= 2:
-                                f1 = filings[1]
-                                rev0, rev1 = f0.get("revenue"), f1.get("revenue")
-                                op0, op1 = f0.get("operating_profit"), f1.get("operating_profit")
-                                eps0, eps1 = f0.get("eps"), f1.get("eps")
+                            def _find_yoy_match(ref_f):
+                                ref_dt = pd.to_datetime(ref_f.get("period_end_date"))
+                                for past_f in q_filings:
+                                    past_dt = pd.to_datetime(past_f.get("period_end_date"))
+                                    diff_days = (ref_dt - past_dt).days
+                                    if 330 <= diff_days <= 400:
+                                        return past_f
+                                return None
 
-                                if rev0 is not None and rev1 is not None and abs(rev1) > 1e-5:
-                                    rev_l = ((rev0 - rev1) / abs(rev1)) * 100.0
-                                if op0 is not None and op1 is not None and abs(op1) > 1e-5:
-                                    op_l = ((op0 - op1) / abs(op1)) * 100.0
-                                if eps0 is not None and eps1 is not None and abs(eps1) > 1e-5:
-                                    eps_l = ((eps0 - eps1) / abs(eps1)) * 100.0
-                                    p_eps = float(eps1)
+                            if len(q_filings) >= 1:
+                                q0 = q_filings[0]
+                                match_q0 = _find_yoy_match(q0)
+                                if match_q0:
+                                    r0, r_m0 = q0.get("revenue"), match_q0.get("revenue")
+                                    op0, op_m0 = q0.get("operating_profit"), match_q0.get("operating_profit")
+                                    eps0, eps_m0 = q0.get("eps"), match_q0.get("eps")
+                                    if r0 is not None and r_m0 is not None and not pd.isna(r0) and not pd.isna(r_m0) and abs(float(r_m0)) > 1e-5:
+                                        rev_l = round(((float(r0) - float(r_m0)) / abs(float(r_m0))) * 100.0, 2)
+                                    if op0 is not None and op_m0 is not None and not pd.isna(op0) and not pd.isna(op_m0) and abs(float(op_m0)) > 1e-5:
+                                        op_l = round(((float(op0) - float(op_m0)) / abs(float(op_m0))) * 100.0, 2)
+                                    if eps0 is not None and eps_m0 is not None and not pd.isna(eps0) and not pd.isna(eps_m0) and abs(float(eps_m0)) > 1e-5:
+                                        eps_l = round(((float(eps0) - float(eps_m0)) / abs(float(eps_m0))) * 100.0, 2)
+                                        p_eps = float(eps_m0)
 
-                            if len(filings) >= 3:
-                                f1, f2 = filings[1], filings[2]
-                                rev1, rev2 = f1.get("revenue"), f2.get("revenue")
-                                op1, op2 = f1.get("operating_profit"), f2.get("operating_profit")
-                                eps1, eps2 = f1.get("eps"), f2.get("eps")
-
-                                if rev1 is not None and rev2 is not None and abs(rev2) > 1e-5:
-                                    rev_p = ((rev1 - rev2) / abs(rev2)) * 100.0
-                                if op1 is not None and op2 is not None and abs(op2) > 1e-5:
-                                    op_p = ((op1 - op2) / abs(op2)) * 100.0
-                                if eps1 is not None and eps2 is not None and abs(eps2) > 1e-5:
-                                    eps_p = ((eps1 - eps2) / abs(eps2)) * 100.0
+                            if len(q_filings) >= 2:
+                                q1 = q_filings[1]
+                                match_q1 = _find_yoy_match(q1)
+                                if match_q1:
+                                    r1, r_m1 = q1.get("revenue"), match_q1.get("revenue")
+                                    op1, op_m1 = q1.get("operating_profit"), match_q1.get("operating_profit")
+                                    eps1, eps_m1 = q1.get("eps"), match_q1.get("eps")
+                                    if r1 is not None and r_m1 is not None and not pd.isna(r1) and not pd.isna(r_m1) and abs(float(r_m1)) > 1e-5:
+                                        rev_p = round(((float(r1) - float(r_m1)) / abs(float(r_m1))) * 100.0, 2)
+                                    if op1 is not None and op_m1 is not None and not pd.isna(op1) and not pd.isna(op_m1) and abs(float(op_m1)) > 1e-5:
+                                        op_p = round(((float(op1) - float(op_m1)) / abs(float(op_m1))) * 100.0, 2)
+                                    if eps1 is not None and eps_m1 is not None and not pd.isna(eps1) and not pd.isna(eps_m1) and abs(float(eps_m1)) > 1e-5:
+                                        eps_p = round(((float(eps1) - float(eps_m1)) / abs(float(eps_m1))) * 100.0, 2)
+                                if p_eps is None and q1.get("eps") is not None and not pd.isna(q1.get("eps")):
+                                    p_eps = float(q1.get("eps"))
 
                             rows_list.append({
                                 "symbol": sym,
-                                "ROCE": float(roce_val) if roce_val is not None else None,
-                                "ROE": float(roe_val) if roe_val is not None else None,
+                                "ROCE": float(roce_val) if (roce_val is not None and not pd.isna(roce_val)) else None,
+                                "ROE": float(roe_val) if (roe_val is not None and not pd.isna(roe_val)) else None,
                                 "debt": float(de_val) if de_val is not None else None,
-                                "operating_cash_flow": float(ocf_val) if ocf_val is not None else None,
-                                "fundamental_category": "HIGH_QUALITY" if roce_val is not None and float(roce_val) >= 15.0 else "NORMAL",
+                                "operating_cash_flow": float(ocf_val) if (ocf_val is not None and not pd.isna(ocf_val)) else None,
+                                "fundamental_category": "HIGH_QUALITY" if (roce_val is not None and not pd.isna(roce_val) and float(roce_val) >= 15.0) else "NORMAL",
                                 "is_value_trap": False,
                                 "quality_score": None,
                                 "growth_score": None,
@@ -989,37 +1023,37 @@ class DailyBuilderFundamentalProvider:
             debt_val = float(debt_raw) if (debt_raw is not None and not pd.isna(debt_raw)) else None
 
             raw_ocf = r.get("operating_cash_flow", r.get("ocf"))
-            ocf_val = float(raw_ocf) if (raw_ocf is not None and not pd.isna(raw_ocf)) else None
+            ocf_val = None
+            if raw_ocf is not None and not pd.isna(raw_ocf):
+                try:
+                    v = float(raw_ocf)
+                    ocf_val = round(v / 1e7, 2) if abs(v) > 1e6 else round(v, 2)
+                except (ValueError, TypeError):
+                    ocf_val = None
 
             fund_cat = str(r.get("fundamental_category", r.get("Category", "NONE")))
             is_trap = (fund_cat == "VALUE_TRAP") or bool(r.get("is_value_trap", False)) or (str(r.get("Forensic_Risk_Tier", "")).upper() == "HIGH")
 
-            # Acceleration fields (ZERO SYNTHETIC CONSTANTS: missing values must stay None to fail closed)
-            # EA LATEST-period: allow YoY proxies from daily builder if specific field absent
-            rev_l = r.get("rev_yoy_latest", r.get("total_revenue_yoy_growth_ttm", r.get("YOY Revenue %")))
+            # Acceleration fields (ZERO SYNTHETIC CONSTANTS: strictly quarterly, NO annual FY26 or TTM fallbacks)
+            rev_l = r.get("rev_yoy_latest")
             rev_l = float(rev_l) if (rev_l is not None and not pd.isna(rev_l)) else None
 
-            # EA PREV-period: ONLY from PIT-sourced parquet field. NEVER fall back to 5Y CAGR or
-            # any cross-metric proxy. A 5-year CAGR is NOT a prior-year YoY rate.
-            # B4 fix: rev_yoy_prev must NEVER fall back to 'total_revenue_5y_growth' or '5Y Revenue %'
-            rev_p = r.get("rev_yoy_prev")  # None if absent → DATA_MISSING in EA gate
+            rev_p = r.get("rev_yoy_prev")
             rev_p = float(rev_p) if (rev_p is not None and not pd.isna(rev_p)) else None
 
-            op_l = r.get("op_profit_yoy_latest", r.get("gross_profit_yoy_growth_ttm", r.get("YOY Profit %")))
+            op_l = r.get("op_profit_yoy_latest")
             op_l = float(op_l) if (op_l is not None and not pd.isna(op_l)) else None
 
-            # B4 fix: op_profit_yoy_prev NEVER falls back to any proxy
-            op_p = r.get("op_profit_yoy_prev")  # None if absent → DATA_MISSING in EA gate
+            op_p = r.get("op_profit_yoy_prev")
             op_p = float(op_p) if (op_p is not None and not pd.isna(op_p)) else None
 
-            eps_l = r.get("eps_yoy_latest", r.get("earnings_per_share_diluted_yoy_growth_ttm", r.get("YOY Profit %")))
+            eps_l = r.get("eps_yoy_latest")
             eps_l = float(eps_l) if (eps_l is not None and not pd.isna(eps_l)) else None
 
-            # B4 fix: eps_yoy_prev must NEVER fall back to 'earnings_per_share_basic_5y_growth' (CAGR ≠ prior-year YoY)
-            eps_p = r.get("eps_yoy_prev")  # None if absent → DATA_MISSING in EA gate
+            eps_p = r.get("eps_yoy_prev")
             eps_p = float(eps_p) if (eps_p is not None and not pd.isna(eps_p)) else None
 
-            p_eps = r.get("prior_eps", r.get("earnings_per_share_basic_ttm"))
+            p_eps = r.get("prior_eps")
             p_eps = float(p_eps) if (p_eps is not None and not pd.isna(p_eps)) else None
 
             funds_map[sym] = {
@@ -1047,126 +1081,10 @@ class DailyBuilderFundamentalProvider:
                 "upstream_provider": "DAILY_BUILDER_2.0"
             }
 
-        # ── SECONDARY RE-HYDRATION FROM CERTIFIED LOCAL FUNDAMENTAL CACHES ────
-        # Fills missing symbols and null ROCE/ROE/Debt/OCF fields for approved universe
-        # using real exchange/filing data cached locally without synthetic fallbacks.
-        sec_caches = {}
-        for cname in ["fundamentals_cache.json", "multibagger_fundamentals_cache.json"]:
-            for _cdir in [DATA_DIR, os.path.join(BASE_DIR, "data"), "/app/data"]:
-                cpath = os.path.join(_cdir, cname)
-                if os.path.exists(cpath):
-                    try:
-                        with open(cpath, "r") as cf:
-                            cd = json.load(cf)
-                            if isinstance(cd, dict):
-                                for k, v in cd.items():
-                                    if isinstance(v, dict):
-                                        sec_caches[str(k).strip().upper()] = v
-                        break
-                    except Exception as _ce:
-                        logger.debug(f"Notice reading secondary cache {cname}: {_ce}")
-
-        rehydrated_cnt = 0
-        augmented_cnt = 0
-        for sym, s_data in sec_caches.items():
-            s_roe = s_data.get("roe")
-            s_roce = s_data.get("roce")
-            s_de = s_data.get("debt_equity")
-            s_ocf = s_data.get("operating_cash_flow", s_data.get("free_cash_flow"))
-
-            s_roce_f = None
-            if s_roce is not None and not pd.isna(s_roce):
-                try:
-                    s_roce_f = float(s_roce)
-                    if 0.0 < s_roce_f <= 1.0:
-                        s_roce_f *= 100.0
-                except (ValueError, TypeError):
-                    pass
-
-            s_roe_f = None
-            if s_roe is not None and not pd.isna(s_roe):
-                try:
-                    s_roe_f = float(s_roe)
-                    if 0.0 < s_roe_f <= 1.0:
-                        s_roe_f *= 100.0
-                except (ValueError, TypeError):
-                    pass
-
-            s_de_f = None
-            if s_de is not None and not pd.isna(s_de):
-                try:
-                    s_de_f = float(s_de)
-                except (ValueError, TypeError):
-                    pass
-
-            s_ocf_f = None
-            if s_ocf is not None and not pd.isna(s_ocf):
-                try:
-                    s_ocf_f = float(s_ocf)
-                except (ValueError, TypeError):
-                    pass
-
-            s_eps_f = None
-            if s_data.get("eps") is not None and not pd.isna(s_data.get("eps")):
-                try:
-                    ep_val = float(s_data.get("eps"))
-                    if ep_val > 0:
-                        s_eps_f = ep_val
-                except (ValueError, TypeError):
-                    pass
-
-            if sym not in funds_map:
-                funds_map[sym] = {
-                    "symbol": sym,
-                    "roce": s_roce_f,
-                    "roe": s_roe_f,
-                    "debt_equity": s_de_f,
-                    "operating_cash_flow": s_ocf_f,
-                    "fundamental_category": "HIGH_QUALITY" if (s_roce_f is not None and s_roce_f >= 15.0) else "NORMAL",
-                    "is_value_trap": False,
-                    "quality_score": float(s_data.get("score", 0.0) or 0.0),
-                    "growth_score": 0.0,
-                    "valuation_score": 0.0,
-                    "wealth_score": 0.0,
-                    "risk_score": 0.0,
-                    "valuation_category": "NONE",
-                    "fair_value_range": "",
-                    "rev_yoy_latest": None,
-                    "rev_yoy_prev": None,
-                    "op_profit_yoy_latest": None,
-                    "op_profit_yoy_prev": None,
-                    "eps_yoy_latest": None,
-                    "eps_yoy_prev": None,
-                    "prior_eps": s_eps_f,
-                    "upstream_provider": "LOCAL_CERTIFIED_FUNDAMENTAL_CACHE"
-                }
-                rehydrated_cnt += 1
-            else:
-                rec = funds_map[sym]
-                augmented = False
-                if rec.get("roce") is None and s_roce_f is not None:
-                    rec["roce"] = s_roce_f
-                    augmented = True
-                if rec.get("roe") is None and s_roe_f is not None:
-                    rec["roe"] = s_roe_f
-                    augmented = True
-                if rec.get("debt_equity") is None and s_de_f is not None:
-                    rec["debt_equity"] = s_de_f
-                    augmented = True
-                if rec.get("operating_cash_flow") is None and s_ocf_f is not None:
-                    rec["operating_cash_flow"] = s_ocf_f
-                    augmented = True
-                if rec.get("prior_eps") is None and s_eps_f is not None:
-                    rec["prior_eps"] = s_eps_f
-                    augmented = True
-                if augmented:
-                    augmented_cnt += 1
-
-        if rehydrated_cnt > 0 or augmented_cnt > 0:
-            logger.info(
-                f"✅ [FUNDAMENTAL_CACHE] Re-hydrated {rehydrated_cnt} missing symbols and "
-                f"augmented {augmented_cnt} symbols with real values from certified local fundamental caches."
-            )
+        # ── P0 ZERO-FALLBACK ENFORCEMENT ──────────────────────────────────────────
+        # Missing symbols or null financial metrics are strictly fail-closed.
+        # No uncertified secondary JSON caches (multibagger/fundamentals_cache)
+        # participate in production financial decision paths.
         meta["record_count"] = len(funds_map)
 
         return funds_map, meta
@@ -3267,24 +3185,27 @@ class QualityCompounderValueV2Scanner:
 
                         if recovered_ev is not None:
                             logger.info(
-                                f"✅ [UPSTREAM_RECOVERY: SUCCESS] {clean_sym}: Successfully recovered "
-                                f"current_ev_ebitda={recovered_ev} from Upstox Key-Ratios API (raw='{raw_ev_str}')"
+                                f"ℹ️ [UPSTREAM_RECOVERY: QA_COMPARISON] {clean_sym}: Retrieved "
+                                f"EV/EBITDA={recovered_ev} from Upstox Key-Ratios API (raw='{raw_ev_str}'). "
+                                f"Governance rule: Upstox Key-Ratios is QA/comparison only — "
+                                f"production BUY metric must be derived authoritatively from statement filings."
                             )
                             providers_audit.append({
                                 "provider": "UPSTOX_KEY_RATIOS_API",
                                 "endpoint": api_url,
-                                "result": "SUCCESS",
+                                "result": "SUCCESS_RECORDED_FOR_QA",
                                 "http_status": 200,
                                 "latency_ms": elapsed_ms,
                                 "field_requested": "EV/EBITDA",
                                 "raw_company_value": raw_ev_str,
-                                "recovered_value": recovered_ev,
+                                "qa_comparison_value": recovered_ev,
                                 "raw_pe_value": raw_pe_str,
-                                "recovered_pe": recovered_pe,
-                                "validation": "PASSED",
-                                "action": "ACCEPTED_DIRECT_UPSTOX_EV_EBITDA"
+                                "qa_comparison_pe": recovered_pe,
+                                "validation": "RECORDED_FOR_QA_ONLY",
+                                "action": "RECORDED_FOR_QA_NOT_USED_FOR_BUY_DECISION"
                             })
-                            return recovered_ev, recovered_pe, providers_audit, "RECOVERED_VIA_UPSTOX_KEY_RATIOS_API"
+                            # Reset recovered_ev so it does NOT override authoritative statement derivation
+                            recovered_ev = None
                         else:
                             logger.warning(
                                 f"⚠️ [UPSTREAM_RECOVERY: FIELD_ABSENT] {clean_sym}: HTTP 200 received from Upstox, "
@@ -5329,28 +5250,25 @@ class QualityCompounderValueV2Scanner:
                 is_v_df = bool(sym in val_df_symbols and not is_fin)
                 is_p_df = bool(sym in price_df_symbols)
                 is_o_df = bool(sym in non_pit_df_symbols)
-                is_inc = bool(is_q_df or is_v_df or is_p_df or is_o_df)
-                is_eval = bool(not is_inc)
-                final_act = "BUY_ALERT" if is_candidate else ("INCOMPLETE" if is_inc else "REJECTED")
+
                 # Deterministic precedence:
                 # 1. Missing/unresolved/provider failure -> INCOMPLETE
-                # 2. Valid but outside freshness window -> STALE
-                # 3. Valid and fresh -> FRESH
+                # 2. Valid but outside freshness window -> STALE (classified as DATA_FAILURE)
+                # 3. Valid and fresh -> FRESH (FULLY_EVALUABLE)
                 _is_stale_pit = False
                 _ann_per = row.get("financial_period_end") or row.get("period_end_date") or row.get("latest_annual_period")
-                if _ann_per and not is_inc:
+                if _ann_per and not (is_q_df or is_v_df or is_p_df or is_o_df):
                     _fresh_res = check_pit_freshness(sym, str(_ann_per)[:10], scan_date=now_ist.date())
                     if not _fresh_res.ok:
                         _is_stale_pit = True
+                        is_o_df = True
+                        _df_rsns.append(f"PIT_DATA_STALE: {_fresh_res.reason}")
 
+                is_inc = bool(is_q_df or is_v_df or is_p_df or is_o_df)
+                is_eval = bool(not is_inc)
+                final_act = "BUY_ALERT" if (is_candidate and is_eval) else ("INCOMPLETE" if is_inc else "REJECTED")
                 if is_inc:
-                    data_qual = "INCOMPLETE"
-                elif _is_stale_pit:
-                    data_qual = "STALE"
-                    is_eval = False
-                    is_candidate = False
-                    final_act = "REJECTED"
-                    _df_rsns.append("PIT_DATA_STALE")
+                    data_qual = "STALE" if _is_stale_pit else "INCOMPLETE"
                 else:
                     data_qual = "FRESH"
 
@@ -5837,9 +5755,7 @@ class QualityCompounderValueV2Scanner:
                     raw_df['period_end_date'] = pd.to_datetime(raw_df['period_end_date'])
                     raw_df['filing_date'] = pd.to_datetime(raw_df['filing_date'])
 
-                    # Load valuation cache for continuous multiples across candidate paths
-                    val_cache = {}
-                    _val_cache_files = ["multibagger_fundamentals_cache.json", "fundamentals_cache.json"]
+                    # Candidate directories for historical price bars and PIT valuation medians
                     _candidate_dirs = [
                         DATA_DIR,
                         os.path.join(BASE_DIR, "data"),
@@ -5847,17 +5763,6 @@ class QualityCompounderValueV2Scanner:
                         "/app/data",
                         "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"
                     ]
-                    for _cdir in _candidate_dirs:
-                        if not os.path.exists(_cdir):
-                            continue
-                        for v_name in _val_cache_files:
-                            v_path = os.path.join(_cdir, v_name)
-                            if os.path.exists(v_path):
-                                try:
-                                    with open(v_path) as f:
-                                        val_cache.update(json.load(f))
-                                except Exception:
-                                    pass
 
                     # Load certified PIT valuation medians cache (3Y EV/EBITDA & 3Y PE medians from Upstox + PIT)
                     pit_val_cache = {}
@@ -5899,22 +5804,6 @@ class QualityCompounderValueV2Scanner:
                                     logger.info(f"✅ Loaded {len(pit_val_cache)} PIT valuation medians from database | certification_status={_c_stat} | ev_pe_both_complete={_both_c}/{len(pit_val_cache)}")
                         except Exception as _dbe:
                             logger.debug(f"DB valuation download notice: {_dbe}")
-
-                    # ── Multibagger fundamentals cache (market_cap + shares fallback) ──────────
-                    # Authoritative source for market_cap (~3194 symbols, absolute ₹).
-                    # Used as Tier-2 in the 3-tier MCap resolution chain when val_cache has no mcap.
-                    # This was the path that produced 784/795 current EV/EBITDA on Sep 29.
-                    _mb_cache = {}
-                    _mb_cache_path = os.path.join(DATA_DIR, "multibagger_fundamentals_cache.json")
-                    if os.path.exists(_mb_cache_path):
-                        try:
-                            with open(_mb_cache_path) as _f_mb:
-                                _mb_cache = json.load(_f_mb)
-                            logger.info(f"✅ Loaded {len(_mb_cache)} entries from multibagger_fundamentals_cache "
-                                        f"(market_cap + shares fallback for EV computation)")
-                        except Exception as _mb_err:
-                            logger.warning(f"multibagger_fundamentals_cache load failed: {_mb_err}; "
-                                           f"EV will fall back to 1D-history tier only")
 
                     # ── P0: FILTER BY FILING DATE BEFORE ANY METRIC CALCULATION ──────────────
                     # Rule: filing_date must precede the scan/signal date to prevent future-filing leakage.
@@ -5975,8 +5864,8 @@ class QualityCompounderValueV2Scanner:
                         growth_yrs = 0.0
                         if k_cagr >= 1:
                             ann_records = g_ann.to_dict('records')
-                            cagr_rev_res = compute_cagr_pit(ann_records, metric="revenue", target_years=5)
-                            cagr_pat_res = compute_cagr_pit(ann_records, metric="net_profit", target_years=5)
+                            cagr_rev_res = compute_cagr_pit(ann_records, metric="revenue", target_years=5, symbol=clean_sym)
+                            cagr_pat_res = compute_cagr_pit(ann_records, metric="net_profit", target_years=5, symbol=clean_sym)
 
                             if cagr_rev_res.ok:
                                 rev_cagr = cagr_rev_res.cagr
@@ -6036,7 +5925,9 @@ class QualityCompounderValueV2Scanner:
                             filed_shares=_sh_input,
                             net_profit_cr=_net_p_f,
                             eps=_eps_f,
-                            cmp_price=0.0
+                            cmp_price=0.0,
+                            symbol=clean_sym,
+                            scanner="QUALITY_COMPOUNDER"
                         )
                         if sh_res.ok and sh_res.shares_millions is not None:
                             _shares_f = sh_res.shares_millions * 1e6
@@ -6054,58 +5945,36 @@ class QualityCompounderValueV2Scanner:
                         _ebitda_f = (_op_f + _da_f) if (_op_f is not None and _da_f is not None) else None
 
                         # ── VALUATION MULTIPLES ─────────────────────────────────────────────
-                        v_data  = val_cache.get(clean_sym, val_cache.get(sym, {}))
                         pit_val = pit_val_cache.get(clean_sym, pit_val_cache.get(sym, {}))
-                        pe_curr = v_data.get('pe_fallback') or v_data.get('pe')   # current-period PE from val_cache
-                        pe_med  = pit_val.get('pe_3y_median') or v_data.get('pe_3y_median')
-                        ev_med  = pit_val.get('ev_ebitda_3y_median') or v_data.get('ev_ebitda_3y_median')
+                        pe_med  = pit_val.get('pe_3y_median')
+                        ev_med  = pit_val.get('ev_ebitda_3y_median')
 
-                        # ── MARKET CAP RESOLUTION (3-tier) ──────────────────────────────────
-                        # Tier 1: val_cache (pit_valuation_history_cache.json — only has EV/PE medians, no mcap)
-                        _mcap = v_data.get('market_cap')
-                        _mcap_f = float(_mcap) if _mcap is not None and pd.notna(_mcap) and float(_mcap) > 0 else None
-                        _mcap_cr = (_mcap_f / 1e7) if (_mcap_f is not None and _mcap_f > 1e6) else _mcap_f
-                        _mcap_source = "VAL_CACHE" if _mcap_cr is not None else None
+                        # ── MARKET CAP RESOLUTION (Strictly 1D history + Statement Filings) ──
+                        _mcap_cr = None
+                        _mcap_source = None
+                        pe_curr = None
 
-                        # Tier 2: multibagger_fundamentals_cache — has market_cap (absolute ₹) for ~3194 symbols.
-                        # This was the path that produced 784/795 on Sep 29.
-                        if _mcap_cr is None and _mb_cache:
-                            _mb = _mb_cache.get(clean_sym, _mb_cache.get(sym, {}))
-                            _mb_mcap = _mb.get('market_cap') if _mb else None
-                            # shares from multibagger cache as fallback for _shares_f
-                            if _shares_f is None and _mb:
-                                _mb_sh = _mb.get('shares_outstanding')
-                                if _mb_sh is not None and float(_mb_sh) > 0:
-                                    _shares_f = float(_mb_sh)
-                            if _mb_mcap is not None and float(_mb_mcap) > 0:
-                                _mcap_f_mb = float(_mb_mcap)
-                                # multibagger stores in absolute ₹ (e.g. 17.7T for Reliance)
-                                _mcap_cr = (_mcap_f_mb / 1e7) if _mcap_f_mb > 1e6 else _mcap_f_mb
-                                _mcap_source = "MULTIBAGGER_CACHE"
-
-                        # Tier 3: 1D history parquet — compute live MCap from last close × shares
-                        if _mcap_cr is None or pe_curr is None:
-                            for _cdir in _candidate_dirs:
-                                p_path = os.path.join(_cdir, "history", "1d", f"{clean_sym}.parquet")
-                                if os.path.exists(p_path):
-                                    try:
-                                        df_px = pd.read_parquet(p_path)
-                                        if not df_px.empty:
-                                            c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
-                                            if c_col:
-                                                _px = float(df_px[c_col].iloc[-1])
-                                                if _mcap_cr is None and _px > 0:
-                                                    if _shares_f:
-                                                        _mcap_cr = (_shares_f * _px) / 1e7
-                                                        _mcap_source = "1D_HISTORY_SHARES_X_PRICE"
-                                                    elif _net_p_f and _eps_f and _eps_f > 0:
-                                                        _mcap_cr = _net_p_f * (_px / _eps_f)
-                                                        _mcap_source = "1D_HISTORY_NETPROFIT_X_PE"
-                                                if pe_curr is None and _eps_f and _eps_f > 0 and _px > 0:
+                        for _cdir in _candidate_dirs:
+                            p_path = os.path.join(_cdir, "history", "1d", f"{clean_sym}.parquet")
+                            if os.path.exists(p_path):
+                                try:
+                                    df_px = pd.read_parquet(p_path)
+                                    if not df_px.empty:
+                                        c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                                        if c_col:
+                                            _px = float(df_px[c_col].iloc[-1])
+                                            if _px > 0:
+                                                if _shares_f:
+                                                    _mcap_cr = (_shares_f * _px) / 1e7
+                                                    _mcap_source = "1D_HISTORY_SHARES_X_PRICE"
+                                                elif _net_p_f and _eps_f and _eps_f > 0:
+                                                    _mcap_cr = _net_p_f * (_px / _eps_f)
+                                                    _mcap_source = "1D_HISTORY_NETPROFIT_X_PE"
+                                                if _eps_f and _eps_f > 0:
                                                     pe_curr = round(_px / _eps_f, 2)
-                                        break
-                                    except Exception:
-                                        pass
+                                    break
+                                except Exception:
+                                    pass
 
                         # ── EV CALCULATION ──────────────────────────────────────────────────
                         # Canonical C3 Rule: Cash is MANDATORY (INDIAMART defence).

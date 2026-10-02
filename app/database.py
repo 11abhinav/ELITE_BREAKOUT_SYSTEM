@@ -2885,6 +2885,29 @@ def save_alert_if_new(
     structural_failure_stop = _round_price(structural_failure_stop)
     actual_entry_price = _round_price(actual_entry_price)
 
+    # ── MARKET CLOSED / DAY-0 PRICE HARMONIZATION GATE ─────────────────────
+    # Invariant: Price at alert creation time MUST be either live CMP fetched at that instant
+    # (if market is open) or the latest official market closing price (if market is closed).
+    # Day 0 alerts MUST NEVER start at a loss due to mismatched entry vs CMP lookups!
+    try:
+        from market_utils import is_market_open
+        mkt_open = is_market_open()
+        
+        # Fetch live/close price for symbol to ensure exact alignment
+        from live_prices import get_live_prices
+        live_quotes = get_live_prices([symbol], purpose="ALERT_PRICE_SYNC")
+        live_cmp = _round_price(live_quotes.get(symbol)) if live_quotes else None
+        
+        if not mkt_open or entry_mode == "MARKET" or kwargs.get("execution_state") == "OPEN":
+            if live_cmp and live_cmp > 0:
+                entry_price = live_cmp
+                if actual_entry_price is not None or kwargs.get("execution_state") == "OPEN":
+                    actual_entry_price = live_cmp
+        elif live_cmp and (entry_price is None or entry_price <= 0):
+            entry_price = live_cmp
+    except Exception as _px_err:
+        logger.debug(f"Alert price sync warning for {symbol}: {_px_err}")
+
 
     # Safety: DB stale-buy check removed in v6 as scanners now reliably handle stale
     # price data at the individual stock level during extraction.
