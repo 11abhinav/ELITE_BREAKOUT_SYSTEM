@@ -1,0 +1,53 @@
+symbol,is_bfsi,raw_filing_exists,cash,debt,ebitda,shares,missing_field,source_subschedule,parser_status,fix_strategy
+AGIIL,False,True,MISSING,₹186.0Cr,₹146.0Cr,120.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ASTRAZEN,False,True,MISSING,₹111.0Cr,₹291.0Cr,25.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ARVINDFASN,False,True,MISSING,₹243.0Cr,₹105.0Cr,132.5M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ADOR,False,True,MISSING,₹3.0Cr,₹142.0Cr,17.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ALKYLAMINE,False,True,MISSING,₹87.0Cr,₹284.0Cr,50.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ARTEMISMED,False,True,MISSING,₹260.0Cr,₹231.0Cr,160.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AIMTRON,False,True,MISSING,₹55.0Cr,₹68.0Cr,21.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+CUB,True,True,₹6267.0Cr,MISSING,MISSING,740.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+ANTHEM,False,True,MISSING,₹54.0Cr,₹968.0Cr,560.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ASHAPURMIN,False,True,MISSING,₹1444.0Cr,₹688.0Cr,95.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ACMESOLAR,False,True,MISSING,₹19896.0Cr,₹2253.0Cr,605.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+DCBBANK,True,True,₹3212.0Cr,MISSING,MISSING,322.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+CAPITALSFB,True,True,₹413.0Cr,MISSING,MISSING,45.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+AYE,True,True,₹1011.0Cr,MISSING,MISSING,245.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+AKUMS,False,True,MISSING,₹157.0Cr,₹677.0Cr,155.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+SBICARD,True,True,₹2320.0Cr,MISSING,MISSING,952.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+FEDFINA,True,True,₹1391.0Cr,MISSING,MISSING,374.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+ACCENTMIC,False,True,MISSING,₹1.0Cr,₹62.0Cr,24.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AIIL,False,True,MISSING,MISSING,MISSING,850.0M,"cash_and_equivalents, total_debt, ebitda",Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AADHARHFC,False,True,₹1213.0Cr,MISSING,MISSING,436.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ASHOKA,False,True,MISSING,₹1608.0Cr,₹2040.0Cr,280.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ANUP,False,True,MISSING,₹110.0Cr,₹205.0Cr,20.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AJMERA,False,True,MISSING,₹550.0Cr,₹238.0Cr,195.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+APOLLOHOSP,False,True,MISSING,₹8493.0Cr,₹4655.0Cr,144.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+APLAPOLLO,False,True,MISSING,₹498.0Cr,₹2039.0Cr,280.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+APTUS,True,True,MISSING,MISSING,MISSING,500.0M,"cash_and_equivalents, total_debt, ebitda",Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+CANFINHOME,True,True,₹304.0Cr,MISSING,MISSING,135.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+AEROFLEX,False,True,MISSING,₹9.0Cr,₹126.0Cr,130.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ADVAIT,False,True,MISSING,₹95.0Cr,₹88.0Cr,11.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+SGFIN,True,True,₹204.0Cr,MISSING,MISSING,65.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+AEGISLOG,False,True,MISSING,₹416.0Cr,₹674.0Cr,350.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+APARINDS,False,True,MISSING,₹956.0Cr,₹2083.0Cr,40.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AMBUJACEM,False,True,MISSING,₹866.0Cr,₹10147.0Cr,2470.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AJAXENGG,False,True,MISSING,₹2.0Cr,₹276.0Cr,110.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+APOLLOTYRE,False,True,MISSING,₹2784.0Cr,₹3823.0Cr,640.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AIAENG,False,True,MISSING,₹10.0Cr,₹1253.0Cr,95.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+APOLLO,False,True,MISSING,₹543.0Cr,₹241.0Cr,360.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ABCAPITAL,False,True,₹484.0Cr,MISSING,MISSING,2620.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ASAHIINDIA,False,True,MISSING,₹2198.0Cr,₹1195.0Cr,250.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ARVSMART,False,True,MISSING,₹575.0Cr,₹45.0Cr,46.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+APLLTD,False,True,MISSING,₹1198.0Cr,₹1376.0Cr,195.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ASHIANA,False,True,MISSING,₹323.0Cr,₹146.0Cr,100.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AAVAS,False,True,₹1798.0Cr,MISSING,MISSING,79.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+AJANTPHARM,False,True,MISSING,₹35.0Cr,₹1369.0Cr,125.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ALPEXSOLAR,False,True,MISSING,₹535.0Cr,₹351.0Cr,26.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+CSBBANK,True,True,₹4017.0Cr,MISSING,MISSING,174.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+ASKAUTOLTD,False,True,MISSING,₹679.0Cr,₹645.0Cr,195.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ACE,False,True,MISSING,₹8.0Cr,₹539.0Cr,120.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+TMB,True,True,₹2521.0Cr,MISSING,MISSING,158.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+KARURVYSYA,True,True,₹5154.0Cr,MISSING,MISSING,965.0M,"total_debt, ebitda",Borrowings / Debt Line Item,EXCHANGE_PAYLOAD_PARSED,Exempt (Structural BFSI)
+ASIANPAINT,False,True,MISSING,₹3929.0Cr,₹7929.0Cr,960.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
+ACC,False,True,MISSING,₹429.0Cr,₹4076.0Cr,188.0M,cash_and_equivalents,Balance Sheet Cash Sub-Schedule,EXCHANGE_PAYLOAD_PARSED,Extract balance sheet cash/debt sub-schedules
