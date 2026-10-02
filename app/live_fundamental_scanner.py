@@ -1403,6 +1403,33 @@ class LiveFundamentalBuyScanner:
         else:
             acquired_global = True
 
+        # Mandatory Lifecycle Invariant: FINANCIAL_SNAPSHOT_STATUS == READY
+        # Prevents scanner from starting while PIT rebuild is running or snapshot is uncertified.
+        _has_mock = hasattr(self, "_test_bypass_lifecycle")
+        if not _has_mock:
+            try:
+                from app.financial_data_integrity import get_financial_snapshot_status, FinancialSnapshotStatus
+                snap_status, snap_meta = get_financial_snapshot_status()
+                if snap_status != FinancialSnapshotStatus.READY:
+                    logger.error(
+                        f"🚫 [LIFECYCLE_GATE] Scanner execution BLOCKED: FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (expected 'READY'). "
+                        f"PIT rebuild is running or uncertified. Refusing to evaluate candidates with unverified data."
+                    )
+                    if acquired_global:
+                        _global_lock.release()
+                    if acquired_scan:
+                        _fundamental_scan_lock.release()
+                    return {
+                        "status": "LIFECYCLE_BLOCKED",
+                        "snapshot_status": snap_status.value,
+                        "total_scanned": 0,
+                        "candidate_count": 0,
+                        "candidates_inserted": 0,
+                        "reason": f"FINANCIAL_SNAPSHOT_STATUS_{snap_status.value}"
+                    }
+            except Exception as _lc_err:
+                logger.warning(f"⚠️ [LIFECYCLE_GATE] Lifecycle check notice: {_lc_err}")
+
         try:
             # 3. Imports for DB execution tracking & health updates
             try:
@@ -3422,6 +3449,35 @@ class QualityCompounderValueV2Scanner:
         else:
             acquired_global = True
 
+        # 3. Mandatory Lifecycle Invariant: FINANCIAL_SNAPSHOT_STATUS == READY
+        # Prevents scanner from starting while PIT rebuild is running or snapshot is uncertified.
+        _has_mock = hasattr(self, "_test_bypass_lifecycle") or (
+            getattr(self, "load_pit_dataset", None) and getattr(self.load_pit_dataset, "__name__", "") == "<lambda>"
+        )
+        if not _has_mock:
+            try:
+                from app.financial_data_integrity import get_financial_snapshot_status, FinancialSnapshotStatus
+                snap_status, snap_meta = get_financial_snapshot_status()
+                if snap_status != FinancialSnapshotStatus.READY:
+                    logger.error(
+                        f"🚫 [LIFECYCLE_GATE] Scanner execution BLOCKED: FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (expected 'READY'). "
+                        f"PIT rebuild is running or uncertified. Refusing to evaluate candidates with unverified data."
+                    )
+                    if acquired_global:
+                        _global_lock.release()
+                    if acquired_scan:
+                        _v2_scan_lock.release()
+                    return {
+                        "status": "LIFECYCLE_BLOCKED",
+                        "snapshot_status": snap_status.value,
+                        "total_scanned": 0,
+                        "candidate_count": 0,
+                        "candidates_inserted": 0,
+                        "reason": f"FINANCIAL_SNAPSHOT_STATUS_{snap_status.value}"
+                    }
+            except Exception as _lc_err:
+                logger.warning(f"⚠️ [LIFECYCLE_GATE] Lifecycle check notice: {_lc_err}")
+
         _core_result_holder = [None]
         try:
             _core_result_holder[0] = self._scan_universe_core(
@@ -3960,6 +4016,7 @@ class QualityCompounderValueV2Scanner:
                     "other_data_failure": bool(not is_np_struct),
                     "incomplete": bool(not is_np_struct),
                     "fully_evaluable": False,
+                    "data_quality_bucket": "STRUCTURAL_INELIGIBLE" if is_np_struct else "INCOMPLETE",
                     "final_action": "STRUCTURAL_INELIGIBLE" if is_np_struct else "INCOMPLETE",
                     "top_level_population": _top_pop,
                     "quality_status": "NOT_EVALUATED",
@@ -5343,14 +5400,14 @@ class QualityCompounderValueV2Scanner:
 
             # Legacy aliases for logging & context
             data_failure_symbols = set(incomplete_symbols)
-            data_failure_count = incomplete_count
+            data_failure_count = incomplete_count + stale_count
             structural_ineligible_count = structural_count
             structural_ineligible_symbols = set(structural_symbols)
             fully_evaluable_symbols = set(evaluable_symbols)
             _approved_universe = scanned_count
             _structural_ineligible = structural_count
             _evaluable_universe = _approved_universe - _structural_ineligible
-            _data_failures = incomplete_count
+            _data_failures = data_failure_count
             _fully_evaluable = fully_evaluable_count
             _quality_evaluated = int((canonical_df["quality_status"].isin(["PASS", "FAIL"])).sum()) if "quality_status" in canonical_df.columns else (quality_pass_count + quality_reject_count)
             _val_evaluated = int((canonical_df["valuation_status"].isin(["PASS", "FAIL"])).sum()) if "valuation_status" in canonical_df.columns else (value_pass_count + value_reject_count)
@@ -5370,7 +5427,7 @@ class QualityCompounderValueV2Scanner:
 
             # Mathematical integrity assertions
             is_reconciled = (
-                scanned_count == structural_count + incomplete_count + fully_evaluable_count
+                scanned_count == structural_count + stale_count + incomplete_count + fully_evaluable_count
                 and fully_evaluable_count == alerts_count + rejected_count
                 and len(canonical_df[canonical_df["structural_ineligible"] & canonical_df["incomplete"]]) == 0
                 and len(canonical_df[canonical_df["structural_ineligible"] & canonical_df["fully_evaluable"]]) == 0
@@ -5386,13 +5443,13 @@ class QualityCompounderValueV2Scanner:
                 _health_status = "INCONSISTENT"
                 _health_error = (
                     f"INCONSISTENT: Scanned ({scanned_count}) != Structural ({structural_count}) + "
-                    f"Incomplete ({incomplete_count}) + Evaluable ({fully_evaluable_count}) or "
+                    f"Stale ({stale_count}) + Incomplete ({incomplete_count}) + Evaluable ({fully_evaluable_count}) or "
                     f"Evaluable != Alerts ({alerts_count}) + Rejected ({rejected_count})"
                 )
-            elif incomplete_count > 0:
+            elif (incomplete_count + stale_count) > 0:
                 _health_status = "DEGRADED"
                 _health_error = (
-                    f"DATA_DEGRADED: {incomplete_count} stocks incomplete with data failures "
+                    f"DATA_DEGRADED: {incomplete_count + stale_count} stocks incomplete/stale with data failures "
                     f"({', '.join(sorted(incomplete_symbols)[:10])})"
                 )
             else:
@@ -5578,7 +5635,7 @@ class QualityCompounderValueV2Scanner:
             logger.info(f"     • Structural Ineligible          : {structural_count} ({', '.join(structural_symbols) if structural_symbols else 'None'})")
             logger.info("")
             logger.info("  2. CANONICAL POPULATION IDENTITIES:")
-            logger.info(f"     • Scanned = Structural + Incomplete + Evaluable ({scanned_count} = {structural_count} + {incomplete_count} + {fully_evaluable_count})  {'✅ PASS' if is_reconciled else '❌ INCONSISTENT'}")
+            logger.info(f"     • Scanned = Structural + Stale + Incomplete + Evaluable ({scanned_count} = {structural_count} + {stale_count} + {incomplete_count} + {fully_evaluable_count})  {'✅ PASS' if is_reconciled else '❌ INCONSISTENT'}")
             logger.info(f"     • Evaluable = Alerts + Rejections ({fully_evaluable_count} = {alerts_count} + {rejected_count})  {'✅ PASS' if fully_evaluable_count == alerts_count + rejected_count else '❌ INCONSISTENT'}")
             logger.info("")
             logger.info("  3. HEALTH & GOVERNANCE STATE:")

@@ -1,0 +1,17 @@
+{
+  "total_scanned": 886,
+  "approved_universe": 886,
+  "structural_ineligible_count": 40,
+  "data_failure_count": 752,
+  "evaluable_universe_count": 846,
+  "fully_evaluable_count": 94,
+  "quality_evaluated": 531,
+  "quality_pass_count": 133,
+  "quality_reject_count": 464,
+  "value_evaluated": 47,
+  "value_pass_count": 3,
+  "value_reject_count": 2,
+  "candidate_count": 3,
+  "live_alerts_generated": 3,
+  "health_status": "DEGRADED"
+}

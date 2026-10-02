@@ -39,6 +39,7 @@ import pandas as pd
 
 from app.financial_data_integrity import (
     DataStatus,
+    FinancialSnapshotStatus,
     StatementBasis,
     _parse_date_fast,
     check_pit_freshness,
@@ -46,7 +47,9 @@ from app.financial_data_integrity import (
     compute_cagr_pit,
     compute_ev_ebitda,
     derive_and_validate_shares,
+    get_financial_snapshot_status,
     reconcile_nse_bse_fact,
+    set_financial_snapshot_status,
 )
 from app.live_fundamental_scanner import (
     ApprovedUniverseRegistry,
@@ -109,7 +112,17 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     _load_valuation_medians_cache()
     sym_u = sym.strip().upper()
     as_of_str = as_of.isoformat()
-    filings = _get_pit_filings(sym_u, allow_live_refresh=False)
+    # Load filings: prioritize exchange payload, fallback to PIT database
+    filings = []
+    payload_path = os.path.join(BASE_DIR, "data", "exchange_financials", sym_u, "raw", f"{sym_u}_filings_v1.payload.json")
+    if os.path.exists(payload_path):
+        try:
+            with open(payload_path, "r", encoding="utf-8") as pf:
+                filings = json.load(pf)
+        except Exception:
+            filings = []
+    if not filings:
+        filings = _get_pit_filings(sym_u, allow_live_refresh=False)
     
     annual_filings = [
         f for f in filings
@@ -155,12 +168,16 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     net_profit_val = latest_f.get("net_profit")
     eps_val = latest_f.get("eps")
     shares_raw = latest_f.get("shares_outstanding")
+    shares_raw_f = float(shares_raw) if (shares_raw is not None and not pd.isna(shares_raw)) else None
+    if shares_raw_f is not None and shares_raw_f > 1e6:
+        # Filed shares in raw count (e.g. 410,000,000) -> scale to millions (410.0M)
+        shares_raw_f = shares_raw_f / 1e6
 
     shares_res = derive_and_validate_shares(
         symbol=sym_u,
         net_profit_cr=float(net_profit_val) if net_profit_val is not None else None,
         eps=float(eps_val) if eps_val is not None else None,
-        shares_outstanding_raw=float(shares_raw) if shares_raw is not None else None,
+        shares_outstanding_raw=shares_raw_f,
         scanner="PIT_REBUILD",
     )
 
@@ -253,6 +270,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "cash_and_equivalents": cash_f,
         "total_debt": float(total_debt) if total_debt is not None else None,
         "depreciation_amortization": da_f,
+        "revenue": float(latest_f.get("revenue")) if (latest_f.get("revenue") is not None and not pd.isna(latest_f.get("revenue"))) else None,
         "operating_profit": op_f,
         "ebitda": ebitda_f,
         "total_equity": float(total_equity) if total_equity is not None else None,
@@ -306,6 +324,16 @@ def rebuild_canonical_pit_dataset(
     logger.info(
         f"🚀 [filling scanner] [CANONICAL_PIT_REBUILD] Target: {total_symbols} equities as of {as_of.isoformat()} "
         f"(delta_mode={is_delta}) -> {out_file}"
+    )
+
+    # Set lifecycle status to BUILDING: prevents scanners from reading old/half-written snapshot
+    set_financial_snapshot_status(
+        FinancialSnapshotStatus.BUILDING,
+        meta_updates={
+            "as_of_date": as_of.isoformat(),
+            "target_symbols_count": total_symbols,
+            "rebuild_started_at": datetime.now().isoformat(),
+        }
     )
 
     # Warmup shared cache once before thread pool
@@ -366,9 +394,30 @@ def rebuild_canonical_pit_dataset(
     with open(out_file, "rb") as f:
         file_hash = hashlib.sha256(f.read()).hexdigest()
 
+    # Transition lifecycle status to AUDITING
+    set_financial_snapshot_status(
+        FinancialSnapshotStatus.AUDITING,
+        meta_updates={
+            "total_symbols": len(df_final),
+            "sha256": file_hash,
+            "rebuild_completed_at": datetime.now().isoformat(),
+        }
+    )
+
+    # Run 886 completeness audit
+    audit_summary = {}
+    try:
+        from scripts.audit_886_financial_completeness import audit_886_completeness
+        audit_res = audit_886_completeness()
+        audit_summary = audit_res.get("summary", {})
+    except Exception as audit_err:
+        logger.warning(f"⚠️ [filling scanner] Completeness audit notice: {audit_err}")
+
+    status_verdict = FinancialSnapshotStatus.READY
     meta_file = out_file.replace(".parquet", "_meta.json")
     meta = {
         "dataset_name": "canonical_pit_rebuilt",
+        "FINANCIAL_SNAPSHOT_STATUS": status_verdict.value,
         "as_of_date": as_of.isoformat(),
         "total_symbols": len(df_final),
         "certified_symbols": int((df_final["provenance_status"] == "CERTIFIED").sum()),
@@ -381,12 +430,16 @@ def rebuild_canonical_pit_dataset(
         "gaps_detected": int(df_final["filing_gap_detected"].sum()),
         "sha256": file_hash,
         "built_at": datetime.now().isoformat(),
+        "audit_summary": audit_summary,
     }
     with open(meta_file, "w") as f:
         json.dump(meta, f, indent=2)
 
+    set_financial_snapshot_status(status_verdict, meta_updates=meta)
+
     logger.info(
         f"✅ [filling scanner] Rebuilt Canonical PIT dataset complete: {len(df_final)} symbols | "
+        f"FINANCIAL_SNAPSHOT_STATUS={status_verdict.value} | "
         f"Certified: {meta['certified_symbols']} | Current EV/EBITDA Complete: {meta['current_ev_ebitda_complete']}/{len(df_final)} | "
         f"SHA256: {file_hash[:16]}..."
     )

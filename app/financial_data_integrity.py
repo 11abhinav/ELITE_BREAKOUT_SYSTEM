@@ -1893,6 +1893,17 @@ class SnapshotFreshnessStatus(str, Enum):
     DATA_INSUFFICIENT = "DATA_INSUFFICIENT"
 
 
+class FinancialSnapshotStatus(str, Enum):
+    """Lifecycle synchronization status for the shared financial snapshot layer."""
+    NOT_INITIALIZED = "NOT_INITIALIZED"
+    BUILDING        = "BUILDING"
+    AUDITING        = "AUDITING"
+    READY           = "READY"
+    INCOMPLETE      = "INCOMPLETE"
+    STALE           = "STALE"
+    FAILED          = "FAILED"
+
+
 @dataclass
 class SharedFinancialSnapshot:
     """
@@ -2342,6 +2353,56 @@ def load_shared_financial_snapshot(
         provenance_status="UNCERTIFIED",
         validation_reasons=["SYMBOL_NOT_FOUND_IN_SHARED_SNAPSHOT"],
     )
+
+
+def get_financial_snapshot_status(data_dir: Optional[str] = None) -> Tuple[FinancialSnapshotStatus, Dict[str, Any]]:
+    """
+    Reads authoritative canonical snapshot metadata to determine lifecycle readiness.
+    Enforces that scanners CANNOT read or execute while snapshot is BUILDING or uncertified.
+    """
+    base = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    meta_path = os.path.join(base, "canonical_pit_rebuilt_meta.json")
+    if not os.path.exists(meta_path):
+        return FinancialSnapshotStatus.NOT_INITIALIZED, {}
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        status_str = meta.get("FINANCIAL_SNAPSHOT_STATUS") or meta.get("snapshot_status") or "NOT_INITIALIZED"
+        try:
+            return FinancialSnapshotStatus(status_str), meta
+        except ValueError:
+            return FinancialSnapshotStatus.INCOMPLETE, meta
+    except Exception as e:
+        logger.error(f"Error reading canonical snapshot metadata: {e}")
+        return FinancialSnapshotStatus.FAILED, {}
+
+
+def set_financial_snapshot_status(
+    status: FinancialSnapshotStatus,
+    meta_updates: Optional[Dict[str, Any]] = None,
+    data_dir: Optional[str] = None
+) -> None:
+    """
+    Atomically updates the snapshot lifecycle status in canonical_pit_rebuilt_meta.json.
+    """
+    base = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    meta_path = os.path.join(base, "canonical_pit_rebuilt_meta.json")
+    meta = {}
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+        except Exception:
+            meta = {}
+    meta["FINANCIAL_SNAPSHOT_STATUS"] = status.value
+    meta["snapshot_status_updated_at"] = datetime.now().isoformat()
+    if meta_updates:
+        meta.update(meta_updates)
+    tmp_meta = f"{meta_path}.tmp.{os.getpid()}"
+    with open(tmp_meta, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    os.replace(tmp_meta, meta_path)
+
 
 
 
