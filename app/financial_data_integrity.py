@@ -1992,6 +1992,7 @@ class SharedFinancialSnapshot:
             "debt_to_equity": self.debt_equity,
             "debt_equity": self.debt_equity,
             "shares_outstanding_m": self.shares_outstanding_m,
+            "shares_outstanding": (self.shares_outstanding_m * 1e6) if self.shares_outstanding_m is not None else None,
             "shares_status": self.shares_status,
             "shares_scaling_applied": self.shares_scaling_applied,
             "cash_and_equivalents": self.cash_and_equivalents,

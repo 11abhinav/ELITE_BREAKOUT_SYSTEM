@@ -4843,6 +4843,12 @@ class QualityCompounderValueV2Scanner:
                 ),
                 "structural_reason": _struct_rsn,
                 "data_failure_reason": "; ".join(_df_rsns) if _df_rsns else None,
+                "cash_and_equivalents": row.get("cash_and_equivalents"),
+                "shares_outstanding": row.get("shares_outstanding"),
+                "total_debt": row.get("total_debt"),
+                "ebitda": row.get("ebitda"),
+                "net_profit": row.get("net_profit", row.get("pat")),
+                "revenue": row.get("revenue"),
             }
 
             snapshot_rec = {
@@ -5490,6 +5496,46 @@ class QualityCompounderValueV2Scanner:
             else:
                 for cand in candidate_records:
                     # Pre-BUY Data Integrity Gate (C18 / C39)
+                    fin_metrics = {
+                        "roce_5y_avg": FieldProvenance(
+                            symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="roce_5y_avg",
+                            value_used=cand.get("context", {}).get("roce_5y_avg"), unit="PERCENT",
+                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                            basis="CONSOLIDATED",
+                            source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                        ),
+                        "cfo_pat_5y_ratio": FieldProvenance(
+                            symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="cfo_pat_5y_ratio",
+                            value_used=cand.get("context", {}).get("cfo_pat_5y_ratio"), unit="RATIO",
+                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                            basis="CONSOLIDATED",
+                            source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                        ),
+                        "current_ev_ebitda": FieldProvenance(
+                            symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="current_ev_ebitda",
+                            value_used=cand.get("context", {}).get("current_ev_ebitda"), unit="RATIO",
+                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                            basis="CONSOLIDATED",
+                            source_used="STATEMENT_FILINGS", validation_status="PASSED"
+                        ),
+                    }
+                    if cand.get("context", {}).get("cash_and_equivalents") is not None:
+                        fin_metrics["cash_and_equivalents"] = FieldProvenance(
+                            symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="cash_and_equivalents",
+                            value_used=cand.get("context", {}).get("cash_and_equivalents"), unit="INR_CRORE",
+                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                            basis="CONSOLIDATED",
+                            source_used="EXCHANGE_FILINGS", validation_status="PASSED"
+                        )
+                    if cand.get("context", {}).get("shares_outstanding") is not None:
+                        fin_metrics["shares_outstanding"] = FieldProvenance(
+                            symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="shares_outstanding",
+                            value_used=cand.get("context", {}).get("shares_outstanding"), unit="NUMBER",
+                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                            basis="CONSOLIDATED",
+                            source_used="EXCHANGE_FILINGS", validation_status="PASSED"
+                        )
+
                     c_bundle = BUYEvidenceBundle(
                         scan_run_id=getattr(exec_run_ctx, "run_id", "QC_RUN") if exec_run_ctx else "QC_RUN",
                         scanner="QUALITY_COMPOUNDER",
@@ -5497,29 +5543,7 @@ class QualityCompounderValueV2Scanner:
                         cmp=cand.get("current_price"),
                         strategy_score=cand.get("ranking_score"),
                         gate_results={"QUALITY": True, "VALUATION": True},
-                        financial_metrics={
-                            "roce_5y_avg": FieldProvenance(
-                                symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="roce_5y_avg",
-                                value_used=cand.get("context", {}).get("roce_5y_avg"), unit="PERCENT",
-                                period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                                basis="CONSOLIDATED",
-                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
-                            ),
-                            "cfo_pat_5y_ratio": FieldProvenance(
-                                symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="cfo_pat_5y_ratio",
-                                value_used=cand.get("context", {}).get("cfo_pat_5y_ratio"), unit="RATIO",
-                                period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                                basis="CONSOLIDATED",
-                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
-                            ),
-                            "current_ev_ebitda": FieldProvenance(
-                                symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="current_ev_ebitda",
-                                value_used=cand.get("context", {}).get("current_ev_ebitda"), unit="RATIO",
-                                period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                                basis="CONSOLIDATED",
-                                source_used="STATEMENT_FILINGS", validation_status="PASSED"
-                            ),
-                        },
+                        financial_metrics=fin_metrics,
                         data_integrity_status=DataStatus.VALID,
                         financial_provenance_complete=True,
                         pit_valid=True,
