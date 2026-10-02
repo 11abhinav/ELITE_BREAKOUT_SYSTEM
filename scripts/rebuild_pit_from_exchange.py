@@ -29,32 +29,56 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-# Ensure repository root is on sys.path
-BASE_DIR = Path(__file__).resolve().parent.parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
+BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
+    BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
+for _sp in [BASE_DIR, os.path.join(BASE_DIR, "app")]:
+    if _sp not in sys.path:
+        sys.path.insert(0, _sp)
 
 import numpy as np
 import pandas as pd
 
-from app.financial_data_integrity import (
-    DataStatus,
-    FinancialSnapshotStatus,
-    StatementBasis,
-    _parse_date_fast,
-    check_pit_freshness,
-    detect_annual_fiscal_gaps,
-    compute_cagr_pit,
-    compute_ev_ebitda,
-    derive_and_validate_shares,
-    get_financial_snapshot_status,
-    reconcile_nse_bse_fact,
-    set_financial_snapshot_status,
-)
-from app.live_fundamental_scanner import (
-    ApprovedUniverseRegistry,
-    _get_pit_filings,
-)
+try:
+    from app.financial_data_integrity import (
+        DataStatus,
+        DerivationMethod,
+        FinancialSnapshotStatus,
+        StatementBasis,
+        _parse_date_fast,
+        check_pit_freshness,
+        detect_annual_fiscal_gaps,
+        compute_cagr_pit,
+        compute_ev_ebitda,
+        derive_and_validate_shares,
+        get_financial_snapshot_status,
+        reconcile_nse_bse_fact,
+        set_financial_snapshot_status,
+    )
+    from app.live_fundamental_scanner import (
+        ApprovedUniverseRegistry,
+        _get_pit_filings,
+    )
+except ImportError:
+    from financial_data_integrity import (
+        DataStatus,
+        DerivationMethod,
+        FinancialSnapshotStatus,
+        StatementBasis,
+        _parse_date_fast,
+        check_pit_freshness,
+        detect_annual_fiscal_gaps,
+        compute_cagr_pit,
+        compute_ev_ebitda,
+        derive_and_validate_shares,
+        get_financial_snapshot_status,
+        reconcile_nse_bse_fact,
+        set_financial_snapshot_status,
+    )
+    from live_fundamental_scanner import (
+        ApprovedUniverseRegistry,
+        _get_pit_filings,
+    )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("filling scanner")
@@ -127,7 +151,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     annual_filings = [
         f for f in filings
         if str(f.get("statement_type", "")).upper() == "ANNUAL"
-        and str(f.get("basis", "CONSOLIDATED")).upper() == StatementBasis.CONSOLIDATED
+        and str(f.get("basis") or "CONSOLIDATED").upper() in (StatementBasis.CONSOLIDATED, "NONE", "")
     ]
 
     # Filter by as-of-date PIT causality (C14)
@@ -180,6 +204,16 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         shares_outstanding_raw=shares_raw_f,
         scanner="PIT_REBUILD",
     )
+
+    # Explicit Shares Governance: Identify source
+    if shares_res.derivation_method == DerivationMethod.FILED_DIRECTLY:
+        shares_source = "FILED_EXCHANGE_DATA"
+    elif shares_res.derivation_method == DerivationMethod.DERIVED_UNIT_SCALED:
+        shares_source = "FILED_UNIT_SCALED"
+    elif shares_res.derivation_method == DerivationMethod.DERIVED_FROM_NET_PROFIT_EPS:
+        shares_source = "DERIVED_FROM_EPS"
+    else:
+        shares_source = "UNAVAILABLE"
 
     # ROCE 5Y average calculation (C8)
     roce_vals = [float(f["roce"]) for f in pit_eligible_annual[-5:] if f.get("roce") is not None and not pd.isna(f.get("roce"))]
@@ -241,10 +275,13 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     ev_ebitda_3y_med = val_meta.get("ev_ebitda_3y_median")
     pe_3y_med = val_meta.get("pe_3y_median")
 
+    # Strict Certification Governance: Shares MUST be filed exchange data (direct or scaled), NEVER derived from EPS
+    is_filed_shares = shares_res.ok and shares_source in ("FILED_EXCHANGE_DATA", "FILED_UNIT_SCALED")
+
     is_certified = (
         freshness.ok
         and not has_gaps
-        and shares_res.ok
+        and is_filed_shares
         and cash_f is not None
         and total_debt is not None
         and ebitda_f is not None
@@ -266,6 +303,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "debt_to_equity": de_ratio,
         "shares_outstanding_m": shares_m,
         "shares_status": shares_res.status.value,
+        "shares_source": shares_source,
         "shares_scaling_applied": shares_res.unit_scaling_applied,
         "cash_and_equivalents": cash_f,
         "total_debt": float(total_debt) if total_debt is not None else None,
