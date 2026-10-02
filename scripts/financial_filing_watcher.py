@@ -137,10 +137,12 @@ class FinancialFilingWatcher:
         return {}
 
     def _save_state(self) -> None:
-        """Persists watcher state."""
+        """Persists watcher state atomically."""
         os.makedirs(self.state_file.parent, exist_ok=True)
-        with open(self.state_file, "w") as f:
+        tmp_state = f"{self.state_file}.tmp.{os.getpid()}"
+        with open(tmp_state, "w") as f:
             json.dump(self.state, f, indent=2)
+        os.replace(tmp_state, self.state_file)
 
     def _log_event(self, event: FilingEvent) -> None:
         """Appends event to audit log."""

@@ -193,9 +193,11 @@ def rebuild_canonical_pit_dataset(
 
     df_rebuilt = pd.DataFrame(rows)
 
-    # Save to Parquet
+    # Save to Parquet atomically (write to temp file then atomic os.replace)
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
-    df_rebuilt.to_parquet(out_file, index=False)
+    tmp_file = f"{out_file}.tmp.{os.getpid()}"
+    df_rebuilt.to_parquet(tmp_file, index=False)
+    os.replace(tmp_file, out_file)
 
     # Compute SHA256 dataset fingerprint
     with open(out_file, "rb") as f:
