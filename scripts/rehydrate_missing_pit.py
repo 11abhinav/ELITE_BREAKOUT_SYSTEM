@@ -51,13 +51,18 @@ def _last_day(y, m):
     else: return 29 if (y%4==0 and (y%100!=0 or y%400==0)) else 28
 
 def parse_header_date(col, is_quarterly=False):
-    parts = col.strip().lower().split()
-    if len(parts) != 2: return None
-    mon_s, yr_s = parts[0], parts[1]
-    if mon_s not in MONTH_MAP: return None
-    try: year = int(yr_s)
-    except Exception: return None
-    if not (2000 <= year <= 2030): return None
+    raw_col = col.strip().lower()
+    m_match = re.search(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", raw_col)
+    y_match = re.search(r"(20\d\d)", raw_col)
+    if not m_match or not y_match:
+        return None
+    mon_s = m_match.group(1)
+    try:
+        year = int(y_match.group(1))
+    except Exception:
+        return None
+    if not (2000 <= year <= 2030):
+        return None
     month = MONTH_MAP[mon_s]
     p_end = date(year, month, _last_day(year, month))
     if is_quarterly:

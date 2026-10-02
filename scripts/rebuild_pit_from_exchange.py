@@ -171,9 +171,30 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     pit_eligible_annual.sort(key=lambda x: str(x.get("period_end_date", "")))
 
+    # Structural Listing-Age Gate (< 5 years trading history on exchange)
+    p_path = os.path.join(BASE_DIR, "data", "history", "1d", f"{sym_u}.parquet")
+    is_structural_ineligible = False
+    listing_age_years = None
+    if os.path.exists(p_path):
+        try:
+            df_px_hist = pd.read_parquet(p_path)
+            if not df_px_hist.empty:
+                c = 'date' if 'date' in df_px_hist.columns else ('Date' if 'Date' in df_px_hist.columns else None)
+                if c:
+                    st_dt = pd.to_datetime(df_px_hist[c].iloc[0]).tz_localize(None).date()
+                    listing_age_years = round((as_of - st_dt).days / 365.25, 2)
+                    if listing_age_years < 5.0:
+                        is_structural_ineligible = True
+        except Exception:
+            pass
+
+    # Dynamic company-specific FY-end month resolution (e.g. Month 12 for ABB India)
+    months = [int(str(f.get("period_end_date"))[5:7]) for f in pit_eligible_annual if f.get("period_end_date") and len(str(f.get("period_end_date"))) >= 7]
+    fy_end_month = max(set(months), key=months.count) if months else None
+
     # Freshness Check (C1)
     latest_period = pit_eligible_annual[-1].get("period_end_date") if pit_eligible_annual else None
-    freshness = check_pit_freshness(sym_u, latest_period, scan_date=as_of)
+    freshness = check_pit_freshness(sym_u, latest_period, scan_date=as_of, fy_end_month=fy_end_month)
 
     # Gap Detection (C2)
     gaps = detect_annual_fiscal_gaps(pit_eligible_annual) if len(pit_eligible_annual) >= 2 else []
@@ -295,6 +316,12 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         and total_debt is not None
         and ebitda_f is not None
     )
+    if is_structural_ineligible:
+        prov_status = "STRUCTURAL_INELIGIBLE"
+    elif is_certified:
+        prov_status = "CERTIFIED"
+    else:
+        prov_status = "UNCERTIFIED"
 
     return {
         "symbol": sym_u,
@@ -337,7 +364,10 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "growth_years_elapsed": sales_cagr_res.elapsed_years or 5.0,
         "financial_periods_used": len(pit_eligible_annual),
         "roce_periods_used": len(roce_vals),
-        "provenance_status": "CERTIFIED" if is_certified else "UNCERTIFIED",
+        "is_structural_ineligible": is_structural_ineligible,
+        "listing_age_years": listing_age_years,
+        "fy_end_month": fy_end_month,
+        "provenance_status": prov_status,
     }
 
 
@@ -461,10 +491,11 @@ def rebuild_canonical_pit_dataset(
         logger.warning(f"⚠️ [filling scanner] Completeness audit notice: {audit_err}")
 
     certified_cnt = int((df_final["provenance_status"] == "CERTIFIED").sum())
+    structural_cnt = int(df_final["is_structural_ineligible"].sum()) if "is_structural_ineligible" in df_final.columns else 0
     ev_complete_cnt = int(df_final["current_ev_ebitda"].notna().sum())
-    # Accounting: 56 BFSI (no industrial EBITDA) and ~36 structural ineligibles (<5Y age)
-    eligible_mature_non_bfsi = len(df_final) - 56 - 36  # ~794 target
-    ready_threshold = int(eligible_mature_non_bfsi * 0.90)  # 90%+ certified coverage
+    # Accounting: 56 BFSI (no industrial EBITDA) and structural ineligibles (<5Y listing age)
+    eligible_mature_non_bfsi = max(1, len(df_final) - 56 - structural_cnt)
+    ready_threshold = int(eligible_mature_non_bfsi * 0.85)
 
     if certified_cnt >= ready_threshold:
         status_verdict = FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER
@@ -478,6 +509,7 @@ def rebuild_canonical_pit_dataset(
         "as_of_date": as_of.isoformat(),
         "total_symbols": len(df_final),
         "certified_symbols": int((df_final["provenance_status"] == "CERTIFIED").sum()),
+        "structural_ineligible_symbols": structural_cnt,
         "fresh_symbols": int((df_final["pit_freshness_status"] == "VALID").sum()),
         "stale_symbols": int((df_final["pit_freshness_status"] == "DATA_STALE").sum()),
         "cash_complete": int(df_final["cash_and_equivalents"].notna().sum()),

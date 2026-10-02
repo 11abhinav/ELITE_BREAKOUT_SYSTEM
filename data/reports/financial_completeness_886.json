@@ -15,8 +15,8 @@
     "cash_and_equivalents": 860,
     "total_equity": 883,
     "operating_cash_flow": 884,
-    "sales_cagr_5y": 709,
-    "pat_cagr_5y": 687,
+    "sales_cagr_5y": 712,
+    "pat_cagr_5y": 690,
     "roce_5y_avg": 806,
     "cfo_pat_5y_ratio": 848,
     "debt_to_equity": 882,
@@ -26,7 +26,7 @@
     "enterprise_value": 819,
     "current_ev_ebitda": 814,
     "ev_ebitda_3y_median": 879,
-    "certified": 750
+    "certified": 560
   },
   "data": [
     {
@@ -146,7 +146,7 @@
       "ev_ebitda_3y_median": 16.57,
       "current_pe": 17.67,
       "pe_3y_median": 22.52,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -326,7 +326,7 @@
       "ev_ebitda_3y_median": 32.24,
       "current_pe": 87.63,
       "pe_3y_median": 86.0,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -356,7 +356,7 @@
       "ev_ebitda_3y_median": 17.83,
       "current_pe": 30.05,
       "pe_3y_median": 25.65,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -375,10 +375,10 @@
       "cash_and_equivalents": 479.0,
       "total_equity": 20551.0,
       "operating_cash_flow": -1364.0,
-      "sales_cagr_5y": NaN,
-      "pat_cagr_5y": NaN,
-      "roce_5y_avg": 16.0,
-      "cfo_pat_5y_ratio": 0.83,
+      "sales_cagr_5y": 12.82,
+      "pat_cagr_5y": 7.96,
+      "roce_5y_avg": 14.6,
+      "cfo_pat_5y_ratio": 0.51,
       "debt_to_equity": 0.02,
       "market_cap": 23244.32,
       "enterprise_value": 23194.32,
@@ -386,7 +386,7 @@
       "ev_ebitda_3y_median": 8.85,
       "current_pe": 10.86,
       "pe_3y_median": 15.52,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "CERTIFIED",
       "failure_reasons": "NONE"
     },
     {
@@ -446,7 +446,7 @@
       "ev_ebitda_3y_median": 16.26,
       "current_pe": 36.92,
       "pe_3y_median": 22.92,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -506,7 +506,7 @@
       "ev_ebitda_3y_median": 16.74,
       "current_pe": 53.82,
       "pe_3y_median": 53.15,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -866,7 +866,7 @@
       "ev_ebitda_3y_median": 42.52,
       "current_pe": 102.68,
       "pe_3y_median": 112.35,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -896,7 +896,7 @@
       "ev_ebitda_3y_median": 13.67,
       "current_pe": 22.12,
       "pe_3y_median": 18.42,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -926,7 +926,7 @@
       "ev_ebitda_3y_median": 31.23,
       "current_pe": 125.17,
       "pe_3y_median": 55.41,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -956,7 +956,7 @@
       "ev_ebitda_3y_median": 50.95,
       "current_pe": 135.09,
       "pe_3y_median": 86.49,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1016,7 +1016,7 @@
       "ev_ebitda_3y_median": 11.97,
       "current_pe": 10.57,
       "pe_3y_median": 12.13,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1046,7 +1046,7 @@
       "ev_ebitda_3y_median": 26.06,
       "current_pe": 34.86,
       "pe_3y_median": 40.59,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1136,7 +1136,7 @@
       "ev_ebitda_3y_median": 10.18,
       "current_pe": 24.63,
       "pe_3y_median": 9.53,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -1166,7 +1166,7 @@
       "ev_ebitda_3y_median": 37.75,
       "current_pe": 84.73,
       "pe_3y_median": 59.78,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1226,7 +1226,7 @@
       "ev_ebitda_3y_median": 22.65,
       "current_pe": 30.88,
       "pe_3y_median": 28.35,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1286,7 +1286,7 @@
       "ev_ebitda_3y_median": 12.51,
       "current_pe": 50.56,
       "pe_3y_median": 23.38,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1406,7 +1406,7 @@
       "ev_ebitda_3y_median": 22.93,
       "current_pe": 10.93,
       "pe_3y_median": 36.33,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1425,10 +1425,10 @@
       "cash_and_equivalents": 253.0,
       "total_equity": 59347.0,
       "operating_cash_flow": 5362.0,
-      "sales_cagr_5y": NaN,
-      "pat_cagr_5y": NaN,
-      "roce_5y_avg": 12.2,
-      "cfo_pat_5y_ratio": 1.04,
+      "sales_cagr_5y": 10.12,
+      "pat_cagr_5y": 12.03,
+      "roce_5y_avg": 11.8,
+      "cfo_pat_5y_ratio": 0.86,
       "debt_to_equity": 0.01,
       "market_cap": 94798.6,
       "enterprise_value": 95411.6,
@@ -1436,7 +1436,7 @@
       "ev_ebitda_3y_median": 19.48,
       "current_pe": 20.06,
       "pe_3y_median": 32.62,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "CERTIFIED",
       "failure_reasons": "NONE"
     },
     {
@@ -1466,7 +1466,7 @@
       "ev_ebitda_3y_median": 17.78,
       "current_pe": 24.57,
       "pe_3y_median": 31.33,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1526,7 +1526,7 @@
       "ev_ebitda_3y_median": 49.35,
       "current_pe": 89.25,
       "pe_3y_median": 76.49,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1586,7 +1586,7 @@
       "ev_ebitda_3y_median": 40.34,
       "current_pe": 65.32,
       "pe_3y_median": 63.49,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -1646,7 +1646,7 @@
       "ev_ebitda_3y_median": 50.69,
       "current_pe": 82.88,
       "pe_3y_median": 75.32,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -2006,7 +2006,7 @@
       "ev_ebitda_3y_median": 47.94,
       "current_pe": 21.75,
       "pe_3y_median": 354.14,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "CASH_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -2036,7 +2036,7 @@
       "ev_ebitda_3y_median": 9.84,
       "current_pe": 24.11,
       "pe_3y_median": 24.78,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -2366,7 +2366,7 @@
       "ev_ebitda_3y_median": 20.36,
       "current_pe": 42.78,
       "pe_3y_median": 43.19,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -2726,7 +2726,7 @@
       "ev_ebitda_3y_median": 44.25,
       "current_pe": 137.62,
       "pe_3y_median": 105.48,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -2786,7 +2786,7 @@
       "ev_ebitda_3y_median": 29.45,
       "current_pe": 68.45,
       "pe_3y_median": 66.72,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -2816,7 +2816,7 @@
       "ev_ebitda_3y_median": 6.18,
       "current_pe": 25.98,
       "pe_3y_median": 41.95,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -2876,7 +2876,7 @@
       "ev_ebitda_3y_median": 23.89,
       "current_pe": 22.93,
       "pe_3y_median": 75.07,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -2996,7 +2996,7 @@
       "ev_ebitda_3y_median": 57.02,
       "current_pe": 132.56,
       "pe_3y_median": 123.62,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -3266,7 +3266,7 @@
       "ev_ebitda_3y_median": 27.98,
       "current_pe": 23.76,
       "pe_3y_median": 35.42,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -3416,7 +3416,7 @@
       "ev_ebitda_3y_median": 21.23,
       "current_pe": 31.26,
       "pe_3y_median": 39.75,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -3656,7 +3656,7 @@
       "ev_ebitda_3y_median": 10.57,
       "current_pe": 44.43,
       "pe_3y_median": 32.65,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -3896,7 +3896,7 @@
       "ev_ebitda_3y_median": 11.38,
       "current_pe": 31.86,
       "pe_3y_median": 31.9,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -3986,7 +3986,7 @@
       "ev_ebitda_3y_median": 14.6,
       "current_pe": 42.75,
       "pe_3y_median": 60.13,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -4016,7 +4016,7 @@
       "ev_ebitda_3y_median": 42.7,
       "current_pe": 55.72,
       "pe_3y_median": 82.6,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -4046,7 +4046,7 @@
       "ev_ebitda_3y_median": 46.75,
       "current_pe": 67.91,
       "pe_3y_median": 64.8,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -4136,7 +4136,7 @@
       "ev_ebitda_3y_median": 35.59,
       "current_pe": 51.27,
       "pe_3y_median": 45.43,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -4196,7 +4196,7 @@
       "ev_ebitda_3y_median": 0.31,
       "current_pe": 39.93,
       "pe_3y_median": 0.37,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -4286,7 +4286,7 @@
       "ev_ebitda_3y_median": 17.41,
       "current_pe": 29.7,
       "pe_3y_median": 46.86,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -4556,7 +4556,7 @@
       "ev_ebitda_3y_median": 28.39,
       "current_pe": 58.82,
       "pe_3y_median": 75.27,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -4706,7 +4706,7 @@
       "ev_ebitda_3y_median": 75.06,
       "current_pe": 9.08,
       "pe_3y_median": 10.13,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -4796,7 +4796,7 @@
       "ev_ebitda_3y_median": 12.94,
       "current_pe": 23.29,
       "pe_3y_median": 30.86,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -5006,7 +5006,7 @@
       "ev_ebitda_3y_median": 10.29,
       "current_pe": 21.46,
       "pe_3y_median": 16.4,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -5066,7 +5066,7 @@
       "ev_ebitda_3y_median": 24.02,
       "current_pe": 22.55,
       "pe_3y_median": 37.98,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -5366,7 +5366,7 @@
       "ev_ebitda_3y_median": 47.56,
       "current_pe": 76.87,
       "pe_3y_median": 83.6,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -5576,7 +5576,7 @@
       "ev_ebitda_3y_median": 8.72,
       "current_pe": 12.65,
       "pe_3y_median": 19.96,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -5756,7 +5756,7 @@
       "ev_ebitda_3y_median": 33.82,
       "current_pe": 58.28,
       "pe_3y_median": 54.65,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -5846,7 +5846,7 @@
       "ev_ebitda_3y_median": 63.92,
       "current_pe": 118.04,
       "pe_3y_median": 51.32,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6116,7 +6116,7 @@
       "ev_ebitda_3y_median": 8.34,
       "current_pe": 13.44,
       "pe_3y_median": 14.64,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6146,7 +6146,7 @@
       "ev_ebitda_3y_median": 17.77,
       "current_pe": 27.05,
       "pe_3y_median": 26.21,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6206,7 +6206,7 @@
       "ev_ebitda_3y_median": 59.42,
       "current_pe": 91.17,
       "pe_3y_median": 82.24,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6356,7 +6356,7 @@
       "ev_ebitda_3y_median": 10.17,
       "current_pe": 13.14,
       "pe_3y_median": 15.2,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6386,7 +6386,7 @@
       "ev_ebitda_3y_median": 13.32,
       "current_pe": 59.8,
       "pe_3y_median": 51.01,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6536,7 +6536,7 @@
       "ev_ebitda_3y_median": 22.25,
       "current_pe": 32.0,
       "pe_3y_median": 30.42,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6806,7 +6806,7 @@
       "ev_ebitda_3y_median": 43.77,
       "current_pe": 40.13,
       "pe_3y_median": 36.22,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6836,7 +6836,7 @@
       "ev_ebitda_3y_median": 38.27,
       "current_pe": 54.92,
       "pe_3y_median": 74.57,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6896,7 +6896,7 @@
       "ev_ebitda_3y_median": 22.39,
       "current_pe": 58.5,
       "pe_3y_median": 75.19,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -6986,7 +6986,7 @@
       "ev_ebitda_3y_median": 15.66,
       "current_pe": 26.22,
       "pe_3y_median": 31.09,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7016,7 +7016,7 @@
       "ev_ebitda_3y_median": 30.71,
       "current_pe": 57.92,
       "pe_3y_median": 48.49,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7106,7 +7106,7 @@
       "ev_ebitda_3y_median": 7.5,
       "current_pe": 11.48,
       "pe_3y_median": 16.9,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7166,7 +7166,7 @@
       "ev_ebitda_3y_median": 15.06,
       "current_pe": 19.08,
       "pe_3y_median": 22.78,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7376,7 +7376,7 @@
       "ev_ebitda_3y_median": 34.08,
       "current_pe": 49.73,
       "pe_3y_median": 44.67,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7436,7 +7436,7 @@
       "ev_ebitda_3y_median": 16.48,
       "current_pe": 40.0,
       "pe_3y_median": 39.99,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7466,7 +7466,7 @@
       "ev_ebitda_3y_median": 3.89,
       "current_pe": 20.61,
       "pe_3y_median": 3.81,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7496,7 +7496,7 @@
       "ev_ebitda_3y_median": 13.78,
       "current_pe": 21.77,
       "pe_3y_median": 19.56,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7526,7 +7526,7 @@
       "ev_ebitda_3y_median": 41.7,
       "current_pe": 50.19,
       "pe_3y_median": 71.68,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7616,7 +7616,7 @@
       "ev_ebitda_3y_median": 13.24,
       "current_pe": 26.64,
       "pe_3y_median": 26.18,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7796,7 +7796,7 @@
       "ev_ebitda_3y_median": 24.94,
       "current_pe": 28.27,
       "pe_3y_median": 35.61,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -7946,7 +7946,7 @@
       "ev_ebitda_3y_median": 105.23,
       "current_pe": 16.52,
       "pe_3y_median": 19.38,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -8096,7 +8096,7 @@
       "ev_ebitda_3y_median": 7.0,
       "current_pe": 14.0,
       "pe_3y_median": 10.55,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -8126,7 +8126,7 @@
       "ev_ebitda_3y_median": 13.38,
       "current_pe": 17.92,
       "pe_3y_median": 25.74,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -8426,7 +8426,7 @@
       "ev_ebitda_3y_median": 20.86,
       "current_pe": 41.44,
       "pe_3y_median": 38.39,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -8516,7 +8516,7 @@
       "ev_ebitda_3y_median": 8.23,
       "current_pe": 18.92,
       "pe_3y_median": 15.09,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -8636,7 +8636,7 @@
       "ev_ebitda_3y_median": 23.36,
       "current_pe": 13.43,
       "pe_3y_median": 31.96,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -8666,7 +8666,7 @@
       "ev_ebitda_3y_median": 126.61,
       "current_pe": 66.41,
       "pe_3y_median": 510.6,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -8876,7 +8876,7 @@
       "ev_ebitda_3y_median": 10.69,
       "current_pe": 12.28,
       "pe_3y_median": 14.87,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9116,7 +9116,7 @@
       "ev_ebitda_3y_median": 8.99,
       "current_pe": 13.35,
       "pe_3y_median": 5.47,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9236,7 +9236,7 @@
       "ev_ebitda_3y_median": 24.94,
       "current_pe": 28.21,
       "pe_3y_median": 49.16,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9296,7 +9296,7 @@
       "ev_ebitda_3y_median": 223.25,
       "current_pe": 43.07,
       "pe_3y_median": 77.86,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9536,7 +9536,7 @@
       "ev_ebitda_3y_median": 25.56,
       "current_pe": 44.15,
       "pe_3y_median": 48.14,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9626,7 +9626,7 @@
       "ev_ebitda_3y_median": 14.99,
       "current_pe": 31.31,
       "pe_3y_median": 29.49,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9836,7 +9836,7 @@
       "ev_ebitda_3y_median": 13.53,
       "current_pe": 56.34,
       "pe_3y_median": 18.88,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9896,7 +9896,7 @@
       "ev_ebitda_3y_median": 18.33,
       "current_pe": 45.61,
       "pe_3y_median": 28.06,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -9986,7 +9986,7 @@
       "ev_ebitda_3y_median": 47.5,
       "current_pe": 97.43,
       "pe_3y_median": 89.95,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -10196,7 +10196,7 @@
       "ev_ebitda_3y_median": 22.06,
       "current_pe": 64.54,
       "pe_3y_median": 41.06,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -10226,7 +10226,7 @@
       "ev_ebitda_3y_median": 7.9,
       "current_pe": 14.09,
       "pe_3y_median": 20.52,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -10256,7 +10256,7 @@
       "ev_ebitda_3y_median": 16.9,
       "current_pe": 27.1,
       "pe_3y_median": 37.26,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -10436,7 +10436,7 @@
       "ev_ebitda_3y_median": 17.19,
       "current_pe": 23.71,
       "pe_3y_median": 26.56,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -10676,7 +10676,7 @@
       "ev_ebitda_3y_median": 20.03,
       "current_pe": 22.16,
       "pe_3y_median": 36.03,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -10976,7 +10976,7 @@
       "ev_ebitda_3y_median": 78.78,
       "current_pe": 75.69,
       "pe_3y_median": 123.37,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -11156,7 +11156,7 @@
       "ev_ebitda_3y_median": 16.05,
       "current_pe": 31.64,
       "pe_3y_median": 31.53,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -11456,7 +11456,7 @@
       "ev_ebitda_3y_median": 31.84,
       "current_pe": 43.2,
       "pe_3y_median": 56.52,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -11516,7 +11516,7 @@
       "ev_ebitda_3y_median": 21.44,
       "current_pe": 36.57,
       "pe_3y_median": 34.28,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -11666,7 +11666,7 @@
       "ev_ebitda_3y_median": 18.53,
       "current_pe": 14.14,
       "pe_3y_median": 25.02,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "CASH_MISSING; DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -11726,7 +11726,7 @@
       "ev_ebitda_3y_median": 13.5,
       "current_pe": 28.71,
       "pe_3y_median": 16.29,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -11966,7 +11966,7 @@
       "ev_ebitda_3y_median": 22.82,
       "current_pe": 52.01,
       "pe_3y_median": 38.49,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -11996,7 +11996,7 @@
       "ev_ebitda_3y_median": 37.16,
       "current_pe": 75.92,
       "pe_3y_median": 51.98,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12086,7 +12086,7 @@
       "ev_ebitda_3y_median": 19.24,
       "current_pe": 21.44,
       "pe_3y_median": 28.23,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12146,7 +12146,7 @@
       "ev_ebitda_3y_median": 24.3,
       "current_pe": 43.18,
       "pe_3y_median": 38.69,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12296,7 +12296,7 @@
       "ev_ebitda_3y_median": 19.48,
       "current_pe": 16.97,
       "pe_3y_median": 27.12,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "CASH_MISSING; DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -12416,7 +12416,7 @@
       "ev_ebitda_3y_median": 9.38,
       "current_pe": 12.53,
       "pe_3y_median": 13.22,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12566,7 +12566,7 @@
       "ev_ebitda_3y_median": 34.33,
       "current_pe": 28.37,
       "pe_3y_median": 55.44,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12626,7 +12626,7 @@
       "ev_ebitda_3y_median": 10.82,
       "current_pe": 18.56,
       "pe_3y_median": 19.17,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12686,7 +12686,7 @@
       "ev_ebitda_3y_median": 392.53,
       "current_pe": 13.22,
       "pe_3y_median": 281.65,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12746,7 +12746,7 @@
       "ev_ebitda_3y_median": 20.23,
       "current_pe": 35.39,
       "pe_3y_median": 29.29,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -12956,7 +12956,7 @@
       "ev_ebitda_3y_median": 28.16,
       "current_pe": 44.87,
       "pe_3y_median": 51.48,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13016,7 +13016,7 @@
       "ev_ebitda_3y_median": 28.33,
       "current_pe": 36.3,
       "pe_3y_median": 47.07,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13106,7 +13106,7 @@
       "ev_ebitda_3y_median": 52.13,
       "current_pe": 28.49,
       "pe_3y_median": 94.88,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13166,7 +13166,7 @@
       "ev_ebitda_3y_median": 24.49,
       "current_pe": 49.94,
       "pe_3y_median": 47.9,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13226,7 +13226,7 @@
       "ev_ebitda_3y_median": 17.08,
       "current_pe": 26.19,
       "pe_3y_median": 31.33,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13376,7 +13376,7 @@
       "ev_ebitda_3y_median": 45.0,
       "current_pe": 72.11,
       "pe_3y_median": 74.07,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13436,7 +13436,7 @@
       "ev_ebitda_3y_median": 2.27,
       "current_pe": 8.4,
       "pe_3y_median": 7.39,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13586,7 +13586,7 @@
       "ev_ebitda_3y_median": 84.58,
       "current_pe": 67.24,
       "pe_3y_median": 148.72,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -13976,7 +13976,7 @@
       "ev_ebitda_3y_median": 55.49,
       "current_pe": 35.09,
       "pe_3y_median": 105.87,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14036,7 +14036,7 @@
       "ev_ebitda_3y_median": 38.96,
       "current_pe": 88.87,
       "pe_3y_median": 67.07,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14096,7 +14096,7 @@
       "ev_ebitda_3y_median": 40.25,
       "current_pe": 129.16,
       "pe_3y_median": 57.85,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14186,7 +14186,7 @@
       "ev_ebitda_3y_median": 15.67,
       "current_pe": 8.29,
       "pe_3y_median": 23.83,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14426,7 +14426,7 @@
       "ev_ebitda_3y_median": 40.74,
       "current_pe": 49.33,
       "pe_3y_median": 70.97,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14456,7 +14456,7 @@
       "ev_ebitda_3y_median": 38.68,
       "current_pe": 36.39,
       "pe_3y_median": 72.9,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14486,7 +14486,7 @@
       "ev_ebitda_3y_median": 64.13,
       "current_pe": 112.34,
       "pe_3y_median": 98.23,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14516,7 +14516,7 @@
       "ev_ebitda_3y_median": 13.91,
       "current_pe": 31.29,
       "pe_3y_median": 24.42,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14816,7 +14816,7 @@
       "ev_ebitda_3y_median": 19.96,
       "current_pe": 37.77,
       "pe_3y_median": 40.66,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14906,7 +14906,7 @@
       "ev_ebitda_3y_median": 31.39,
       "current_pe": 69.49,
       "pe_3y_median": 49.61,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -14966,7 +14966,7 @@
       "ev_ebitda_3y_median": 12.25,
       "current_pe": 9.01,
       "pe_3y_median": 12.13,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -15015,10 +15015,10 @@
       "cash_and_equivalents": 112.0,
       "total_equity": 4266.0,
       "operating_cash_flow": 786.0,
-      "sales_cagr_5y": NaN,
-      "pat_cagr_5y": NaN,
-      "roce_5y_avg": 15.8,
-      "cfo_pat_5y_ratio": 1.3,
+      "sales_cagr_5y": 10.9,
+      "pat_cagr_5y": 27.9,
+      "roce_5y_avg": 18.0,
+      "cfo_pat_5y_ratio": 1.22,
       "debt_to_equity": 0.02,
       "market_cap": 52211.25,
       "enterprise_value": 52178.25,
@@ -15026,7 +15026,7 @@
       "ev_ebitda_3y_median": 61.49,
       "current_pe": 95.42,
       "pe_3y_median": 120.34,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "CERTIFIED",
       "failure_reasons": "NONE"
     },
     {
@@ -15056,7 +15056,7 @@
       "ev_ebitda_3y_median": 32.21,
       "current_pe": 28.1,
       "pe_3y_median": 45.35,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -15116,7 +15116,7 @@
       "ev_ebitda_3y_median": 25.09,
       "current_pe": 44.95,
       "pe_3y_median": 30.61,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -15656,7 +15656,7 @@
       "ev_ebitda_3y_median": 31.53,
       "current_pe": 53.41,
       "pe_3y_median": 51.94,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -15686,7 +15686,7 @@
       "ev_ebitda_3y_median": 40.7,
       "current_pe": 49.72,
       "pe_3y_median": 73.0,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -15716,7 +15716,7 @@
       "ev_ebitda_3y_median": 25.04,
       "current_pe": 31.23,
       "pe_3y_median": 47.28,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -15746,7 +15746,7 @@
       "ev_ebitda_3y_median": 52.56,
       "current_pe": 36.0,
       "pe_3y_median": 67.63,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -16106,7 +16106,7 @@
       "ev_ebitda_3y_median": 19.1,
       "current_pe": 27.15,
       "pe_3y_median": 43.49,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -16136,7 +16136,7 @@
       "ev_ebitda_3y_median": 34.39,
       "current_pe": 58.45,
       "pe_3y_median": 82.6,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -16286,7 +16286,7 @@
       "ev_ebitda_3y_median": 22.82,
       "current_pe": 32.05,
       "pe_3y_median": 36.06,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -16436,7 +16436,7 @@
       "ev_ebitda_3y_median": 12.26,
       "current_pe": 15.87,
       "pe_3y_median": 17.77,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -16466,7 +16466,7 @@
       "ev_ebitda_3y_median": 32.94,
       "current_pe": 119.78,
       "pe_3y_median": 53.84,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -16526,7 +16526,7 @@
       "ev_ebitda_3y_median": 51.65,
       "current_pe": 112.13,
       "pe_3y_median": 116.82,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -16856,7 +16856,7 @@
       "ev_ebitda_3y_median": 13.14,
       "current_pe": 25.49,
       "pe_3y_median": 19.05,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17216,7 +17216,7 @@
       "ev_ebitda_3y_median": 104.83,
       "current_pe": 125.73,
       "pe_3y_median": 157.34,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17306,7 +17306,7 @@
       "ev_ebitda_3y_median": 20.33,
       "current_pe": 37.3,
       "pe_3y_median": 39.67,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17366,7 +17366,7 @@
       "ev_ebitda_3y_median": 11.69,
       "current_pe": 11.78,
       "pe_3y_median": 22.59,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17396,7 +17396,7 @@
       "ev_ebitda_3y_median": 29.61,
       "current_pe": 41.13,
       "pe_3y_median": 42.68,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17546,7 +17546,7 @@
       "ev_ebitda_3y_median": 8.3,
       "current_pe": 11.97,
       "pe_3y_median": 11.95,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "CASH_MISSING; DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -17726,7 +17726,7 @@
       "ev_ebitda_3y_median": 15.08,
       "current_pe": 29.4,
       "pe_3y_median": 28.97,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17756,7 +17756,7 @@
       "ev_ebitda_3y_median": 110.31,
       "current_pe": 476.71,
       "pe_3y_median": 1527.73,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17816,7 +17816,7 @@
       "ev_ebitda_3y_median": 26.99,
       "current_pe": 89.04,
       "pe_3y_median": 44.45,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -17996,7 +17996,7 @@
       "ev_ebitda_3y_median": 23.28,
       "current_pe": 13.32,
       "pe_3y_median": 34.58,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18116,7 +18116,7 @@
       "ev_ebitda_3y_median": 1.51,
       "current_pe": 26.66,
       "pe_3y_median": 3.45,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18146,7 +18146,7 @@
       "ev_ebitda_3y_median": 10.15,
       "current_pe": 8.33,
       "pe_3y_median": 14.62,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18176,7 +18176,7 @@
       "ev_ebitda_3y_median": 8.06,
       "current_pe": 12.06,
       "pe_3y_median": 12.84,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18266,7 +18266,7 @@
       "ev_ebitda_3y_median": 10.11,
       "current_pe": 16.2,
       "pe_3y_median": 20.59,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18386,7 +18386,7 @@
       "ev_ebitda_3y_median": 17.14,
       "current_pe": 41.83,
       "pe_3y_median": 28.56,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18716,7 +18716,7 @@
       "ev_ebitda_3y_median": 28.78,
       "current_pe": 43.94,
       "pe_3y_median": 53.87,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18866,7 +18866,7 @@
       "ev_ebitda_3y_median": 22.27,
       "current_pe": 22.27,
       "pe_3y_median": 29.74,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -18956,7 +18956,7 @@
       "ev_ebitda_3y_median": 23.29,
       "current_pe": 20.05,
       "pe_3y_median": 38.31,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19256,7 +19256,7 @@
       "ev_ebitda_3y_median": 21.12,
       "current_pe": 26.89,
       "pe_3y_median": 49.6,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19316,7 +19316,7 @@
       "ev_ebitda_3y_median": 28.61,
       "current_pe": 27.88,
       "pe_3y_median": 33.92,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19376,7 +19376,7 @@
       "ev_ebitda_3y_median": 34.45,
       "current_pe": 57.76,
       "pe_3y_median": 57.02,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19466,7 +19466,7 @@
       "ev_ebitda_3y_median": 120.18,
       "current_pe": 96.86,
       "pe_3y_median": 87.16,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19496,7 +19496,7 @@
       "ev_ebitda_3y_median": 12.07,
       "current_pe": 40.62,
       "pe_3y_median": 41.45,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19706,7 +19706,7 @@
       "ev_ebitda_3y_median": 16.95,
       "current_pe": 49.69,
       "pe_3y_median": 39.51,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19766,7 +19766,7 @@
       "ev_ebitda_3y_median": 29.69,
       "current_pe": 50.32,
       "pe_3y_median": 55.39,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19826,7 +19826,7 @@
       "ev_ebitda_3y_median": 2.46,
       "current_pe": 41.48,
       "pe_3y_median": 2.05,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -19946,7 +19946,7 @@
       "ev_ebitda_3y_median": 25.93,
       "current_pe": 27.83,
       "pe_3y_median": 45.64,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20066,7 +20066,7 @@
       "ev_ebitda_3y_median": 55.77,
       "current_pe": 41.44,
       "pe_3y_median": 128.24,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20156,7 +20156,7 @@
       "ev_ebitda_3y_median": 16.11,
       "current_pe": 33.65,
       "pe_3y_median": 35.63,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20306,7 +20306,7 @@
       "ev_ebitda_3y_median": 56.77,
       "current_pe": 241.43,
       "pe_3y_median": 225.65,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20366,7 +20366,7 @@
       "ev_ebitda_3y_median": 59.79,
       "current_pe": 142.34,
       "pe_3y_median": 100.73,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20426,7 +20426,7 @@
       "ev_ebitda_3y_median": 9.54,
       "current_pe": 21.2,
       "pe_3y_median": 14.38,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20456,7 +20456,7 @@
       "ev_ebitda_3y_median": 31.25,
       "current_pe": 58.1,
       "pe_3y_median": 55.24,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20516,7 +20516,7 @@
       "ev_ebitda_3y_median": 42.53,
       "current_pe": 112.13,
       "pe_3y_median": 90.13,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20576,7 +20576,7 @@
       "ev_ebitda_3y_median": 13.5,
       "current_pe": 15.21,
       "pe_3y_median": 20.07,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20636,7 +20636,7 @@
       "ev_ebitda_3y_median": 34.08,
       "current_pe": 96.61,
       "pe_3y_median": 105.56,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20756,7 +20756,7 @@
       "ev_ebitda_3y_median": 15.16,
       "current_pe": 33.01,
       "pe_3y_median": 41.76,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20786,7 +20786,7 @@
       "ev_ebitda_3y_median": 11.41,
       "current_pe": 7.03,
       "pe_3y_median": 44.57,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20846,7 +20846,7 @@
       "ev_ebitda_3y_median": 14.02,
       "current_pe": 13.68,
       "pe_3y_median": 23.42,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -20906,7 +20906,7 @@
       "ev_ebitda_3y_median": 33.72,
       "current_pe": 37.84,
       "pe_3y_median": 45.08,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21296,7 +21296,7 @@
       "ev_ebitda_3y_median": 15.99,
       "current_pe": 9.44,
       "pe_3y_median": 32.69,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21326,7 +21326,7 @@
       "ev_ebitda_3y_median": 35.71,
       "current_pe": 54.1,
       "pe_3y_median": 56.0,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21386,7 +21386,7 @@
       "ev_ebitda_3y_median": 27.09,
       "current_pe": 100.39,
       "pe_3y_median": 46.21,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21416,7 +21416,7 @@
       "ev_ebitda_3y_median": 2286.06,
       "current_pe": 31.17,
       "pe_3y_median": 28.22,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -21446,7 +21446,7 @@
       "ev_ebitda_3y_median": 40.07,
       "current_pe": 85.0,
       "pe_3y_median": 86.85,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21626,7 +21626,7 @@
       "ev_ebitda_3y_median": 24.17,
       "current_pe": 29.68,
       "pe_3y_median": 30.62,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21686,7 +21686,7 @@
       "ev_ebitda_3y_median": 25.96,
       "current_pe": 80.3,
       "pe_3y_median": 39.11,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21776,7 +21776,7 @@
       "ev_ebitda_3y_median": 16.59,
       "current_pe": 17.87,
       "pe_3y_median": 23.82,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -21926,7 +21926,7 @@
       "ev_ebitda_3y_median": 248.71,
       "current_pe": 10.13,
       "pe_3y_median": 162.17,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -21956,7 +21956,7 @@
       "ev_ebitda_3y_median": 12.69,
       "current_pe": 20.67,
       "pe_3y_median": 32.89,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22076,7 +22076,7 @@
       "ev_ebitda_3y_median": 16.53,
       "current_pe": 43.44,
       "pe_3y_median": 36.26,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22256,7 +22256,7 @@
       "ev_ebitda_3y_median": 14.65,
       "current_pe": 9.69,
       "pe_3y_median": 19.27,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22556,7 +22556,7 @@
       "ev_ebitda_3y_median": 6.38,
       "current_pe": 22.68,
       "pe_3y_median": 13.8,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22616,7 +22616,7 @@
       "ev_ebitda_3y_median": 10.88,
       "current_pe": 8.6,
       "pe_3y_median": 18.99,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22676,7 +22676,7 @@
       "ev_ebitda_3y_median": 37.52,
       "current_pe": 59.72,
       "pe_3y_median": 54.68,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22736,7 +22736,7 @@
       "ev_ebitda_3y_median": 13.65,
       "current_pe": 43.88,
       "pe_3y_median": 24.56,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22826,7 +22826,7 @@
       "ev_ebitda_3y_median": 11.47,
       "current_pe": 59.84,
       "pe_3y_median": 118.86,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22916,7 +22916,7 @@
       "ev_ebitda_3y_median": 32.87,
       "current_pe": 76.09,
       "pe_3y_median": 47.34,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -22976,7 +22976,7 @@
       "ev_ebitda_3y_median": 12.92,
       "current_pe": 10.8,
       "pe_3y_median": 11.36,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -23186,7 +23186,7 @@
       "ev_ebitda_3y_median": 20.94,
       "current_pe": 37.92,
       "pe_3y_median": 31.7,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -23216,7 +23216,7 @@
       "ev_ebitda_3y_median": 12.41,
       "current_pe": 55.55,
       "pe_3y_median": 45.12,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -23306,7 +23306,7 @@
       "ev_ebitda_3y_median": 41.55,
       "current_pe": 105.13,
       "pe_3y_median": 81.27,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -23516,7 +23516,7 @@
       "ev_ebitda_3y_median": 21.19,
       "current_pe": 29.7,
       "pe_3y_median": 33.29,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "CASH_MISSING; DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -23666,7 +23666,7 @@
       "ev_ebitda_3y_median": 30.32,
       "current_pe": 52.23,
       "pe_3y_median": 52.86,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -23696,7 +23696,7 @@
       "ev_ebitda_3y_median": 48.53,
       "current_pe": 75.42,
       "pe_3y_median": 73.39,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -23996,7 +23996,7 @@
       "ev_ebitda_3y_median": 22.58,
       "current_pe": 34.46,
       "pe_3y_median": 38.41,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24086,7 +24086,7 @@
       "ev_ebitda_3y_median": 21.17,
       "current_pe": 45.25,
       "pe_3y_median": 240.32,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24326,7 +24326,7 @@
       "ev_ebitda_3y_median": 17.68,
       "current_pe": 33.34,
       "pe_3y_median": 31.57,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24416,7 +24416,7 @@
       "ev_ebitda_3y_median": 101.42,
       "current_pe": 10.44,
       "pe_3y_median": 7.1,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -24536,7 +24536,7 @@
       "ev_ebitda_3y_median": 10.62,
       "current_pe": 15.61,
       "pe_3y_median": 25.39,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24566,7 +24566,7 @@
       "ev_ebitda_3y_median": 23.87,
       "current_pe": 36.23,
       "pe_3y_median": 42.11,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24656,7 +24656,7 @@
       "ev_ebitda_3y_median": 12.63,
       "current_pe": 39.49,
       "pe_3y_median": 22.25,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24806,7 +24806,7 @@
       "ev_ebitda_3y_median": 8.93,
       "current_pe": 16.24,
       "pe_3y_median": 16.46,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24926,7 +24926,7 @@
       "ev_ebitda_3y_median": 52.1,
       "current_pe": 133.85,
       "pe_3y_median": 69.37,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -24986,7 +24986,7 @@
       "ev_ebitda_3y_median": 9.14,
       "current_pe": 24.16,
       "pe_3y_median": 17.84,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25166,7 +25166,7 @@
       "ev_ebitda_3y_median": 9.86,
       "current_pe": 42.51,
       "pe_3y_median": 18.27,
-      "provenance_status": "UNCERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "DEBT_MISSING; CURRENT_EV_EBITDA_MISSING"
     },
     {
@@ -25406,7 +25406,7 @@
       "ev_ebitda_3y_median": 22.28,
       "current_pe": 31.0,
       "pe_3y_median": 121.87,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25436,7 +25436,7 @@
       "ev_ebitda_3y_median": 18.6,
       "current_pe": 43.95,
       "pe_3y_median": 34.28,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25496,7 +25496,7 @@
       "ev_ebitda_3y_median": 13.83,
       "current_pe": 21.2,
       "pe_3y_median": 21.63,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25526,7 +25526,7 @@
       "ev_ebitda_3y_median": 10.5,
       "current_pe": 27.63,
       "pe_3y_median": 34.19,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25676,7 +25676,7 @@
       "ev_ebitda_3y_median": 10.36,
       "current_pe": 12.38,
       "pe_3y_median": 47.18,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25766,7 +25766,7 @@
       "ev_ebitda_3y_median": 31.91,
       "current_pe": 37.13,
       "pe_3y_median": 46.73,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25796,7 +25796,7 @@
       "ev_ebitda_3y_median": 27.68,
       "current_pe": 62.26,
       "pe_3y_median": 57.28,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -25946,7 +25946,7 @@
       "ev_ebitda_3y_median": 27.4,
       "current_pe": 57.5,
       "pe_3y_median": 97.69,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -26096,7 +26096,7 @@
       "ev_ebitda_3y_median": 28.55,
       "current_pe": 19.34,
       "pe_3y_median": 44.42,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -26126,7 +26126,7 @@
       "ev_ebitda_3y_median": 13.48,
       "current_pe": 3.89,
       "pe_3y_median": 28.98,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -26156,7 +26156,7 @@
       "ev_ebitda_3y_median": 32.1,
       "current_pe": 18.15,
       "pe_3y_median": 44.52,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -26426,7 +26426,7 @@
       "ev_ebitda_3y_median": 20.31,
       "current_pe": 61.62,
       "pe_3y_median": 44.57,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {
@@ -26456,7 +26456,7 @@
       "ev_ebitda_3y_median": 42.63,
       "current_pe": 17.41,
       "pe_3y_median": 84.07,
-      "provenance_status": "CERTIFIED",
+      "provenance_status": "STRUCTURAL_INELIGIBLE",
       "failure_reasons": "NONE"
     },
     {

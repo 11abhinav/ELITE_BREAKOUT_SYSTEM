@@ -101,12 +101,26 @@ MAX_LATEST_QUARTER_STALENESS_DAYS: int = 120   # ~4 months
 
 class DataStatus(str, Enum):
     """Terminal statuses for every data-integrity decision."""
-    VALID              = "VALID"
-    DATA_INSUFFICIENT  = "DATA_INSUFFICIENT"
-    DATA_STALE         = "DATA_STALE"
-    DATA_CONFLICT      = "DATA_CONFLICT"
-    DATA_INVALID       = "DATA_INVALID"
-    DATA_BLOCKED       = "DATA_BLOCKED"
+    VALID                            = "VALID"
+    DATA_INSUFFICIENT                = "DATA_INSUFFICIENT"
+    DATA_STALE                       = "DATA_STALE"
+    DATA_CONFLICT                    = "DATA_CONFLICT"
+    DATA_INVALID                     = "DATA_INVALID"
+    DATA_BLOCKED                     = "DATA_BLOCKED"
+    STRUCTURAL_INELIGIBLE            = "STRUCTURAL_INELIGIBLE"
+    RECOVERY_PENDING                 = "RECOVERY_PENDING"
+    PROVIDER_TEMPORARILY_UNAVAILABLE = "PROVIDER_TEMPORARILY_UNAVAILABLE"
+
+
+class RecoveryStatus(str, Enum):
+    """Lifecycle tracking for multi-source financial fact recovery."""
+    AVAILABLE                        = "AVAILABLE"
+    RECOVERED                        = "RECOVERED"
+    RECOVERY_PENDING                 = "RECOVERY_PENDING"
+    PROVIDER_TEMPORARILY_UNAVAILABLE = "PROVIDER_TEMPORARILY_UNAVAILABLE"
+    DATA_CONFLICT                    = "DATA_CONFLICT"
+    STRUCTURAL_INELIGIBLE            = "STRUCTURAL_INELIGIBLE"
+    GENUINELY_UNAVAILABLE            = "GENUINELY_UNAVAILABLE"
 
 
 class MetricPeriodType(str, Enum):
@@ -408,18 +422,21 @@ def check_pit_freshness(
     latest_annual_period: Any,
     scan_date: Optional[date] = None,
     max_staleness_years: float = MAX_PIT_STALENESS_YEARS,
+    fy_end_month: Optional[int] = None,
 ) -> IntegrityResult:
     """
     Validates that the latest annual filing in the PIT dataset is recent enough.
 
     A PIT dataset that passes the row-count minimum but has a stale
     latest_annual_period (e.g. FY2010 in a 2026 scan) MUST be blocked.
+    Supports dynamic company-specific fiscal calendars (e.g. Dec FY for ABB India).
 
     Args:
         symbol: NSE ticker.
         latest_annual_period: The period_end_date of the most recent annual row.
         scan_date: The date of the scan. Defaults to today (IST).
         max_staleness_years: Maximum allowed years between latest filing and scan.
+        fy_end_month: Optional explicit company FY-end month (1-12).
 
     Returns:
         IntegrityResult with status VALID or DATA_STALE.
@@ -450,10 +467,14 @@ def check_pit_freshness(
     staleness_days = (scan_date - latest_dt).days
     staleness_years = staleness_days / 365.25
 
-    # Compute expected latest annual period (end of previous complete Indian FY)
-    # Indian FY ends March 31. The latest complete FY before scan_date is:
-    scan_fy_end_year = scan_date.year if scan_date.month > 3 else scan_date.year - 1
-    expected_latest_fy_end = date(scan_fy_end_year, 3, 31)
+    # Compute expected latest annual period based on company-specific FY calendar
+    target_fy_month = fy_end_month if (fy_end_month and 1 <= fy_end_month <= 12) else latest_dt.month
+    target_fy_day = 31 if target_fy_month in (1, 3, 5, 7, 8, 10, 12) else (30 if target_fy_month in (4, 6, 9, 11) else 28)
+    if scan_date.month > target_fy_month or (scan_date.month == target_fy_month and scan_date.day >= target_fy_day):
+        scan_fy_end_year = scan_date.year
+    else:
+        scan_fy_end_year = scan_date.year - 1
+    expected_latest_fy_end = date(scan_fy_end_year, target_fy_month, target_fy_day)
 
     detail = {
         "symbol": symbol,
