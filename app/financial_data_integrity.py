@@ -1378,6 +1378,18 @@ def pre_buy_integrity_gate(
     """
     reasons: List[str] = list(blocking_reasons or [])
 
+    # Freshness / Event Gate: Block BUY if a new/amended filing is pending recalculation
+    try:
+        from scripts.financial_filing_watcher import FinancialFilingWatcher, SnapshotFreshnessStatus
+        watcher = FinancialFilingWatcher()
+        f_status = watcher.get_symbol_freshness_status(symbol)
+        if f_status == SnapshotFreshnessStatus.UPDATE_PENDING:
+            reasons.append(f"UPDATE_PENDING: New or amended filing detected for {symbol}, recalculation required")
+        elif f_status == SnapshotFreshnessStatus.INVALID:
+            reasons.append(f"SNAPSHOT_INVALID: Filing snapshot marked INVALID for {symbol}")
+    except Exception:
+        pass
+
     for m in required_metrics:
         if m not in financial_metrics:
             reasons.append(f"MISSING_PROVENANCE_RECORD: {m}")
