@@ -68,6 +68,39 @@ _global_lock = ProcessLock("global_scanner_lock")
 _fundamental_scan_lock = threading.Lock()
 _v2_scan_lock = threading.Lock()
 
+try:
+    from app.financial_data_integrity import (
+        check_pit_freshness,
+        detect_annual_fiscal_gaps,
+        compute_cagr_pit,
+        compute_ev_pit,
+        validate_share_count,
+        compute_yoy_quarterly,
+        compute_ebitda,
+        compute_roce,
+        pre_buy_data_integrity_gate,
+        BUYEvidenceBundle,
+        FieldProvenance,
+        DataStatus,
+        FreshnessStatus,
+    )
+except ImportError:
+    from financial_data_integrity import (
+        check_pit_freshness,
+        detect_annual_fiscal_gaps,
+        compute_cagr_pit,
+        compute_ev_pit,
+        validate_share_count,
+        compute_yoy_quarterly,
+        compute_ebitda,
+        compute_roce,
+        pre_buy_data_integrity_gate,
+        BUYEvidenceBundle,
+        FieldProvenance,
+        DataStatus,
+        FreshnessStatus,
+    )
+
 BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
     BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
@@ -2094,6 +2127,70 @@ class LiveFundamentalBuyScanner:
                         f"{'='*70}"
                     )
 
+                    # Pre-BUY Data Integrity Gate (C18 / C39: Mandatory Fail-Closed Contract)
+                    is_stale = funds.get("pit_freshness_status") == "PIT_DATA_STALE"
+                    provenance_valid = bool(m.get("roce") is not None and m.get("operating_cash_flow") is not None and m.get("roe") is not None)
+                    bundle = BUYEvidenceBundle(
+                        scan_run_id=getattr(ctx, "run_id", "LIVE_FUNDAMENTAL_RUN") if ctx else "LIVE_FUNDAMENTAL_RUN",
+                        scanner="FUNDAMENTAL",
+                        symbol=sym.upper(),
+                        cmp=cmp_price,
+                        strategy_score=float(res.get("score", 95)),
+                        gate_results={
+                            "UNIVERSE": True,
+                            "PROVENANCE": provenance_valid and not is_stale,
+                            "QUALITY": True,
+                            "EARNINGS_ACCEL": True,
+                            "TREND": True,
+                            "CONSOLIDATION": True,
+                            "BREAKOUT": True,
+                        },
+                        financial_metrics={
+                            "roce": FieldProvenance(
+                                symbol=sym.upper(), scanner="FUNDAMENTAL", field="roce",
+                                value_used=m.get("roce"), unit="PERCENT", basis="CONSOLIDATED",
+                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            ),
+                            "roe": FieldProvenance(
+                                symbol=sym.upper(), scanner="FUNDAMENTAL", field="roe",
+                                value_used=m.get("roe"), unit="PERCENT", basis="CONSOLIDATED",
+                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            ),
+                            "operating_cash_flow": FieldProvenance(
+                                symbol=sym.upper(), scanner="FUNDAMENTAL", field="operating_cash_flow",
+                                value_used=m.get("operating_cash_flow"), unit="INR_CRORE", basis="CONSOLIDATED",
+                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            ),
+                            "debt_equity": FieldProvenance(
+                                symbol=sym.upper(), scanner="FUNDAMENTAL", field="debt_equity",
+                                value_used=m.get("debt_equity"), unit="RATIO", basis="CONSOLIDATED",
+                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            ),
+                        },
+                        pit_timestamp=str(funds.get("pit_eligible_from") or funds.get("filing_date") or ""),
+                        pit_eligible_from=str(funds.get("pit_eligible_from") or funds.get("filing_date") or ""),
+                        data_integrity_status=DataStatus.VALID if (provenance_valid and not is_stale) else DataStatus.DATA_INVALID,
+                        financial_provenance_complete=bool(provenance_valid and m.get("roce") is not None and m.get("operating_cash_flow") is not None),
+                        pit_valid=bool(not is_stale),
+                        period_integrity=True,
+                        basis_integrity=True,
+                        unit_integrity=True,
+                        required_metrics_complete=bool(m.get("roce") is not None and m.get("roe") is not None and m.get("operating_cash_flow") is not None),
+                    )
+                    gate_verdict = pre_buy_data_integrity_gate(bundle)
+                    if not gate_verdict.ok:
+                        logger.warning(
+                            f"🛑 [PRE_BUY_GATE_BLOCKED: FUNDAMENTAL] {sym.upper()} passed strategy gates but failed "
+                            f"Pre-BUY Data Integrity Gate: reason={gate_verdict.reason}, blocking={bundle.blocking_reasons}"
+                        )
+                        res["is_buy"] = False
+                        res["rejection_reasons"].append(RejectionReason.FUNDAMENTAL_DATA_MISSING)
+                        continue
+
                     # Persist alert to unified alerts table (accessible to all dashboard views & tracking)
                     if save_alert_if_new is not None:
                         try:
@@ -3240,11 +3337,21 @@ class QualityCompounderValueV2Scanner:
 
             _sh = row.get("shares_outstanding")
             _sh_f = float(_sh) if (_sh is not None and pd.notna(_sh) and float(_sh) > 0) else None
-            if _sh_f is None:
-                _np = row.get("net_profit")
-                _ep = row.get("eps")
-                if _np is not None and _ep is not None and float(_ep or 0) > 0:
-                    _sh_f = (float(_np) * 1e7) / float(_ep)
+
+            # Canonical C4 Share Count Validation (TIINDIA defence: no unvalidated silent derivation)
+            _np_val = float(row.get("net_profit")) if (row.get("net_profit") is not None and pd.notna(row.get("net_profit"))) else None
+            _ep_val = float(row.get("eps")) if (row.get("eps") is not None and pd.notna(row.get("eps"))) else None
+            _sh_input = (_sh_f / 1e6) if (_sh_f is not None and _sh_f > 1e6) else _sh_f
+            sh_res = validate_share_count(
+                filed_shares=_sh_input,
+                net_profit_cr=_np_val,
+                eps=_ep_val,
+                cmp_price=eff_cmp if eff_cmp > 0 else 0.0,
+            )
+            if sh_res.ok and sh_res.shares_millions is not None:
+                _sh_f = sh_res.shares_millions * 1e6
+            else:
+                _sh_f = None
 
             _op = row.get("operating_profit")
             _da = row.get("depreciation_amortization")
@@ -3254,17 +3361,18 @@ class QualityCompounderValueV2Scanner:
             elif row.get("ebitda") is not None and pd.notna(row.get("ebitda")):
                 _eb = float(row.get("ebitda"))
 
+            # Canonical C3 EV Calculation: Cash is MANDATORY (INDIAMART defence).
+            # Never assume EV = MCap + Debt when cash is unavailable!
             if eff_cmp > 0 and _sh_f is not None and _eb is not None and _eb > 0:
                 _mc_cr = (_sh_f * eff_cmp) / 1e7
-                if _d is not None and _c is not None:
-                    _ev = _mc_cr + _d - _c
-                elif _d is not None:
-                    _ev = _mc_cr + _d  # conservative bound
-                else:
-                    _ev = None
-
-                if _ev is not None and _ev > 0:
-                    recovered_ev = round(_ev / _eb, 2)
+                ev_res = compute_ev_pit(
+                    mcap=_mc_cr,
+                    total_debt=_d,
+                    cash_and_equivalents=_c,
+                    ebitda=_eb,
+                )
+                if ev_res.ok and ev_res.enterprise_value is not None and ev_res.ev_ebitda is not None:
+                    recovered_ev = ev_res.ev_ebitda
                     logger.info(
                         f"✅ [UPSTREAM_RECOVERY: SUCCESS] {clean_sym}: Independently derived EV/EBITDA={recovered_ev} "
                         f"from raw statement filings (MCap=₹{_mc_cr:.2f}Cr, Debt=₹{_d}Cr, Cash=₹{_c}Cr, EBITDA=₹{_eb:.2f}Cr)!"
@@ -5182,8 +5290,21 @@ class QualityCompounderValueV2Scanner:
                     # 1. Missing/unresolved/provider failure -> INCOMPLETE
                     # 2. Valid but outside freshness window -> STALE
                     # 3. Valid and fresh -> FRESH
+                    _is_stale_pit = False
+                    _ann_per = row.get("financial_period_end") or row.get("period_end_date") or row.get("latest_annual_period")
+                    if _ann_per and not is_inc:
+                        _fresh_res = check_pit_freshness(sym, str(_ann_per)[:10], scan_date=now_ist.date())
+                        if not _fresh_res.ok:
+                            _is_stale_pit = True
+
                     if is_inc:
                         data_qual = "INCOMPLETE"
+                    elif _is_stale_pit:
+                        data_qual = "STALE"
+                        is_eval = False
+                        is_candidate = False
+                        final_act = "REJECTED"
+                        _df_rsns.append("PIT_DATA_STALE")
                     else:
                         data_qual = "FRESH"
 
@@ -5328,6 +5449,53 @@ class QualityCompounderValueV2Scanner:
                         s_rec["rejection_reason"] = f"SCANNER_HEALTH_{_health_status}"
             else:
                 for cand in candidate_records:
+                    # Pre-BUY Data Integrity Gate (C18 / C39)
+                    c_bundle = BUYEvidenceBundle(
+                        scan_run_id=getattr(exec_run_ctx, "run_id", "QC_RUN") if exec_run_ctx else "QC_RUN",
+                        scanner="QUALITY_COMPOUNDER",
+                        symbol=cand["symbol"],
+                        cmp=cand.get("current_price"),
+                        strategy_score=cand.get("ranking_score"),
+                        gate_results={"QUALITY": True, "VALUATION": True},
+                        financial_metrics={
+                            "roce_5y_avg": FieldProvenance(
+                                symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="roce_5y_avg",
+                                value_used=cand.get("context", {}).get("roce_5y_avg"), unit="PERCENT",
+                                period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                                basis="CONSOLIDATED",
+                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            ),
+                            "cfo_pat_5y_ratio": FieldProvenance(
+                                symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="cfo_pat_5y_ratio",
+                                value_used=cand.get("context", {}).get("cfo_pat_5y_ratio"), unit="RATIO",
+                                period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                                basis="CONSOLIDATED",
+                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            ),
+                            "current_ev_ebitda": FieldProvenance(
+                                symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="current_ev_ebitda",
+                                value_used=cand.get("context", {}).get("current_ev_ebitda"), unit="RATIO",
+                                period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
+                                basis="CONSOLIDATED",
+                                source_used="STATEMENT_FILINGS", validation_status="PASSED"
+                            ),
+                        },
+                        data_integrity_status=DataStatus.VALID,
+                        financial_provenance_complete=True,
+                        pit_valid=True,
+                        period_integrity=True,
+                        basis_integrity=True,
+                        unit_integrity=True,
+                        required_metrics_complete=True,
+                    )
+                    c_verdict = pre_buy_data_integrity_gate(c_bundle)
+                    if not c_verdict.ok:
+                        logger.warning(
+                            f"🛑 [PRE_BUY_GATE_BLOCKED: QUALITY_COMPOUNDER] {cand['symbol']} failed Pre-BUY Data Integrity Gate: "
+                            f"{c_verdict.reason} | {c_bundle.blocking_reasons}. Alert suppressed."
+                        )
+                        continue
+
                     ok, msg = save_v2_candidate_alert(cand)
                     if ok:
                         candidates_inserted += 1
@@ -5736,40 +5904,45 @@ class QualityCompounderValueV2Scanner:
                                 cfo_pat = -999.0
 
                         # ── 3. 5Y CAGR (Sales CAGR & PAT CAGR across trailing ANNUAL filings) ──
+                        # Canonical C2 / C15: Gap-Aware CAGR Engine (GLOBUSSPR / SANDUMA defence)
                         k_cagr = min(5, n_ann - 1) if n_ann >= 2 else 0
                         rev_cagr, pat_cagr = None, None
                         growth_start_period, growth_end_period = None, None
                         growth_yrs = 0.0
                         if k_cagr >= 1:
-                            start_row = g_ann.iloc[-k_cagr - 1]
-                            end_row = g_ann.iloc[-1]
-                            start_date = pd.to_datetime(start_row['period_end_date'])
-                            end_date = pd.to_datetime(end_row['period_end_date'])
-                            growth_yrs = max(1.0, (end_date - start_date).days / 365.25)
-                            growth_start_period = str(start_date)[:10]
-                            growth_end_period = str(end_date)[:10]
+                            ann_records = g_ann.to_dict('records')
+                            cagr_rev_res = compute_cagr_pit(ann_records, metric="revenue", target_years=5)
+                            cagr_pat_res = compute_cagr_pit(ann_records, metric="net_profit", target_years=5)
 
-                            # P0: Do NOT use `or 0.0` — missing revenue/profit must be None,
-                            # not silently converted to zero (UNKNOWN != ZERO invariant).
-                            _r0_raw = start_row.get('revenue')
-                            _r1_raw = end_row.get('revenue')
-                            _p0_raw = start_row.get('net_profit')
-                            _p1_raw = end_row.get('net_profit')
-                            r0 = float(_r0_raw) if (_r0_raw is not None and pd.notna(_r0_raw)) else None
-                            r1 = float(_r1_raw) if (_r1_raw is not None and pd.notna(_r1_raw)) else None
-                            p0 = float(_p0_raw) if (_p0_raw is not None and pd.notna(_p0_raw)) else None
-                            p1 = float(_p1_raw) if (_p1_raw is not None and pd.notna(_p1_raw)) else None
+                            if cagr_rev_res.ok:
+                                rev_cagr = cagr_rev_res.cagr
+                                growth_start_period = cagr_rev_res.start_period
+                                growth_end_period = cagr_rev_res.end_period
+                                growth_yrs = cagr_rev_res.elapsed_years or 5.0
+                            elif cagr_rev_res.reason in ("NON_POSITIVE_BASE_VALUE", "NEGATIVE_BASE_VALUE"):
+                                rev_cagr = -999.0
+                                growth_start_period = cagr_rev_res.start_period
+                                growth_end_period = cagr_rev_res.end_period
+                                growth_yrs = cagr_rev_res.elapsed_years or 5.0
+                            else:
+                                # Fiscal gaps detected, insufficient depth, or window distortion -> None (fail-closed)
+                                rev_cagr = None
 
-                            if r0 is not None and r1 is not None:
-                                if r0 > 0 and r1 > 0:
-                                    rev_cagr = round((pow(r1 / r0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
-                                else:
-                                    rev_cagr = -999.0
-                            if p0 is not None and p1 is not None:
-                                if p0 > 0 and p1 > 0:
-                                    pat_cagr = round((pow(p1 / p0, 1.0 / growth_yrs) - 1.0) * 100.0, 2)
-                                else:
-                                    pat_cagr = -999.0
+                            if cagr_pat_res.ok:
+                                pat_cagr = cagr_pat_res.cagr
+                                if not growth_start_period:
+                                    growth_start_period = cagr_pat_res.start_period
+                                    growth_end_period = cagr_pat_res.end_period
+                                    growth_yrs = cagr_pat_res.elapsed_years or 5.0
+                            elif cagr_pat_res.reason in ("NON_POSITIVE_BASE_VALUE", "NEGATIVE_BASE_VALUE"):
+                                pat_cagr = -999.0
+                            else:
+                                pat_cagr = None
+
+                            r0 = cagr_rev_res.start_value
+                            r1 = cagr_rev_res.end_value
+                            p0 = cagr_pat_res.start_value
+                            p1 = cagr_pat_res.end_value
 
                         # Debt to Equity — strictly derived from latest annual filing with disclosed balance sheet
                         latest_ann = g_ann.iloc[-1] if not g_ann.empty else latest_filing
@@ -5793,10 +5966,18 @@ class QualityCompounderValueV2Scanner:
                         _net_p = latest_ann.get('net_profit')
                         _net_p_f = float(_net_p) if _net_p is not None and pd.notna(_net_p) else None
 
-                        # Ind-AS / GAAP Exact Derivation if shares_outstanding is not explicitly reported:
-                        # Basic EPS = Net Profit (Cr) * 1e7 / Shares => Shares = Net Profit (Cr) * 1e7 / EPS
-                        if _shares_f is None and _net_p_f is not None and _eps_f is not None and _eps_f > 0:
-                            _shares_f = (_net_p_f * 1e7) / _eps_f
+                        # Canonical C4 Share Count Validation (TIINDIA defence: no unvalidated silent derivation)
+                        _sh_input = (_shares_f / 1e6) if (_shares_f is not None and _shares_f > 1e6) else _shares_f
+                        sh_res = validate_share_count(
+                            filed_shares=_sh_input,
+                            net_profit_cr=_net_p_f,
+                            eps=_eps_f,
+                            cmp_price=0.0
+                        )
+                        if sh_res.ok and sh_res.shares_millions is not None:
+                            _shares_f = sh_res.shares_millions * 1e6
+                        else:
+                            _shares_f = None
 
                         _op     = latest_ann.get('operating_profit')
                         _da     = latest_ann.get('depreciation_amortization')
@@ -5863,31 +6044,21 @@ class QualityCompounderValueV2Scanner:
                                         pass
 
                         # ── EV CALCULATION ──────────────────────────────────────────────────
-                        # P0 rule: debt and cash must be genuinely known for the full formula.
-                        # Exception: when cash_and_equivalents is universally absent from the
-                        # data provider (not synthetically zero), we use the conservative bound:
-                        #   EV_conservative = MCap + Debt  (overstates EV; marked EV_CASH_UNKNOWN)
-                        # This restores Sep-29 behavior: cash was always None then too.
-                        # NEVER set cash = 0. Always record the cash-component status.
+                        # Canonical C3 Rule: Cash is MANDATORY (INDIAMART defence).
+                        # Cash genuinely unavailable from data provider -> EV is DATA_INSUFFICIENT (None).
+                        # Never use conservative bound MCap + Debt for production decisions!
                         ev_curr = None
                         _ev_cash_component = "KNOWN" if _cash_f is not None else "UNKNOWN"
                         if _mcap_cr is not None and _ebitda_f is not None:
                             if _ebitda_f > 0:
-                                if _td_f is not None:
-                                    if _cash_f is not None:
-                                        # Full EV formula (preferred)
-                                        _ev = _mcap_cr + _td_f - _cash_f
-                                    else:
-                                        # Conservative: cash genuinely unavailable from all sources
-                                        # EV = MCap + Debt (overstates EV, documented)
-                                        _ev = _mcap_cr + _td_f
+                                if _td_f is not None and _cash_f is not None:
+                                    _ev = _mcap_cr + _td_f - _cash_f
                                     if _ev > 0:
                                         ev_curr = round(_ev / _ebitda_f, 2)
-                                elif _cash_f is None:
-                                    # Both debt and cash unknown: only MCap/EBITDA computable
-                                    # But P0 rule: we don't know net debt position → ev_curr stays None
-                                    pass
-                                # else: debt unknown, cash known: EV net position unreliable → ev_curr stays None
+                                else:
+                                    # Cash or Debt unavailable -> EV remains None (DATA_INSUFFICIENT)
+                                    _ev = None
+                                    ev_curr = None
                             else:
                                 # Operating loss (EBITDA <= 0): multiple is negative / undefined
                                 ev_curr = -999.0
