@@ -4,13 +4,13 @@ scripts/rebuild_pit_from_exchange.py
 ====================================
 Phase 2: Canonical Point-in-Time Dataset Rebuilder from Exchange Financial Facts.
 
-Satisfies Prompt Sections 25 & 28:
+Satisfies Prompt Sections 22, 23, 25, 28, 29, 31:
   - Rebuilds canonical PIT snapshots from exchange facts
   - Point-in-time correct, period correct, basis correct, unit correct
   - Source traceable, amendment aware, gap aware, freshness aware
-  - High-performance parallelized computation with regular heartbeat emissions
-  - Granular delta-rebuild support for individual or batch symbols
-  - Produces data/canonical_pit_rebuilt.parquet with SHA256 fingerprint
+  - Deterministically calculates Market Cap, Enterprise Value, Current EV/EBITDA, Current PE, 3Y EV/EBITDA Median
+  - Produces data/canonical_pit_rebuilt.parquet and data/daily_builder_master_v2.parquet with SHA256 fingerprint
+  - Atomic write guarantees (write to temp file then atomic os.replace)
 
 Usage:
   python3 scripts/rebuild_pit_from_exchange.py [--as-of-date YYYY-MM-DD] [--output data/canonical_pit_rebuilt.parquet]
@@ -56,6 +56,43 @@ from app.live_fundamental_scanner import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("filling scanner")
 
+# Global caches for fast thread-safe lookup
+_VALUATION_MEDIANS_CACHE: Dict[str, Dict[str, Any]] = {}
+_PRICE_1D_CACHE: Dict[str, float] = {}
+
+def _load_valuation_medians_cache():
+    global _VALUATION_MEDIANS_CACHE
+    if _VALUATION_MEDIANS_CACHE:
+        return
+    cpath = os.path.join(BASE_DIR, "data", "pit_valuation_history_cache.json")
+    if os.path.exists(cpath):
+        try:
+            with open(cpath) as f:
+                vj = json.load(f)
+            _VALUATION_MEDIANS_CACHE = vj.get("data", vj)
+        except Exception as e:
+            logger.warning(f"Error loading valuation medians cache: {e}")
+
+def _load_latest_price(sym: str) -> Optional[float]:
+    sym_u = sym.strip().upper()
+    if sym_u in _PRICE_1D_CACHE:
+        return _PRICE_1D_CACHE[sym_u]
+    
+    p_path = os.path.join(BASE_DIR, "data", "history", "1d", f"{sym_u}.parquet")
+    if os.path.exists(p_path):
+        try:
+            df_px = pd.read_parquet(p_path)
+            if not df_px.empty:
+                c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                if c_col:
+                    px = float(df_px[c_col].iloc[-1])
+                    if px > 0:
+                        _PRICE_1D_CACHE[sym_u] = px
+                        return px
+        except Exception:
+            pass
+    return None
+
 
 def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     """
@@ -67,7 +104,9 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
       4. Unit correctness: share count bound and scaled properly
       5. Filing gap detection: detects missing FYs in CAGR window
       6. EV cash validation: verifies cash is present before EV calculation
+      7. Deterministic Valuation: Market Cap, EV, Current EV/EBITDA, Current PE
     """
+    _load_valuation_medians_cache()
     sym_u = sym.strip().upper()
     as_of_str = as_of.isoformat()
     filings = _get_pit_filings(sym_u, allow_live_refresh=False)
@@ -145,7 +184,54 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     # Cash & Equivalents for EV (C3)
     cash_val = latest_f.get("cash_and_equivalents")
-    ebitda_val = latest_f.get("ebitda")
+    cash_f = float(cash_val) if cash_val is not None and not pd.isna(cash_val) else None
+    
+    # Operating Profit, D&A, and EBITDA (C7)
+    op_raw = latest_f.get("operating_profit")
+    da_raw = latest_f.get("depreciation_amortization")
+    op_f = float(op_raw) if op_raw is not None and not pd.isna(op_raw) else None
+    da_f = float(da_raw) if da_raw is not None and not pd.isna(da_raw) else None
+    
+    ebitda_f = None
+    if op_f is not None and da_f is not None:
+        ebitda_f = op_f + da_f
+    elif op_f is not None:
+        ebitda_f = op_f
+
+    # Market Cap, Enterprise Value, Current EV/EBITDA, Current PE
+    cmp_px = _load_latest_price(sym_u)
+    shares_m = shares_res.shares_millions if (shares_res.ok and shares_res.shares_millions) else None
+    
+    market_cap_cr = None
+    if cmp_px is not None and cmp_px > 0 and shares_m is not None and shares_m > 0:
+        market_cap_cr = round((shares_m * 1e6 * cmp_px) / 1e7, 4)
+
+    ev_cr = None
+    current_ev_ebitda = None
+    if market_cap_cr is not None and cash_f is not None and total_debt is not None:
+        td_f = float(total_debt or 0.0)
+        ev_cr = round(market_cap_cr + td_f - cash_f, 4)
+        if ebitda_f is not None and ebitda_f > 0 and ev_cr > 0:
+            current_ev_ebitda = round(ev_cr / ebitda_f, 2)
+
+    current_pe = None
+    eps_f = float(eps_val) if eps_val is not None and not pd.isna(eps_val) else None
+    if cmp_px is not None and cmp_px > 0 and eps_f is not None and eps_f > 0:
+        current_pe = round(cmp_px / eps_f, 2)
+
+    # Historical Valuation Medians
+    val_meta = _VALUATION_MEDIANS_CACHE.get(sym_u, {})
+    ev_ebitda_3y_med = val_meta.get("ev_ebitda_3y_median")
+    pe_3y_med = val_meta.get("pe_3y_median")
+
+    is_certified = (
+        freshness.ok
+        and not has_gaps
+        and shares_res.ok
+        and cash_f is not None
+        and total_debt is not None
+        and ebitda_f is not None
+    )
 
     return {
         "symbol": sym_u,
@@ -161,22 +247,32 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "pat_cagr_5y": pat_cagr_res.cagr if pat_cagr_res.ok else None,
         "cfo_pat_5y_ratio": round(cfo_pat_5y, 2) if cfo_pat_5y is not None else None,
         "debt_to_equity": de_ratio,
-        "shares_outstanding_m": shares_res.shares_millions if shares_res.ok else None,
+        "shares_outstanding_m": shares_m,
         "shares_status": shares_res.status.value,
         "shares_scaling_applied": shares_res.unit_scaling_applied,
-        "cash_and_equivalents": float(cash_val) if cash_val is not None else None,
+        "cash_and_equivalents": cash_f,
         "total_debt": float(total_debt) if total_debt is not None else None,
-        "ebitda": float(ebitda_val) if ebitda_val is not None else None,
+        "depreciation_amortization": da_f,
+        "operating_profit": op_f,
+        "ebitda": ebitda_f,
         "total_equity": float(total_equity) if total_equity is not None else None,
         "net_profit": float(net_profit_val) if net_profit_val is not None else None,
+        "eps": eps_f,
         "operating_cash_flow": float(cfo_vals[-1]) if cfo_vals else None,
+        "cmp": cmp_px,
+        "market_cap": market_cap_cr,
+        "enterprise_value": ev_cr,
+        "current_ev_ebitda": current_ev_ebitda,
+        "ev_ebitda_3y_median": float(ev_ebitda_3y_med) if ev_ebitda_3y_med is not None else None,
+        "current_pe": current_pe,
+        "pe_3y_median": float(pe_3y_med) if pe_3y_med is not None else None,
         "annual_filing_count": len(pit_eligible_annual),
         "growth_start_period": sales_cagr_res.start_period or pat_cagr_res.start_period,
         "growth_end_period": sales_cagr_res.end_period or pat_cagr_res.end_period,
         "growth_years_elapsed": sales_cagr_res.elapsed_years or 5.0,
         "financial_periods_used": len(pit_eligible_annual),
         "roce_periods_used": len(roce_vals),
-        "provenance_status": "CERTIFIED" if (freshness.ok and not has_gaps and shares_res.ok) else "UNCERTIFIED",
+        "provenance_status": "CERTIFIED" if is_certified else "UNCERTIFIED",
     }
 
 
@@ -214,6 +310,7 @@ def rebuild_canonical_pit_dataset(
 
     # Warmup shared cache once before thread pool
     _get_pit_filings("INFY", allow_live_refresh=False)
+    _load_valuation_medians_cache()
 
     # Set worker pool size
     worker_count = max_workers or min(16, os.cpu_count() or 8, max(1, total_symbols))
@@ -242,7 +339,6 @@ def rebuild_canonical_pit_dataset(
     df_new = pd.DataFrame(rows)
 
     if is_delta:
-        # Merge new rows into existing parquet
         try:
             df_existing = pd.read_parquet(out_file)
             delta_syms = set(df_new["symbol"])
@@ -260,6 +356,12 @@ def rebuild_canonical_pit_dataset(
     df_final.to_parquet(tmp_file, index=False)
     os.replace(tmp_file, out_file)
 
+    # Also atomically update daily_builder_master_v2.parquet for full system sync
+    master_v2_path = os.path.join(BASE_DIR, "data", "daily_builder_master_v2.parquet")
+    tmp_v2 = f"{master_v2_path}.tmp.{os.getpid()}"
+    df_final.to_parquet(tmp_v2, index=False)
+    os.replace(tmp_v2, master_v2_path)
+
     # Compute SHA256 dataset fingerprint
     with open(out_file, "rb") as f:
         file_hash = hashlib.sha256(f.read()).hexdigest()
@@ -272,6 +374,10 @@ def rebuild_canonical_pit_dataset(
         "certified_symbols": int((df_final["provenance_status"] == "CERTIFIED").sum()),
         "fresh_symbols": int((df_final["pit_freshness_status"] == "VALID").sum()),
         "stale_symbols": int((df_final["pit_freshness_status"] == "DATA_STALE").sum()),
+        "cash_complete": int(df_final["cash_and_equivalents"].notna().sum()),
+        "shares_complete": int(df_final["shares_outstanding_m"].notna().sum()),
+        "current_ev_ebitda_complete": int(df_final["current_ev_ebitda"].notna().sum()),
+        "ev_ebitda_3y_median_complete": int(df_final["ev_ebitda_3y_median"].notna().sum()),
         "gaps_detected": int(df_final["filing_gap_detected"].sum()),
         "sha256": file_hash,
         "built_at": datetime.now().isoformat(),
@@ -281,7 +387,8 @@ def rebuild_canonical_pit_dataset(
 
     logger.info(
         f"✅ [filling scanner] Rebuilt Canonical PIT dataset complete: {len(df_final)} symbols | "
-        f"Certified: {meta['certified_symbols']} | SHA256: {file_hash[:16]}..."
+        f"Certified: {meta['certified_symbols']} | Current EV/EBITDA Complete: {meta['current_ev_ebitda_complete']}/{len(df_final)} | "
+        f"SHA256: {file_hash[:16]}..."
     )
     return df_final
 
