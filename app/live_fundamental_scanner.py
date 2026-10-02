@@ -1517,7 +1517,7 @@ class LiveFundamentalBuyScanner:
 
             logger.info(f"📡 [SCANNER: FUNDAMENTAL] Fetching 1D market data & loading fundamentals (trigger={trigger_type}, scheduler={scheduler_name})...")
 
-            # Authoritative Upstream Layer: Daily Builder 2.0
+            # Authoritative Upstream Layer: Daily Builder 2.0 & Canonical Shared Financial Snapshot
             db_funds, db_meta = self.daily_builder_provider.load_master_fundamentals()
             if fundamentals_map is None:
                 fundamentals_map = db_funds
@@ -1529,6 +1529,14 @@ class LiveFundamentalBuyScanner:
                         for k, v in db_funds[sym_u].items():
                             if k not in f_data or f_data[k] is None:
                                 f_data[k] = v
+
+            # Load canonical shared financial snapshots (single shared data layer)
+            shared_snapshots = {}
+            try:
+                from app.financial_data_integrity import load_all_shared_financial_snapshots
+                shared_snapshots = load_all_shared_financial_snapshots(symbols=target_symbols)
+            except Exception as _snap_err:
+                logger.debug(f"Shared snapshot load notice: {_snap_err}")
 
             if market_data_map is None:
                 market_data_map = {}
@@ -1687,6 +1695,31 @@ class LiveFundamentalBuyScanner:
                     }
                 is_data_stale = (db_meta.get("freshness_status") == "STALE")
                 prov_valid = (db_meta.get("provenance_status") in ("CERTIFIED_LOCAL_DAILY_BUILDER", "CERTIFIED_POSTGRES_DAILY_BUILDER", "CERTIFIED_DAILY_BUILDER_WATCHLIST", "CERTIFIED_PIT_FUNDAMENTALS_DB_REHYDRATED")) and (funds.get("upstream_provider") != "DATA_UNAVAILABLE")
+
+                # ── SHARED CANONICAL FINANCIAL SNAPSHOT GATE ─────────────────────────
+                snap = shared_snapshots.get(sym)
+                if snap is not None:
+                    f_eligible, f_reasons = snap.is_eligible_for_fundamental()
+                    if not f_eligible:
+                        if snap.snapshot_status == "UPDATE_PENDING":
+                            prov_valid = False
+                            is_data_stale = True
+                            funds["upstream_provider"] = "UPDATE_PENDING"
+                        elif snap.snapshot_status in ("INVALID", "DATA_INSUFFICIENT"):
+                            prov_valid = False
+                            funds["upstream_provider"] = "DATA_INSUFFICIENT"
+                        elif snap.snapshot_status == "STALE" or snap.pit_freshness_status != "VALID":
+                            is_data_stale = True
+                    else:
+                        # Shared financial snapshot is FRESH and CERTIFIED
+                        snap_dict = snap.to_fundamental_dict()
+                        for k, v in snap_dict.items():
+                            if v is not None and (funds.get(k) is None or funds.get("upstream_provider") in ("DATA_UNAVAILABLE", "NONE")):
+                                funds[k] = v
+                        if funds.get("roce") is not None and funds.get("roe") is not None:
+                            prov_valid = True
+                            if funds.get("upstream_provider") == "DATA_UNAVAILABLE":
+                                funds["upstream_provider"] = "SHARED_CANONICAL_SNAPSHOT"
 
                 # ── DATA RECOVERY AUDIT: FUNDAMENTAL SCANNER ───────────────────────
                 _fund_missing = funds.get("upstream_provider") == "DATA_UNAVAILABLE"
@@ -4339,6 +4372,13 @@ class QualityCompounderValueV2Scanner:
             if adtv_90d is None or adtv_90d < 2.0:
                 rejections.append("FAIL_LIQUIDITY")
 
+            # Shared Financial Snapshot & Watcher Freshness Gate
+            snap_status = row.get("snapshot_status", "FRESH")
+            if snap_status == "UPDATE_PENDING":
+                rejections.append("UPDATE_PENDING: NEW_OR_AMENDED_FILING_AWAITING_REBUILD")
+            elif snap_status in ("INVALID", "DATA_INSUFFICIENT"):
+                rejections.append(f"DATA_INSUFFICIENT: FILING_NORMALIZATION_FAILED ({snap_status})")
+
             # Missing Price Check — HARD BLOCK for candidate selection
             price_data_missing = (cmp_price is None or cmp_price <= 0.0)
             if price_data_missing:
@@ -5268,65 +5308,65 @@ class QualityCompounderValueV2Scanner:
                         routing_result="PERSISTED_TO_ALERTS",
                     )
 
-                is_p_struct = bool(sym in structural_ineligible_symbols)
-                if is_p_struct:
-                    is_q_df = False
-                    is_v_df = False
-                    is_p_df = False
-                    is_o_df = False
-                    is_inc = False
+            is_p_struct = bool(sym in structural_ineligible_symbols)
+            if is_p_struct:
+                is_q_df = False
+                is_v_df = False
+                is_p_df = False
+                is_o_df = False
+                is_inc = False
+                is_eval = False
+                final_act = "STRUCTURAL_INELIGIBLE"
+                data_qual = "STRUCTURAL_INELIGIBLE"
+            else:
+                is_q_df = bool(sym in quality_df_symbols and not is_fin)
+                is_v_df = bool(sym in val_df_symbols and not is_fin)
+                is_p_df = bool(sym in price_df_symbols)
+                is_o_df = bool(sym in non_pit_df_symbols)
+                is_inc = bool(is_q_df or is_v_df or is_p_df or is_o_df)
+                is_eval = bool(not is_inc)
+                final_act = "BUY_ALERT" if is_candidate else ("INCOMPLETE" if is_inc else "REJECTED")
+                # Deterministic precedence:
+                # 1. Missing/unresolved/provider failure -> INCOMPLETE
+                # 2. Valid but outside freshness window -> STALE
+                # 3. Valid and fresh -> FRESH
+                _is_stale_pit = False
+                _ann_per = row.get("financial_period_end") or row.get("period_end_date") or row.get("latest_annual_period")
+                if _ann_per and not is_inc:
+                    _fresh_res = check_pit_freshness(sym, str(_ann_per)[:10], scan_date=now_ist.date())
+                    if not _fresh_res.ok:
+                        _is_stale_pit = True
+
+                if is_inc:
+                    data_qual = "INCOMPLETE"
+                elif _is_stale_pit:
+                    data_qual = "STALE"
                     is_eval = False
-                    final_act = "STRUCTURAL_INELIGIBLE"
-                    data_qual = "STRUCTURAL_INELIGIBLE"
+                    is_candidate = False
+                    final_act = "REJECTED"
+                    _df_rsns.append("PIT_DATA_STALE")
                 else:
-                    is_q_df = bool(sym in quality_df_symbols and not is_fin)
-                    is_v_df = bool(sym in val_df_symbols and not is_fin)
-                    is_p_df = bool(sym in price_df_symbols)
-                    is_o_df = bool(sym in non_pit_df_symbols)
-                    is_inc = bool(is_q_df or is_v_df or is_p_df or is_o_df)
-                    is_eval = bool(not is_inc)
-                    final_act = "BUY_ALERT" if is_candidate else ("INCOMPLETE" if is_inc else "REJECTED")
-                    # Deterministic precedence:
-                    # 1. Missing/unresolved/provider failure -> INCOMPLETE
-                    # 2. Valid but outside freshness window -> STALE
-                    # 3. Valid and fresh -> FRESH
-                    _is_stale_pit = False
-                    _ann_per = row.get("financial_period_end") or row.get("period_end_date") or row.get("latest_annual_period")
-                    if _ann_per and not is_inc:
-                        _fresh_res = check_pit_freshness(sym, str(_ann_per)[:10], scan_date=now_ist.date())
-                        if not _fresh_res.ok:
-                            _is_stale_pit = True
+                    data_qual = "FRESH"
 
-                    if is_inc:
-                        data_qual = "INCOMPLETE"
-                    elif _is_stale_pit:
-                        data_qual = "STALE"
-                        is_eval = False
-                        is_candidate = False
-                        final_act = "REJECTED"
-                        _df_rsns.append("PIT_DATA_STALE")
-                    else:
-                        data_qual = "FRESH"
-
-                canonical_records.append({
-                    "symbol": sym,
-                    "structural_ineligible": is_p_struct,
-                    "quality_data_failure": is_q_df,
-                    "valuation_data_failure": is_v_df,
-                    "price_data_failure": is_p_df,
-                    "other_data_failure": is_o_df,
-                    "incomplete": is_inc,
-                    "fully_evaluable": is_eval,
-                    "data_quality_bucket": data_qual,
-                    "final_action": final_act,
-                    "top_level_population": _top_pop,
-                    "quality_status": "EXCLUDED_FINANCIAL" if is_fin else ("NOT_EVALUATED" if quality_data_missing else ("PASS" if quality_gate_passed else "FAIL")),
-                    "valuation_status": "EXCLUDED_FINANCIAL" if is_fin else ("NOT_EVALUATED" if valuation_data_missing else ("PASS" if value_gate_passed else "FAIL")),
-                    "price_status": _price_status,
-                    "structural_reason": _struct_rsn if is_p_struct else None,
-                    "data_failure_reasons": "; ".join(_df_rsns) if _df_rsns else None,
-                    "provenance_source": "PIT_FUNDAMENTALS_V1",
-                })
+            canonical_records.append({
+                "symbol": sym,
+                "structural_ineligible": is_p_struct,
+                "quality_data_failure": is_q_df,
+                "valuation_data_failure": is_v_df,
+                "price_data_failure": is_p_df,
+                "other_data_failure": is_o_df,
+                "incomplete": is_inc,
+                "fully_evaluable": is_eval,
+                "data_quality_bucket": data_qual,
+                "final_action": final_act,
+                "top_level_population": _top_pop,
+                "quality_status": "EXCLUDED_FINANCIAL" if is_fin else ("NOT_EVALUATED" if quality_data_missing else ("PASS" if quality_gate_passed else "FAIL")),
+                "valuation_status": "EXCLUDED_FINANCIAL" if is_fin else ("NOT_EVALUATED" if valuation_data_missing else ("PASS" if value_gate_passed else "FAIL")),
+                "price_status": _price_status,
+                "structural_reason": _struct_rsn if is_p_struct else None,
+                "data_failure_reasons": "; ".join(_df_rsns) if _df_rsns else None,
+                "provenance_source": "PIT_FUNDAMENTALS_V1",
+            })
 
         # Persist scan results & evaluate post-scan health under safety gates
         try:
@@ -6137,6 +6177,19 @@ class QualityCompounderValueV2Scanner:
 
 
                     pit_df = pd.DataFrame(records)
+                    # Enrich with Shared Financial Snapshot & Watcher Freshness Status
+                    try:
+                        from app.financial_data_integrity import load_all_shared_financial_snapshots
+                        shared_snaps = load_all_shared_financial_snapshots()
+                        if shared_snaps:
+                            status_map = {s_sym: s.snapshot_status for s_sym, s in shared_snaps.items()}
+                            pit_df["snapshot_status"] = pit_df["symbol"].map(status_map).fillna("FRESH")
+                        else:
+                            pit_df["snapshot_status"] = "FRESH"
+                    except Exception as _snap_e:
+                        logger.debug(f"Shared snapshot enrichment in load_pit_dataset: {_snap_e}")
+                        pit_df["snapshot_status"] = "FRESH"
+
                     # Valuation coverage report — logged at dataset build time
                     _n = len(pit_df)
                     _with_ev_curr = int(pit_df['current_ev_ebitda'].notna().sum())

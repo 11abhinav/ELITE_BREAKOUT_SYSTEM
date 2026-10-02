@@ -315,7 +315,9 @@ class FinancialFilingWatcher:
 
         try:
             from scripts.rebuild_pit_from_exchange import rebuild_canonical_pit_dataset
+            from app.financial_data_integrity import clear_shared_snapshot_cache
             df = rebuild_canonical_pit_dataset(as_of_date=as_of)
+            clear_shared_snapshot_cache()
 
             # Mark state as FRESH
             if symbol and symbol.upper() in self.state:
@@ -330,6 +332,9 @@ class FinancialFilingWatcher:
             return True
         except Exception as e:
             logger.error(f"❌ [SNAPSHOT_REBUILD: FAILED] {e}")
+            if symbol and symbol.upper() in self.state:
+                self.state[symbol.upper()]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
+                self._save_state()
             return False
 
     # -------------------------------------------------------------------------

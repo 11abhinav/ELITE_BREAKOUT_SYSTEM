@@ -46,9 +46,11 @@ import hashlib
 import json
 import logging
 import math
+import os
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -1796,5 +1798,433 @@ def reconcile_nse_bse_fact(
             "diff_pct": diff_pct,
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# C20: SHARED FINANCIAL SNAPSHOT (SINGLE CANONICAL FINANCIAL LAYER)
+# ---------------------------------------------------------------------------
+
+class SnapshotFreshnessStatus(str, Enum):
+    FRESH             = "FRESH"
+    UPDATE_PENDING    = "UPDATE_PENDING"
+    STALE             = "STALE"
+    INVALID           = "INVALID"
+    DATA_INSUFFICIENT = "DATA_INSUFFICIENT"
+
+
+@dataclass
+class SharedFinancialSnapshot:
+    """
+    Single authoritative financial data snapshot for BOTH:
+      1. QUALITY_COMPOUNDER_VALUE_V2_FINAL
+      2. FUNDAMENTAL (LiveFundamentalBuyScanner)
+
+    Freshness & Integrity Flow:
+        NSE / BSE
+           │
+           ▼
+        Financial Filing Watcher
+           │
+        NEW / AMENDED filing?
+           │
+           ▼
+        Immutable Raw Filing Store
+           │
+           ▼
+        Normalization + PIT
+           │
+           ▼
+        Shared Financial Snapshot
+           │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+      QUALITY         FUNDAMENTAL
+        │                   │
+        ▼                   ▼
+    Existing frozen    Existing frozen
+     strategy rules     strategy rules
+    """
+    symbol: str
+    isin: str = ""
+    as_of_date: str = ""
+    latest_annual_period: Optional[str] = None
+    latest_quarterly_period: Optional[str] = None
+    snapshot_status: str = SnapshotFreshnessStatus.FRESH.value
+    pit_freshness_status: str = DataStatus.VALID.value
+    provenance_status: str = "CERTIFIED"
+    validation_reasons: List[str] = field(default_factory=list)
+    snapshot_hash: str = ""
+
+    # Quality & Profitability Facts & Ratios (used by both scanners)
+    roce: Optional[float] = None
+    roe: Optional[float] = None
+    roce_5y_avg: Optional[float] = None
+    operating_cash_flow: Optional[float] = None
+    cfo_pat_5y_ratio: Optional[float] = None
+    total_debt: Optional[float] = None
+    total_equity: Optional[float] = None
+    debt_equity: Optional[float] = None
+    cash_and_equivalents: Optional[float] = None
+    ebitda: Optional[float] = None
+    net_profit: Optional[float] = None
+    revenue: Optional[float] = None
+
+    # Growth & Long-Term CAGR Facts & Ratios
+    sales_cagr_5y: Optional[float] = None
+    pat_cagr_5y: Optional[float] = None
+    filing_gap_detected: bool = False
+    filing_gaps: str = "[]"
+    growth_start_period: Optional[str] = None
+    growth_end_period: Optional[str] = None
+    growth_years_elapsed: float = 0.0
+    financial_periods_used: int = 0
+    roce_periods_used: int = 0
+
+    # Shares & Dilution
+    shares_outstanding_m: Optional[float] = None
+    shares_status: str = DataStatus.VALID.value
+    shares_scaling_applied: bool = False
+    share_dilution_3y: Optional[float] = None
+
+    # Quarterly Growth & Earnings Acceleration (used by FUNDAMENTAL & QUALITY scoring)
+    rev_yoy_latest: Optional[float] = None
+    rev_yoy_prev: Optional[float] = None
+    op_profit_yoy_latest: Optional[float] = None
+    op_profit_yoy_prev: Optional[float] = None
+    eps_yoy_latest: Optional[float] = None
+    eps_yoy_prev: Optional[float] = None
+    prior_eps: Optional[float] = None
+    growth_score: float = 0.0
+    quality_score: float = 0.0
+    valuation_score: float = 0.0
+    wealth_score: float = 0.0
+    is_value_trap: bool = False
+    fundamental_category: str = "NONE"
+
+    # Valuation Multiples & Medians
+    current_ev: Optional[float] = None
+    current_ev_ebitda: Optional[float] = None
+    ev_ebitda_3y_median: Optional[float] = None
+    current_pe: Optional[float] = None
+    pe_3y_median: Optional[float] = None
+    market_cap: Optional[float] = None
+    industry: str = ""
+
+    # Source Audit
+    source_filing_id: Optional[str] = None
+    statement_basis: str = StatementBasis.CONSOLIDATED.value
+    raw_payload_path: Optional[str] = None
+
+    def is_eligible_for_quality(self) -> Tuple[bool, List[str]]:
+        """
+        Data-integrity gate for QUALITY_COMPOUNDER.
+        Verifies inputs are current and trustworthy before strategy rules run.
+        NOTE: Does NOT alter strategy thresholds.
+        """
+        reasons = []
+        if self.snapshot_status == SnapshotFreshnessStatus.UPDATE_PENDING.value:
+            reasons.append("UPDATE_PENDING: NEW_OR_AMENDED_FILING_AWAITING_REBUILD")
+        elif self.snapshot_status in (SnapshotFreshnessStatus.INVALID.value, SnapshotFreshnessStatus.DATA_INSUFFICIENT.value):
+            reasons.append(f"SNAPSHOT_STATUS_{self.snapshot_status}")
+        elif self.snapshot_status == SnapshotFreshnessStatus.STALE.value:
+            reasons.append("SNAPSHOT_STATUS_STALE")
+
+        if self.pit_freshness_status not in (DataStatus.VALID.value, "FRESH"):
+            reasons.append(f"PIT_STALENESS_{self.pit_freshness_status}")
+
+        if self.filing_gap_detected:
+            reasons.append("ANNUAL_FISCAL_GAP_DETECTED")
+
+        if self.shares_status in (DataStatus.DATA_INVALID.value, DataStatus.DATA_BLOCKED.value, "IMPLAUSIBLE"):
+            reasons.append(f"SHARES_INVALID_{self.shares_status}")
+
+        # Check essential 5Y quality facts are present
+        if self.roce_5y_avg is None:
+            reasons.append("MISSING_ROCE_5Y_AVG")
+        if self.sales_cagr_5y is None:
+            reasons.append("MISSING_SALES_CAGR_5Y")
+        if self.pat_cagr_5y is None:
+            reasons.append("MISSING_PAT_CAGR_5Y")
+        if self.cfo_pat_5y_ratio is None:
+            reasons.append("MISSING_CFO_PAT_5Y_RATIO")
+        if self.debt_equity is None:
+            reasons.append("MISSING_DEBT_EQUITY")
+
+        return len(reasons) == 0, reasons
+
+    def is_eligible_for_fundamental(self) -> Tuple[bool, List[str]]:
+        """
+        Data-integrity gate for FUNDAMENTAL.
+        Verifies inputs are current and trustworthy before strategy rules run.
+        NOTE: Does NOT alter strategy thresholds.
+        """
+        reasons = []
+        if self.snapshot_status == SnapshotFreshnessStatus.UPDATE_PENDING.value:
+            reasons.append("UPDATE_PENDING: NEW_OR_AMENDED_FILING_AWAITING_REBUILD")
+        elif self.snapshot_status in (SnapshotFreshnessStatus.INVALID.value, SnapshotFreshnessStatus.DATA_INSUFFICIENT.value):
+            reasons.append(f"SNAPSHOT_STATUS_{self.snapshot_status}")
+        elif self.snapshot_status == SnapshotFreshnessStatus.STALE.value:
+            reasons.append("SNAPSHOT_STATUS_STALE")
+
+        if self.pit_freshness_status not in (DataStatus.VALID.value, "FRESH"):
+            reasons.append(f"PIT_STALENESS_{self.pit_freshness_status}")
+
+        return len(reasons) == 0, reasons
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to full dictionary."""
+        return asdict(self)
+
+    def to_quality_row(self) -> Dict[str, Any]:
+        """Convert to dictionary matching QualityCompounderValueV2Scanner expectations."""
+        return {
+            "symbol": self.symbol,
+            "isin": self.isin,
+            "as_of_date": self.as_of_date,
+            "latest_annual_period": self.latest_annual_period,
+            "pit_freshness_status": self.pit_freshness_status,
+            "filing_gap_detected": self.filing_gap_detected,
+            "filing_gaps": self.filing_gaps,
+            "roce_5y_avg": self.roce_5y_avg,
+            "sales_cagr_5y": self.sales_cagr_5y,
+            "pat_cagr_5y": self.pat_cagr_5y,
+            "cfo_pat_5y_ratio": self.cfo_pat_5y_ratio,
+            "debt_to_equity": self.debt_equity,
+            "debt_equity": self.debt_equity,
+            "shares_outstanding_m": self.shares_outstanding_m,
+            "shares_status": self.shares_status,
+            "shares_scaling_applied": self.shares_scaling_applied,
+            "cash_and_equivalents": self.cash_and_equivalents,
+            "total_debt": self.total_debt,
+            "ebitda": self.ebitda,
+            "total_equity": self.total_equity,
+            "net_profit": self.net_profit,
+            "operating_cash_flow": self.operating_cash_flow,
+            "growth_start_period": self.growth_start_period,
+            "growth_end_period": self.growth_end_period,
+            "growth_years_elapsed": self.growth_years_elapsed,
+            "financial_periods_used": self.financial_periods_used,
+            "roce_periods_used": self.roce_periods_used,
+            "current_ev": self.current_ev,
+            "current_ev_ebitda": self.current_ev_ebitda,
+            "ev_ebitda_3y_median": self.ev_ebitda_3y_median,
+            "current_pe": self.current_pe,
+            "pe_3y_median": self.pe_3y_median,
+            "market_cap": self.market_cap,
+            "industry": self.industry,
+            "provenance_status": self.provenance_status,
+            "snapshot_status": self.snapshot_status,
+        }
+
+    def to_fundamental_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary matching LiveFundamentalBuyScanner expectations."""
+        return {
+            "symbol": self.symbol,
+            "roce": self.roce,
+            "roe": self.roe,
+            "debt_equity": self.debt_equity,
+            "operating_cash_flow": self.operating_cash_flow,
+            "rev_yoy_latest": self.rev_yoy_latest,
+            "rev_yoy_prev": self.rev_yoy_prev,
+            "op_profit_yoy_latest": self.op_profit_yoy_latest,
+            "op_profit_yoy_prev": self.op_profit_yoy_prev,
+            "eps_yoy_latest": self.eps_yoy_latest,
+            "eps_yoy_prev": self.eps_yoy_prev,
+            "prior_eps": self.prior_eps,
+            "growth_score": self.growth_score,
+            "quality_score": self.quality_score,
+            "valuation_score": self.valuation_score,
+            "wealth_score": self.wealth_score,
+            "fundamental_category": self.fundamental_category,
+            "is_value_trap": self.is_value_trap,
+            "upstream_provider": "SHARED_CANONICAL_SNAPSHOT",
+            "provenance_status": self.provenance_status,
+            "snapshot_status": self.snapshot_status,
+            "pit_freshness_status": self.pit_freshness_status,
+        }
+
+
+_SHARED_SNAPSHOT_CACHE: Dict[str, Dict[str, SharedFinancialSnapshot]] = {}
+
+def clear_shared_snapshot_cache() -> None:
+    """Clears the in-memory shared snapshot cache."""
+    global _SHARED_SNAPSHOT_CACHE
+    _SHARED_SNAPSHOT_CACHE.clear()
+
+
+def load_all_shared_financial_snapshots(
+    as_of_date: Optional[date] = None,
+    symbols: Optional[List[str]] = None,
+    data_dir: Optional[str] = None,
+    force_reload: bool = False,
+) -> Dict[str, SharedFinancialSnapshot]:
+    """
+    Loads or reconstructs the canonical shared financial snapshot for all requested symbols.
+    This is the SINGLE SHARED DATA LAYER consumed by:
+      - QUALITY_COMPOUNDER_VALUE_V2_FINAL
+      - FUNDAMENTAL (LiveFundamentalBuyScanner)
+
+    Checks watcher state for any symbol with UPDATE_PENDING.
+    """
+    global _SHARED_SNAPSHOT_CACHE
+    as_of = as_of_date or date.today()
+    cache_key = f"{as_of.isoformat()}_{len(symbols) if symbols else 'ALL'}"
+    if not force_reload and cache_key in _SHARED_SNAPSHOT_CACHE:
+        return _SHARED_SNAPSHOT_CACHE[cache_key]
+
+    base_data = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
+    # 1. Load watcher state for filing freshness and pending updates
+    watcher_state_file = os.path.join(base_data, "filing_watcher_state.json")
+    watcher_state = {}
+    if os.path.exists(watcher_state_file):
+        try:
+            with open(watcher_state_file, "r") as f:
+                watcher_state = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not load watcher state: {e}")
+
+    # 2. Check if rebuilt canonical PIT parquet exists
+    canonical_parquet = os.path.join(base_data, "canonical_pit_rebuilt.parquet")
+    df_canonical = None
+    if os.path.exists(canonical_parquet):
+        try:
+            df_canonical = pd.read_parquet(canonical_parquet)
+        except Exception as e:
+            logger.warning(f"Could not read canonical parquet: {e}")
+
+    # 3. Load valuation cache
+    val_cache = {}
+    pit_val_cache_path = os.path.join(base_data, "pit_valuation_history_cache.json")
+    if os.path.exists(pit_val_cache_path):
+        try:
+            with open(pit_val_cache_path, "r") as f:
+                vj = json.load(f)
+                val_cache = vj.get("data", vj)
+        except Exception:
+            pass
+
+    # 4. Load master fundamentals (Daily Builder 2.0) for quarterly acceleration
+    db_funds = {}
+    db_master_parquet = os.path.join(base_data, "daily_builder_master_v2.parquet")
+    if os.path.exists(db_master_parquet):
+        try:
+            df_db = pd.read_parquet(db_master_parquet)
+            if not df_db.empty and "symbol" in df_db.columns:
+                df_db["symbol"] = df_db["symbol"].astype(str).str.strip().str.upper()
+                db_funds = {r["symbol"]: r for r in df_db.to_dict(orient="records")}
+        except Exception:
+            pass
+
+    # Build snapshots
+    snapshots: Dict[str, SharedFinancialSnapshot] = {}
+
+    if df_canonical is not None and not df_canonical.empty:
+        records = df_canonical.to_dict(orient="records")
+        for r in records:
+            sym = str(r.get("symbol", "")).strip().upper()
+            if not sym:
+                continue
+            if symbols and sym not in symbols:
+                continue
+
+            # Check watcher state for this symbol
+            w_entry = watcher_state.get(sym, {})
+            w_status = w_entry.get("snapshot_status", SnapshotFreshnessStatus.FRESH.value)
+
+            # Valuation metrics
+            val_rec = val_cache.get(sym, {})
+            ev_med = val_rec.get("ev_ebitda_3y_median") or r.get("ev_ebitda_3y_median")
+            pe_med = val_rec.get("pe_3y_median") or r.get("pe_3y_median")
+            curr_ev = r.get("current_ev")
+            curr_ev_ebitda = r.get("current_ev_ebitda")
+            curr_pe = r.get("current_pe")
+
+            # Daily Builder quarterly acceleration facts
+            db_rec = db_funds.get(sym, {})
+
+            snap = SharedFinancialSnapshot(
+                symbol=sym,
+                isin=str(r.get("isin", "")),
+                as_of_date=str(r.get("as_of_date", as_of.isoformat())),
+                latest_annual_period=r.get("latest_annual_period"),
+                latest_quarterly_period=r.get("latest_quarterly_period") or db_rec.get("latest_quarter"),
+                snapshot_status=w_status,
+                pit_freshness_status=str(r.get("pit_freshness_status", DataStatus.VALID.value)),
+                provenance_status=str(r.get("provenance_status", "CERTIFIED")),
+                roce=r.get("roce") or (db_rec.get("roce") if db_rec else None),
+                roe=r.get("roe") or (db_rec.get("roe") if db_rec else None),
+                roce_5y_avg=r.get("roce_5y_avg"),
+                operating_cash_flow=r.get("operating_cash_flow") or (db_rec.get("operating_cash_flow") if db_rec else None),
+                cfo_pat_5y_ratio=r.get("cfo_pat_5y_ratio"),
+                total_debt=r.get("total_debt"),
+                total_equity=r.get("total_equity"),
+                debt_equity=r.get("debt_to_equity") if r.get("debt_to_equity") is not None else (db_rec.get("debt_equity") if db_rec else None),
+                cash_and_equivalents=r.get("cash_and_equivalents"),
+                ebitda=r.get("ebitda"),
+                net_profit=r.get("net_profit"),
+                revenue=r.get("revenue"),
+                sales_cagr_5y=r.get("sales_cagr_5y"),
+                pat_cagr_5y=r.get("pat_cagr_5y"),
+                filing_gap_detected=bool(r.get("filing_gap_detected", False)),
+                filing_gaps=str(r.get("filing_gaps", "[]")),
+                growth_start_period=r.get("growth_start_period"),
+                growth_end_period=r.get("growth_end_period"),
+                growth_years_elapsed=float(r.get("growth_years_elapsed", 5.0) or 5.0),
+                financial_periods_used=int(r.get("financial_periods_used", 5) or 5),
+                roce_periods_used=int(r.get("roce_periods_used", 5) or 5),
+                shares_outstanding_m=r.get("shares_outstanding_m"),
+                shares_status=str(r.get("shares_status", DataStatus.VALID.value)),
+                shares_scaling_applied=bool(r.get("shares_scaling_applied", False)),
+                share_dilution_3y=r.get("share_dilution_3y"),
+                rev_yoy_latest=db_rec.get("rev_yoy_latest"),
+                rev_yoy_prev=db_rec.get("rev_yoy_prev"),
+                op_profit_yoy_latest=db_rec.get("op_profit_yoy_latest"),
+                op_profit_yoy_prev=db_rec.get("op_profit_yoy_prev"),
+                eps_yoy_latest=db_rec.get("eps_yoy_latest"),
+                eps_yoy_prev=db_rec.get("eps_yoy_prev"),
+                prior_eps=db_rec.get("prior_eps"),
+                growth_score=float(db_rec.get("growth_score", 0.0) or 0.0),
+                quality_score=float(db_rec.get("quality_score", 0.0) or 0.0),
+                valuation_score=float(db_rec.get("valuation_score", 0.0) or 0.0),
+                wealth_score=float(db_rec.get("wealth_score", 0.0) or 0.0),
+                is_value_trap=bool(db_rec.get("is_value_trap", False)),
+                fundamental_category=str(db_rec.get("fundamental_category", "NONE")),
+                current_ev=curr_ev,
+                current_ev_ebitda=curr_ev_ebitda,
+                ev_ebitda_3y_median=ev_med,
+                current_pe=curr_pe,
+                pe_3y_median=pe_med,
+                market_cap=r.get("market_cap") or db_rec.get("market_cap"),
+                industry=str(r.get("industry") or db_rec.get("industry") or ""),
+            )
+            # Compute SHA256 fingerprint
+            payload_str = f"{snap.symbol}_{snap.latest_annual_period}_{snap.sales_cagr_5y}_{snap.pat_cagr_5y}_{snap.roce_5y_avg}"
+            snap.snapshot_hash = hashlib.sha256(payload_str.encode()).hexdigest()
+            snapshots[sym] = snap
+
+    _SHARED_SNAPSHOT_CACHE[cache_key] = snapshots
+    return snapshots
+
+
+def load_shared_financial_snapshot(
+    symbol: str,
+    as_of_date: Optional[date] = None,
+    data_dir: Optional[str] = None,
+) -> SharedFinancialSnapshot:
+    """Loads a single shared financial snapshot for the specified symbol."""
+    sym = symbol.strip().upper()
+    snaps = load_all_shared_financial_snapshots(as_of_date=as_of_date, symbols=[sym], data_dir=data_dir)
+    if sym in snaps:
+        return snaps[sym]
+    # Return fail-closed blank snapshot
+    return SharedFinancialSnapshot(
+        symbol=sym,
+        snapshot_status=SnapshotFreshnessStatus.DATA_INSUFFICIENT.value,
+        pit_freshness_status=DataStatus.DATA_INSUFFICIENT.value,
+        provenance_status="UNCERTIFIED",
+        validation_reasons=["SYMBOL_NOT_FOUND_IN_SHARED_SNAPSHOT"],
+    )
+
 
 

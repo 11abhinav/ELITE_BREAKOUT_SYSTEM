@@ -182,6 +182,11 @@ def rebuild_canonical_pit_dataset(
             "net_profit": float(net_profit_val) if net_profit_val is not None else None,
             "operating_cash_flow": float(cfo_vals[-1]) if cfo_vals else None,
             "annual_filing_count": len(pit_eligible_annual),
+            "growth_start_period": sales_cagr_res.start_period or pat_cagr_res.start_period,
+            "growth_end_period": sales_cagr_res.end_period or pat_cagr_res.end_period,
+            "growth_years_elapsed": sales_cagr_res.elapsed_years or 5.0,
+            "financial_periods_used": len(pit_eligible_annual),
+            "roce_periods_used": len(roce_vals),
             "provenance_status": "CERTIFIED" if (freshness.ok and not has_gaps and shares_res.ok) else "UNCERTIFIED",
         }
         rows.append(row)
