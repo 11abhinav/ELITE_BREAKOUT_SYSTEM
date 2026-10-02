@@ -1,0 +1,202 @@
+[
+  {
+    "symbol": "BASF",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "BAYERCROP",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_STANDALONE_REQUIRED",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "BHARATWIRE",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "BORORENEW",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "CUPID",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "DPABHUSHAN",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "FRONTSP",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "GLOBUSSPR",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "GUJGASLTD",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "HUHTAMAKI",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "JKIL",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "JUSTDIAL",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_STANDALONE_REQUIRED",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "KENNAMET",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "KRSNAA",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "KSL",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "MARSONS",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "MOIL",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_STANDALONE_REQUIRED",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "MOLDTKPAC",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_STANDALONE_REQUIRED",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "PATANJALI",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_CONSOLIDATED_STALE_OR_MISSING",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  },
+  {
+    "symbol": "VIMTALABS",
+    "status": "FAILED",
+    "reason": "DATA_INSUFFICIENT_STANDALONE_REQUIRED",
+    "annual_periods": 0,
+    "latest_period": null,
+    "cash": null,
+    "debt": null,
+    "shares": null
+  }
+]
