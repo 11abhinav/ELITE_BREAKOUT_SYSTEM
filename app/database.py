@@ -4411,9 +4411,12 @@ def upsert_scanner_health(
             if status in ('COMPLETED', 'SUCCESS'):
                 status = 'OK'
 
-        allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED'}
+        allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED', 'INCONSISTENT'}
         if status == 'ERROR':
             status = 'DOWN'
+        elif status == 'INCONSISTENT':
+            # Critical population accounting / reconciliation failure — first-class terminal failure (NEVER IDLE)
+            status = 'INCONSISTENT'
         elif status in ('DATA_BLOCKED', 'OK_WITH_DATA_GAPS', 'PARTIAL'):
             # Data gaps / valuation unavailable — treat as DEGRADED (never IDLE or OK)
             status = 'DEGRADED'
@@ -4421,8 +4424,8 @@ def upsert_scanner_health(
             # V2 zero-price candidate defect — treat as DOWN (data integrity failure)
             status = 'DOWN'
         elif status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
-            logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
-            status = 'IDLE'
+            logger.error(f"upsert_scanner_health: unknown or invalid status '{status}' provided — mapping to 'DOWN' (not IDLE)")
+            status = 'DOWN'
 
         # [RULE 67 CHANGE-RATIONALE: IMMUTABLE_PAUSED_STATE_v1.0]
         # Guarantee that a PAUSED or STOPPED scanner NEVER gets mutated back to OK, IDLE, RUNNING, DOWN, or QUEUED

@@ -78,10 +78,10 @@ ANNUAL_GAP_THRESHOLD_DAYS: int = 548   # 18 months = 1.5 * 365.25
 
 # Share count plausibility bounds (millions).
 # Derived shares outside [MIN_SHARES_M, MAX_SHARES_M] are flagged.
-# Upper bound: the largest Indian companies have ~8000-9000M shares.
-# 30,000M is implausible — flag for unit scaling.
+# Upper bound: Indian mega-caps (e.g. IDEA ~68B shares, YESBANK ~31B, IOC ~14B, TATASTEEL ~12.5B).
+# Set to 100,000M (100 Billion shares) to avoid destroying mega-cap valuations.
 MIN_SHARES_M: float = 0.5
-MAX_SHARES_M: float = 10_000.0
+MAX_SHARES_M: float = 100_000.0
 
 # Minimum OCF filing age — if the cash-flow statement has no period newer than
 # this many years before scan_date, it is stale.
@@ -273,6 +273,7 @@ class CAGRResult:
     end_value: Optional[float] = None
     elapsed_years: Optional[float] = None
     window_integrity: str = ""
+    is_current_pit_window_valid: bool = True
     gaps_detected: List[Tuple[str, str]] = field(default_factory=list)
     reason: Optional[str] = None
     target_years: int = 5
@@ -578,6 +579,7 @@ def compute_cagr(
     target_years: int = 5,
     basis: str = StatementBasis.CONSOLIDATED,
     as_of_date: Optional[date] = None,
+    scan_date: Optional[date] = None,
 ) -> CAGRResult:
     """
     Deterministic N-year annual CAGR with gap validation and window integrity.
@@ -723,6 +725,19 @@ def compute_cagr(
 
     cagr_pct = round((pow(r1_val / r0_val, 1.0 / elapsed_years) - 1.0) * 100.0, 2)
 
+    ref_scan_date = scan_date or as_of_date or date.today()
+    is_current_window_valid = True
+    if period1:
+        p1_dt = _parse_date_fast(period1)
+        if p1_dt and (ref_scan_date - p1_dt).days > int(MAX_PIT_STALENESS_YEARS * 365.25):
+            is_current_window_valid = False
+            window_integrity = f"{window_integrity}_ENDPOINT_STALE"
+            logger.warning(
+                f"[CAGR_STALENESS] {symbol}: metric={metric} — historical {target_years}Y interval is mathematically valid, "
+                f"but endpoint {period1} is {(ref_scan_date - p1_dt).days / 365.25:.1f}Y old (> {MAX_PIT_STALENESS_YEARS}Y limit). "
+                f"Marking is_current_pit_window_valid=False."
+            )
+
     logger.info(
         f"[CAGR] {symbol}: metric={metric} — {period0} ({r0_val}) → "
         f"{period1} ({r1_val}), {elapsed_years:.2f}Y, CAGR={cagr_pct}%, "
@@ -738,6 +753,7 @@ def compute_cagr(
         end_value=r1_val,
         elapsed_years=round(elapsed_years, 2),
         window_integrity=window_integrity,
+        is_current_pit_window_valid=is_current_window_valid,
         gaps_detected=gaps_full,
         metric=metric,
         target_years=target_years,
@@ -864,24 +880,11 @@ def derive_and_validate_shares(
                 source=f"DERIVED: net_profit={net_profit_cr}Cr / eps=₹{eps}",
             )
 
-        # Out of range — try unit scaling on the derived value
-        derived_div = derived_m / 1000.0
-        if MIN_SHARES_M <= derived_div <= MAX_SHARES_M:
-            logger.warning(
-                f"[SHARE_UNIT] {symbol}: derived shares={derived_m}M out of range. "
-                f"÷1000 scaling → {derived_div:.4f}M"
-            )
-            return ShareCountResult(
-                status=DataStatus.VALID,
-                shares_millions=round(derived_div, 4),
-                derivation_method=DerivationMethod.DERIVED_UNIT_SCALED,
-                source=f"DERIVED_SCALED: net_profit={net_profit_cr}Cr / eps=₹{eps}",
-                unit_scaling_applied="DERIVED_DIV_1000",
-            )
-
+        # Out of range — DO NOT apply arbitrary ÷1000 heuristics to derived shares.
+        # Implausible derived shares must fail-closed to avoid destroying mega-cap valuations.
         logger.error(
-            f"[SHARE_SANITY] {symbol}: derived shares={derived_m}M implausible "
-            f"(net_profit={net_profit_cr}Cr, eps=₹{eps}). BLOCKING."
+            f"[SHARE_SANITY] {symbol}: derived shares={derived_m}M implausible outside "
+            f"[{MIN_SHARES_M}, {MAX_SHARES_M}]M (net_profit={net_profit_cr}Cr, eps=₹{eps}). BLOCKING."
         )
         return ShareCountResult(
             status=DataStatus.DATA_INVALID,
@@ -1673,6 +1676,7 @@ def compute_cagr_pit(
     target_years: int = 5,
     basis: str = StatementBasis.CONSOLIDATED,
     as_of_date: Optional[date] = None,
+    scan_date: Optional[date] = None,
 ) -> CAGRResult:
     """Convenience wrapper for compute_cagr."""
     return compute_cagr(
@@ -1682,6 +1686,7 @@ def compute_cagr_pit(
         target_years=target_years,
         basis=basis,
         as_of_date=as_of_date,
+        scan_date=scan_date,
     )
 
 def compute_ev_pit(

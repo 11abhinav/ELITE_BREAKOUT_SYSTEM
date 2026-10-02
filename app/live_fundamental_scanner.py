@@ -4218,6 +4218,10 @@ class QualityCompounderValueV2Scanner:
 
             # Real market cap: shares * cmp_price / 1e7, or PIT market cap
             _sh = row.get('shares_outstanding')
+            if _sh is None or pd.isna(_sh):
+                _sh_m = row.get('shares_outstanding_m')
+                if _sh_m is not None and not pd.isna(_sh_m) and float(_sh_m) > 0:
+                    _sh = float(_sh_m) * 1e6
             if _sh is not None and not pd.isna(_sh) and float(_sh) > 0 and cmp_price > 0:
                 mcap = (float(_sh) * cmp_price) / 1e7
             else:
@@ -5798,13 +5802,31 @@ class QualityCompounderValueV2Scanner:
 
 
     def load_pit_dataset(self) -> Optional[pd.DataFrame]:
-        """Load certified PIT dataset from statement filings and Daily Builder 2.0 master fundamentals."""
-        # 1. Authoritative PIT statement filings (795 clean equities)
+        """Load certified PIT dataset from canonical PIT rebuilt snapshot or statement filings."""
+        # 0. Primary Canonical Source: Pre-built certified canonical snapshot from Rebuild Engine
+        canonical_p = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
+        if os.path.exists(canonical_p):
+            try:
+                df_canon = pd.read_parquet(canonical_p)
+                if not df_canon.empty and 'symbol' in df_canon.columns and len(df_canon) >= 800:
+                    if 'shares_outstanding' not in df_canon.columns and 'shares_outstanding_m' in df_canon.columns:
+                        df_canon['shares_outstanding'] = df_canon['shares_outstanding_m'] * 1e6
+                    curr_ev_cnt = int((df_canon['current_ev_ebitda'].notna() & (df_canon['current_ev_ebitda'] > 0)).sum()) if 'current_ev_ebitda' in df_canon.columns else 0
+                    logger.info(
+                        f"⚡ [CANONICAL_LINEAGE] Loaded primary certified snapshot from {canonical_p} "
+                        f"({len(df_canon)} symbols, Current EV/EBITDA Complete: {curr_ev_cnt}/{len(df_canon)})"
+                    )
+                    return df_canon
+            except Exception as _ce:
+                logger.warning(f"Canonical snapshot load warning: {_ce}")
+
+        # 1. Fallback: Authoritative PIT statement filings (795 clean equities)
         p_path = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet")
         if not os.path.exists(p_path):
             p_path = os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet")
 
         searched_paths = [
+            os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet"),
             os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet"),
             os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet"),
             os.path.join(DATA_DIR, "daily_builder_master_v2.parquet"),

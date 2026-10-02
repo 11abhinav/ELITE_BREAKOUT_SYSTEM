@@ -343,7 +343,24 @@ class FinancialFilingWatcher:
             )
             clear_shared_snapshot_cache()
 
-            # Mark state as FRESH
+            # Invariant: BUILD COMPLETE != DATA COMPLETE != SCANNER READY
+            # Verify completeness before declaring FRESH.
+            ev_count = int(df["current_ev_ebitda"].notna().sum()) if ("current_ev_ebitda" in df.columns) else 0
+            if ev_count == 0 and len(df) > 0:
+                logger.error(
+                    f"❌ [filling scanner] [SNAPSHOT_REBUILD: DATA_INCOMPLETE] Rebuilt {len(df)} rows, "
+                    f"but Current EV/EBITDA is 0/{len(df)}. Refusing to mark snapshot FRESH!"
+                )
+                if symbol and symbol.upper() in self.state:
+                    self.state[symbol.upper()]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
+                else:
+                    for s in self.state.values():
+                        if s.get("snapshot_status") == SnapshotFreshnessStatus.UPDATE_PENDING.value:
+                            s["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
+                self._save_state()
+                return False
+
+            # Mark state as FRESH only when data completeness invariants pass
             if symbol and symbol.upper() in self.state:
                 self.state[symbol.upper()]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
             else:
@@ -352,7 +369,7 @@ class FinancialFilingWatcher:
                         s["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
             self._save_state()
 
-            logger.info(f"✅ [filling scanner] [SNAPSHOT_REBUILD: SUCCESS] Rebuilt {len(df)} rows. Status set to FRESH.")
+            logger.info(f"✅ [filling scanner] [SNAPSHOT_REBUILD: SUCCESS] Rebuilt {len(df)} rows. Current EV/EBITDA Complete: {ev_count}/{len(df)}. Status set to FRESH.")
             return True
         except Exception as e:
             logger.error(f"❌ [filling scanner] [SNAPSHOT_REBUILD: FAILED] {e}")
