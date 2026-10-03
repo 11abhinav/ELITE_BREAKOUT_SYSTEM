@@ -4351,7 +4351,7 @@ def upsert_scanner_health(
     Canonicalizes scanner names, enforces active_run_id ownership, and logs status transitions.
     """
     scanner_name = normalize_scanner_name(scanner_name)
-    if scanner_name in DECOMMISSIONED_SCANNERS or (scanner_name and scanner_name.upper() in DECOMMISSIONED_SCANNERS):
+    if scanner_name not in ACTIVE_PRODUCTION_SCANNERS and (scanner_name and scanner_name.upper() not in ACTIVE_PRODUCTION_SCANNERS):
         return
 
     try:
@@ -4935,6 +4935,11 @@ ACTIVE_PRODUCTION_SCANNERS: set[str] = {
     "WEALTH_EXIT_V2",
     "FILING_WATCHER",
 }
+
+try:
+    from engine.production.governance_registry import DECOMMISSIONED_SCANNERS
+except Exception:
+    DECOMMISSIONED_SCANNERS = set()
 
 def is_scanner_stopped(scanner_name: str) -> bool:
     """Return True if scanner is currently STOPPED, PAUSED, or NOT AN ACTIVE PRODUCTION SCANNER."""
