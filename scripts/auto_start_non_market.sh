@@ -23,16 +23,25 @@ is_market_hours = not is_weekend and (market_open <= now <= market_close)
 
 if not is_market_hours:
     print(f'[{now}] Non-market hours detected on boot. Triggering DailyBuilder and Scanner...')
+    print('Starting DailyBuilder...')
     try:
-        print('Starting DailyBuilder...')
         subprocess.run([sys.executable, 'app/daily_builder.py', '--no-wait'], check=True)
-        print('Starting Live Fundamental Scanner...')
-        subprocess.run([sys.executable, 'app/live_fundamental_scanner.py'], check=True)
-        print('Starting Technical Scanner...')
-        subprocess.run([sys.executable, 'app/technical_scanner.py'], check=True)
-        print('Boot trigger complete.')
     except Exception as e:
-        print(f'Error during boot trigger: {e}')
+        print(f'Error running DailyBuilder: {e}')
+        
+    print('Starting Live Fundamental Scanner...')
+    try:
+        subprocess.run([sys.executable, 'app/live_fundamental_scanner.py'], check=True)
+    except Exception as e:
+        print(f'Error running Live Fundamental Scanner: {e}')
+        
+    print('Starting Technical Scanner...')
+    try:
+        subprocess.run([sys.executable, 'app/technical_scanner.py'], check=True)
+    except Exception as e:
+        print(f'Error running Technical Scanner: {e}')
+        
+    print('Boot trigger complete.')
 else:
     print(f'[{now}] Market hours detected on boot. Deferring to standard scheduler.')
 "
