@@ -377,10 +377,121 @@ def run_test_3_filing_detection_delay():
     print("  [Cleanup] Removed test symbol state.")
     print("  ✅ TEST 3 PASSED: Detection Delay Lifecycle & Invalidation Guarantees Verified!")
 
+
+def run_test_4_pre_buy_source_freshness_fence():
+    print("\n" + "=" * 80)
+    print("TEST 4: PRE-BUY SOURCE FRESHNESS FENCE (NO_NEWER_UNPROCESSED_FILING)")
+    print("=" * 80)
+
+    TEST_SYM = "FENCE_TEST_STOCK"
+    watcher = FinancialFilingWatcher()
+
+    # 1. State in Watcher says FRESH based on FY2025
+    watcher.state[TEST_SYM] = {
+        "filings": {"F_2025": {"period_end_date": "2025-03-31", "source_hash": "h25"}},
+        "latest_filing_date": "2025-03-31",
+        "snapshot_status": SnapshotFreshnessStatus.FRESH.value
+    }
+    watcher._save_state()
+
+    # 2. Company publishes FY2026 result on exchange at 10:30
+    # Simulate exchange filing index having this newer filing before watcher runs
+    sym_dir = os.path.join(BASE_DIR, "data", "exchange_financials", TEST_SYM, "metadata")
+    os.makedirs(sym_dir, exist_ok=True)
+    idx_file = os.path.join(sym_dir, "filing_index.json")
+    with open(idx_file, "w") as ef:
+        json.dump({
+            "F_2026_ANNUAL": {
+                "statement_type": "ANNUAL",
+                "period_end_date": "2026-03-31",
+                "broadcast_timestamp": "2026-10-03T10:30:00",
+                "pit_eligible_from": "2026-10-03T10:30:00"
+            }
+        }, ef, indent=2)
+
+    # 3. Scanner evaluates BUY at 10:45 using old FY2025 snapshot numbers
+    dummy_prov_old = {
+        "roce_5y": FieldProvenance(symbol=TEST_SYM, scanner="QUALITY_COMPOUNDER", field="roce_5y", value_used=18.0, source_used="PIT", period_end="2025-03-31", basis="CONSOLIDATED", validation_status="PASSED"),
+    }
+    buy_ok_1045, reasons_1045 = pre_buy_integrity_gate(
+        symbol=TEST_SYM,
+        scanner="QUALITY_COMPOUNDER",
+        required_metrics=["roce_5y"],
+        financial_metrics=dummy_prov_old,
+        gate_results={},
+        blocking_reasons=[]
+    )
+    # The fence MUST detect the exchange filing and HARD BLOCK the BUY alert!
+    assert not buy_ok_1045, "Pre-BUY fence failed to block candidate with newer exchange filing!"
+    assert any("UNPROCESSED_EXCHANGE_FILING" in r for r in reasons_1045)
+    print(f"  [10:45 Pre-BUY Fence Interception] BUY Gate: BLOCKED ({reasons_1045[0]})")
+
+    # Verify watcher state was automatically flipped to UPDATE_PENDING
+    st_flipped = watcher.get_symbol_freshness_status(TEST_SYM)
+    assert st_flipped == SnapshotFreshnessStatus.UPDATE_PENDING
+    print(f"  [Automatic State Invalidation] Watcher status flipped to: {st_flipped.value}")
+
+    # 4. Once canonical snapshot incorporates FY2026:
+    dummy_prov_updated = {
+        "roce_5y": FieldProvenance(symbol=TEST_SYM, scanner="QUALITY_COMPOUNDER", field="roce_5y", value_used=22.0, source_used="PIT", period_end="2026-03-31", basis="CONSOLIDATED", validation_status="PASSED"),
+    }
+    # Reset status to FRESH after rebuild
+    watcher.state[TEST_SYM]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
+    watcher._save_state()
+
+    buy_ok_updated, reasons_updated = pre_buy_integrity_gate(
+        symbol=TEST_SYM,
+        scanner="QUALITY_COMPOUNDER",
+        required_metrics=["roce_5y"],
+        financial_metrics=dummy_prov_updated,
+        gate_results={},
+        blocking_reasons=[]
+    )
+    assert buy_ok_updated, f"Expected pass after canonical updated to FY2026, got: {reasons_updated}"
+    print(f"  [Post-Incorporation Gate] BUY Gate: ELIGIBLE with FY2026 canonical data [PASS]")
+
+    # Cleanup test exchange metadata and watcher state
+    shutil.rmtree(os.path.join(BASE_DIR, "data", "exchange_financials", TEST_SYM), ignore_errors=True)
+    if TEST_SYM in watcher.state:
+        del watcher.state[TEST_SYM]
+        watcher._save_state()
+    print("  ✅ TEST 4 PASSED: Pre-BUY External Source Freshness Fence Verified!")
+
+
+def run_test_5_real_world_new_stock_recovery():
+    print("\n" + "=" * 80)
+    print("TEST 5: REAL-WORLD RECENTLY LISTED NSE STOCK LIVE RECOVERY PROOF")
+    print("=" * 80)
+
+    # Real-world test on MEDIASSIST (IPO listed Jan 2024, recent listing)
+    REAL_SYMBOL = "MEDIASSIST"
+    router = FundamentalSourceRouter()
+
+    # Step 1: Real ISIN Resolution
+    real_isin = router._resolve_isin(REAL_SYMBOL)
+    assert real_isin == "INE456Z01021", f"Expected INE456Z01021, got {real_isin}"
+    print(f"  [1] Live Exchange ISIN Resolution: {REAL_SYMBOL} -> {real_isin} [PASS]")
+
+    # Step 2: Live Progressive Recovery & Field Completeness
+    metrics = router.execute_progressive_recovery(REAL_SYMBOL, as_of_timestamp="2026-10-03T23:59:59")
+    assert metrics.overall_status == FundamentalStatus.VERIFIED
+    assert metrics.roce_5y is not None and metrics.roce_5y > 15.0
+    assert metrics.sales_cagr_5y is not None and metrics.sales_cagr_5y > 10.0
+    assert metrics.cfo_pat_5y is not None and metrics.cfo_pat_5y > 0.0
+
+    print(f"  [2] Live Progressive Recovery: Status={metrics.overall_status.name}")
+    print(f"      - 5Y ROCE Average  : {metrics.roce_5y}% (Passes >= 15% gate)")
+    print(f"      - 5Y Sales CAGR    : {metrics.sales_cagr_5y}% (Passes >= 10% gate)")
+    print(f"      - 5Y CFO/PAT Ratio : {metrics.cfo_pat_5y} (Passes > 0 gate)")
+    print("  ✅ TEST 5 PASSED: Real-World Recently Listed Stock Recovery Empirically Verified!")
+
+
 if __name__ == "__main__":
     run_test_1_universe_expansion()
     run_test_2_amended_filing_pit()
     run_test_3_filing_detection_delay()
+    run_test_4_pre_buy_source_freshness_fence()
+    run_test_5_real_world_new_stock_recovery()
     print("\n" + "=" * 80)
-    print("ALL 3 MANDATORY LIFECYCLE & FRESHNESS TESTS PASSED PERFECTLY!")
+    print("ALL 5 MANDATORY LIFECYCLE & FRESHNESS TESTS PASSED PERFECTLY!")
     print("=" * 80)

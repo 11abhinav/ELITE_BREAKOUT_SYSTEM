@@ -1493,6 +1493,117 @@ def emit_provenance_log(
 # C18 — PRE-BUY DATA INTEGRITY GATE
 # ---------------------------------------------------------------------------
 
+def _mark_update_pending(symbol: str, state_file: str):
+    """Helper to flip watcher state to UPDATE_PENDING when pre-buy fence detects newer filing."""
+    try:
+        st_data = {}
+        if os.path.exists(state_file):
+            with open(state_file, "r") as sf:
+                st_data = json.load(sf)
+        if symbol not in st_data:
+            st_data[symbol] = {"filings": {}, "snapshot_status": "UPDATE_PENDING"}
+        else:
+            st_data[symbol]["snapshot_status"] = "UPDATE_PENDING"
+        tmp = f"{state_file}.tmp.{os.getpid()}"
+        with open(tmp, "w") as tf:
+            json.dump(st_data, tf, indent=2)
+        os.replace(tmp, state_file)
+    except Exception:
+        pass
+
+
+def check_pre_buy_source_freshness_fence(
+    symbol: str,
+    canonical_period_end: Optional[str] = None,
+    canonical_filing_timestamp: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    PRE-BUY EXTERNAL SOURCE FRESHNESS FENCE (NO_NEWER_UNPROCESSED_FILING).
+
+    Invariant:
+      canonical_filing_timestamp >= latest_known_valid_exchange_filing_timestamp
+
+    Even if the background periodic watcher has not executed its polling cycle yet,
+    this gate checks:
+      1. Watcher state (UPDATE_PENDING / INVALID or latest_filing_date > canonical_period_end).
+      2. Exchange filing index (newer broadcast_timestamp or period_end_date on exchange).
+      3. Raw filings directory (newer raw filing downloaded but not yet published).
+
+    If any newer valid filing is discovered:
+      - Marks symbol status as UPDATE_PENDING in filing watcher state.
+      - Returns (False, reason) to HARD BLOCK the BUY alert.
+    """
+    try:
+        sym_clean = symbol.strip().upper()
+        base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        data_dir = os.path.join(base_dir, "data")
+
+        # 1. Check filing watcher state
+        state_file = os.path.join(data_dir, "filing_watcher_state.json")
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, "r") as sf:
+                    st_data = json.load(sf)
+                sym_st = st_data.get(sym_clean, {})
+                status_str = sym_st.get("snapshot_status", "FRESH")
+                if status_str == "UPDATE_PENDING":
+                    return False, f"UPDATE_PENDING: New or amended filing detected for {sym_clean}, recalculation required"
+                elif status_str == "INVALID":
+                    return False, f"SNAPSHOT_INVALID: Filing snapshot marked INVALID for {sym_clean}"
+
+                w_latest_date = sym_st.get("latest_filing_date")
+                if w_latest_date and canonical_period_end and str(w_latest_date) > str(canonical_period_end):
+                    return False, f"UNPROCESSED_WATCHER_FILING: Watcher detected filing {w_latest_date} > canonical {canonical_period_end}"
+            except Exception:
+                pass
+
+        # 2. Check exchange filing index for newer broadcast watermark
+        exchange_idx_file = os.path.join(data_dir, "exchange_financials", sym_clean, "metadata", "filing_index.json")
+        if os.path.exists(exchange_idx_file):
+            try:
+                with open(exchange_idx_file, "r") as ef:
+                    idx_data = json.load(ef)
+                for f_id, entry in idx_data.items():
+                    if entry.get("statement_type", "").upper() == "ANNUAL":
+                        f_period = entry.get("period_end_date")
+                        f_broadcast = entry.get("broadcast_timestamp") or entry.get("pit_eligible_from")
+                        if f_period and canonical_period_end and str(f_period) > str(canonical_period_end):
+                            _mark_update_pending(sym_clean, state_file)
+                            return False, (
+                                f"UNPROCESSED_EXCHANGE_FILING: Exchange filing {f_id} (period {f_period}, "
+                                f"broadcast {f_broadcast}) is newer than canonical period {canonical_period_end}"
+                            )
+                        if f_period and canonical_period_end and str(f_period) == str(canonical_period_end):
+                            if f_broadcast and canonical_filing_timestamp and str(f_broadcast) > str(canonical_filing_timestamp):
+                                _mark_update_pending(sym_clean, state_file)
+                                return False, (
+                                    f"UNPROCESSED_AMENDED_FILING: Amended filing {f_id} (broadcast {f_broadcast} > "
+                                    f"snapshot {canonical_filing_timestamp}) pending recalculation"
+                                )
+            except Exception:
+                pass
+
+        # 3. Check pit_raw_filings for newly downloaded files ahead of canonical
+        raw_file = os.path.join(data_dir, "pit_raw_filings", f"{sym_clean}.json")
+        if os.path.exists(raw_file):
+            try:
+                with open(raw_file, "r") as rf:
+                    raw_list = json.load(rf)
+                if isinstance(raw_list, list):
+                    for r in raw_list:
+                        r_period = str(r.get("period_end_date") or "")[:10]
+                        if r_period and canonical_period_end and r_period > str(canonical_period_end):
+                            _mark_update_pending(sym_clean, state_file)
+                            return False, f"UNPROCESSED_RAW_FILING: Newly acquired filing {r_period} > canonical {canonical_period_end}"
+            except Exception:
+                pass
+
+        return True, None
+    except Exception as e:
+        logger.warning(f"[PRE_BUY_FENCE] Error evaluating source freshness fence for {symbol}: {e}")
+        return True, None
+
+
 def pre_buy_integrity_gate(
     symbol: str,
     scanner: str,
@@ -1508,6 +1619,7 @@ def pre_buy_integrity_gate(
       - Every required metric must have an entry in financial_metrics.
       - Every entry must have value_used, source_used, period_end, basis set.
       - Every entry must have validation_status == "PASSED".
+      - Pre-BUY Source Freshness Fence: canonical snapshot must be >= exchange watermark.
       - No blocking_reasons may be present.
 
     Returns:
@@ -1515,17 +1627,24 @@ def pre_buy_integrity_gate(
     """
     reasons: List[str] = list(blocking_reasons or [])
 
-    # Freshness / Event Gate: Block BUY if a new/amended filing is pending recalculation
-    try:
-        from scripts.financial_filing_watcher import FinancialFilingWatcher, SnapshotFreshnessStatus
-        watcher = FinancialFilingWatcher()
-        f_status = watcher.get_symbol_freshness_status(symbol)
-        if f_status == SnapshotFreshnessStatus.UPDATE_PENDING:
-            reasons.append(f"UPDATE_PENDING: New or amended filing detected for {symbol}, recalculation required")
-        elif f_status == SnapshotFreshnessStatus.INVALID:
-            reasons.append(f"SNAPSHOT_INVALID: Filing snapshot marked INVALID for {symbol}")
-    except Exception:
-        pass
+    # ── PRE-BUY EXTERNAL SOURCE FRESHNESS FENCE (NO_NEWER_UNPROCESSED_FILING) ──
+    c_period = None
+    c_broadcast = None
+    for m in required_metrics:
+        if m in financial_metrics:
+            p = financial_metrics[m]
+            if p.period_end and (c_period is None or str(p.period_end) > str(c_period)):
+                c_period = str(p.period_end)
+            if p.pit_eligible_from and (c_broadcast is None or str(p.pit_eligible_from) > str(c_broadcast)):
+                c_broadcast = str(p.pit_eligible_from)
+
+    fence_ok, fence_reason = check_pre_buy_source_freshness_fence(
+        symbol=symbol,
+        canonical_period_end=c_period,
+        canonical_filing_timestamp=c_broadcast,
+    )
+    if not fence_ok and fence_reason:
+        reasons.append(fence_reason)
 
     for m in required_metrics:
         if m not in financial_metrics:

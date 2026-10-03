@@ -387,6 +387,7 @@ class FinancialFilingWatcher:
         Called by the 17:00 Scanner to verify if a stock's snapshot is valid.
         Returns: FRESH, UPDATE_PENDING, STALE, or INVALID.
         """
+        self.state = self._load_state()
         sym = symbol.strip().upper()
         entry = self.state.get(sym)
         if not entry:
