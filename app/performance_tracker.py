@@ -2055,7 +2055,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
         "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
         "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
-        "PLEDGE WORKER", "AI WORKER", "FILING_WATCHER"
+        "FILING_WATCHER"
     }
 
     active_scanners_for_health = {

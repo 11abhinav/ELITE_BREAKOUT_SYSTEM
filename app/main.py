@@ -1762,15 +1762,7 @@ def check_scanner_staleness(now):
 # SELF-HEALING WATCHDOG  (runs in background thread)
 # =====================================================================================
 
-from ai_worker import run_worker_loop as run_ai_loop
-from pledge_worker import worker_loop as run_pledge_loop
-
-# [DECOMMISSIONED] run_multibagger_exit_monitor() and _run_multibagger_scanner_single() permanently removed.
-
-
 RESTARTABLE_THREADS = {
-    "AI Worker":          run_ai_loop,
-    "Pledge Worker":      run_pledge_loop,
     "SystemScheduler":    run_system_scheduler,
 }
 
@@ -1890,7 +1882,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "QUALITY_VALUE_RECOVERY":             _trigger_quality_value_recovery,
         "QUALITY_VALUE_RECOVERY_WEALTH_V1":   _trigger_quality_value_recovery,
         "Wealth Engine":                      _trigger_wealth_engine,
-        "AI Worker":                          _trigger_ai_worker,
         "PERFORMANCE_TRACKER":                _trigger_performance_tracker,
         "WEALTH_EXIT":                        _trigger_wealth_exit,
         "TECHNICAL":                          _trigger_technical,
@@ -1910,7 +1901,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "QUALITY_VALUE_RECOVERY":             lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "QUALITY_VALUE_RECOVERY_WEALTH_V1":   lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "Wealth Engine":                      lambda: __import__('wealth_engine')._scan_lock,
-        "AI Worker":                          lambda: __import__('ai_worker')._scan_lock,
         "PERFORMANCE_TRACKER":                lambda: _perf_tracker_lock,
         "WEALTH_EXIT":                        lambda: __import__('wealth_engine')._wealth_exit_lock,
         "TECHNICAL":                          lambda: __import__('technical_scanner')._scan_lock,

@@ -4708,7 +4708,7 @@ def get_all_scanner_health() -> list[dict]:
                     "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
                     "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
                     "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
-                    "Pledge Worker", "AI Worker", "FILING_WATCHER"
+                    "FILING_WATCHER"
                 }
                 rows = [
                     r for r in rows
@@ -4807,7 +4807,7 @@ def reset_all_scanners_on_boot() -> None:
                         'DAILY_BUILDER', 'TECHNICAL', 'FUNDAMENTAL',
                         'QUALITY_COMPOUNDER', 'QUALITY_VALUE_RECOVERY',
                         'PERFORMANCE_TRACKER', 'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2',
-                        'Pledge Worker', 'AI Worker', 'FILING_WATCHER'
+                        'FILING_WATCHER'
                     );
                 """)
 
@@ -4822,8 +4822,6 @@ def reset_all_scanners_on_boot() -> None:
                     "PERFORMANCE_TRACKER": "Exit Monitor · Technical (EOD, REVERSAL, MULTI_TF) · Every 5m (09:15 - 15:30 IST)",
                     "WEALTH_EXIT_V1": "Exit Monitor V1 · Wealth (COMPOUNDER, QUALITY_RECOVERY) · Every 5m (09:15 - 15:30 IST)",
                     "WEALTH_EXIT_V2": "Exit Monitor V2 · Model E3 (COMPOUNDER, QUALITY_RECOVERY) · 15:15 & 18:30 IST Pulses",
-                    "Pledge Worker": "Continuous (Daily Refresh)",
-                    "AI Worker": "Continuous (Sat-Sun Active)",
                     "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
                 }
                 for sc_name, sched_str in schedule_map.items():
@@ -4935,8 +4933,6 @@ ACTIVE_PRODUCTION_SCANNERS: set[str] = {
     "PERFORMANCE_TRACKER",
     "WEALTH_EXIT_V1",
     "WEALTH_EXIT_V2",
-    "PLEDGE WORKER",
-    "AI WORKER",
     "FILING_WATCHER",
 }
 
@@ -11228,7 +11224,7 @@ def get_scanner_execution_history(
                             "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
                             "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
                             "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
-                            "PLEDGE WORKER", "AI WORKER", "FILING_WATCHER"
+                            "FILING_WATCHER"
                         ]
                         placeholders = ", ".join(["UPPER(%s)"] * len(active_scs))
                         where_clauses.append(f"UPPER(scanner_name) IN ({placeholders})")
