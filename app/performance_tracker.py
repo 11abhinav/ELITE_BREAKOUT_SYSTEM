@@ -2085,6 +2085,12 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     except Exception as _ce_err:
         logger.debug(f"Corporate event decoration warning in performance tracker: {_ce_err}")
 
+    try:
+        from database import enrich_alerts_with_multi_scanner_confluence
+        trades = enrich_alerts_with_multi_scanner_confluence(trades)
+    except Exception as _confl_err:
+        logger.debug(f"Multi-scanner confluence enrichment error in performance tracker: {_confl_err}")
+
     # Defense-in-depth sanitization of trade closure timestamps and fields
     for tr in trades:
         tr_status = tr.get("status")

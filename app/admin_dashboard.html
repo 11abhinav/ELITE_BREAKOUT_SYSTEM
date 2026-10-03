@@ -1412,6 +1412,35 @@ function changeAdminPage(type, delta) {
     .badge-partial { background: rgba(20,184,166,.12); color: #14b8a6; border: 1px solid rgba(20,184,166,.3); font-weight: 800; }
     .badge-scanner { background: rgba(217,119,6,.1);  color: var(--amber); font-family: var(--font-mono); border: 1px solid rgba(217,119,6,.2); }
     .badge-pending { background: rgba(234,179,8,.12); color: #d97706; border: 1px solid rgba(234,179,8,.3); font-weight: 700; }
+    .badge-confluence {
+      background: linear-gradient(135deg, rgba(255, 138, 0, 0.2), rgba(229, 46, 113, 0.22));
+      color: #ffaa40;
+      border: 1px solid rgba(255, 138, 0, 0.65);
+      font-weight: 800;
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      box-shadow: 0 0 8px rgba(255, 138, 0, 0.2);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      animation: pulseGlow 2.5s infinite alternate;
+    }
+    .badge-confluence:hover {
+      background: linear-gradient(135deg, rgba(255, 138, 0, 0.35), rgba(229, 46, 113, 0.35));
+      border-color: #ffaa40;
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 0 12px rgba(255, 138, 0, 0.45);
+    }
+    @keyframes pulseGlow {
+      0% { box-shadow: 0 0 6px rgba(255, 138, 0, 0.2); }
+      50% { box-shadow: 0 0 12px rgba(255, 138, 0, 0.5), 0 0 4px rgba(229, 46, 113, 0.35); }
+      100% { box-shadow: 0 0 6px rgba(255, 138, 0, 0.2); }
+    }
 
     /* ── STOCKS TO WATCH & INVESTMENT WATCH THEME-AWARE STYLES ── */
     .badge-stage-watch {
@@ -4862,7 +4891,85 @@ function getEarningsBadgeHtml(item) {
       loadTradeJourney(alertId, 'modal-tj-content');
     }
 
+    function updateOpenAlertsIndex(tradesList) {
+      const map = {};
+      if (!tradesList || !Array.isArray(tradesList)) {
+        window._OPEN_ALERTS_BY_SYMBOL = map;
+        return map;
+      }
+      const closedStatuses = new Set(['WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED']);
+      for (let i = 0; i < tradesList.length; i++) {
+        const t = tradesList[i];
+        if (!t) continue;
+        const st = String(t.status || '').toUpperCase().trim();
+        if (closedStatuses.has(st) || t.is_rejected === true) continue;
+        const sym = String(t.symbol || '').replace('.NS', '').replace('.BO', '').trim().toUpperCase();
+        if (!sym) continue;
+        if (!map[sym]) map[sym] = [];
+        
+        const ep = t.actual_entry_price != null ? t.actual_entry_price : (t.entry_price != null ? t.entry_price : t.alert_price);
+        map[sym].push({
+          id: t.id,
+          scanner: t.scanner || t.breakout_type || 'UNKNOWN',
+          alert_time: t.alert_time || t.entry_date || '',
+          alert_date: t.alert_date || t.entry_date || '',
+          entry_price: (ep != null && !isNaN(ep)) ? Number(ep) : null,
+          status: t.status || 'OPEN',
+          score: t.score
+        });
+      }
+      window._OPEN_ALERTS_BY_SYMBOL = map;
+      return map;
+    }
+
+    function getTradeConfluenceInfo(t) {
+      const cleanSym = String(t.symbol || '').replace('.NS', '').replace('.BO', '').trim().toUpperCase();
+      const index = window._OPEN_ALERTS_BY_SYMBOL || {};
+      const symOpen = index[cleanSym] || [];
+      
+      const scannersSet = new Set();
+      symOpen.forEach(a => {
+        if (a.scanner) scannersSet.add(a.scanner);
+      });
+      
+      let others = [];
+      if (t.id != null) {
+        others = symOpen.filter(a => a.id !== t.id);
+      } else {
+        let matchedSelf = false;
+        others = symOpen.filter(a => {
+          if (!matchedSelf && a.scanner === t.scanner && (a.alert_time === t.alert_time || a.alert_date === t.alert_date)) {
+            matchedSelf = true;
+            return false;
+          }
+          return true;
+        });
+      }
+
+      if (others.length === 0 && Array.isArray(t.other_open_alerts) && t.other_open_alerts.length > 0) {
+        others = t.other_open_alerts;
+      }
+      
+      let totalOpenScanners = scannersSet.size;
+      if (totalOpenScanners === 0 && t.total_open_scanners_count != null) {
+        totalOpenScanners = t.total_open_scanners_count;
+      }
+      if (totalOpenScanners === 0 && others.length > 0) {
+        const sSet = new Set(others.map(o => o.scanner).filter(Boolean));
+        if (t.scanner) sSet.add(t.scanner);
+        totalOpenScanners = sSet.size;
+      }
+
+      return {
+        cleanSym,
+        totalOpenScanners,
+        hasOtherOpenAlerts: others.length > 0,
+        otherOpenAlerts: others
+      };
+    }
+
     function buildTradeRows(trades, maxAbs, prefix) {
+      updateOpenAlertsIndex(typeof ALL_TRADES !== 'undefined' && ALL_TRADES && ALL_TRADES.length > 0 ? ALL_TRADES : trades);
       return trades.map((t, i) => {
         const id = (prefix || 'tr-') + i;
         const pnlData = calcFloatingPnl(t);
@@ -4871,6 +4978,29 @@ function getEarningsBadgeHtml(item) {
         const isOpen = expandedIds.has(id);
         const sc = t.score != null ? `<span class="score-ring ${scoreClass(t.score)}">${t.score}</span>` : '—';
         const key = t.symbol + '|' + (t.alert_time || t.entry_date);
+        const cleanSym = (t.symbol || '').replace('.NS', '').replace('.BO', '').trim();
+        const confluence = getTradeConfluenceInfo(t);
+
+        let confluenceBadgeHtml = '';
+        if (confluence.hasOtherOpenAlerts) {
+          const countLabel = confluence.totalOpenScanners > 1 
+            ? `${confluence.totalOpenScanners} Scanners Open` 
+            : `${confluence.otherOpenAlerts.length + 1} Open Alerts`;
+          const tipLines = [`${confluence.totalOpenScanners} Scanners have open alerts on ${cleanSym}:`];
+          if (t.scanner) {
+            tipLines.push(`• Current: ${t.scanner} @ ${fmt(t.actual_entry_price || t.entry_price)}`);
+          }
+          confluence.otherOpenAlerts.forEach(oa => {
+            tipLines.push(`• ${oa.scanner}: ${fmtAlertTime(oa.alert_time || oa.alert_date)} @ ${fmt(oa.entry_price)}`);
+          });
+          const tipText = tipLines.join('\n').replace(/"/g, '&quot;');
+          
+          confluenceBadgeHtml = `
+            <span class="badge badge-confluence" title="${tipText}" onclick="event.stopPropagation(); toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id || 'null'});">
+              <span style="font-size:10px;">⚡</span> ${countLabel}
+            </span>
+          `;
+        }
 
         // [RULE 67 CHANGE-RATIONALE]: Row highlight per user instruction:
         // Only profit trades in green, and SL trades in red; neutral / breakeven (0.00%) remain unhighlighted.
@@ -4900,7 +5030,6 @@ function getEarningsBadgeHtml(item) {
           ? t.capital_allocated
           : ((t.shares_bought && t.entry_price && parseFloat(t.entry_price) > 0) ? (parseFloat(t.shares_bought) * parseFloat(t.entry_price)) : null);
 
-        const cleanSym = (t.symbol || '').replace('.NS', '').replace('.BO', '').trim();
         return `
     <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" data-id="${t.id || ''}" data-symbol="${cleanSym}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${rowHighlightStyle}">
       <td onclick="event.stopPropagation();" style="text-align:center; width:24px;">${checkboxHtml}</td>
@@ -4913,6 +5042,7 @@ function getEarningsBadgeHtml(item) {
         <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
           <span class="badge badge-scanner">${t.scanner || '—'}</span>
           ${t.signals && t.signals.includes('GEM') ? `<span style="display:inline-flex; align-items:center; gap:2px; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:800; background:rgba(0,212,161,0.18); color:#00d4a1; border:1px solid rgba(0,212,161,0.5); box-shadow:0 0 6px rgba(0,212,161,0.2);">💎 GEM</span>` : ''}
+          ${confluenceBadgeHtml}
         </div>
       </td>
       <td>${badgeHtml(t.status, t)}</td>
@@ -4940,6 +5070,52 @@ function getEarningsBadgeHtml(item) {
     <tr class="detail-row">
       <td colspan="15">
         <div class="detail-panel ${isOpen ? 'open' : 'closed'}" id="dp-${id}">
+          ${confluence.hasOtherOpenAlerts ? `
+          <div class="detail-item" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(255, 138, 0, 0.12), rgba(229, 46, 113, 0.08)); border: 1px solid rgba(255, 138, 0, 0.45); padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; box-shadow: inset 0 0 12px rgba(255, 138, 0, 0.08);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:16px;">⚡</span>
+                <div>
+                  <div style="color:#ffaa40; font-weight:800; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">
+                    Multi-Scanner Confluence: ${confluence.totalOpenScanners} Scanner${confluence.totalOpenScanners > 1 ? 's' : ''} with Active Open Alert on ${cleanSym}
+                  </div>
+                  <div style="color:var(--muted); font-size:10.5px; margin-top:1px;">
+                    Current Alert: <strong style="color:var(--accent);">${t.scanner || 'TECHNICAL'}</strong> (${fmtDetailTime(t.alert_time || t.entry_date)} @ ${fmt(t.actual_entry_price || t.entry_price)})
+                  </div>
+                </div>
+              </div>
+              <span style="font-size:10.5px; font-weight:700; color:#ffaa40; background:rgba(0,0,0,0.35); border:1px solid rgba(255,138,0,0.4); padding:3px 10px; border-radius:12px; font-family:var(--font-mono);">
+                +${confluence.otherOpenAlerts.length} other open alert${confluence.otherOpenAlerts.length > 1 ? 's' : ''}
+              </span>
+            </div>
+            
+            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:10px;">
+              ${confluence.otherOpenAlerts.map(oa => `
+                <div style="background:var(--card); border:1px solid var(--border); border-left:3px solid #ff8a00; border-radius:6px; padding:10px 12px; display:flex; flex-direction:column; gap:5px; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-weight:800; font-size:11.5px; color:var(--accent); font-family:var(--font-mono);">${oa.scanner}</span>
+                    <span class="badge" style="font-size:9.5px; font-weight:700; padding:1px 6px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid rgba(0,212,161,0.3); border-radius:3px;">
+                      ${oa.status || 'OPEN'}
+                    </span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; margin-top:2px;">
+                    <span style="color:var(--muted); font-size:11px;">Alert Price:</span>
+                    <span style="font-weight:800; color:var(--text); font-family:var(--font-mono); font-size:12px;">${fmt(oa.entry_price)}</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted);">
+                    <span>Alert Date:</span>
+                    <span style="font-family:var(--font-mono); color:var(--text); font-weight:600;">${fmtDetailTime(oa.alert_time || oa.alert_date)}</span>
+                  </div>
+                  ${oa.score != null ? `
+                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--muted); border-top:1px dashed var(--border); padding-top:4px; margin-top:2px;">
+                    <span>Confluence Score:</span>
+                    <span style="font-weight:700; color:var(--accent); font-family:var(--font-mono);">${oa.score}</span>
+                  </div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
           <div class="detail-item">
             <div class="detail-label">Strategy / Pattern</div>
             <div class="detail-val" style="color:var(--accent);font-weight:700;font-size:11px;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>

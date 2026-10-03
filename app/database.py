@@ -4122,7 +4122,148 @@ def get_all_alerts(limit: int = None) -> list[dict]:
             rows = []
             for row in cur.fetchall():
                 rows.append(dict(row))
-            return rows
+            return enrich_alerts_with_multi_scanner_confluence(rows)
+
+
+def get_all_open_alerts_summary() -> dict[str, list[dict]]:
+    """Return all currently open alerts grouped by normalized symbol.
+    
+    Used to calculate multi-scanner open alert confluence across the entire system.
+    """
+    closed_statuses = ('WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED')
+    open_alerts_by_sym: dict[str, list[dict]] = {}
+    
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, symbol, scanner, breakout_type, alert_time, alert_date,
+                           entry_price, actual_entry_price, status, score
+                    FROM alerts
+                    WHERE status NOT IN %s
+                      AND (is_rejected = FALSE OR is_rejected IS NULL)
+                      AND COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                      AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
+                    ORDER BY alert_time DESC
+                """, (closed_statuses,))
+                
+                for r in cur.fetchall():
+                    raw_sym = str(r.get('symbol') or '').strip()
+                    clean_sym = raw_sym.replace('.NS', '').replace('.BO', '').strip().upper()
+                    if not clean_sym:
+                        continue
+                    
+                    at = r.get('alert_time')
+                    at_str = at.isoformat() if hasattr(at, 'isoformat') else (str(at) if at else '')
+                    ad = r.get('alert_date')
+                    ad_str = ad.isoformat()[:10] if hasattr(ad, 'isoformat') else (str(ad)[:10] if ad else at_str[:10])
+                    
+                    ep = r.get('actual_entry_price') if r.get('actual_entry_price') is not None else r.get('entry_price')
+                    try:
+                        ep_val = float(ep) if ep is not None else None
+                    except (ValueError, TypeError):
+                        ep_val = None
+
+                    item = {
+                        'id': r.get('id'),
+                        'scanner': r.get('scanner') or r.get('breakout_type') or 'UNKNOWN',
+                        'alert_date': ad_str,
+                        'alert_time': at_str,
+                        'entry_price': ep_val,
+                        'status': r.get('status') or 'OPEN',
+                        'score': r.get('score'),
+                    }
+                    open_alerts_by_sym.setdefault(clean_sym, []).append(item)
+    except Exception as e:
+        logger.debug(f"get_all_open_alerts_summary query failed: {e}")
+        
+    return open_alerts_by_sym
+
+
+def enrich_alerts_with_multi_scanner_confluence(
+    alerts: list[dict],
+    open_alerts_by_sym: Optional[dict[str, list[dict]]] = None
+) -> list[dict]:
+    """Enrich alerts/trades with multi-scanner open alert confluence.
+    
+    For each stock symbol:
+    - Identifies all currently OPEN alerts.
+    - Counts unique scanners that have open alerts on that stock.
+    - Attaches other_open_alerts (list of {scanner, alert_date, alert_price, id, score})
+      and total_open_scanners_count to each alert record.
+    """
+    if not alerts:
+        return alerts
+
+    closed_statuses = {'WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED'}
+
+    if open_alerts_by_sym is None:
+        try:
+            open_alerts_by_sym = get_all_open_alerts_summary()
+        except Exception:
+            open_alerts_by_sym = None
+
+    if not open_alerts_by_sym:
+        open_alerts_by_sym = {}
+        for a in alerts:
+            st = str(a.get('status') or '').strip().upper()
+            if st in closed_statuses or a.get('is_rejected'):
+                continue
+            raw_sym = str(a.get('symbol') or '').strip()
+            clean_sym = raw_sym.replace('.NS', '').replace('.BO', '').strip().upper()
+            if not clean_sym:
+                continue
+            
+            at = a.get('alert_time')
+            at_str = at.isoformat() if hasattr(at, 'isoformat') else (str(at) if at else '')
+            ad = a.get('alert_date') or a.get('entry_date')
+            ad_str = ad.isoformat()[:10] if hasattr(ad, 'isoformat') else (str(ad)[:10] if ad else at_str[:10])
+            
+            ep = a.get('actual_entry_price') if a.get('actual_entry_price') is not None else a.get('entry_price')
+            try:
+                ep_val = float(ep) if ep is not None else None
+            except (ValueError, TypeError):
+                ep_val = None
+
+            item = {
+                'id': a.get('id'),
+                'scanner': a.get('scanner') or a.get('breakout_type') or 'UNKNOWN',
+                'alert_date': ad_str,
+                'alert_time': at_str,
+                'entry_price': ep_val,
+                'status': st or 'OPEN',
+                'score': a.get('score'),
+            }
+            open_alerts_by_sym.setdefault(clean_sym, []).append(item)
+
+    for a in alerts:
+        raw_sym = str(a.get('symbol') or '').strip()
+        clean_sym = raw_sym.replace('.NS', '').replace('.BO', '').strip().upper()
+        sym_open = open_alerts_by_sym.get(clean_sym, [])
+        
+        scanners_set = {x['scanner'] for x in sym_open if x.get('scanner')}
+        a_id = a.get('id')
+        
+        if a_id is not None:
+            others = [x for x in sym_open if x.get('id') != a_id]
+        else:
+            matched = False
+            others = []
+            a_sc = a.get('scanner') or a.get('breakout_type')
+            at = str(a.get('alert_time') or '')
+            for x in sym_open:
+                if not matched and x['scanner'] == a_sc and x['alert_time'] == at:
+                    matched = True
+                    continue
+                others.append(x)
+                
+        a['total_open_scanners_count'] = len(scanners_set)
+        a['other_open_alerts'] = others
+        a['other_open_scanners'] = list({x['scanner'] for x in others if x.get('scanner')})
+        a['has_other_open_alerts'] = len(others) > 0
+
+    return alerts
+
 
 
 def get_alerts_by_ids(alert_ids: list[int]) -> list[dict]:
@@ -5277,7 +5418,8 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                       AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
                     ORDER BY a.alert_time DESC
                 """, (today_str,))
-                return [dict(row) for row in cur.fetchall()]
+                rows = [dict(row) for row in cur.fetchall()]
+                return enrich_alerts_with_multi_scanner_confluence(rows)
             except Exception:
                 logger.exception("❌ get_todays_alerts failed")
                 return []
@@ -5321,7 +5463,8 @@ def get_alert_by_symbol(symbol: str) -> Optional[Dict[str, Any]]:
                 """, (sym_clean,))
                 row = cur.fetchone()
                 if row:
-                    return dict(row)
+                    enriched = enrich_alerts_with_multi_scanner_confluence([dict(row)])
+                    return enriched[0] if enriched else dict(row)
                 return None
             except Exception as e:
                 logger.debug(f"get_alert_by_symbol failed for {sym_clean}: {e}")
@@ -5365,7 +5508,8 @@ def get_alert_by_id(alert_id: int) -> Optional[Dict[str, Any]]:
                 """, (aid,))
                 row = cur.fetchone()
                 if row:
-                    return dict(row)
+                    enriched = enrich_alerts_with_multi_scanner_confluence([dict(row)])
+                    return enriched[0] if enriched else dict(row)
                 return None
             except Exception as e:
                 logger.debug(f"get_alert_by_id failed for ID {aid}: {e}")
@@ -5406,7 +5550,8 @@ def get_alerts_for_symbol(symbol: str) -> list[dict]:
                       AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
                     ORDER BY a.id DESC LIMIT 20
                 """, (sym_clean,))
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                return enrich_alerts_with_multi_scanner_confluence(rows)
             except Exception as e:
                 logger.debug(f"get_alerts_for_symbol failed for {sym_clean}: {e}")
                 return []

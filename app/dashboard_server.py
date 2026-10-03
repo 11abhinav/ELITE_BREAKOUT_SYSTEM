@@ -1680,6 +1680,11 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
                         perf_dict["by_scanner"][sc]["total"] += 1
                         if mt.get("status") == "OPEN":
                             perf_dict["by_scanner"][sc]["open"] += 1
+                    try:
+                        from database import enrich_alerts_with_multi_scanner_confluence
+                        perf_dict["trades"] = enrich_alerts_with_multi_scanner_confluence(perf_dict.get("trades", []))
+                    except Exception as _confl_err:
+                        logger.debug(f"Multi-scanner confluence enrichment skipped: {_confl_err}")
                     val = json.dumps(perf_dict, default=str)
             except Exception as _reconcile_err:
                 logger.debug(f"Live alert reconciliation skipped: {_reconcile_err}")
