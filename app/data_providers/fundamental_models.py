@@ -1,0 +1,85 @@
+import enum
+from dataclasses import dataclass, field
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+
+class FundamentalStatus(enum.Enum):
+    VERIFIED = "VERIFIED"
+    VERIFIED_SINGLE_SOURCE = "VERIFIED_SINGLE_SOURCE"
+    DATA_CONFLICT = "DATA_CONFLICT"
+    INSUFFICIENT = "INSUFFICIENT"
+    DATA_INSUFFICIENT = "DATA_INSUFFICIENT"
+    PERIOD_MISMATCH = "PERIOD_MISMATCH"
+    STATEMENT_MISMATCH = "STATEMENT_MISMATCH"
+    STALE = "STALE"
+    FUTURE = "FUTURE"
+    INVALID = "INVALID"
+    SOURCE_ERROR = "SOURCE_ERROR"
+    CALCULATION_ERROR = "CALCULATION_ERROR"
+    BLOCKED = "BLOCKED"
+    NOT_ATTEMPTED_BUDGET_EXHAUSTED = "NOT_ATTEMPTED_BUDGET_EXHAUSTED"
+
+class StatementType(enum.Enum):
+    INCOME_STATEMENT = "INCOME_STATEMENT"
+    BALANCE_SHEET = "BALANCE_SHEET"
+    CASH_FLOW = "CASH_FLOW"
+
+class ConsolidationType(enum.Enum):
+    CONSOLIDATED = "CONSOLIDATED"
+    STANDALONE = "STANDALONE"
+
+@dataclass
+class FundamentalProvenance:
+    symbol: str
+    metric: str
+    value: float
+    source: str
+    financial_period: str
+    filing_date: Optional[str]
+    retrieved_at: datetime
+    statement_type: Optional[StatementType]
+    consolidated_or_standalone: Optional[ConsolidationType]
+    calculation_version: str
+    validation_status: FundamentalStatus
+
+@dataclass
+class RawFinancialRecord:
+    symbol: str
+    source: str
+    period_end_date: str
+    period_type: str  # e.g., "ANNUAL", "QUARTERLY"
+    consolidation: ConsolidationType
+    revenue: Optional[float] = None
+    net_profit: Optional[float] = None
+    operating_cash_flow: Optional[float] = None
+    total_debt: Optional[float] = None
+    total_equity: Optional[float] = None
+    ebit: Optional[float] = None
+    capital_employed: Optional[float] = None
+    eps: Optional[float] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "revenue": self.revenue,
+            "net_profit": self.net_profit,
+            "operating_cash_flow": self.operating_cash_flow,
+            "total_debt": self.total_debt,
+            "total_equity": self.total_equity,
+            "ebit": self.ebit,
+            "capital_employed": self.capital_employed,
+            "eps": self.eps
+        }
+
+@dataclass
+class ReconciledCanonicalMetrics:
+    symbol: str
+    roce_5y: Optional[float] = None
+    sales_cagr_5y: Optional[float] = None
+    pat_cagr_5y: Optional[float] = None
+    cfo_pat_5y: Optional[float] = None
+    debt_to_equity: Optional[float] = None
+    q_eps_growth_yoy: Optional[float] = None
+    q_sales_growth_yoy: Optional[float] = None
+    eps_ttm: Optional[float] = None
+    provenance_chain: List[FundamentalProvenance] = field(default_factory=list)
+    overall_status: FundamentalStatus = FundamentalStatus.INSUFFICIENT

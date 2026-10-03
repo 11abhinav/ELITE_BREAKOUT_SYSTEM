@@ -1,0 +1,14 @@
+[Unit]
+Description=Elite Breakout System - Non-Market Hours Boot Trigger
+After=network.target
+
+[Service]
+Type=oneshot
+User=abhinavmaheshwari
+WorkingDirectory=/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM
+ExecStart=/bin/bash /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/auto_start_non_market.sh
+StandardOutput=append:/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/logs/auto_start.log
+StandardError=append:/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/logs/auto_start.log
+
+[Install]
+WantedBy=multi-user.target
