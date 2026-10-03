@@ -4825,11 +4825,14 @@ def reset_all_scanners_on_boot() -> None:
                     "DAILY_BUILDER": "Daily 05:00 IST",
                     "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
                     "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
+                    "QUALITY_COMPOUNDER": "Daily 17:00 IST (Fundamental Quality Compounder · ALL Regimes)",
+                    "QUALITY_VALUE_RECOVERY": "Daily 17:15 IST (Quality Value Recovery · ALL Regimes)",
                     "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
                     "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
-                    "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
+                    "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
                     "Pledge Worker": "Continuous (Daily Refresh)",
                     "AI Worker": "Continuous (Sat-Sun Active)",
+                    "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
                 }
                 for sc_name, sched_str in schedule_map.items():
                     is_stopped = is_scanner_stopped(sc_name)
@@ -12192,7 +12195,7 @@ def save_v2_exit_event(
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, status, watchlist_state, exit_history, context FROM alerts
-                WHERE symbol = %s AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
+                WHERE symbol = %s AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                   AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
                 ORDER BY alert_time DESC LIMIT 1
             """, (sym,))

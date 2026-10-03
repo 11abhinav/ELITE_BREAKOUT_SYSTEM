@@ -3089,6 +3089,10 @@ function changeAdminPage(type, delta) {
                     <input type="checkbox" class="seh-scanner-cb" value="QUALITY_COMPOUNDER" onchange="onSehScannerChange()" checked />
                     <span>Quality Compounder</span>
                   </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="QUALITY_VALUE_RECOVERY" onchange="onSehScannerChange()" checked />
+                    <span>Quality Value Recovery</span>
+                  </label>
 
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="PERFORMANCE_TRACKER" onchange="onSehScannerChange()" checked />
@@ -4182,6 +4186,7 @@ function changeAdminPage(type, delta) {
       'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
       'FUNDAMENTAL': { label: 'Fundamental Breakout', desc: 'Quality + Growth + 20D BO · Daily 18:30 IST (ALL REGIMES)' },
       'QUALITY_COMPOUNDER': { label: 'Quality Compounder', desc: 'Quality × Value Compounder · Daily 17:00 IST (ALL REGIMES)' },
+      'QUALITY_VALUE_RECOVERY': { label: 'Quality Value Recovery', desc: 'Quality Value Recovery · Daily 17:15 IST (ALL REGIMES)' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous (Daily Refresh)' },
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
@@ -4342,6 +4347,7 @@ function getEarningsBadgeHtml(item) {
         'TECHNICAL',
         'FUNDAMENTAL',
         'QUALITY_COMPOUNDER',
+        'QUALITY_VALUE_RECOVERY',
         'PERFORMANCE_TRACKER',
         'WEALTH_EXIT_V1',
         'WEALTH_EXIT_V2',

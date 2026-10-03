@@ -1383,26 +1383,58 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                     logger.info(f"⚠️ [V2 15:15 WARNING] {sym} price ₹{close_t:.2f} < SMA200 ₹{sma200_t:.2f} -> ORANGE state set")
             # Definitive 18:30 IST EOD Check
             else:
-                # Rule: 2 consecutive closes < SMA200
-                sma200_exit_confirmed = (close_t < sma200_t) and (close_t_prev < sma200_t_prev)
-
-                # Fundamental deterioration check
-                fund_exit_confirmed = False
+                sc_name = al.get("scanner", "")
                 ctx = al.get("context") or {}
                 if isinstance(ctx, str):
                     try: ctx = json.loads(ctx)
                     except Exception: ctx = {}
 
-                roce_init = float(ctx.get("roce_5y_avg", 15.0) or 15.0)
-                roce_curr = float(al.get("current_roce", roce_init) or roce_init)
-                if roce_curr < (0.75 * roce_init) or roce_curr < 10.0:
-                    fund_exit_confirmed = True
-
                 exit_reasons = []
-                if sma200_exit_confirmed:
-                    exit_reasons.append("SMA200_BREAK")
-                if fund_exit_confirmed:
-                    exit_reasons.append("FUNDAMENTAL_DETERIORATION")
+                sma200_exit_confirmed = (close_t < sma200_t) and (close_t_prev < sma200_t_prev)
+
+                if sc_name in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+                    # ── MODEL E3 EXIT LOGIC FOR RECOVERY ──
+                    # 1. Technical SMA200 Break or Hard Stop Loss
+                    entry_price = float(al.get("entry_price") or al.get("alert_price") or close_t)
+                    if sma200_exit_confirmed:
+                        exit_reasons.append("SMA200_BREAK")
+                    if entry_price > 0 and close_t <= 0.90 * entry_price:
+                        exit_reasons.append("STOP_LOSS_10PCT_HIT")
+
+                    # 2. Valuation Mean-Reversion Re-Rating (EV/EBITDA discount is closed)
+                    curr_ev = ctx.get("current_ev_ebitda")
+                    med_ev = ctx.get("ev_ebitda_3y_median")
+                    if curr_ev is not None and med_ev is not None and float(med_ev) > 0:
+                        if float(curr_ev) >= float(med_ev):
+                            exit_reasons.append("VALUATION_RE_RATED")
+
+                    # 3. PAT Deceleration Check
+                    pat_growth_3q = ctx.get("pat_growth_trailing_3q")
+                    if pat_growth_3q is not None and float(pat_growth_3q) < 0.0:
+                        exit_reasons.append("PAT_DECELERATION")
+
+                    # 4. Holding Period Window (Max 10 trading sessions)
+                    alert_date_str = str(al.get("created_at") or al.get("alert_time") or today_str)[:10]
+                    try:
+                        alert_d = datetime.strptime(alert_date_str, "%Y-%m-%d").date()
+                        cur_d = now_ist.date()
+                        days_held = (cur_d - alert_d).days
+                        if days_held >= 14:  # ~10 trading days
+                            exit_reasons.append("MAX_HOLDING_EXPIRED")
+                    except Exception:
+                        pass
+                else:
+                    # ── QUALITY COMPOUNDER EXIT LOGIC ──
+                    fund_exit_confirmed = False
+                    roce_init = float(ctx.get("roce_5y_avg", 15.0) or 15.0)
+                    roce_curr = float(al.get("current_roce", roce_init) or roce_init)
+                    if roce_curr < (0.75 * roce_init) or roce_curr < 10.0:
+                        fund_exit_confirmed = True
+
+                    if sma200_exit_confirmed:
+                        exit_reasons.append("SMA200_BREAK")
+                    if fund_exit_confirmed:
+                        exit_reasons.append("FUNDAMENTAL_DETERIORATION")
 
                 if exit_reasons:
                     exits_count += 1
