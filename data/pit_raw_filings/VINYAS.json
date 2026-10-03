@@ -54,7 +54,7 @@
     "free_cash_flow": -67.0,
     "total_debt": 131.0,
     "total_equity": 236.0,
-    "cash_and_equivalents": 18.0,
+    "cash_and_equivalents": null,
     "depreciation_amortization": 7.0,
     "roce": 16.62,
     "roe": 13.14,

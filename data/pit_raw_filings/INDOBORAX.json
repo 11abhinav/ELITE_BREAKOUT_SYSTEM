@@ -613,7 +613,7 @@
     "shares_outstanding": 30000000.0,
     "operating_cash_flow": 13.0,
     "free_cash_flow": 13.0,
-    "total_debt": 0.0,
+    "total_debt": -0.0,
     "total_equity": 138.0,
     "cash_and_equivalents": 40.0,
     "depreciation_amortization": 1.0,
