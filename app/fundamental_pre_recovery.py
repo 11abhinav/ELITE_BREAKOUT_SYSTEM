@@ -126,8 +126,9 @@ class FundamentalPreRecoveryEngine:
                 recovered_count += 1
                 
         if recovered_count > 0:
-            logger.info(f"💾 [PRE_RECOVERY] Saving updated canonical PIT dataset with {recovered_count} newly verified symbols.")
-            df.to_parquet(self.pit_parquet_path, index=False)
+            candidate_path = self.pit_parquet_path.replace(".parquet", "_pre_recovery_candidate.parquet")
+            logger.info(f"💾 [PRE_RECOVERY] Saving candidate PIT dataset with {recovered_count} newly verified symbols to {candidate_path}")
+            df.to_parquet(candidate_path, index=False)
         else:
             logger.info("✅ [PRE_RECOVERY] No new verified data recovered. PIT unchanged.")
 

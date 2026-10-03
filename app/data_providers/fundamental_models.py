@@ -57,6 +57,9 @@ class RawFinancialRecord:
     ebit: Optional[float] = None
     capital_employed: Optional[float] = None
     eps: Optional[float] = None
+    availability_date: Optional[str] = None
+    unit: Optional[str] = None
+    currency: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         return {

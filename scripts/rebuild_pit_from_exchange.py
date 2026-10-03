@@ -392,6 +392,7 @@ def rebuild_canonical_pit_dataset(
     target_symbols: Optional[List[str]] = None,
     run_ctx: Any = None,
     max_workers: Optional[int] = None,
+    trigger_source: str = "SCHEDULED",
 ) -> pd.DataFrame:
     """
     Rebuilds or updates the canonical PIT dataset with multi-worker concurrency and heartbeat guarantees.
@@ -470,20 +471,39 @@ def rebuild_canonical_pit_dataset(
     else:
         df_final = df_new.sort_values("symbol").reset_index(drop=True)
 
-    # Save to Parquet atomically (write to temp file then atomic os.replace)
-    os.makedirs(os.path.dirname(out_file), exist_ok=True)
-    tmp_file = f"{out_file}.tmp.{os.getpid()}"
-    df_final.to_parquet(tmp_file, index=False)
-    os.replace(tmp_file, out_file)
+    # NEVER-DOWNGRADE GATE + ATOMIC PUBLISH via single-writer canonical publisher
+    # The candidate is always written to a staging file first, then promoted through
+    # the 18-dimension gate inside canonical_pit_publisher.publish_canonical_pit().
+    candidate_file = out_file.replace("canonical_pit_rebuilt.parquet", "canonical_pit_rebuild_candidate.parquet")
+    os.makedirs(os.path.dirname(candidate_file), exist_ok=True)
+    tmp_cand = f"{candidate_file}.tmp.{os.getpid()}"
+    df_final.to_parquet(tmp_cand, index=False)
+    os.replace(tmp_cand, candidate_file)
+    logger.info(f"📝 [REBUILD] Candidate written to {candidate_file}. Routing through canonical publisher...")
 
-    # Also atomically update daily_builder_master_v2.parquet for full system sync
-    master_v2_path = os.path.join(BASE_DIR, "data", "daily_builder_master_v2.parquet")
-    tmp_v2 = f"{master_v2_path}.tmp.{os.getpid()}"
-    df_final.to_parquet(tmp_v2, index=False)
-    os.replace(tmp_v2, master_v2_path)
+    try:
+        from scripts.canonical_pit_publisher import publish_canonical_pit
+    except ImportError:
+        from canonical_pit_publisher import publish_canonical_pit
 
-    # Compute SHA256 dataset fingerprint
-    with open(out_file, "rb") as f:
+    pub_result = publish_canonical_pit(
+        candidate_path=candidate_file,
+        reason=f"FILING_WATCHER_REBUILD_{trigger_source}",
+        publisher_version="v3.0",
+    )
+    publication_decision = pub_result.get("publication_decision", "UNKNOWN")
+    if publication_decision == "PUBLISHED":
+        logger.info(f"✅ [REBUILD] Canonical PIT published. SHA256: {pub_result.get('dataset_sha256', 'N/A')[:16]}...")
+    else:
+        logger.error(
+            f"❌ [REBUILD] Canonical publication blocked ({publication_decision}): "
+            f"{pub_result.get('gate_reasons', pub_result.get('reason', ''))}"
+        )
+
+
+    # Compute SHA256 fingerprint from the canonical file (or candidate if blocked)
+    hash_target = out_file if os.path.exists(out_file) else candidate_file
+    with open(hash_target, "rb") as f:
         file_hash = hashlib.sha256(f.read()).hexdigest()
 
     # Transition lifecycle status to AUDITING

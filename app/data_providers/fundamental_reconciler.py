@@ -33,19 +33,22 @@ class FundamentalReconciler:
             # Note: Production BUY path only allows VERIFIED, so this gets blocked downstream
             return metrics
             
-        # Get the latest record for comparison (assuming list is sorted or we just take the first)
-        nse_rec = nse_records[0]
-        upx_rec = upstox_records[0]
+        def _get_key(rec: RawFinancialRecord) -> str:
+            return f"{rec.symbol}|{rec.period_end_date}|{rec.period_type}|{rec.consolidation.value if hasattr(rec.consolidation, 'value') else rec.consolidation}|{rec.unit}|{rec.currency}"
         
-        # 4. Enforce period matching
-        if nse_rec.period_end_date != upx_rec.period_end_date:
+        nse_dict = {_get_key(r): r for r in nse_records}
+        upstox_dict = {_get_key(r): r for r in upstox_records}
+
+        common_keys = set(nse_dict.keys()).intersection(upstox_dict.keys())
+
+        if not common_keys:
             metrics.overall_status = FundamentalStatus.PERIOD_MISMATCH
             return metrics
             
-        # 6. Enforce consolidation matching
-        if nse_rec.consolidation != upx_rec.consolidation:
-            metrics.overall_status = FundamentalStatus.STATEMENT_MISMATCH
-            return metrics
+        # Get the latest record among common keys for comparison
+        latest_key = sorted(list(common_keys), key=lambda k: k.split('|')[1], reverse=True)[0]
+        nse_rec = nse_dict[latest_key]
+        upx_rec = upstox_dict[latest_key]
             
         # 2. Raw-value reconciliation (Revenue, PAT, CFO, Debt, Equity, EBIT, CapEmployed)
         def _check_tolerance(nse_val: Optional[float], upx_val: Optional[float], tol: float) -> bool:

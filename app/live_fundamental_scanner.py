@@ -295,15 +295,7 @@ def _get_pit_filings(symbol: str, allow_live_refresh: bool = False) -> List[Dict
                 q_cnt = sum(1 for r in records if r.get("statement_type") == "QUARTERLY")
                 a_cnt = sum(1 for r in records if r.get("statement_type") == "ANNUAL")
                 logger.info(f"🌐 [FILING_PROVIDER_REFRESH] {sym_u}: Live retrieved & cached {len(records)} filings (Q={q_cnt}, A={a_cnt}, with cash schedules)")
-                # Immediate Local Checkpoint & Parquet Update
-                try:
-                    from scripts.rebuild_pit_from_exchange import compute_canonical_symbol_row
-                    from app.jit_fundamental_fetcher import update_canonical_parquet_row
-                    c_row = compute_canonical_symbol_row(sym_u, date.today())
-                    if c_row:
-                        update_canonical_parquet_row(c_row)
-                except Exception as _up_err:
-                    logger.debug(f"JIT Parquet update notice for {sym_u}: {_up_err}")
+
         except Exception as _fe:
             logger.debug(f"Live filing refresh error for {sym_u}: {_fe}")
 
@@ -1430,12 +1422,7 @@ class LiveFundamentalBuyScanner:
         else:
             acquired_global = True
 
-        # Reset per-scan JIT fetch budget counter
-        try:
-            from app.jit_fundamental_fetcher import reset_jit_run_counter
-            reset_jit_run_counter()
-        except Exception:
-            pass
+
 
         # Mandatory Lifecycle Invariant: FINANCIAL_SNAPSHOT_STATUS == READY
         # Prevents scanner from starting while PIT rebuild is running or snapshot is uncertified.
@@ -3360,29 +3347,6 @@ class QualityCompounderValueV2Scanner:
             _sh = row.get("shares_outstanding")
             _sh_f = float(_sh) if (_sh is not None and pd.notna(_sh) and float(_sh) > 0) else None
 
-            # JIT Production Safety Net: If cash, debt, or shares are missing on candidate, trigger targeted JIT fetch
-            if (_c is None or _d is None or _sh_f is None) and clean_sym and eff_cmp > 0:
-                try:
-                    from app.jit_fundamental_fetcher import fetch_symbol_on_demand
-                    jit_row = fetch_symbol_on_demand(
-                        clean_sym, as_of=date.today(), reason="UPSTREAM_RECOVERY_MISSING_VALUATION_FACTS"
-                    )
-                    if jit_row:
-                        _d_raw = jit_row.get("total_debt")
-                        _c_raw = jit_row.get("cash_and_equivalents")
-                        _d = float(_d_raw) if (_d_raw is not None and pd.notna(_d_raw)) else _d
-                        _c = float(_c_raw) if (_c_raw is not None and pd.notna(_c_raw)) else _c
-                        if jit_row.get("shares_outstanding_m"):
-                            _sh_f = float(jit_row["shares_outstanding_m"]) * 1e6
-                        if jit_row.get("ebitda"):
-                            row["ebitda"] = jit_row["ebitda"]
-                        if jit_row.get("current_ev_ebitda") is not None:
-                            recovered_ev = float(jit_row["current_ev_ebitda"])
-                            recovery_verdict = "JIT_ON_DEMAND_EXCHANGE_DERIVATION"
-                        if jit_row.get("current_pe") is not None:
-                            recovered_pe = float(jit_row["current_pe"])
-                except Exception as _jit_e:
-                    logger.debug(f"[UPSTREAM_RECOVERY] JIT fetch notice for {clean_sym}: {_jit_e}")
 
             # Canonical C4 Share Count Validation (TIINDIA defence: no unvalidated silent derivation)
             _np_val = float(row.get("net_profit")) if (row.get("net_profit") is not None and pd.notna(row.get("net_profit"))) else None
@@ -3509,12 +3473,7 @@ class QualityCompounderValueV2Scanner:
         else:
             acquired_global = True
 
-        # Reset per-scan JIT fetch budget counter
-        try:
-            from app.jit_fundamental_fetcher import reset_jit_run_counter
-            reset_jit_run_counter()
-        except Exception:
-            pass
+
 
         # 3. Mandatory Lifecycle Invariant: FINANCIAL_SNAPSHOT_STATUS == READY
         # Prevents scanner from starting while PIT rebuild is running or snapshot is uncertified.
@@ -4025,18 +3984,6 @@ class QualityCompounderValueV2Scanner:
 
             # 100% UNIVERSE AUDITABILITY: Handle symbols missing from PIT filings
             if sym not in pit_records_map:
-                # JIT Self-Healing: If symbol has a valid price and is not in PIT snapshot, attempt JIT fetch
-                if cmp_price > 0:
-                    try:
-                        from app.jit_fundamental_fetcher import fetch_symbol_on_demand
-                        jit_row = fetch_symbol_on_demand(
-                            sym, as_of=now_ist.date(), reason="NEW_OR_UNINDEXED_STOCK_CANDIDATE"
-                        )
-                        if jit_row:
-                            pit_records_map[sym] = jit_row
-                            row = jit_row
-                    except Exception as _jit_err:
-                        logger.debug(f"JIT fetch attempt notice for {sym}: {_jit_err}")
 
             if sym not in pit_records_map:
                 non_pit_blocked_count += 1
