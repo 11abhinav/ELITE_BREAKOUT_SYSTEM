@@ -28,6 +28,8 @@ if not is_market_hours:
         subprocess.run([sys.executable, 'app/daily_builder.py', '--no-wait'], check=True)
         print('Starting Live Fundamental Scanner...')
         subprocess.run([sys.executable, 'app/live_fundamental_scanner.py'], check=True)
+        print('Starting Technical Scanner...')
+        subprocess.run([sys.executable, 'app/technical_scanner.py'], check=True)
         print('Boot trigger complete.')
     except Exception as e:
         print(f'Error during boot trigger: {e}')
