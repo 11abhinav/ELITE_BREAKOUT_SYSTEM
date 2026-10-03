@@ -194,25 +194,73 @@ class FundamentalSourceRouter:
         except Exception as e:
             logger.warning(f"[ROUTER] Could not persist raw filings for {symbol}: {e}")
 
+    def _select_active_pit_records(
+        self,
+        records: List[RawFinancialRecord],
+        as_of_timestamp: Optional[str] = None,
+        statement_type: str = "ANNUAL",
+    ) -> List[RawFinancialRecord]:
+        """
+        MANDATORY POINT-IN-TIME SELECTION INVARIANT:
+        For any scanner as_of timestamp T:
+          1. Excludes any filing broadcast after T (broadcast_timestamp <= T).
+          2. Only includes validated records (validation_status == 'VALID').
+          3. For records with identical economic period (same period_end_date), selects
+             the latest valid broadcast/version as of T (e.g. amended filing superseding original).
+          4. Returns chronologically sorted unique economic periods up to T.
+        """
+        matching = [r for r in records if getattr(r, "period_type", "ANNUAL") == statement_type]
+        if not matching:
+            matching = records
+
+        cutoff = str(as_of_timestamp) if as_of_timestamp else "9999-12-31T23:59:59"
+
+        eligible = []
+        for r in matching:
+            b_time = getattr(r, "broadcast_timestamp", None) or getattr(r, "availability_date", None) or r.period_end_date
+            val_st = getattr(r, "validation_status", "VALID")
+            if str(b_time)[:len(cutoff)] <= cutoff and val_st == "VALID":
+                eligible.append(r)
+
+        if not eligible:
+            return []
+
+        by_period: Dict[str, RawFinancialRecord] = {}
+        for r in eligible:
+            p_end = r.period_end_date
+            if p_end not in by_period:
+                by_period[p_end] = r
+            else:
+                existing = by_period[p_end]
+                ex_b = getattr(existing, "broadcast_timestamp", None) or getattr(existing, "availability_date", None) or existing.period_end_date
+                cur_b = getattr(r, "broadcast_timestamp", None) or getattr(r, "availability_date", None) or r.period_end_date
+                ex_v = getattr(existing, "version", "v1")
+                cur_v = getattr(r, "version", "v1")
+                if (cur_b, cur_v) > (ex_b, ex_v):
+                    by_period[p_end] = r
+
+        active_sorted = sorted(by_period.values(), key=lambda r: r.period_end_date)
+        return active_sorted
+
     def _single_source_metrics(
         self,
         symbol: str,
         records: List[RawFinancialRecord],
         source_name: str,
+        as_of_timestamp: Optional[str] = None,
     ) -> ReconciledCanonicalMetrics:
         """
         Build a VERIFIED_SINGLE_SOURCE result from one provider's records.
-        Uses annual records sorted ascending for multi-year CAGR and ROCE calculations.
+        Uses annual records filtered strictly by PIT cutoff and sorted ascending.
         """
         metrics = ReconciledCanonicalMetrics(symbol=symbol)
 
-        # Filter to annual records only for 5Y metrics
-        annual = [r for r in records if r.period_type == "ANNUAL"]
+        # Enforce PIT selection invariant (broadcast <= as_of_timestamp, latest version per period)
+        annual = self._select_active_pit_records(records, as_of_timestamp=as_of_timestamp, statement_type="ANNUAL")
         if not annual:
-            annual = records
+            metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
+            return metrics
 
-        # Sort by period_end ascending
-        annual.sort(key=lambda r: r.period_end_date)
         latest = annual[-1]
 
         # 1. 5Y ROCE average (up to trailing 5 annual filings)
@@ -277,7 +325,11 @@ class FundamentalSourceRouter:
         )
         return metrics
 
-    def execute_progressive_recovery(self, symbol: str) -> ReconciledCanonicalMetrics:
+    def execute_progressive_recovery(
+        self,
+        symbol: str,
+        as_of_timestamp: Optional[str] = None,
+    ) -> ReconciledCanonicalMetrics:
         """
         Progressive dual-source recovery with certified local raw filing fallback:
           1. Fetch Upstox API
@@ -287,7 +339,7 @@ class FundamentalSourceRouter:
              or local raw filings → VERIFIED_SINGLE_SOURCE (certified local source)
              or none          → DATA_INSUFFICIENT
         """
-        logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery...")
+        logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp})...")
 
         # --- Step 1: Upstox ---
         isin = self._resolve_isin(symbol)
@@ -332,26 +384,26 @@ class FundamentalSourceRouter:
 
         # Tier 2: Upstox + Certified Local Raw Filings dual-source
         if has_upstox and has_local:
-            metrics = self._reconcile_upstox_and_local(symbol, upstox_records, local_records)
+            metrics = self._reconcile_upstox_and_local(symbol, upstox_records, local_records, as_of_timestamp=as_of_timestamp)
             logger.info(f"[DUAL_SOURCE_UPSTOX_LOCAL] {symbol}: status={metrics.overall_status.name}")
             return metrics
 
         # Tier 3: NSE + Certified Local Raw Filings dual-source
         if has_nse and has_local:
-            metrics = self._reconcile_upstox_and_local(symbol, nse_records, local_records)
+            metrics = self._reconcile_upstox_and_local(symbol, nse_records, local_records, as_of_timestamp=as_of_timestamp)
             logger.info(f"[DUAL_SOURCE_NSE_LOCAL] {symbol}: status={metrics.overall_status.name}")
             return metrics
 
         # Tier 4: Single source fallbacks
         if has_upstox:
-            return self._single_source_metrics(symbol, upstox_records, "UPSTOX")
+            return self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp)
 
         if has_nse:
-            return self._single_source_metrics(symbol, nse_records, "NSE_XBRL")
+            return self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
 
         if has_local:
             logger.info(f"[LOCAL_RAW] {symbol}: Loaded {len(local_records)} records from certified local raw filings.")
-            return self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS")
+            return self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS", as_of_timestamp=as_of_timestamp)
 
         logger.warning(f"[ROUTER] {symbol}: All providers returned no data. DATA_INSUFFICIENT.")
         m = ReconciledCanonicalMetrics(symbol=symbol)
@@ -363,14 +415,15 @@ class FundamentalSourceRouter:
         symbol: str,
         live_records: List[RawFinancialRecord],
         local_records: List[RawFinancialRecord],
+        as_of_timestamp: Optional[str] = None,
     ) -> ReconciledCanonicalMetrics:
         """
         Dual-source reconciliation between Upstox/NSE API records and certified local filings.
         Where annual periods overlap, validates Revenue and PAT consistency.
         Supplements missing balance-sheet / cash-flow fields from certified audited filings.
         """
-        live_annual = {r.period_end_date: r for r in live_records if r.period_type == "ANNUAL"}
-        local_annual = {r.period_end_date: r for r in local_records if r.period_type == "ANNUAL"}
+        live_annual = {r.period_end_date: r for r in live_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
+        local_annual = {r.period_end_date: r for r in local_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
 
         overlap_dates = set(live_annual.keys()).intersection(local_annual.keys())
         has_conflict = False
@@ -426,6 +479,9 @@ class FundamentalSourceRouter:
                     ebit=u.ebit if u.ebit is not None else l.ebit,
                     capital_employed=u.capital_employed if u.capital_employed is not None else l.capital_employed,
                     eps=u.eps if u.eps is not None else l.eps,
+                    broadcast_timestamp=u.broadcast_timestamp or l.broadcast_timestamp,
+                    version=u.version or l.version,
+                    validation_status="VALID",
                     unit="cr",
                     currency="INR",
                 )
@@ -435,7 +491,7 @@ class FundamentalSourceRouter:
                 rec = l
             merged_records.append(rec)
 
-        metrics = self._single_source_metrics(symbol, merged_records, "UPSTOX+LOCAL_DUAL_SOURCE")
+        metrics = self._single_source_metrics(symbol, merged_records, "UPSTOX+LOCAL_DUAL_SOURCE", as_of_timestamp=as_of_timestamp)
         if overlap_dates:
             metrics.overall_status = FundamentalStatus.VERIFIED
         else:

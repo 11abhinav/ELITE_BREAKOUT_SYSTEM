@@ -181,20 +181,23 @@ REQUIRED_SCHEMA_COLS = [
     "cfo_pat_5y_ratio", "current_ev_ebitda", "ev_ebitda_3y_median"
 ]
 
-def load_required_universe() -> Set[str]:
-    if os.path.exists(REQUIRED_UNIVERSE_PATH):
+def load_required_universe(universe_path: Optional[str] = None) -> Set[str]:
+    path = universe_path or os.getenv("REQUIRED_UNIVERSE_PATH", REQUIRED_UNIVERSE_PATH)
+    if os.path.exists(path):
         try:
-            with open(REQUIRED_UNIVERSE_PATH) as f:
+            with open(path) as f:
                 return set(s.upper() for s in json.load(f)["symbols"])
         except Exception as e:
-            logger.warning(f"Could not load required universe from {REQUIRED_UNIVERSE_PATH}: {e}")
+            logger.warning(f"Could not load required universe from {path}: {e}")
     return set()
 
 def validate_canonical_snapshot_exact(
     df: pd.DataFrame,
     required_universe: Set[str],
-    expected_row_count: int = 886
+    expected_row_count: Optional[int] = None
 ) -> Tuple[bool, str]:
+    if expected_row_count is None:
+        expected_row_count = len(required_universe)
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return False, "EMPTY_OR_NONE"
     if "symbol" not in df.columns:
@@ -301,6 +304,7 @@ def publish_canonical_pit(
     publisher_version: str = "v3.1",
     allow_new_symbols: bool = True,
     is_delta_merge: bool = True,
+    required_universe_override: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
     """
     The SINGLE authorised entry-point for publishing canonical_pit_rebuilt.parquet.
@@ -332,7 +336,7 @@ def publish_canonical_pit(
             return {"publication_decision": "ERROR", "reason": f"Cannot read candidate: {e}"}
 
         # Load required universe
-        required_universe = load_required_universe()
+        required_universe = required_universe_override if required_universe_override is not None else load_required_universe()
         cand_symbols = set(df_new["symbol"].astype(str).str.strip().str.upper()) if "symbol" in df_new.columns else set()
         is_candidate_full = bool(required_universe and cand_symbols == required_universe)
 

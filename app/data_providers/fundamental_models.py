@@ -58,6 +58,9 @@ class RawFinancialRecord:
     capital_employed: Optional[float] = None
     eps: Optional[float] = None
     availability_date: Optional[str] = None
+    broadcast_timestamp: Optional[str] = None
+    version: str = "v1"
+    validation_status: str = "VALID"
     unit: Optional[str] = None
     currency: Optional[str] = None
     
