@@ -3136,6 +3136,58 @@ class QualityCompounderValueV2Scanner:
         detailed = cls.compute_100pt_score_detailed(row_dict, ev_discount, pe_discount, res_dd)
         return detailed["total_score_100"]
 
+    def recover_upstream_quality_data(
+        self,
+        symbol: str,
+        missing_fields: List[str]
+    ) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]], str]:
+        """
+        Controlled provider-recovery chain for missing quality metrics on eligible stocks.
+        Uses the JIT fundamental fetcher to resolve the data on-demand.
+        """
+        providers_audit: List[Dict[str, Any]] = []
+        clean_sym = str(symbol).strip().upper()
+        
+        logger.info(
+            f"🔄 [UPSTREAM_QUALITY_RECOVERY: START] {clean_sym}: Local quality metrics missing: {missing_fields}. "
+            f"Initiating controlled upstream JIT recovery before decision..."
+        )
+        
+        jit_row = None
+        recovery_verdict = "FAILED_NO_DATA"
+        
+        try:
+            from app.jit_fundamental_fetcher import fetch_symbol_on_demand
+            jit_row = fetch_symbol_on_demand(
+                clean_sym, as_of=date.today(), reason="UPSTREAM_RECOVERY_MISSING_QUALITY_FACTS"
+            )
+            if jit_row:
+                logger.info(f"✅ [UPSTREAM_QUALITY_RECOVERY: SUCCESS] {clean_sym}: Successfully executed JIT fetch.")
+                recovery_verdict = "JIT_ON_DEMAND_EXCHANGE_DERIVATION"
+                providers_audit.append({
+                    "provider": "JIT_ON_DEMAND_FETCHER",
+                    "result": "SUCCESS",
+                    "validation": "PASSED"
+                })
+            else:
+                logger.warning(f"⚠️ [UPSTREAM_QUALITY_RECOVERY: FAILED] {clean_sym}: JIT fetch returned None.")
+                providers_audit.append({
+                    "provider": "JIT_ON_DEMAND_FETCHER",
+                    "result": "FAILED",
+                    "validation": "FAILED",
+                    "validation_reason": "JIT_RETURNED_NONE"
+                })
+        except Exception as e:
+            logger.error(f"❌ [UPSTREAM_QUALITY_RECOVERY: EXCEPTION] {clean_sym}: {e}")
+            providers_audit.append({
+                "provider": "JIT_ON_DEMAND_FETCHER",
+                "result": "EXCEPTION",
+                "validation": "FAILED",
+                "validation_reason": str(e)
+            })
+            
+        return jit_row, providers_audit, recovery_verdict
+
     def recover_upstream_valuation_data(
         self,
         symbol: str,
@@ -4480,8 +4532,6 @@ class QualityCompounderValueV2Scanner:
                     (de_ratio is None or pd.isna(de_ratio))
                 )
                 if quality_data_missing:
-                    rejections.append("DATA_INSUFFICIENT_QUALITY")
-                    incomplete_quality_count += 1
                     # Identify exactly which fields are missing for the audit log
                     _missing_fields = [
                         name for name, val, is_loss in [
@@ -4492,6 +4542,31 @@ class QualityCompounderValueV2Scanner:
                             ("debt_to_equity", de_ratio, False),
                         ] if (val is None or pd.isna(val)) and not is_loss
                     ]
+
+                    # ── ACTIVE UPSTREAM RECOVERY ──
+                    jit_row, providers_audit, recovery_verdict = self.recover_upstream_quality_data(sym, _missing_fields)
+                    if jit_row:
+                        roce_5y = jit_row.get("roce_5y_avg", roce_5y)
+                        sales_cagr_5y = jit_row.get("sales_cagr_5y", sales_cagr_5y)
+                        pat_cagr_5y = jit_row.get("pat_cagr_5y", pat_cagr_5y)
+                        cfo_pat_5y = jit_row.get("cfo_pat_5y", cfo_pat_5y)
+                        de_ratio = jit_row.get("debt_to_equity", de_ratio)
+                        
+                        sales_cagr_loss = bool(float(sales_cagr_5y) < 0) if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else False
+                        pat_cagr_loss = bool(float(pat_cagr_5y) < 0) if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else False
+                        cfo_pat_loss = bool(float(cfo_pat_5y) < 0) if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else False
+                        
+                        quality_data_missing = (
+                            (roce_5y is None or pd.isna(roce_5y)) or
+                            ((sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and not sales_cagr_loss) or
+                            ((pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and not pat_cagr_loss) or
+                            ((cfo_pat_5y is None or pd.isna(cfo_pat_5y)) and not cfo_pat_loss) or
+                            (de_ratio is None or pd.isna(de_ratio))
+                        )
+
+                if quality_data_missing:
+                    rejections.append("DATA_INSUFFICIENT_QUALITY")
+                    incomplete_quality_count += 1
 
                     # Conservative classification: INCOMPLETE-PIT PATH
                     _inc_ann_count = row.get("annual_filing_count")
@@ -4522,6 +4597,18 @@ class QualityCompounderValueV2Scanner:
                         quality_df_symbols.add(sym)
                         _inc_eligibility = f"DATA_FAILURE_INCOMPLETE_PIT ({_inc_cls['reason']})"
                         _inc_data_status = "DATA_FAILURE"
+                        
+                    provider_recs = [
+                        {
+                            "provider": "PIT_DATABASE (pit_fundamentals_v1.parquet)",
+                            "result": "FETCHED",
+                            "validation": "FAILED",
+                            "validation_reason": "INSUFFICIENT_5Y_ANNUAL_FILING_HISTORY_FOR_METRIC_CALCULATION",
+                            "eligibility_classification": _inc_eligibility,
+                            "annual_filing_count": _inc_cls["filing_annual_count"],
+                        }
+                    ]
+                    provider_recs.extend(providers_audit if 'providers_audit' in locals() else [])
 
                     _emit_data_recovery_log(
                         scanner="QUALITY_COMPOUNDER",
@@ -4529,16 +4616,7 @@ class QualityCompounderValueV2Scanner:
                         stage="QUALITY",
                         missing_data=", ".join(_missing_fields),
                         recovery_attempted=True,
-                        providers=[
-                            {
-                                "provider": "PIT_DATABASE (pit_fundamentals_v1.parquet)",
-                                "result": "FETCHED",
-                                "validation": "FAILED",
-                                "validation_reason": "INSUFFICIENT_5Y_ANNUAL_FILING_HISTORY_FOR_METRIC_CALCULATION",
-                                "eligibility_classification": _inc_eligibility,
-                                "annual_filing_count": _inc_cls["filing_annual_count"],
-                            }
-                        ],
+                        providers=provider_recs,
                         validation="FAILED",
                         validation_reason=f"FIELDS_REMAIN_NULL_AFTER_PIT_LOAD: {', '.join(_missing_fields)}",
                         final_action="STOCK_SKIPPED",
