@@ -771,18 +771,10 @@ class DailyBuilderFundamentalProvider:
             except Exception as _dbe:
                 logger.debug(f"DB download attempt for daily_builder_master_v2 failed: {_dbe}")
                 
-        # --- NEW ARCHITECTURE: PRE-RECOVERY BACKFILL SWEEP ---
-        # Instead of doing live JIT during the scanner (which creates scan-order bias),
-        # we now do a progressive Dual-Source (Upstox + NSE XBRL) sweep on the dataset first.
-        try:
-            from fundamental_pre_recovery import FundamentalPreRecoveryEngine
-            pre_recovery_engine = FundamentalPreRecoveryEngine(pit_parquet_path=path)
-            pre_recovery_engine.execute_pre_scan_sweep()
-        except ImportError:
-            logger.warning("FundamentalPreRecoveryEngine module not found. Skipping pre-recovery backfill.")
-        except Exception as e:
-            logger.error(f"Failed to execute FundamentalPreRecoveryEngine: {e}")
-        # ------------------------------------------------------
+        # Pure data loader — no network recovery here.
+        # Pre-Recovery is invoked exactly once at the QUALITY_COMPOUNDER
+        # orchestration level before load_pit_dataset() is called.
+
 
         meta: Dict[str, Any] = {
             "source": "DAILY_BUILDER_2.0",
@@ -3983,8 +3975,6 @@ class QualityCompounderValueV2Scanner:
                 _price_status = "ZERO_OR_NEGATIVE_CMP"
 
             # 100% UNIVERSE AUDITABILITY: Handle symbols missing from PIT filings
-            if sym not in pit_records_map:
-
             if sym not in pit_records_map:
                 non_pit_blocked_count += 1
                 data_blocked_count += 1
