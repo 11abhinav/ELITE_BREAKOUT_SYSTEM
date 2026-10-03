@@ -22,16 +22,29 @@ Economic identity:
 from __future__ import annotations
 
 import logging
+import os
 from typing import List, Optional
 
-from data_providers.fundamental_models import (
-    FundamentalStatus,
-    RawFinancialRecord,
-    ReconciledCanonicalMetrics,
-)
-from data_providers.fundamental_reconciler import FundamentalReconciler
-from data_providers.nse_xbrl_provider import NseXbrlProvider
-from data_providers.upstox_fundamentals_provider import UpstoxFundamentalsProvider
+try:
+    from app.data_providers.fundamental_models import (
+        ConsolidationType,
+        FundamentalStatus,
+        RawFinancialRecord,
+        ReconciledCanonicalMetrics,
+    )
+    from app.data_providers.fundamental_reconciler import FundamentalReconciler
+    from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+    from app.data_providers.upstox_fundamentals_provider import UpstoxFundamentalsProvider
+except ImportError:
+    from data_providers.fundamental_models import (
+        ConsolidationType,
+        FundamentalStatus,
+        RawFinancialRecord,
+        ReconciledCanonicalMetrics,
+    )
+    from data_providers.fundamental_reconciler import FundamentalReconciler
+    from data_providers.nse_xbrl_provider import NseXbrlProvider
+    from data_providers.upstox_fundamentals_provider import UpstoxFundamentalsProvider
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +61,91 @@ class FundamentalSourceRouter:
 
     def _resolve_isin(self, symbol: str) -> Optional[str]:
         """Resolve NSE symbol to ISIN for Upstox API. Returns None if unresolvable."""
+        # 1. Primary: Official Upstox instrument mapper
         try:
-            from security_identity_resolver import SecurityIdentityResolver
+            try:
+                from app.market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
+            except ImportError:
+                from market_data.providers.upstox_instrument_mapper import get_upstox_instrument_key
+            key = get_upstox_instrument_key(symbol)
+            if key and "|" in key:
+                parts = key.split("|")
+                for p in parts:
+                    if p.startswith("INE") and len(p) == 12:
+                        return p
+        except Exception as e:
+            logger.debug(f"[ROUTER] Upstox mapper ISIN resolution error for {symbol}: {e}")
+
+        # 2. Fallback: Security identity resolver
+        try:
+            try:
+                from app.security_identity_resolver import SecurityIdentityResolver
+            except ImportError:
+                from security_identity_resolver import SecurityIdentityResolver
             identity = SecurityIdentityResolver().resolve(symbol)
+            if identity and identity.isin:
+                return identity.isin
             if identity and identity.upstox_instrument_key:
                 parts = identity.upstox_instrument_key.split("|")
-                return parts[1] if len(parts) > 1 else identity.upstox_instrument_key
+                for p in parts:
+                    if p.startswith("INE") and len(p) == 12:
+                        return p
         except Exception as e:
-            logger.debug(f"[ROUTER] ISIN resolution failed for {symbol}: {e}")
+            logger.debug(f"[ROUTER] SecurityIdentityResolver ISIN resolution error for {symbol}: {e}")
         return None
+
+    def _fetch_local_raw_filings(self, symbol: str) -> List[RawFinancialRecord]:
+        """Load certified local statement filings from data/pit_raw_filings/<symbol>.json."""
+        for base in ["data", "/app/data", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")]:
+            path = os.path.join(base, "pit_raw_filings", f"{symbol}.json")
+            if os.path.exists(path):
+                try:
+                    import json
+                    with open(path, "r", encoding="utf-8") as f:
+                        raw_list = json.load(f)
+                    records = []
+                    if isinstance(raw_list, list):
+                        for row in raw_list:
+                            period_end = str(row.get("period_end_date") or row.get("date") or "")
+                            if not period_end:
+                                continue
+                            st_type = str(row.get("statement_type", "ANNUAL")).upper()
+                            rev = row.get("revenue")
+                            net_p = row.get("net_profit")
+                            cfo = row.get("operating_cash_flow")
+                            td = row.get("total_debt")
+                            te = row.get("total_equity")
+                            op = row.get("operating_profit")
+                            da = row.get("depreciation_amortization")
+                            ebit = float(op) if op is not None else None
+                            cap_emp = None
+                            if te is not None and td is not None:
+                                cap_emp = float(te) + float(td)
+                            elif te is not None:
+                                cap_emp = float(te)
+
+                            rec = RawFinancialRecord(
+                                symbol=symbol,
+                                source="LOCAL_RAW_FILINGS",
+                                period_end_date=period_end[:10],
+                                period_type=st_type,
+                                consolidation=ConsolidationType.CONSOLIDATED,
+                                revenue=float(rev) if rev is not None else None,
+                                net_profit=float(net_p) if net_p is not None else None,
+                                operating_cash_flow=float(cfo) if cfo is not None else None,
+                                total_debt=float(td) if td is not None else None,
+                                total_equity=float(te) if te is not None else None,
+                                ebit=ebit,
+                                capital_employed=cap_emp,
+                                eps=float(row.get("eps")) if row.get("eps") is not None else None,
+                                unit=str(row.get("unit", "cr")),
+                                currency="INR",
+                            )
+                            records.append(rec)
+                    return records
+                except Exception as e:
+                    logger.debug(f"[ROUTER] Error reading local raw filing for {symbol}: {e}")
+        return []
 
     def _single_source_metrics(
         self,
@@ -66,66 +155,90 @@ class FundamentalSourceRouter:
     ) -> ReconciledCanonicalMetrics:
         """
         Build a VERIFIED_SINGLE_SOURCE result from one provider's records.
-        Uses the latest ANNUAL record for metric calculation.
+        Uses annual records sorted ascending for multi-year CAGR and ROCE calculations.
         """
         metrics = ReconciledCanonicalMetrics(symbol=symbol)
 
         # Filter to annual records only for 5Y metrics
         annual = [r for r in records if r.period_type == "ANNUAL"]
         if not annual:
-            annual = records  # fall back to whatever is available
+            annual = records
 
-        # Sort by period_end descending
-        annual.sort(key=lambda r: r.period_end_date, reverse=True)
-        latest = annual[0]
+        # Sort by period_end ascending
+        annual.sort(key=lambda r: r.period_end_date)
+        latest = annual[-1]
 
-        # ROCE = EBIT / capital_employed
-        if (
-            latest.ebit is not None
-            and latest.capital_employed is not None
-            and latest.capital_employed > 0
-        ):
-            metrics.roce_5y = (latest.ebit / latest.capital_employed) * 100.0
+        # 1. 5Y ROCE average (up to trailing 5 annual filings)
+        roce_vals = []
+        for r in annual[-5:]:
+            if r.ebit is not None and r.capital_employed is not None and r.capital_employed > 0:
+                roce_vals.append((r.ebit / r.capital_employed) * 100.0)
+        if roce_vals:
+            metrics.roce_5y = round(sum(roce_vals) / len(roce_vals), 2)
 
+        # 2. Debt to Equity (latest annual)
         if latest.total_debt is not None and latest.total_equity is not None and latest.total_equity > 0:
-            metrics.debt_to_equity = latest.total_debt / latest.total_equity
+            metrics.debt_to_equity = round(latest.total_debt / latest.total_equity, 3)
+        elif latest.total_debt == 0.0 and latest.total_equity and latest.total_equity > 0:
+            metrics.debt_to_equity = 0.0
 
-        # CAGR and CFO/PAT require multi-year data — set None if < 2 annual records
+        # 3. 5Y CAGR (Sales & PAT)
         if len(annual) >= 2:
-            oldest = annual[-1]
-            years = max(
-                1,
-                (
-                    int(latest.period_end_date[:4]) - int(oldest.period_end_date[:4])
-                ),
-            )
-            if oldest.revenue and oldest.revenue > 0 and latest.revenue:
-                metrics.sales_cagr_5y = (
-                    ((latest.revenue / oldest.revenue) ** (1 / years)) - 1
-                ) * 100
-            if oldest.net_profit and oldest.net_profit > 0 and latest.net_profit:
-                metrics.pat_cagr_5y = (
-                    ((latest.net_profit / oldest.net_profit) ** (1 / years)) - 1
-                ) * 100
+            ann_dicts = []
+            for r in annual:
+                ann_dicts.append({
+                    "period_end_date": r.period_end_date,
+                    "revenue": r.revenue,
+                    "net_profit": r.net_profit,
+                })
+            try:
+                try:
+                    from app.financial_data_integrity import compute_cagr_pit
+                except ImportError:
+                    from financial_data_integrity import compute_cagr_pit
+                k_cagr = min(5, len(annual) - 1)
+                cagr_rev = compute_cagr_pit(ann_dicts, metric="revenue", symbol=symbol, target_years=k_cagr)
+                cagr_pat = compute_cagr_pit(ann_dicts, metric="net_profit", symbol=symbol, target_years=k_cagr)
+                if cagr_rev.ok:
+                    metrics.sales_cagr_5y = cagr_rev.cagr
+                elif cagr_rev.reason and any(x in str(cagr_rev.reason) for x in ("NON_POSITIVE", "NEGATIVE", "END_VALUE_NON_POSITIVE", "BASE_NON_POSITIVE")):
+                    metrics.sales_cagr_5y = -999.0
 
-        if latest.operating_cash_flow is not None and latest.net_profit and latest.net_profit != 0:
-            metrics.cfo_pat_5y = latest.operating_cash_flow / latest.net_profit
+                if cagr_pat.ok:
+                    metrics.pat_cagr_5y = cagr_pat.cagr
+                elif cagr_pat.reason and any(x in str(cagr_pat.reason) for x in ("NON_POSITIVE", "NEGATIVE", "END_VALUE_NON_POSITIVE", "BASE_NON_POSITIVE")):
+                    metrics.pat_cagr_5y = -999.0
+            except Exception as _ce:
+                logger.debug(f"[ROUTER] CAGR calculation exception for {symbol}: {_ce}")
+
+        # 4. 5Y Cumulative CFO / PAT Ratio
+        cfo_vals = [r.operating_cash_flow for r in annual[-5:] if r.operating_cash_flow is not None]
+        pat_vals = [r.net_profit for r in annual[-5:] if r.net_profit is not None]
+        if cfo_vals and pat_vals:
+            sum_cfo = sum(cfo_vals)
+            sum_pat = sum(pat_vals)
+            if sum_pat > 0:
+                metrics.cfo_pat_5y = round(sum_cfo / sum_pat, 2)
+            else:
+                metrics.cfo_pat_5y = -999.0
 
         metrics.overall_status = FundamentalStatus.VERIFIED_SINGLE_SOURCE
         logger.info(
             f"[ROUTER] {symbol}: VERIFIED_SINGLE_SOURCE from {source_name} | "
-            f"roce={metrics.roce_5y} d/e={metrics.debt_to_equity}"
+            f"roce={metrics.roce_5y} sales_cagr={metrics.sales_cagr_5y} pat_cagr={metrics.pat_cagr_5y} "
+            f"cfo/pat={metrics.cfo_pat_5y} d/e={metrics.debt_to_equity}"
         )
         return metrics
 
     def execute_progressive_recovery(self, symbol: str) -> ReconciledCanonicalMetrics:
         """
-        Progressive dual-source recovery:
-          1. Fetch Upstox
-          2. Fetch NSE
-          3. Reconcile both → VERIFIED
+        Progressive dual-source recovery with certified local raw filing fallback:
+          1. Fetch Upstox API
+          2. Fetch NSE XBRL API
+          3. Reconcile both → VERIFIED (dual-source)
              or single source → VERIFIED_SINGLE_SOURCE
-             or neither       → DATA_INSUFFICIENT
+             or local raw filings → VERIFIED_SINGLE_SOURCE (certified local source)
+             or none          → DATA_INSUFFICIENT
         """
         logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery...")
 
@@ -150,24 +263,128 @@ class FundamentalSourceRouter:
             f"refreshes={self.nse_provider.session_refresh_count})"
         )
 
-        # --- Step 3: Route ---
+        # --- Step 3: Local Raw Filings ---
+        local_records = self._fetch_local_raw_filings(symbol)
+
+        # --- Step 4: Route ---
         has_upstox = len(upstox_records) > 0
         has_nse = len(nse_records) > 0
+        has_local = len(local_records) > 0
 
-        if not has_upstox and not has_nse:
-            logger.warning(f"[ROUTER] {symbol}: Both providers returned no data. DATA_INSUFFICIENT.")
-            m = ReconciledCanonicalMetrics(symbol=symbol)
-            m.overall_status = FundamentalStatus.DATA_INSUFFICIENT
-            return m
-
+        # Tier 1: Upstox + NSE dual-source
         if has_upstox and has_nse:
-            # Full dual-source reconciliation
             metrics = self.reconciler.reconcile_and_calculate(symbol, nse_records, upstox_records)
             logger.info(f"[RECONCILIATION] {symbol}: status={metrics.overall_status.name}")
             return metrics
 
+        # Tier 2: Upstox + Certified Local Raw Filings dual-source
+        if has_upstox and has_local:
+            metrics = self._reconcile_upstox_and_local(symbol, upstox_records, local_records)
+            logger.info(f"[DUAL_SOURCE_UPSTOX_LOCAL] {symbol}: status={metrics.overall_status.name}")
+            return metrics
+
+        # Tier 3: NSE + Certified Local Raw Filings dual-source
+        if has_nse and has_local:
+            metrics = self._reconcile_upstox_and_local(symbol, nse_records, local_records)
+            logger.info(f"[DUAL_SOURCE_NSE_LOCAL] {symbol}: status={metrics.overall_status.name}")
+            return metrics
+
+        # Tier 4: Single source fallbacks
         if has_upstox:
             return self._single_source_metrics(symbol, upstox_records, "UPSTOX")
 
-        # has_nse only
-        return self._single_source_metrics(symbol, nse_records, "NSE_XBRL")
+        if has_nse:
+            return self._single_source_metrics(symbol, nse_records, "NSE_XBRL")
+
+        if has_local:
+            logger.info(f"[LOCAL_RAW] {symbol}: Loaded {len(local_records)} records from certified local raw filings.")
+            return self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS")
+
+        logger.warning(f"[ROUTER] {symbol}: All providers returned no data. DATA_INSUFFICIENT.")
+        m = ReconciledCanonicalMetrics(symbol=symbol)
+        m.overall_status = FundamentalStatus.DATA_INSUFFICIENT
+        return m
+
+    def _reconcile_upstox_and_local(
+        self,
+        symbol: str,
+        live_records: List[RawFinancialRecord],
+        local_records: List[RawFinancialRecord],
+    ) -> ReconciledCanonicalMetrics:
+        """
+        Dual-source reconciliation between Upstox/NSE API records and certified local filings.
+        Where annual periods overlap, validates Revenue and PAT consistency.
+        Supplements missing balance-sheet / cash-flow fields from certified audited filings.
+        """
+        live_annual = {r.period_end_date: r for r in live_records if r.period_type == "ANNUAL"}
+        local_annual = {r.period_end_date: r for r in local_records if r.period_type == "ANNUAL"}
+
+        overlap_dates = set(live_annual.keys()).intersection(local_annual.keys())
+        has_conflict = False
+
+        for dt in overlap_dates:
+            u_rec = live_annual[dt]
+            l_rec = local_annual[dt]
+            # Check revenue tolerance (<= 5% tolerance for rounding / unit conventions)
+            if u_rec.revenue is not None and l_rec.revenue is not None and abs(l_rec.revenue) > 1.0:
+                diff = abs(u_rec.revenue - l_rec.revenue) / abs(l_rec.revenue)
+                if diff > 0.05:
+                    logger.warning(
+                        f"[{symbol}] Revenue divergence for {dt}: Live={u_rec.revenue}, Local={l_rec.revenue} (diff={diff:.1%})"
+                    )
+                    if diff > 0.15:
+                        has_conflict = True
+
+            # Check PAT tolerance
+            if u_rec.net_profit is not None and l_rec.net_profit is not None and abs(l_rec.net_profit) > 1.0:
+                diff = abs(u_rec.net_profit - l_rec.net_profit) / abs(l_rec.net_profit)
+                if diff > 0.05:
+                    logger.warning(
+                        f"[{symbol}] PAT divergence for {dt}: Live={u_rec.net_profit}, Local={l_rec.net_profit} (diff={diff:.1%})"
+                    )
+                    if diff > 0.15:
+                        has_conflict = True
+
+        if has_conflict:
+            logger.error(f"❌ [{symbol}] DATA_CONFLICT between Live and Local filings.")
+            metrics = ReconciledCanonicalMetrics(symbol=symbol)
+            metrics.overall_status = FundamentalStatus.DATA_CONFLICT
+            return metrics
+
+        # Merge records across periods, with live taking precedence and local supplementing missing metrics
+        all_dates = sorted(set(live_annual.keys()).union(local_annual.keys()))
+        merged_records: List[RawFinancialRecord] = []
+        for dt in all_dates:
+            u = live_annual.get(dt)
+            l = local_annual.get(dt)
+            if u and l:
+                # Merge: prefer live for income, use local to supplement missing balance sheet/cash flow
+                rec = RawFinancialRecord(
+                    symbol=symbol,
+                    source="UPSTOX+LOCAL_DUAL_SOURCE",
+                    period_end_date=dt,
+                    period_type="ANNUAL",
+                    consolidation=u.consolidation,
+                    revenue=u.revenue if u.revenue is not None else l.revenue,
+                    net_profit=u.net_profit if u.net_profit is not None else l.net_profit,
+                    operating_cash_flow=u.operating_cash_flow if u.operating_cash_flow is not None else l.operating_cash_flow,
+                    total_debt=u.total_debt if u.total_debt is not None else l.total_debt,
+                    total_equity=u.total_equity if u.total_equity is not None else l.total_equity,
+                    ebit=u.ebit if u.ebit is not None else l.ebit,
+                    capital_employed=u.capital_employed if u.capital_employed is not None else l.capital_employed,
+                    eps=u.eps if u.eps is not None else l.eps,
+                    unit="cr",
+                    currency="INR",
+                )
+            elif u:
+                rec = u
+            else:
+                rec = l
+            merged_records.append(rec)
+
+        metrics = self._single_source_metrics(symbol, merged_records, "UPSTOX+LOCAL_DUAL_SOURCE")
+        if overlap_dates:
+            metrics.overall_status = FundamentalStatus.VERIFIED
+        else:
+            metrics.overall_status = FundamentalStatus.VERIFIED_SINGLE_SOURCE
+        return metrics

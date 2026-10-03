@@ -4641,6 +4641,7 @@ def get_all_scanner_health() -> list[dict]:
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
         "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
         "QUALITY_COMPOUNDER": "Daily 17:00 IST (Fundamental Quality Compounder · ALL Regimes)",
+        "QUALITY_VALUE_RECOVERY_WEALTH_V1": "Daily 17:15 IST (Quality Value Recovery Wealth V1 · ALL Regimes)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
         "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
@@ -4899,6 +4900,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "WEALTH_EXIT_V2"
     elif upper in ["QUALITY_COMPOUNDER", "QUALITY_COMPOUNDER_VALUE_V2_FINAL", "QUALITY_COMPOUNDER_VALUE_V2", "QUALITY_COMPOUNDER_V2", "V2_QUALITY_COMPOUNDER", "QUALITY_VALUE_GEM"]:
         return "QUALITY_COMPOUNDER"
+    elif upper in ["QUALITY_VALUE_RECOVERY_WEALTH_V1", "QUALITY_VALUE_RECOVERY", "RECOVERY_WEALTH_V1", "RECOVERY"]:
+        return "QUALITY_VALUE_RECOVERY_WEALTH_V1"
     elif upper in ["FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY", "FUNDAMENTAL_BUY", "FUNDAMENTAL_SCANNER", "FUNDAMENTAL_BUY_SCANNER"]:
         return "FUNDAMENTAL"
     elif upper in ["MULTIBAGGER"]:
@@ -12068,21 +12071,24 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
     now_ist = datetime.now(IST)
     today_date = now_ist.date()
 
+    scanner_name = candidate.get("scanner") or 'QUALITY_COMPOUNDER'
+    breakout_type = candidate.get("breakout_type") or ('QUALITY_VALUE_RECOVERY' if 'RECOVERY' in str(scanner_name) else 'QUALITY_COMPOUNDER_V2')
+
     sanitized_ctx = _sanitize_for_json(candidate.get("context", {}))
     ctx_str = json.dumps(sanitized_ctx, default=str)
     entry_px = candidate.get("entry_price") or candidate.get("current_price")
 
     with get_connection() as conn:
         if isinstance(conn, DummyConnection):
-            logger.info(f"DummyConnection active: simulated persistence of QUALITY_COMPOUNDER candidate alert for {sym}")
+            logger.info(f"DummyConnection active: simulated persistence of {scanner_name} candidate alert for {sym}")
             return True, "INSERTED_DUMMY_CANDIDATE"
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, status, watchlist_state, alert_date FROM alerts
-                WHERE symbol = %s AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
+                WHERE symbol = %s AND (scanner = %s OR (%s = 'QUALITY_COMPOUNDER' AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL'))
                   AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
                 ORDER BY alert_time DESC LIMIT 1
-            """, (sym,))
+            """, (sym, scanner_name, scanner_name))
             row = cur.fetchone()
             if row:
                 alert_id, prev_status, prev_state, prev_date = row[0], row[1], row[2], row[3]
@@ -12133,10 +12139,10 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         updated_at = NOW()
                 """, (
                     sym,
-                    "QUALITY_COMPOUNDER_V2",
+                    breakout_type,
                     now_ist.isoformat(),
                     today_date,
-                    "QUALITY_COMPOUNDER",
+                    scanner_name,
                     "LIVE_PRODUCTION_WATCHLIST",
                     entry_px,
                     candidate.get("current_price"),
@@ -12153,7 +12159,7 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                     candidate.get("reference_entry_open"),
                     "GOVERNANCE_PENDING",
                     ctx_str,
-                    "QUALITY_COMPOUNDER (PASS ALL GATES)",
+                    f"{scanner_name} (PASS ALL GATES)",
                     int(candidate.get("ranking_score", 90)),
                     "OPEN",
                     "CMP",

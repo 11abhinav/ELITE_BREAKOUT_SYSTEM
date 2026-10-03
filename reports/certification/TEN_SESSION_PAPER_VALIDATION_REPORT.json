@@ -1,0 +1,340 @@
+{
+  "timestamp_ist": "2026-10-03T17:39:03.623972+05:30",
+  "strategy": "QUALITY_VALUE_RECOVERY_WEALTH_V1",
+  "initial_capital_inr": 10000000.0,
+  "final_equity_inr": 9892186.53,
+  "total_pnl_inr": -107813.47,
+  "total_return_pct": -1.0781,
+  "total_sessions_tested": 10,
+  "total_orders_executed": 20,
+  "friction_bps_applied": 15.0,
+  "execution_protocol": "STRICT_T_PLUS_1_NEXT_OPEN",
+  "causal_violations": 0,
+  "uncertified_regime_alerts": 0,
+  "runtime_exceptions": 0,
+  "validation_verdict": "CERTIFIED",
+  "session_logs": [
+    {
+      "session_index": 1,
+      "session_date": "2026-09-11",
+      "regime": "SIDEWAYS",
+      "nifty_close": 23398.1,
+      "candidates_count": 47,
+      "orders_queued": 20,
+      "orders_filled_today": 0,
+      "active_positions_count": 0,
+      "cash_balance": 10000000.0,
+      "portfolio_equity": 10000000.0,
+      "cumulative_pnl": 0.0,
+      "cumulative_return_pct": 0.0,
+      "execution_duration_sec": 4.49,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 2,
+      "session_date": "2026-09-15",
+      "regime": "BEAR",
+      "nifty_close": 23118.6,
+      "candidates_count": 54,
+      "orders_queued": 0,
+      "orders_filled_today": 20,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9839417.37,
+      "cumulative_pnl": -160582.63,
+      "cumulative_return_pct": -1.61,
+      "execution_duration_sec": 1.12,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 3,
+      "session_date": "2026-09-16",
+      "regime": "SIDEWAYS",
+      "nifty_close": 23217.6,
+      "candidates_count": 53,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9834184.95,
+      "cumulative_pnl": -165815.05,
+      "cumulative_return_pct": -1.66,
+      "execution_duration_sec": 2.01,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 4,
+      "session_date": "2026-09-17",
+      "regime": "SIDEWAYS",
+      "nifty_close": 23270.6,
+      "candidates_count": 51,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9905394.33,
+      "cumulative_pnl": -94605.67,
+      "cumulative_return_pct": -0.95,
+      "execution_duration_sec": 1.17,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 5,
+      "session_date": "2026-09-18",
+      "regime": "SIDEWAYS",
+      "nifty_close": 23346.4,
+      "candidates_count": 50,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9883421.27,
+      "cumulative_pnl": -116578.73,
+      "cumulative_return_pct": -1.17,
+      "execution_duration_sec": 0.8,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 6,
+      "session_date": "2026-09-21",
+      "regime": "SIDEWAYS",
+      "nifty_close": 23414.3,
+      "candidates_count": 49,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9911972.18,
+      "cumulative_pnl": -88027.82,
+      "cumulative_return_pct": -0.88,
+      "execution_duration_sec": 0.8,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 7,
+      "session_date": "2026-09-22",
+      "regime": "BEAR",
+      "nifty_close": 23329.0,
+      "candidates_count": 49,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9951652.59,
+      "cumulative_pnl": -48347.41,
+      "cumulative_return_pct": -0.48,
+      "execution_duration_sec": 1.06,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 8,
+      "session_date": "2026-09-23",
+      "regime": "SIDEWAYS",
+      "nifty_close": 23446.8,
+      "candidates_count": 48,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 10010437.41,
+      "cumulative_pnl": 10437.41,
+      "cumulative_return_pct": 0.1,
+      "execution_duration_sec": 1.17,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 9,
+      "session_date": "2026-09-24",
+      "regime": "BEAR",
+      "nifty_close": 23063.1,
+      "candidates_count": 49,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9879172.54,
+      "cumulative_pnl": -120827.46,
+      "cumulative_return_pct": -1.21,
+      "execution_duration_sec": 0.72,
+      "pipeline_status": "PASS"
+    },
+    {
+      "session_index": 10,
+      "session_date": "2026-09-25",
+      "regime": "BEAR",
+      "nifty_close": 23140.5,
+      "candidates_count": 49,
+      "orders_queued": 0,
+      "orders_filled_today": 0,
+      "active_positions_count": 20,
+      "cash_balance": 10404.59,
+      "portfolio_equity": 9892186.53,
+      "cumulative_pnl": -107813.47,
+      "cumulative_return_pct": -1.08,
+      "execution_duration_sec": 0.63,
+      "pipeline_status": "PASS"
+    }
+  ],
+  "executed_trades": [
+    {
+      "symbol": "ZFCVINDIA",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 2563.84,
+      "qty": 195,
+      "cost": 499948.8
+    },
+    {
+      "symbol": "TATAELXSI",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 3455.18,
+      "qty": 144,
+      "cost": 497545.2
+    },
+    {
+      "symbol": "BLS",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 231.94,
+      "qty": 2155,
+      "cost": 499825.06
+    },
+    {
+      "symbol": "ESABINDIA",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 5868.79,
+      "qty": 85,
+      "cost": 498847.15
+    },
+    {
+      "symbol": "APCOTEXIND",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 602.95,
+      "qty": 829,
+      "cost": 499848.1
+    },
+    {
+      "symbol": "KPITTECH",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 560.84,
+      "qty": 891,
+      "cost": 499708.44
+    },
+    {
+      "symbol": "ROUTE",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 497.19,
+      "qty": 1005,
+      "cost": 499680.65
+    },
+    {
+      "symbol": "WAAREEENER",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 2593.89,
+      "qty": 192,
+      "cost": 498025.92
+    },
+    {
+      "symbol": "NEWGEN",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 512.77,
+      "qty": 975,
+      "cost": 499948.8
+    },
+    {
+      "symbol": "AHLUCONT",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 601.9,
+      "qty": 830,
+      "cost": 499578.25
+    },
+    {
+      "symbol": "HBLENGINE",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 726.09,
+      "qty": 688,
+      "cost": 499548.2
+    },
+    {
+      "symbol": "RAILTEL",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 260.34,
+      "qty": 1920,
+      "cost": 499852.66
+    },
+    {
+      "symbol": "TIINDIA",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 2610.01,
+      "qty": 191,
+      "cost": 498511.75
+    },
+    {
+      "symbol": "MEDIASSIST",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 316.87,
+      "qty": 1577,
+      "cost": 499711.24
+    },
+    {
+      "symbol": "WEBELSOLAR",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 75.44,
+      "qty": 6627,
+      "cost": 499960.73
+    },
+    {
+      "symbol": "EMUDHRA",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 535.8,
+      "qty": 933,
+      "cost": 499903.73
+    },
+    {
+      "symbol": "VIKRAMSOLR",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 167.31,
+      "qty": 2988,
+      "cost": 499924.04
+    },
+    {
+      "symbol": "TRANSRAILL",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 416.12,
+      "qty": 1201,
+      "cost": 499764.02
+    },
+    {
+      "symbol": "INDIAMART",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 1716.37,
+      "qty": 291,
+      "cost": 499463.87
+    },
+    {
+      "symbol": "IEX",
+      "action": "BUY",
+      "execution_date": "2026-09-15",
+      "execution_price": 114.05,
+      "qty": 4384,
+      "cost": 499998.79
+    }
+  ]
+}

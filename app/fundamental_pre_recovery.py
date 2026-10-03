@@ -46,19 +46,24 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 
-from data_providers.fundamental_source_router import FundamentalSourceRouter
-from data_providers.fundamental_models import FundamentalStatus, ReconciledCanonicalMetrics
+try:
+    from app.data_providers.fundamental_source_router import FundamentalSourceRouter
+    from app.data_providers.fundamental_models import FundamentalStatus, ReconciledCanonicalMetrics
+except ImportError:
+    from data_providers.fundamental_source_router import FundamentalSourceRouter
+    from data_providers.fundamental_models import FundamentalStatus, ReconciledCanonicalMetrics
 
 logger = logging.getLogger(__name__)
 
-# Required fields for a symbol to be considered "complete" for scanner use
-REQUIRED_FIELDS: List[str] = [
-    "ROCE",
-    "sales_cagr_5y",
-    "pat_cagr_5y",
-    "cfo_pat_5y",
-    "debt",
-]
+# Required fields and aliases for a symbol to be considered "complete" for scanner use
+REQUIRED_FIELD_ALIASES: Dict[str, List[str]] = {
+    "ROCE":         ["roce_5y_avg", "ROCE", "roce"],
+    "sales_cagr_5y": ["sales_cagr_5y", "sales_cagr"],
+    "pat_cagr_5y":   ["pat_cagr_5y", "pat_cagr"],
+    "cfo_pat_5y":    ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"],
+    "debt":          ["debt_to_equity", "debt", "total_debt"],
+}
+REQUIRED_FIELDS: List[str] = list(REQUIRED_FIELD_ALIASES.keys())
 
 CALCULATION_VERSION = "v2.1_dual_source_reconciliation"
 
@@ -83,10 +88,18 @@ class FundamentalPreRecoveryEngine:
     does NOT directly overwrite the canonical PIT dataset.
     """
 
-    def __init__(self, pit_parquet_path: str = "data/daily_builder_master_v2.parquet"):
-        self.pit_parquet_path = pit_parquet_path
+    def __init__(self, pit_parquet_path: Optional[str] = None):
+        if pit_parquet_path is not None:
+            self.pit_parquet_path = pit_parquet_path
+        else:
+            canonical_path = "data/canonical_pit_rebuilt.parquet"
+            if os.path.exists(canonical_path):
+                self.pit_parquet_path = canonical_path
+            else:
+                self.pit_parquet_path = "data/daily_builder_master_v2.parquet"
         self.router = FundamentalSourceRouter()
-        self.global_daily_recovery_limit = 50
+        # 0 or negative means uncapped (processes every incomplete symbol in universe)
+        self.global_daily_recovery_limit = int(os.getenv("PRE_RECOVERY_LIMIT", "0"))
 
     # ------------------------------------------------------------------
     # Field-level incomplete detection
@@ -96,22 +109,36 @@ class FundamentalPreRecoveryEngine:
         self, df: pd.DataFrame
     ) -> Tuple[List[str], Dict[str, List[str]]]:
         """
-        Scans PIT DataFrame for any missing required fields.
+        Scans PIT DataFrame for any missing required fields using alias matching.
+        Ignores structurally ineligible (e.g. BFSI) symbols for debt/operating metrics.
         Returns:
           - List of incomplete symbols
           - Dict mapping symbol → list of missing field names
         """
         field_map: Dict[str, List[str]] = {}
 
-        for col in REQUIRED_FIELDS:
-            if col not in df.columns:
+        # Isolate eligible non-BFSI symbols for debt/operating metrics check
+        eval_df = df
+        if "is_bfsi" in df.columns:
+            eval_df = df[~df["is_bfsi"].fillna(False)]
+        elif "is_structural_ineligible" in df.columns:
+            eval_df = df[~df["is_structural_ineligible"].fillna(False)]
+
+        for field_name, aliases in REQUIRED_FIELD_ALIASES.items():
+            matched_col = None
+            for alias in aliases:
+                if alias in eval_df.columns:
+                    matched_col = alias
+                    break
+
+            if matched_col is None:
                 # Column missing entirely → all symbols affected
-                for sym in df.get("symbol", pd.Series([])).unique():
-                    field_map.setdefault(str(sym), []).append(col)
+                for sym in eval_df.get("symbol", pd.Series([])).unique():
+                    field_map.setdefault(str(sym), []).append(field_name)
             else:
-                missing_mask = df[col].isna()
-                for sym in df[missing_mask]["symbol"].unique():
-                    field_map.setdefault(str(sym), []).append(col)
+                missing_mask = eval_df[matched_col].isna()
+                for sym in eval_df[missing_mask]["symbol"].unique():
+                    field_map.setdefault(str(sym), []).append(field_name)
 
         return list(field_map.keys()), field_map
 
@@ -119,12 +146,15 @@ class FundamentalPreRecoveryEngine:
         self, field_map: Dict[str, List[str]]
     ) -> List[Tuple[str, List[str]]]:
         """
-        Builds the recovery queue capped at global_daily_recovery_limit.
+        Builds the recovery queue.
         Prioritizes symbols missing the most fields (worst first).
+        If global_daily_recovery_limit > 0, caps the queue; otherwise uncapped (all symbols).
         Returns: list of (symbol, [missing_fields])
         """
         ordered = sorted(field_map.items(), key=lambda x: len(x[1]), reverse=True)
-        return ordered[: self.global_daily_recovery_limit]
+        if self.global_daily_recovery_limit > 0:
+            return ordered[: self.global_daily_recovery_limit]
+        return ordered
 
     # ------------------------------------------------------------------
     # Recovery
@@ -143,16 +173,26 @@ class FundamentalPreRecoveryEngine:
         """Idempotently updates the in-memory DataFrame with verified canonical data."""
         idx = df["symbol"] == symbol
 
-        if "ROCE" in df.columns:
-            df.loc[idx, "ROCE"] = metrics.roce_5y
-        if "sales_cagr_5y" in df.columns:
-            df.loc[idx, "sales_cagr_5y"] = metrics.sales_cagr_5y
-        if "pat_cagr_5y" in df.columns:
-            df.loc[idx, "pat_cagr_5y"] = metrics.pat_cagr_5y
-        if "cfo_pat_5y" in df.columns:
-            df.loc[idx, "cfo_pat_5y"] = metrics.cfo_pat_5y
-        if "debt" in df.columns:
-            df.loc[idx, "debt"] = metrics.debt_to_equity
+        for col in ["roce_5y_avg", "ROCE", "roce"]:
+            if col in df.columns:
+                df.loc[idx, col] = metrics.roce_5y
+                break
+        for col in ["sales_cagr_5y", "sales_cagr"]:
+            if col in df.columns:
+                df.loc[idx, col] = metrics.sales_cagr_5y
+                break
+        for col in ["pat_cagr_5y", "pat_cagr"]:
+            if col in df.columns:
+                df.loc[idx, col] = metrics.pat_cagr_5y
+                break
+        for col in ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"]:
+            if col in df.columns:
+                df.loc[idx, col] = metrics.cfo_pat_5y
+                break
+        for col in ["debt_to_equity", "debt"]:
+            if col in df.columns:
+                df.loc[idx, col] = metrics.debt_to_equity
+                break
 
         for col in ["calculation_version", "recovery_status", "provenance_hash"]:
             if col not in df.columns:

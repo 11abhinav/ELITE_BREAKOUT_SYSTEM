@@ -3042,8 +3042,8 @@ class QualityCompounderValueV2Scanner:
       - 100-pt score prioritization (never overrides eligibility gates)
     """
 
-    def __init__(self):
-        self.strategy_id = "QUALITY_COMPOUNDER"
+    def __init__(self, strategy_id: str = "QUALITY_COMPOUNDER"):
+        self.strategy_id = strategy_id
         self.daily_builder_provider = DailyBuilderFundamentalProvider()
         self.universe_registry = ApprovedUniverseRegistry()
 
@@ -3432,8 +3432,8 @@ class QualityCompounderValueV2Scanner:
 
         # 2. Universal global scanner lock queue wait: serialize TECHNICAL, FUNDAMENTAL, QUALITY_COMPOUNDER
         queued_at = time.monotonic()
-        if not _global_lock.acquire(blocking=False, owner_scanner="QUALITY_COMPOUNDER", operation="FULL_SCAN"):
-            logger.info("⏳ [QUALITY_COMPOUNDER] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
+        if not _global_lock.acquire(blocking=False, owner_scanner=self.strategy_id, operation="FULL_SCAN"):
+            logger.info(f"⏳ [{self.strategy_id}] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
             try:
                 from database import upsert_scanner_health
             except ImportError:
@@ -3443,21 +3443,21 @@ class QualityCompounderValueV2Scanner:
                     upsert_scanner_health = None
             if upsert_scanner_health is not None:
                 try:
-                    upsert_scanner_health("QUALITY_COMPOUNDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+                    upsert_scanner_health(self.strategy_id, "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
                 except Exception:
                     pass
 
             try:
-                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="QUALITY_COMPOUNDER", operation="FULL_SCAN")
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner=self.strategy_id, operation="FULL_SCAN")
             except Exception as lock_err:
-                logger.error(f"❌ [QUALITY_COMPOUNDER] Error acquiring global lock: {lock_err}")
+                logger.error(f"❌ [{self.strategy_id}] Error acquiring global lock: {lock_err}")
                 acquired_global = False
 
             if not acquired_global:
-                logger.error("❌ [QUALITY_COMPOUNDER] Failed to acquire global scanner lock after queue wait.")
+                logger.error(f"❌ [{self.strategy_id}] Failed to acquire global scanner lock after queue wait.")
                 if upsert_scanner_health is not None:
                     try:
-                        upsert_scanner_health("QUALITY_COMPOUNDER", "IDLE", error_msg="Lock acquisition timed out")
+                        upsert_scanner_health(self.strategy_id, "IDLE", error_msg="Lock acquisition timed out")
                     except Exception:
                         pass
                 _v2_scan_lock.release()
@@ -3516,7 +3516,7 @@ class QualityCompounderValueV2Scanner:
                 if _core_result_holder[0] and isinstance(_core_result_holder[0], dict):
                     _computed_v2_health_status = _core_result_holder[0].get("status") or _computed_v2_health_status
                 print_scanner_end_banner(
-                    "QUALITY_COMPOUNDER",
+                    self.strategy_id,
                     start_mono=_scan_start,
                     run_id=run_id,
                     override_status=_computed_v2_health_status,
@@ -3571,7 +3571,7 @@ class QualityCompounderValueV2Scanner:
         if create_scanner_execution_run is not None:
             try:
                 exec_run_ctx = create_scanner_execution_run(
-                    scanner_name="QUALITY_COMPOUNDER",
+                    scanner_name=self.strategy_id,
                     trigger_type=trigger_type,
                     allow_concurrent=True
                 )
@@ -3581,19 +3581,19 @@ class QualityCompounderValueV2Scanner:
                 logger.debug(f"Execution history start warning: {e}")
 
         # Start Banner
-        print_scanner_start_banner("QUALITY_COMPOUNDER", queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
+        print_scanner_start_banner(self.strategy_id, queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
 
         if upsert_scanner_health is not None:
             try:
                 upsert_scanner_health(
-                    "QUALITY_COMPOUNDER",
+                    self.strategy_id,
                     status="RUNNING",
                     run_id=getattr(exec_run_ctx, "run_id", None)
                 )
             except Exception as e:
                 logger.debug(f"Scanner health RUNNING warning: {e}")
 
-        logger.info(f"📡 [SCANNER: QUALITY_COMPOUNDER] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
+        logger.info(f"📡 [SCANNER: {self.strategy_id}] Starting daily scan run ({today_str}, trigger={trigger_type})...")
 
         # [FUNDAMENTAL PRE-RECOVERY HOOK]
         try:
@@ -4903,6 +4903,8 @@ class QualityCompounderValueV2Scanner:
                         "tier": tier,
                         "ranking_score": score_100,
                         "signal_date": today_str,
+                        "scanner": self.strategy_id,
+                        "breakout_type": "QUALITY_VALUE_RECOVERY" if "RECOVERY" in str(self.strategy_id) else "QUALITY_COMPOUNDER_V2",
                         "context": ctx
                     }
                     candidate_records.append(candidate_rec)
@@ -5647,7 +5649,7 @@ class QualityCompounderValueV2Scanner:
             if upsert_scanner_health is not None:
                 try:
                     upsert_scanner_health(
-                        "QUALITY_COMPOUNDER",
+                        self.strategy_id,
                         status="OK" if _health_status in ("OK", "COMPLETED") else _health_status,
                         today_alerts=candidates_inserted,
                         last_success=now_ist.isoformat() if _health_status in ("OK", "COMPLETED", "DEGRADED") else None,
@@ -5827,7 +5829,7 @@ class QualityCompounderValueV2Scanner:
             if upsert_scanner_health is not None:
                 try:
                     upsert_scanner_health(
-                        "QUALITY_COMPOUNDER",
+                        self.strategy_id,
                         status="DOWN",
                         error_msg=str(err)[:500],
                         run_id=getattr(exec_run_ctx, "run_id", None)
@@ -5993,7 +5995,7 @@ class QualityCompounderValueV2Scanner:
                                 growth_start_period = cagr_rev_res.start_period
                                 growth_end_period = cagr_rev_res.end_period
                                 growth_yrs = cagr_rev_res.elapsed_years or 5.0
-                            elif cagr_rev_res.reason in ("NON_POSITIVE_BASE_VALUE", "NEGATIVE_BASE_VALUE"):
+                            elif cagr_rev_res.reason and any(x in str(cagr_rev_res.reason) for x in ("NON_POSITIVE", "NEGATIVE_BASE", "BASE_NON_POSITIVE", "END_VALUE_NON_POSITIVE")):
                                 rev_cagr = -999.0
                                 growth_start_period = cagr_rev_res.start_period
                                 growth_end_period = cagr_rev_res.end_period
@@ -6008,7 +6010,7 @@ class QualityCompounderValueV2Scanner:
                                     growth_start_period = cagr_pat_res.start_period
                                     growth_end_period = cagr_pat_res.end_period
                                     growth_yrs = cagr_pat_res.elapsed_years or 5.0
-                            elif cagr_pat_res.reason in ("NON_POSITIVE_BASE_VALUE", "NEGATIVE_BASE_VALUE"):
+                            elif cagr_pat_res.reason and any(x in str(cagr_pat_res.reason) for x in ("NON_POSITIVE", "NEGATIVE_BASE", "BASE_NON_POSITIVE", "END_VALUE_NON_POSITIVE")):
                                 pat_cagr = -999.0
                             else:
                                 pat_cagr = None
@@ -6260,6 +6262,18 @@ def run_quality_compounder_v2_scan(trigger_type: str = "SCHEDULED", scheduler_na
     """Top-level invocation wrapper for QUALITY_COMPOUNDER scanner."""
     return get_quality_compounder_v2_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence)
 
+_recovery_scanner_instance = None
+
+def get_quality_value_recovery_scanner() -> QualityCompounderValueV2Scanner:
+    global _recovery_scanner_instance
+    if _recovery_scanner_instance is None:
+        _recovery_scanner_instance = QualityCompounderValueV2Scanner(strategy_id="QUALITY_VALUE_RECOVERY_WEALTH_V1")
+    return _recovery_scanner_instance
+
+def run_quality_value_recovery_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
+    """Top-level invocation wrapper for QUALITY_VALUE_RECOVERY_WEALTH_V1 scanner."""
+    return get_quality_value_recovery_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence)
+
 
 __all__ = [
     "RejectionReason",
@@ -6277,6 +6291,8 @@ __all__ = [
     "QualityCompounderValueV2Scanner",
     "get_quality_compounder_v2_scanner",
     "run_quality_compounder_v2_scan",
+    "get_quality_value_recovery_scanner",
+    "run_quality_value_recovery_scan",
     "REQUIRED_ANNUAL_HISTORY_FOR_V2_5Y_METRICS",
     "required_v2_annual_history",
     "classify_v2_historical_evidence",

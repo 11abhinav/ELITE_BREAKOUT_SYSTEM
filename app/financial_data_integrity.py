@@ -744,7 +744,37 @@ def compute_cagr(
             basis=basis,
         )
 
-    cagr_pct = round((pow(r1_val / r0_val, 1.0 / elapsed_years) - 1.0) * 100.0, 2)
+    if r1_val <= 0:
+        return CAGRResult(
+            status=DataStatus.VALID if r1_val == 0 else DataStatus.DATA_INVALID,
+            reason=f"CAGR_END_VALUE_NON_POSITIVE: end={r1_val} for metric={metric}",
+            start_period=period0,
+            end_period=period1,
+            start_value=r0_val,
+            end_value=r1_val,
+            elapsed_years=round(elapsed_years, 2),
+            cagr=-100.0 if r1_val == 0 else -999.0,
+            metric=metric,
+            target_years=target_years,
+            basis=basis,
+        )
+
+    try:
+        cagr_pct = round((pow(r1_val / r0_val, 1.0 / elapsed_years) - 1.0) * 100.0, 2)
+    except Exception as _e:
+        return CAGRResult(
+            status=DataStatus.DATA_INVALID,
+            reason=f"CAGR_CALCULATION_ERROR: {_e}",
+            start_period=period0,
+            end_period=period1,
+            start_value=r0_val,
+            end_value=r1_val,
+            elapsed_years=round(elapsed_years, 2),
+            cagr=-999.0,
+            metric=metric,
+            target_years=target_years,
+            basis=basis,
+        )
 
     ref_scan_date = scan_date or as_of_date or date.today()
     is_current_window_valid = True

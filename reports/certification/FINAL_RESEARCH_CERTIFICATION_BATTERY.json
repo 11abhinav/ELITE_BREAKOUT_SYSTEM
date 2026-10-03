@@ -1,0 +1,95 @@
+{
+  "timestamp_ist": "2026-10-03T17:33:21.990300+05:30",
+  "strategy": "QUALITY_VALUE_RECOVERY_WEALTH_V1",
+  "data_provenance": "UPSTOX_REAL_MARKET_DATA",
+  "provenance_status": "CERTIFIED",
+  "modules": {
+    "n_eff_analysis": {
+      "nominal_N": 487,
+      "serial_autocorrelation_lag1": 0.1062,
+      "n_eff_serial": 393.5,
+      "average_concurrent_positions_K": 420.97,
+      "mean_cross_sectional_correlation": -0.0,
+      "cluster_inflation_factor": 1.0,
+      "n_eff_cross_sectional": 487.0,
+      "n_eff_final_conservative": 393.5,
+      "threshold_required": 30,
+      "n_eff_pass": true
+    },
+    "block_bootstrap_10k": {
+      "bootstrap_iterations": 10000,
+      "block_unit": "MONTHLY_COHORT",
+      "number_of_blocks": 92,
+      "observed_mean_return": 2.1318,
+      "ci_mean_95": [
+        1.4282,
+        2.9616
+      ],
+      "observed_median_return": 0.5421,
+      "ci_median_95": [
+        0.2258,
+        0.9621
+      ],
+      "observed_win_rate": 0.7474,
+      "ci_win_rate_95": [
+        0.6783,
+        0.814
+      ],
+      "empirical_p_value": 0.0,
+      "ci_lower_above_zero": true,
+      "statistically_significant_p05": true,
+      "block_bootstrap_verdict": "PASS"
+    },
+    "survivorship_impact": {
+      "nominal_mean_return": 2.1318,
+      "nominal_median_return": 0.5421,
+      "historical_broad_market_delisting_rate_est": "1.5%",
+      "stress_test_results": {
+        "delisting_2pct_haircut": {
+          "haircut_rate": 0.02,
+          "simulated_total_loss_trades": 10,
+          "stressed_mean_return": 2.0662,
+          "stressed_median_return": 0.5131,
+          "mean_drawdown_delta": -0.0657,
+          "edge_retained": true
+        },
+        "delisting_5pct_haircut": {
+          "haircut_rate": 0.05,
+          "simulated_total_loss_trades": 25,
+          "stressed_mean_return": 1.9703,
+          "stressed_median_return": 0.4417,
+          "mean_drawdown_delta": -0.1615,
+          "edge_retained": true
+        },
+        "delisting_10pct_haircut": {
+          "haircut_rate": 0.1,
+          "simulated_total_loss_trades": 49,
+          "stressed_mean_return": 1.8154,
+          "stressed_median_return": 0.3573,
+          "mean_drawdown_delta": -0.3165,
+          "edge_retained": true
+        }
+      },
+      "structural_quality_defense": {
+        "roce_gate_ge_15": "Eliminates chronic capital destroyers prior to distress",
+        "de_gate_le_05": "Prevents overleveraged balance-sheet bankruptcies (DHFL, RCOM, Sintex)",
+        "cfo_pat_gate_ge_08": "Eliminates fraudulent accrual earnings without cash generation",
+        "growth_gate_ge_10": "Rejects stagnant and declining businesses",
+        "structural_defense_verdict": "ROBUST_ENDOGENOUS_FILTER"
+      },
+      "survivorship_robustness_verdict": "PASS (Edge remains positive across all stress tiers up to 10% catastrophic delisting)"
+    },
+    "causal_pit_audit": {
+      "total_trades_audited": 487,
+      "entry_causal_violations": 0,
+      "t_plus_1_violations": 0,
+      "execution_protocol": "T+1_NEXT_TRADING_DAY_OPEN",
+      "exit_execution_protocol": "T+1_NEXT_TRADING_DAY_OPEN_AFTER_FILING_PUBLICATION",
+      "canonical_pit_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/canonical_pit_rebuilt.parquet",
+      "canonical_pit_sha256": "943a651fa26a8d9710bd2a1895e74c218a7e5327f9d3489760e3c3b436f2739f",
+      "lookahead_leakage_detected": false,
+      "causal_pit_audit_verdict": "PASS"
+    }
+  },
+  "final_verdict": "CERTIFIED"
+}

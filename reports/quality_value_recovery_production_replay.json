@@ -1,0 +1,11 @@
+{
+  "timestamp_ist": "2026-10-03T17:44:29.135684+05:30",
+  "strategy": "QUALITY_VALUE_RECOVERY_WEALTH_V1",
+  "total_research_trades": 487,
+  "successfully_replayed": 487,
+  "match_rate_pct": 100.0,
+  "total_differences": 0,
+  "unexplained_differences": 0,
+  "replay_verdict": "PASS",
+  "difference_breakdown": []
+}

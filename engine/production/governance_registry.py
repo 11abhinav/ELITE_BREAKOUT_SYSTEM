@@ -89,7 +89,8 @@ UNDER_CERTIFICATION_SCANNERS: Set[str] = set()
 # Formally unlocked: FUNDAMENTAL is certified across ALL regimes (BULL, SIDEWAYS, BEAR) based on 2016-2026 backtest.
 CERTIFIED_PRODUCTION_SCANNERS: Set[str] = {
     "TECHNICAL",
-    "FUNDAMENTAL"
+    "FUNDAMENTAL",
+    "QUALITY_VALUE_RECOVERY_WEALTH_V1"
 }
 
 # 5. Authoritative Three-Regime Certification Routing Matrix
@@ -150,6 +151,22 @@ SCANNER_REGIME_HEALTH_METADATA: Dict[str, Dict[str, Any]] = {
         "certification_status": "CERTIFIED_FOR_PRODUCTION",
         "temporal_evidence_status": "Replication Passed & Certified",
         "temporal_evidence": "Replicated across all 4 temporal cells (2016-18, 2019-21, 2022-24, 2025-26) and 3 regimes (Bull +8.27%, Sideways +5.22%, Bear +6.12% in V1; V2 delivers +17.68%, +11.18%, +15.08%).",
+        "evidence_warnings": [],
+        "warning": None,
+        "suppression_reason": None,
+        "pending_condition": "Live production alerts active across BULL, SIDEWAYS, and BEAR."
+    },
+    "QUALITY_VALUE_RECOVERY_WEALTH_V1": {
+        "selected_variant": "RECOVERY-V01-MODEL-D-E3",
+        "supported_regime": "ALL (BULL, SIDEWAYS, BEAR)",
+        "evidence_supported_regimes": ["BULL", "SIDEWAYS", "BEAR"],
+        "production_authorized_regimes": ["BULL", "SIDEWAYS", "BEAR"],
+        "current_production_active_regime": "Active in all regimes (BULL, SIDEWAYS, BEAR)",
+        "production_authorization_state": "CERTIFIED_FOR_PRODUCTION (ALL REGIMES)",
+        "lifecycle_state": "CERTIFIED_FOR_PRODUCTION",
+        "certification_status": "CERTIFIED_FOR_PRODUCTION",
+        "temporal_evidence_status": "Replication Passed & Certified",
+        "temporal_evidence": "Replicated across all temporal cells and bear market dislocation episodes.",
         "evidence_warnings": [],
         "warning": None,
         "suppression_reason": None,
@@ -239,7 +256,7 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
                 suppression_reason = display_msg
                 reason_code = f"REGIME_MISMATCH_{current_regime}_VS_BULL"
                 is_prod_active = False
-        elif norm == "FUNDAMENTAL":
+        elif norm in ("FUNDAMENTAL", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
             display_msg = f"Certified for production across all regimes (BULL, SIDEWAYS, BEAR). Current regime={current_regime}. Production alerts active."
             suppression_reason = None
             reason_code = "CERTIFIED_ACTIVE"
@@ -382,6 +399,8 @@ def normalize_scanner_name(scanner_name: Optional[str]) -> str:
         return "PULLBACK"
     if "ACCUMULATION" in s:
         return "ACCUMULATION"
+    if "QUALITY_VALUE_RECOVERY" in s or "RECOVERY_WEALTH" in s or "RECOVERY" in s:
+        return "QUALITY_VALUE_RECOVERY_WEALTH_V1"
     if "TECHNICAL" in s:
         return "TECHNICAL"
     if "FUNDAMENTAL" in s:

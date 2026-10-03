@@ -34,12 +34,20 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
-from data_providers.fundamental_models import (
-    ConsolidationType,
-    FundamentalStatus,
-    RawFinancialRecord,
-    StatementType,
-)
+try:
+    from app.data_providers.fundamental_models import (
+        ConsolidationType,
+        FundamentalStatus,
+        RawFinancialRecord,
+        StatementType,
+    )
+except ImportError:
+    from data_providers.fundamental_models import (
+        ConsolidationType,
+        FundamentalStatus,
+        RawFinancialRecord,
+        StatementType,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +85,25 @@ def _safe_float(val) -> Optional[float]:
         return None
 
 
+def _normalize_upstox_period(period_str: str) -> str:
+    """Convert 'Mar 2026' -> '2026-03-31', 'Dec 2025' -> '2025-12-31', etc."""
+    if not period_str:
+        return ""
+    parts = period_str.strip().split()
+    if len(parts) == 2:
+        month_str, year_str = parts[0].lower(), parts[1]
+        month_map = {
+            "jan": ("01", "31"), "feb": ("02", "28"), "mar": ("03", "31"),
+            "apr": ("04", "30"), "may": ("05", "31"), "jun": ("06", "30"),
+            "jul": ("07", "31"), "aug": ("08", "31"), "sep": ("09", "30"),
+            "oct": ("10", "31"), "nov": ("11", "30"), "dec": ("12", "31"),
+        }
+        if month_str[:3] in month_map:
+            m, d = month_map[month_str[:3]]
+            return f"{year_str}-{m}-{d}"
+    return period_str
+
+
 class UpstoxFundamentalsProvider:
     """
     Fetches structured fundamental data from the Upstox Company Fundamentals API.
@@ -85,7 +112,25 @@ class UpstoxFundamentalsProvider:
     """
 
     def __init__(self):
-        self.token = os.environ.get("UPSTOX_ACCESS_TOKEN")
+        token = os.environ.get("UPSTOX_ACCESS_TOKEN")
+        if not token:
+            try:
+                from app import config
+                token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
+            except ImportError:
+                try:
+                    import config
+                    token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
+                except Exception:
+                    token = None
+        if not token:
+            try:
+                from dotenv import load_dotenv
+                load_dotenv()
+                token = os.environ.get("UPSTOX_ACCESS_TOKEN")
+            except Exception:
+                pass
+        self.token = token
         self.base_url = _BASE
         # Telemetry
         self.api_call_count: int = 0
@@ -140,11 +185,68 @@ class UpstoxFundamentalsProvider:
         self, isin: str, symbol: str
     ) -> List[RawFinancialRecord]:
         url = f"{self.base_url}/{isin}/income-statement"
-        data = self._get(url)
-        if not data:
+        data_resp = self._get(url)
+        if not data_resp:
             return []
 
         records = []
+        data = data_resp.get("data", data_resp) if isinstance(data_resp, dict) else data_resp
+
+        # Format A: Real Upstox API dict schema: {"type": ..., "time_period": ..., "income_statement": [...]}
+        if isinstance(data, dict) and "income_statement" in data and isinstance(data["income_statement"], list):
+            type_str = data.get("type", "consolidated")
+            consolidation = _consolidation(type_str)
+            time_period = str(data.get("time_period", "yearly")).lower()
+            period_type = "ANNUAL" if any(x in time_period for x in ("year", "fy", "annual")) else ("QUARTERLY" if "quarter" in time_period else "UNKNOWN")
+            unit_str = str(data.get("units_in", "crore"))
+
+            period_map: Dict[str, dict] = {}
+            for cat_item in data["income_statement"]:
+                cat_name = str(cat_item.get("category", "")).lower()
+                for h in cat_item.get("history", []):
+                    p_raw = h.get("period", "")
+                    if not p_raw:
+                        continue
+                    p_norm = _normalize_upstox_period(p_raw)
+                    if p_norm not in period_map:
+                        period_map[p_norm] = {
+                            "period_end_date": p_norm,
+                            "period_type": period_type,
+                            "consolidation": consolidation,
+                            "revenue": None,
+                            "net_profit": None,
+                            "ebit": None,
+                            "eps": None,
+                            "unit": unit_str,
+                        }
+                    val = _safe_float(h.get("value"))
+                    if any(k in cat_name for k in ("revenue", "net_revenue", "total_revenue", "income", "sales")):
+                        period_map[p_norm]["revenue"] = val
+                    elif any(k in cat_name for k in ("operating_profit", "ebit", "operating_income", "pbit")):
+                        period_map[p_norm]["ebit"] = val
+                    elif any(k in cat_name for k in ("net_profit", "profit_after_tax", "pat")):
+                        period_map[p_norm]["net_profit"] = val
+
+            for p_norm, p_data in period_map.items():
+                rec = RawFinancialRecord(
+                    symbol=symbol,
+                    source="UPSTOX_API",
+                    period_end_date=p_data["period_end_date"],
+                    period_type=p_data["period_type"],
+                    consolidation=p_data["consolidation"],
+                    revenue=p_data["revenue"],
+                    net_profit=p_data["net_profit"],
+                    ebit=p_data["ebit"],
+                    eps=p_data["eps"],
+                    availability_date=None,
+                    unit=p_data["unit"],
+                    currency="INR",
+                )
+                records.append(rec)
+            records.sort(key=lambda r: r.period_end_date)
+            logger.debug(f"[UPSTOX] Income stmt: {symbol} → {len(records)} records")
+            return records
+
         rows = data.get("data", data) if isinstance(data, dict) else data
         if not isinstance(rows, list):
             rows = []
@@ -210,15 +312,39 @@ class UpstoxFundamentalsProvider:
         self, isin: str, symbol: str, income_records: List[RawFinancialRecord]
     ) -> List[RawFinancialRecord]:
         url = f"{self.base_url}/{isin}/balance-sheet"
-        data = self._get(url)
-        if not data:
-            return income_records  # return income records without enrichment
-
-        rows = data.get("data", data) if isinstance(data, dict) else data
-        if not isinstance(rows, list):
+        data_resp = self._get(url)
+        if not data_resp:
             return income_records
 
-        # Build lookup: period_end_date + consolidation → balance sheet row
+        data = data_resp.get("data", data_resp) if isinstance(data_resp, dict) else data_resp
+
+        # Format A: Real Upstox API dict schema: {"type": ..., "time_period": ..., "history": [...]}
+        if isinstance(data, dict) and "history" in data and isinstance(data["history"], list):
+            for row in data["history"]:
+                p_norm = _normalize_upstox_period(row.get("period", ""))
+                if not p_norm:
+                    continue
+                total_assets = _safe_float(row.get("total_asset") or row.get("total_assets") or row.get("total_assets_crore"))
+                total_liabilities = _safe_float(row.get("total_liability") or row.get("total_liabilities") or row.get("total_current_liabilities"))
+                total_debt = _safe_float(row.get("total_debt") or row.get("debt") or row.get("borrowings") or row.get("total_borrowings"))
+                total_equity = _safe_float(row.get("total_equity") or row.get("equity") or row.get("shareholders_equity"))
+                if total_equity is None and total_assets is not None and total_liabilities is not None:
+                    total_equity = total_assets - total_liabilities
+                cash = _safe_float(row.get("cash_and_cash_equivalents") or row.get("cash_and_equivalents") or row.get("cash"))
+
+                capital_employed = None
+                if total_assets is not None and total_liabilities is not None:
+                    capital_employed = total_assets - total_liabilities
+
+                for rec in income_records:
+                    if rec.period_end_date == p_norm:
+                        rec.total_debt = total_debt
+                        rec.total_equity = total_equity
+                        rec.capital_employed = capital_employed
+            return income_records
+
+        # Format B: Flat list of row dicts fallback
+        rows = data if isinstance(data, list) else []
         bs_lookup: Dict[str, dict] = {}
         for row in rows:
             period_end = str(row.get("period_end_date") or row.get("date") or row.get("period") or "")
@@ -274,14 +400,27 @@ class UpstoxFundamentalsProvider:
         self, isin: str, symbol: str, records: List[RawFinancialRecord]
     ) -> List[RawFinancialRecord]:
         url = f"{self.base_url}/{isin}/cash-flow"
-        data = self._get(url)
-        if not data:
+        data_resp = self._get(url)
+        if not data_resp:
             return records
 
-        rows = data.get("data", data) if isinstance(data, dict) else data
-        if not isinstance(rows, list):
+        data = data_resp.get("data", data_resp) if isinstance(data_resp, dict) else data_resp
+
+        # Format A: Real Upstox API dict schema: {"type": ..., "time_period": ..., "cash_flow": [...]}
+        if isinstance(data, dict) and "cash_flow" in data and isinstance(data["cash_flow"], list):
+            for cat_item in data["cash_flow"]:
+                cat_name = str(cat_item.get("category", "")).lower()
+                if any(x in cat_name for x in ("operating", "cfo", "operations", "cash_flow_from_operations")):
+                    for h in cat_item.get("history", []):
+                        p_norm = _normalize_upstox_period(h.get("period", ""))
+                        val = _safe_float(h.get("value"))
+                        for rec in records:
+                            if rec.period_end_date == p_norm:
+                                rec.operating_cash_flow = val
             return records
 
+        # Format B: Flat list of row dicts fallback
+        rows = data if isinstance(data, list) else []
         cf_lookup: Dict[str, dict] = {}
         for row in rows:
             period_end = str(row.get("period_end_date") or row.get("date") or row.get("period") or "")

@@ -184,6 +184,8 @@ def _build_snapshot_meta(
         "previous_dataset_sha256":          previous_hash,
         "publication_decision":             publication_decision,
         "publication_reason":               publication_reason,
+        "FINANCIAL_SNAPSHOT_STATUS":        "SNAPSHOT_READY_FOR_SCANNER" if publication_decision == "PUBLISHED" else "BUILDING",
+        "snapshot_status":                  "READY" if publication_decision == "PUBLISHED" else "BUILDING",
 
         "total_symbols":                    len(df),
         "pit_complete_count":               _value_count(df, "pit_freshness_status", "VALID"),

@@ -33,10 +33,16 @@ from typing import Dict, List, Optional
 
 import requests
 
-from data_providers.fundamental_models import (
-    ConsolidationType,
-    RawFinancialRecord,
-)
+try:
+    from app.data_providers.fundamental_models import (
+        ConsolidationType,
+        RawFinancialRecord,
+    )
+except ImportError:
+    from data_providers.fundamental_models import (
+        ConsolidationType,
+        RawFinancialRecord,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -216,15 +222,25 @@ class NseXbrlProvider:
     def _init_session(self) -> bool:
         """Establish NSE session cookie. Returns True on success."""
         try:
-            self.session = requests.Session()
-            self.session.get(_HOME_URL, headers=_HEADERS, timeout=_TIMEOUT)
+            try:
+                from app.constituent_service import get_nse_session
+            except ImportError:
+                from constituent_service import get_nse_session
+            self.session = get_nse_session()
             self._initialized = True
-            logger.debug("[NSE] Session initialized.")
+            logger.debug("[NSE] Session initialized with curl_cffi chrome impersonation.")
             return True
         except Exception as e:
-            logger.warning(f"[NSE] Session init failed: {e}")
-            self._initialized = False
-            return False
+            try:
+                self.session = requests.Session()
+                self.session.get(_HOME_URL, headers=_HEADERS, timeout=_TIMEOUT)
+                self._initialized = True
+                logger.debug("[NSE] Session initialized with standard requests.")
+                return True
+            except Exception as e2:
+                logger.warning(f"[NSE] Session init failed: {e2}")
+                self._initialized = False
+                return False
 
     def _get(self, url: str, symbol: str) -> Optional[list]:
         """

@@ -343,6 +343,51 @@ class CanonicalV2ExitEvaluator:
         }
 
 
+class CanonicalRecoveryE3ExitEvaluator:
+    """
+    Exact frozen implementation of Model E3 Fundamental Exit for QUALITY_VALUE_RECOVERY_WEALTH_V1.
+    Structural Fundamental Exit Rules:
+      1. Margin Collapse: EBITDA Margin drops > 30% from peak / entry EBITDA margin
+      2. Debt Explosion: Debt-to-Equity > 1.25
+      3. Earnings Degradation: 3 consecutive YoY Net Profit declines
+    """
+
+    @staticmethod
+    def evaluate(
+        ebitda_margin: float,
+        entry_ebitda_margin: float,
+        debt_to_equity: float,
+        yoy_profit_drops: int
+    ) -> Dict[str, Any]:
+        margin_drop_pct = (entry_ebitda_margin - ebitda_margin) / entry_ebitda_margin if entry_ebitda_margin > 0 else 0.0
+        
+        cond_margin_collapse = margin_drop_pct > 0.30
+        cond_debt_explosion = debt_to_equity > 1.25
+        cond_profit_degradation = yoy_profit_drops >= 3
+        
+        reasons = []
+        if cond_margin_collapse:
+            reasons.append(f"EBITDA_MARGIN_COLLAPSE_{margin_drop_pct*100:.1f}%")
+        if cond_debt_explosion:
+            reasons.append(f"DEBT_EXPLOSION_DE_{debt_to_equity:.2f}")
+        if cond_profit_degradation:
+            reasons.append(f"EARNINGS_DEGRADATION_YOY_DROPS_{yoy_profit_drops}")
+
+        exit_signal = bool(cond_margin_collapse or cond_debt_explosion or cond_profit_degradation)
+
+        return {
+            "exit_signal": exit_signal,
+            "reason": " + ".join(reasons) if exit_signal else "HOLD",
+            "cond_margin_collapse": cond_margin_collapse,
+            "cond_debt_explosion": cond_debt_explosion,
+            "cond_profit_degradation": cond_profit_degradation,
+            "margin_drop_pct": margin_drop_pct,
+            "debt_to_equity": debt_to_equity,
+            "yoy_profit_drops": yoy_profit_drops
+        }
+
+
+
 # -------------------------------------------------------------------------------------
 # 4. CANONICAL BUY ENTRY SCANNER (FROZEN 20D BREAKOUT)
 # -------------------------------------------------------------------------------------
@@ -1286,7 +1331,7 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
                         SELECT * FROM alerts
-                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
+                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                           AND record_type = 'ALERT_EVENT'
                           AND status IN ('OPEN', 'ACTIVE')
                     """)
