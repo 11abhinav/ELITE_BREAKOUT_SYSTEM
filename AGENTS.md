@@ -315,3 +315,43 @@ CERTIFIED_FOR_PRODUCTION
    - NEVER place partial or shadow imports (e.g. `from database import ...`) inside inner nested `try`, `except`, or `finally` blocks that shadow or conflict with outer-scope identifier usage.
 2. **MANDATORY PRE-PUSH COMPILE & SYMBOL SANITY CHECK**:
    - Before ANY `git push`, the agent MUST run syntax verification (`python3 -m py_compile`) and test import execution on all modified files to ensure zero `SyntaxError`, `ImportError`, `NameError`, or `UnboundLocalError` at runtime.
+
+---
+
+## MANDATORY BUY-ALERT PERSISTENCE & FRESHNESS WATERMARK INVARIANTS
+
+### 1. Feed Heartbeat SLA vs. Filing Freshness Fence (Strict Distinction)
+The system strictly distinguishes between operational liveness and trading filing freshness:
+* **FEED_HEARTBEAT_SLA**:
+  - Source operational-health requirement: *"Is the ingestion daemon alive and checking within SLA?"*
+  - Rule: `now - last_successful_check_at <= max_sla_seconds` (e.g. 24 hours).
+  - CRITICAL: A passing feed heartbeat SLA alone DOES NOT prove that no newer filing exists. An intraday filing could have been published 30 minutes ago while the heartbeat is 6 hours old. The heartbeat is an operational health check, not a filing freshness guarantee.
+* **SOURCE_FRESHNESS_FENCE**:
+  - Filing freshness requirement: *"Has a newer filing been published on the exchange right now?"*
+  - Rule:
+    `canonical_filing_timestamp >= max(NSE, BSE) latest filing timestamp`
+    AND `canonical_period_end >= max(NSE, BSE) latest period end`
+    AND `watcher_state == FRESH`
+  - This direct pre-BUY exchange watermark check is the enforceable gate that protects the trade.
+
+### 2. Enforceable Trading Invariant
+> **NO BUY MAY BE COMMITTED when a newer valid filing was known to exist before the BUY transaction committed.**
+
+### 3. Cross-System Crash-Recoverable Persistence (Authoritative Outbox Pattern)
+Postgres / SQLite database and filesystem Parquet files belong to different persistence boundaries. To prevent inconsistent states:
+* The Database Transactional Outbox (`buy_alerts_journal`) is the **authoritative single source of truth**.
+* Parquet persistence is an **idempotent derived materialization**.
+* Order of operations:
+  1. Pre-commit Decision Gate (Snapshot SHA drift, Watcher state, Source Freshness Fence).
+  2. Authoritative DB Outbox commit (`status = 'COMMITTED', materialized_to_parquet = 0`).
+  3. Idempotent Parquet file materialization.
+  4. DB completion marker update (`materialized_to_parquet = 1, materialized_at = NOW()`).
+* Crash-Recovery Invariants (Deterministic Reconciliation via `reconcile_alerts_outbox_materialization`):
+  1. *Crash before DB commit*: DB transaction rolls back; 0 rows in DB, 0 in Parquet.
+  2. *Crash after DB commit before Parquet*: Reconciler materializes pending DB alert to Parquet and sets marker to 1.
+  3. *Crash after Parquet write before DB marker*: Reconciler detects alert already in Parquet, skips duplicate insertion (idempotent), and updates marker to 1.
+  4. *Container restart / Parquet destruction*: Reconciler fully reconstructs Parquet from the authoritative DB journal.
+  5. *Orphaned Parquet record*: Any row in Parquet without a matching DB outbox record is pruned.
+* Absolute Invariant:
+  - Never allow: `DB BUY present + Parquet BUY absent indefinitely`
+  - Never allow: `Parquet BUY present + DB BUY absent indefinitely`

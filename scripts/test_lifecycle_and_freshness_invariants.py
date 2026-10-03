@@ -674,6 +674,300 @@ def run_test_6_freshness_to_buy_commit_race():
     print("  ✅ TEST 6 PASSED: Concurrency Race Condition, Feed SLA, and Multi-Source Watermarks 100% Certified!")
 
 
+def run_test_7_crash_consistency_outbox_reconciliation():
+    print("\n" + "=" * 80)
+    print("TEST 7: CRASH CONSISTENCY & AUTHORITATIVE OUTBOX RECONCILIATION AUDIT")
+    print("=" * 80)
+    import sqlite3
+    from app.financial_data_integrity import (
+        commit_buy_alert_atomic,
+        reconcile_alerts_outbox_materialization,
+        init_buy_alerts_journal,
+        build_buy_evidence_bundle,
+        record_source_watermark,
+        check_pre_buy_source_freshness_fence,
+    )
+
+    CRASH_SYM_1 = "CRASHTEST1"
+    CRASH_SYM_2 = "CRASHTEST2"
+    ROGUE_SYM = "ROGUEBUY99"
+
+    # Set up fresh watermarks for test symbols
+    record_source_watermark("NSE", last_successful_check_at=datetime.now().isoformat(), latest_filing_timestamp="2025-05-15T18:00:00", symbol=CRASH_SYM_1)
+    record_source_watermark("BSE", last_successful_check_at=datetime.now().isoformat(), latest_filing_timestamp="2025-05-15T18:00:00", symbol=CRASH_SYM_1)
+    record_source_watermark("NSE", last_successful_check_at=datetime.now().isoformat(), latest_filing_timestamp="2025-05-15T18:00:00", symbol=CRASH_SYM_2)
+    record_source_watermark("BSE", last_successful_check_at=datetime.now().isoformat(), latest_filing_timestamp="2025-05-15T18:00:00", symbol=CRASH_SYM_2)
+
+    watcher = FinancialFilingWatcher()
+    watcher.state[CRASH_SYM_1] = {"snapshot_status": SnapshotFreshnessStatus.FRESH.value, "latest_filing_date": "2025-03-31"}
+    watcher.state[CRASH_SYM_2] = {"snapshot_status": SnapshotFreshnessStatus.FRESH.value, "latest_filing_date": "2025-03-31"}
+    watcher._save_state()
+
+    prov_metric_1 = {
+        "roce_5y": FieldProvenance(
+            symbol=CRASH_SYM_1,
+            scanner="QUALITY_COMPOUNDER",
+            field="roce_5y",
+            value_used=24.5,
+            source_used="UPSTOX",
+            period_end="2025-03-31",
+            basis="CONSOLIDATED",
+            validation_status="PASSED",
+            pit_eligible_from="2025-05-15T18:00:00",
+        )
+    }
+
+    prov_metric_2 = {
+        "roce_5y": FieldProvenance(
+            symbol=CRASH_SYM_2,
+            scanner="QUALITY_COMPOUNDER",
+            field="roce_5y",
+            value_used=26.0,
+            source_used="UPSTOX",
+            period_end="2025-03-31",
+            basis="CONSOLIDATED",
+            validation_status="PASSED",
+            pit_eligible_from="2025-05-15T18:00:00",
+        )
+    }
+
+    bundle1 = build_buy_evidence_bundle(
+        scan_run_id="run_crash_001",
+        scanner="QUALITY_COMPOUNDER",
+        symbol=CRASH_SYM_1,
+        cmp=500.0,
+        strategy_score=95.0,
+        gate_results={"trend": "BULL"},
+        financial_metrics=prov_metric_1,
+        required_metrics=["roce_5y"],
+        pit_timestamp="2025-05-15T18:00:00",
+        pit_eligible_from="2025-05-15T18:00:00",
+    )
+    assert bundle1.is_buy_eligible()
+
+    bundle2 = build_buy_evidence_bundle(
+        scan_run_id="run_crash_002",
+        scanner="QUALITY_COMPOUNDER",
+        symbol=CRASH_SYM_2,
+        cmp=750.0,
+        strategy_score=91.0,
+        gate_results={"trend": "BULL"},
+        financial_metrics=prov_metric_2,
+        required_metrics=["roce_5y"],
+        pit_timestamp="2025-05-15T18:00:00",
+        pit_eligible_from="2025-05-15T18:00:00",
+    )
+    assert bundle2.is_buy_eligible()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        test_db = os.path.join(tmp_dir, "test_buy_alerts_journal.db")
+        test_pq = os.path.join(tmp_dir, "test_10_alerts.parquet")
+        init_buy_alerts_journal(test_db)
+
+        # ---------------------------------------------------------------------
+        # PART A: FAILURE STAGE 1 (CRASH BEFORE DB COMMIT)
+        # ---------------------------------------------------------------------
+        print("  [Part A: Simulated Crash BEFORE DB Commit]")
+        ok_a, msg_a = commit_buy_alert_atomic(
+            bundle1,
+            alerts_parquet_path=test_pq,
+            alerts_db_path=test_db,
+            simulate_failure_stage="BEFORE_DB_COMMIT",
+        )
+        assert not ok_a, "Expected commit to fail during simulated crash before DB commit!"
+        assert msg_a == "CRASH_BEFORE_DB_COMMIT"
+
+        # Verify DB is completely untouched
+        with sqlite3.connect(test_db) as conn:
+            cnt_db = conn.execute("SELECT count(*) FROM buy_alerts_journal").fetchone()[0]
+        assert cnt_db == 0, f"Expected 0 DB rows after crash before DB commit, got {cnt_db}"
+        assert not os.path.exists(test_pq), "Parquet must not exist after crash before DB commit!"
+
+        # Run reconciliation on empty state
+        rec_a = reconcile_alerts_outbox_materialization(test_pq, test_db)
+        assert rec_a["db_committed_total"] == 0
+        assert rec_a["materialized_repaired"] == 0
+        print("    Crash Before DB Commit -> Rollback verified (0 in DB, 0 in Parquet) [PASS]")
+        print("    ✅ Part A Verified: Zero persistence corruption when crash occurs before DB commit.")
+
+        # ---------------------------------------------------------------------
+        # PART B: FAILURE STAGE 2 (AFTER DB COMMIT, BEFORE PARQUET MATERIALIZATION)
+        # ---------------------------------------------------------------------
+        print("  [Part B: Simulated Crash AFTER DB Commit, BEFORE Parquet Write]")
+        ok_b, msg_b = commit_buy_alert_atomic(
+            bundle1,
+            alerts_parquet_path=test_pq,
+            alerts_db_path=test_db,
+            simulate_failure_stage="AFTER_DB_COMMIT_BEFORE_PARQUET",
+        )
+        assert not ok_b
+        assert msg_b == "CRASH_AFTER_DB_COMMIT_BEFORE_PARQUET"
+
+        # Verify DB has committed record with materialized_to_parquet == 0
+        with sqlite3.connect(test_db) as conn:
+            conn.row_factory = sqlite3.Row
+            row_b = conn.execute("SELECT * FROM buy_alerts_journal WHERE symbol = ?", (CRASH_SYM_1,)).fetchone()
+        assert row_b is not None, "DB outbox must contain committed alert!"
+        assert row_b["status"] == "COMMITTED"
+        assert row_b["materialized_to_parquet"] == 0, "DB marker must indicate pending parquet materialization!"
+        assert not os.path.exists(test_pq), "Parquet must not yet exist!"
+        print(f"    DB Outbox State: Alert {row_b['alert_id']} committed, materialized_to_parquet=0")
+
+        # Now trigger crash reconciliation
+        rec_b = reconcile_alerts_outbox_materialization(test_pq, test_db)
+        print(f"    Reconciliation Result: {rec_b}")
+        assert rec_b["materialized_repaired"] == 1
+        assert rec_b["parquet_count_after"] == 1
+        assert os.path.exists(test_pq), "Parquet must now be materialized by reconciler!"
+
+        df_pq_b = pd.read_parquet(test_pq)
+        assert len(df_pq_b) == 1
+        assert df_pq_b.iloc[0]["symbol"] == CRASH_SYM_1
+
+        # Check that DB marker was updated to 1
+        with sqlite3.connect(test_db) as conn:
+            m_flag = conn.execute("SELECT materialized_to_parquet FROM buy_alerts_journal WHERE symbol = ?", (CRASH_SYM_1,)).fetchone()[0]
+        assert m_flag == 1, "DB outbox marker must be set to 1 after reconciliation!"
+        print("    Crash After DB Commit -> Reconciled cleanly (DB marker=1, Parquet row count=1) [PASS]")
+        print("    ✅ Part B Verified: 'DB BUY present + Parquet BUY absent' window is automatically repaired.")
+
+        # ---------------------------------------------------------------------
+        # PART C: FAILURE STAGE 3 (AFTER PARQUET WRITE, BEFORE DB MARKER UPDATE)
+        # ---------------------------------------------------------------------
+        print("  [Part C: Simulated Crash AFTER Parquet Write, BEFORE DB Marker Update]")
+        ok_c, msg_c = commit_buy_alert_atomic(
+            bundle2,
+            alerts_parquet_path=test_pq,
+            alerts_db_path=test_db,
+            simulate_failure_stage="AFTER_PARQUET_BEFORE_MARKER",
+        )
+        assert not ok_c
+        assert msg_c == "CRASH_AFTER_PARQUET_BEFORE_MARKER"
+
+        # Verify DB has bundle2 with materialized_to_parquet == 0
+        with sqlite3.connect(test_db) as conn:
+            row_c = conn.execute("SELECT materialized_to_parquet FROM buy_alerts_journal WHERE symbol = ?", (CRASH_SYM_2,)).fetchone()
+        assert row_c[0] == 0, "DB marker should be 0 because crash happened before marker update!"
+
+        # But Parquet ALREADY has bundle2 written!
+        df_pq_c1 = pd.read_parquet(test_pq)
+        assert len(df_pq_c1) == 2, f"Parquet must already contain 2 alerts, got {len(df_pq_c1)}"
+        assert set(df_pq_c1["symbol"]) == {CRASH_SYM_1, CRASH_SYM_2}
+
+        # Run reconciliation: must be IDEMPOTENT (no duplicate bundle2 added)
+        rec_c = reconcile_alerts_outbox_materialization(test_pq, test_db)
+        print(f"    Reconciliation Result: {rec_c}")
+        assert rec_c["parquet_count_after"] == 2
+        df_pq_c2 = pd.read_parquet(test_pq)
+        assert len(df_pq_c2) == 2, "Reconciliation must NOT create duplicate rows in Parquet!"
+
+        with sqlite3.connect(test_db) as conn:
+            m_flag_2 = conn.execute("SELECT materialized_to_parquet FROM buy_alerts_journal WHERE symbol = ?", (CRASH_SYM_2,)).fetchone()[0]
+        assert m_flag_2 == 1, "DB marker must now be 1!"
+        print("    Crash After Parquet Write -> Idempotent reconciliation (no duplicates, DB marker=1) [PASS]")
+        print("    ✅ Part C Verified: Parquet deduplication prevents duplicate alerts on crash retry.")
+
+        # ---------------------------------------------------------------------
+        # PART D: FAILURE STAGE 4 (CONTAINER RESTART / PARQUET STORAGE DESTRUCTION)
+        # ---------------------------------------------------------------------
+        print("  [Part D: Container Restart & Parquet Storage Destruction]")
+        # Simulate local ephemeral disk wipe during container restart
+        os.remove(test_pq)
+        assert not os.path.exists(test_pq), "Simulated container restart wiped Parquet file!"
+
+        # Trigger recovery upon container boot
+        rec_d = reconcile_alerts_outbox_materialization(test_pq, test_db)
+        print(f"    Reconstruction Result: {rec_d}")
+        assert rec_d["reconciliation_status"] == "RECONSTRUCTED_FROM_DB"
+        assert rec_d["parquet_count_after"] == 2
+        assert os.path.exists(test_pq)
+
+        df_pq_d = pd.read_parquet(test_pq)
+        assert len(df_pq_d) == 2
+        assert set(df_pq_d["symbol"]) == {CRASH_SYM_1, CRASH_SYM_2}
+        print("    Container Restart -> Complete Parquet reconstruction from Authoritative DB Journal [PASS]")
+        print("    ✅ Part D Verified: Parquet alerts file is fully reconstructed from authoritative DB outbox.")
+
+        # ---------------------------------------------------------------------
+        # PART E: ORPHANED PARQUET RECORD PRUNING (NEVER PARQUET BUY WITHOUT DB)
+        # ---------------------------------------------------------------------
+        print("  [Part E: Rogue/Orphaned Parquet Record Pruning]")
+        # Inject an unauthorized/uncommitted alert directly into Parquet
+        rogue_record = {
+            "alert_id": f"QUALITY_COMPOUNDER_{ROGUE_SYM}_fake_run_deadbeef12345678",
+            "symbol": ROGUE_SYM,
+            "scanner": "QUALITY_COMPOUNDER",
+            "run_id": "fake_run",
+            "alert_timestamp": datetime.now().isoformat(),
+            "cmp": 100.0,
+            "strategy_score": 99.0,
+            "snapshot_version": "V1",
+            "snapshot_sha256": "fake",
+            "evidence_hash": "deadbeef12345678",
+            "status": "COMMITTED",
+        }
+        df_corrupt = pd.concat([df_pq_d, pd.DataFrame([rogue_record])], ignore_index=True)
+        df_corrupt.to_parquet(test_pq, index=False)
+        assert len(pd.read_parquet(test_pq)) == 3
+
+        # Run reconciliation: DB does NOT have ROGUE_SYM -> Reconciler must PRUNE it!
+        rec_e = reconcile_alerts_outbox_materialization(test_pq, test_db)
+        print(f"    Orphan Pruning Result: {rec_e}")
+        assert rec_e["orphans_pruned"] == 1
+        assert rec_e["parquet_count_after"] == 2
+
+        df_pruned = pd.read_parquet(test_pq)
+        assert len(df_pruned) == 2
+        assert ROGUE_SYM not in df_pruned["symbol"].values
+        print("    Orphaned Row Pruning -> Rogue Parquet row eliminated to preserve DB authority [PASS]")
+        print("    ✅ Part E Verified: Parquet BUY present + DB BUY absent indefinitely is IMPOSSIBLE.")
+
+        # ---------------------------------------------------------------------
+        # PART F: ARCHITECTURAL DISTINCTION (FEED_HEARTBEAT_SLA vs. SOURCE_FRESHNESS_FENCE)
+        # ---------------------------------------------------------------------
+        print("  [Part F: Feed Heartbeat SLA vs. Filing Freshness Fence Distinction]")
+        fresh_time = datetime.now().isoformat()
+        record_source_watermark("NSE", last_successful_check_at=fresh_time, symbol=CRASH_SYM_1)
+        record_source_watermark("BSE", last_successful_check_at=fresh_time, symbol=CRASH_SYM_1)
+        
+        # Scenario: Feed SLA passes (last check 1 min ago), but BSE has newer intraday filing!
+        record_source_watermark("BSE", last_successful_check_at=fresh_time, latest_filing_timestamp="2026-10-03T16:00:00", symbol=CRASH_SYM_1)
+        
+        fence_ok, fence_reason = check_pre_buy_source_freshness_fence(
+            symbol=CRASH_SYM_1,
+            canonical_period_end="2025-03-31",
+            canonical_filing_timestamp="2025-05-15T18:00:00",
+        )
+        assert not fence_ok, "Filing freshness fence must BLOCK even when feed SLA is 100% fresh!"
+        assert "UNPROCESSED_MULTI_SOURCE_FILING" in fence_reason
+        assert "Exchange watermark (2026-10-03T16:00:00) > snapshot timestamp" in fence_reason
+        print(f"    Fresh Feed SLA + Newer Intraday Filing -> BLOCKED ({fence_reason}) [PASS]")
+        print("    ✅ Part F Verified: FEED_HEARTBEAT_SLA (daemon health) != SOURCE_FRESHNESS_FENCE (trade protection).")
+
+    # Cleanup watcher state
+    for sym in [CRASH_SYM_1, CRASH_SYM_2]:
+        if sym in watcher.state:
+            del watcher.state[sym]
+    watcher._save_state()
+    # Restore fresh watermarks and remove test symbols
+    wm_path = os.path.join(BASE_DIR, "data", "exchange_watermarks.json")
+    if os.path.exists(wm_path):
+        try:
+            with open(wm_path, "r") as f:
+                wm_data = json.load(f)
+            for src in ["NSE", "BSE"]:
+                if src in wm_data and "symbols" in wm_data[src]:
+                    for sym in [CRASH_SYM_1, CRASH_SYM_2, "RACE_CO_887"]:
+                        wm_data[src]["symbols"].pop(sym, None)
+            with open(wm_path, "w") as f:
+                json.dump(wm_data, f, indent=2)
+        except Exception:
+            pass
+    record_source_watermark("NSE", last_successful_check_at=datetime.now().isoformat())
+    record_source_watermark("BSE", last_successful_check_at=datetime.now().isoformat())
+    print("\n  ✅ TEST 7 PASSED: Authoritative DB Outbox, Parquet Crash Consistency, and SLA Separation 100% Certified!")
+
+
 if __name__ == "__main__":
     run_test_1_universe_expansion()
     run_test_2_amended_filing_pit()
@@ -681,7 +975,8 @@ if __name__ == "__main__":
     run_test_4_pre_buy_source_freshness_fence()
     run_test_5_real_world_new_stock_recovery()
     run_test_6_freshness_to_buy_commit_race()
+    run_test_7_crash_consistency_outbox_reconciliation()
     print("\n" + "=" * 80)
-    print("ALL 6 MANDATORY LIFECYCLE, CONCURRENCY & FRESHNESS TESTS PASSED PERFECTLY!")
+    print("ALL 7 MANDATORY LIFECYCLE, CONCURRENCY, PERSISTENCE & FRESHNESS TESTS PASSED PERFECTLY!")
     print("=" * 80)
 

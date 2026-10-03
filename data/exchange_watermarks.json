@@ -1,24 +1,14 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-10-03T23:12:56.330412",
+    "last_successful_check_at": "2026-10-03T23:24:10.680796",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
-    "symbols": {
-      "RACE_CO_887": {
-        "last_successful_check_at": "2026-10-03T23:12:56.283882",
-        "latest_filing_timestamp": "2025-05-15T18:00:00"
-      }
-    }
+    "symbols": {}
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-10-03T23:12:56.331941",
+    "last_successful_check_at": "2026-10-03T23:24:10.683525",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
-    "symbols": {
-      "RACE_CO_887": {
-        "last_successful_check_at": "2026-10-03T23:12:56.294705",
-        "latest_filing_timestamp": "2025-05-15T18:00:00"
-      }
-    }
+    "symbols": {}
   }
 }

@@ -47,6 +47,7 @@ import json
 import logging
 import math
 import os
+import sqlite3
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime
@@ -1700,12 +1701,49 @@ def get_multi_source_exchange_watermark(
 
     return {
         "valid": not sla_failed,
+        "feed_heartbeat_sla_valid": not sla_failed,
+        "feed_heartbeat_sla_reasons": sla_reasons if sla_reasons else [],
         "symbol": sym_clean,
         "latest_exchange_filing_timestamp": max_exchange_filing_ts,
         "latest_exchange_period_end": max_exchange_period_end,
         "source_watermarks": source_results,
         "failure_reason": "; ".join(sla_reasons) if sla_reasons else None,
     }
+
+
+def init_buy_alerts_journal(db_path: Optional[str] = None) -> str:
+    """
+    Initializes the authoritative transactional outbox table for BUY alerts.
+    The database journal is the SINGLE SOURCE OF TRUTH for all committed BUY decisions.
+    Parquet persistence is derived / materialized idempotently from this journal.
+    """
+    if db_path is None:
+        base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        db_path = os.path.join(base_dir, "data", "buy_alerts_journal.db")
+    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+    with sqlite3.connect(db_path, timeout=30.0) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS buy_alerts_journal (
+                alert_id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                scanner TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                alert_timestamp TEXT NOT NULL,
+                cmp REAL NOT NULL,
+                strategy_score REAL NOT NULL,
+                snapshot_version TEXT NOT NULL,
+                snapshot_sha256 TEXT NOT NULL,
+                evidence_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                materialized_to_parquet INTEGER NOT NULL DEFAULT 0,
+                materialized_at TEXT,
+                created_at TEXT NOT NULL
+            );
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_buy_alerts_pending ON buy_alerts_journal(materialized_to_parquet);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_buy_alerts_sym ON buy_alerts_journal(symbol, scanner);")
+        conn.commit()
+    return db_path
 
 
 def check_pre_buy_source_freshness_fence(
@@ -1715,21 +1753,28 @@ def check_pre_buy_source_freshness_fence(
     max_sla_seconds: int = 86400,
 ) -> Tuple[bool, Optional[str]]:
     """
-    PRE-BUY EXTERNAL SOURCE FRESHNESS FENCE (NO_NEWER_UNPROCESSED_FILING).
+    PRE-BUY EXTERNAL SOURCE FRESHNESS FENCE & FEED HEARTBEAT SLA GATE.
 
-    Invariant:
-      canonical_filing_timestamp >= latest_known_valid_exchange_filing_timestamp
+    ARCHITECTURAL DISTINCTION:
+      1. FEED_HEARTBEAT_SLA (Source Operational Liveness Requirement):
+         - "Is this data feed operational and polled recently enough?"
+         - Checked via now - last_successful_check_at <= max_sla_seconds (e.g. 24h).
+         - IMPORTANT: A valid heartbeat SLA alone DOES NOT prove that no newer filing exists!
+           An intraday filing could have been broadcast 30 minutes ago while the feed check
+           is 6 hours old. The heartbeat merely confirms that the ingestion infrastructure is alive.
 
-    Even if the background periodic watcher has not executed its polling cycle yet,
-    this gate checks:
-      1. Multi-source (NSE + BSE) feed freshness SLA watermark.
-      2. Watcher state (UPDATE_PENDING / INVALID or latest_filing_date > canonical_period_end).
-      3. Exchange filing index (newer broadcast_timestamp or period_end_date on exchange).
-      4. Raw filings directory (newer raw filing downloaded but not yet published).
+      2. SOURCE_FRESHNESS_FENCE (Filing Freshness Trading Requirement):
+         - "Do I know whether a newer filing exists on the exchange right now?"
+         - Checked via:
+             canonical_filing_timestamp >= max(latest_exchange_filing_timestamp across NSE & BSE)
+             AND canonical_period_end >= max(latest_exchange_period_end across NSE & BSE)
+             AND watcher state == FRESH
+             AND exchange metadata filing indexes have no unabsorbed filings.
+         - THIS IS THE DIRECT GATE THAT PROTECTS THE TRADE.
 
-    If any newer valid filing is discovered or source SLA breached:
-      - Marks symbol status as UPDATE_PENDING in filing watcher state.
-      - Returns (False, reason) to HARD BLOCK the BUY alert.
+    ENFORCEABLE TRADING INVARIANT:
+      NO BUY MAY BE COMMITTED when a newer valid filing was known to exist
+      before the BUY transaction committed.
     """
     try:
         sym_clean = symbol.strip().upper()
@@ -1737,11 +1782,12 @@ def check_pre_buy_source_freshness_fence(
         data_dir = os.path.join(base_dir, "data")
         state_file = os.path.join(data_dir, "filing_watcher_state.json")
 
-        # 1. Multi-source exchange watermark & SLA validation (NSE + BSE)
+        # 1. FEED_HEARTBEAT_SLA: Multi-source feed operational liveness (NSE + BSE)
         wm = get_multi_source_exchange_watermark(sym_clean, max_sla_seconds=max_sla_seconds)
         if not wm["valid"] and wm.get("failure_reason"):
-            return False, f"EXCHANGE_FEED_WATERMARK_STALE: Source SLA breached ({wm['failure_reason']})"
+            return False, f"FEED_HEARTBEAT_SLA_BREACH: EXCHANGE_FEED_WATERMARK_STALE ({wm['failure_reason']})"
 
+        # 2. SOURCE_FRESHNESS_FENCE: Direct Pre-BUY Exchange Watermark Check (max(NSE, BSE))
         # Check broadcast watermark
         if wm.get("latest_exchange_filing_timestamp") and canonical_filing_timestamp:
             latest_f_ts = str(wm["latest_exchange_filing_timestamp"])
@@ -1762,7 +1808,7 @@ def check_pre_buy_source_freshness_fence(
                     f"> snapshot period ({canonical_period_end})"
                 )
 
-        # 2. Check filing watcher state
+        # 3. Check filing watcher state
         if os.path.exists(state_file):
             try:
                 with open(state_file, "r") as sf:
@@ -1780,7 +1826,7 @@ def check_pre_buy_source_freshness_fence(
             except Exception:
                 pass
 
-        # 3. Check exchange filing index for newer broadcast watermark
+        # 4. Check exchange filing index for newer broadcast watermark
         exchange_idx_file = os.path.join(data_dir, "exchange_financials", sym_clean, "metadata", "filing_index.json")
         if os.path.exists(exchange_idx_file):
             try:
@@ -1806,7 +1852,7 @@ def check_pre_buy_source_freshness_fence(
             except Exception:
                 pass
 
-        # 4. Check pit_raw_filings for newly downloaded files ahead of canonical
+        # 5. Check pit_raw_filings for newly downloaded files ahead of canonical
         raw_file = os.path.join(data_dir, "pit_raw_filings", f"{sym_clean}.json")
         if os.path.exists(raw_file):
             try:
@@ -1831,18 +1877,34 @@ def commit_buy_alert_atomic(
     bundle: BUYEvidenceBundle,
     alert_sink: Optional[List[Dict[str, Any]]] = None,
     alerts_parquet_path: Optional[str] = None,
+    alerts_db_path: Optional[str] = None,
     max_sla_seconds: int = 86400,
+    simulate_failure_stage: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
-    ATOMIC TRANSACTIONAL PERSISTENCE GATE (ZERO RACE WINDOW):
-    Immediately before committing / persisting a BUY alert:
+    ATOMIC DECISION GATE + CRASH-RECOVERABLE PERSISTENCE:
+    Architecture: Authoritative DB Transactional Outbox + Idempotent Parquet Materialization.
+
+    Gate Invariants:
       1. Verifies current canonical snapshot SHA256 matches bundle.snapshot_sha256.
-         If canonical snapshot changed during execution -> ROLLBACK / REJECT (SNAPSHOT_VERSION_DRIFT).
+         If snapshot changed during execution -> ROLLBACK / REJECT (SNAPSHOT_VERSION_DRIFT).
       2. Re-verifies watcher state is STILL FRESH (not UPDATE_PENDING).
          If a filing was injected between evaluation and commit -> ROLLBACK / REJECT (CONCURRENT_FILING_DETECTED).
       3. Re-verifies multi-source exchange watermark (NSE + BSE).
          If a newer filing appeared on exchange since pre-buy check -> ROLLBACK / REJECT (RACE_CONDITION_NEWER_FILING).
-      4. Only if all atomic checks PASS, appends/persists the alert.
+      4. Single Authoritative DB Outbox Transaction:
+         Alert is written to buy_alerts_journal table first with materialized_to_parquet = 0.
+         DB transaction commits authoritatively.
+      5. Idempotent Parquet Materialization:
+         Alert is appended / deduplicated into the Parquet file.
+         Upon successful file write, DB completion marker is updated (materialized_to_parquet = 1).
+      6. Crash Recovery Guarantee:
+         reconcile_alerts_outbox_materialization() deterministically recovers from any crash:
+           - Crash before DB commit -> Rollback, 0 in DB, 0 in Parquet.
+           - Crash after DB commit before Parquet -> Reconciled, missing alert materialized to Parquet.
+           - Crash after Parquet before DB marker -> Reconciled, idempotent deduplication, marker updated.
+           - Container restart / Parquet destruction -> Parquet reconstructed completely from DB outbox.
+           - Rogue Parquet records pruned to match authoritative DB outbox.
     """
     if not bundle.is_buy_eligible():
         return False, f"BUNDLE_NOT_ELIGIBLE: {'; '.join(bundle.blocking_reasons)}"
@@ -1850,6 +1912,10 @@ def commit_buy_alert_atomic(
     base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     data_dir = os.path.join(base_dir, "data")
     canon_path = os.path.join(data_dir, "canonical_pit_rebuilt.parquet")
+    if alerts_db_path is None:
+        alerts_db_path = os.path.join(data_dir, "buy_alerts_journal.db")
+
+    init_buy_alerts_journal(alerts_db_path)
 
     # 1. Verify Snapshot Version & SHA256
     if bundle.snapshot_sha256 and os.path.exists(canon_path):
@@ -1887,12 +1953,15 @@ def commit_buy_alert_atomic(
         logger.error(f"[ATOMIC_BUY_COMMIT] REJECTED: Final freshness fence failed for {bundle.symbol}: {fence_reason}")
         return False, f"RACE_CONDITION_NEWER_FILING: {fence_reason}"
 
-    # 4. Atomic Commit
+    # 4. Construct Deterministic Alert Record
+    alert_id = f"{bundle.scanner}_{bundle.symbol}_{bundle.scan_run_id}_{bundle.evidence_hash[:16]}"
+    now_iso = datetime.now().isoformat()
     alert_record = {
+        "alert_id": alert_id,
         "symbol": bundle.symbol,
         "scanner": bundle.scanner,
         "run_id": bundle.scan_run_id,
-        "alert_timestamp": datetime.now().isoformat(),
+        "alert_timestamp": now_iso,
         "cmp": bundle.cmp,
         "strategy_score": bundle.strategy_score,
         "snapshot_version": bundle.snapshot_version,
@@ -1900,24 +1969,210 @@ def commit_buy_alert_atomic(
         "evidence_hash": bundle.evidence_hash,
         "status": "COMMITTED",
     }
-    if alert_sink is not None and isinstance(alert_sink, list):
-        alert_sink.append(alert_record)
 
+    # STAGE 1 CRASH SIMULATION: Crash occurs before DB commit
+    if simulate_failure_stage == "BEFORE_DB_COMMIT":
+        logger.warning(f"[PERSISTENCE_CRASH] Simulated crash BEFORE DB commit for {bundle.symbol}")
+        return False, "CRASH_BEFORE_DB_COMMIT"
+
+    # 5. Authoritative Outbox Commit (DB Journal)
+    with sqlite3.connect(alerts_db_path, timeout=30.0) as conn:
+        conn.execute("""
+            INSERT INTO buy_alerts_journal (
+                alert_id, symbol, scanner, run_id, alert_timestamp, cmp,
+                strategy_score, snapshot_version, snapshot_sha256, evidence_hash,
+                status, materialized_to_parquet, materialized_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMMITTED', 0, NULL, ?)
+            ON CONFLICT(alert_id) DO UPDATE SET
+                alert_timestamp = excluded.alert_timestamp,
+                cmp = excluded.cmp,
+                strategy_score = excluded.strategy_score,
+                status = excluded.status
+        """, (
+            alert_id, bundle.symbol, bundle.scanner, bundle.scan_run_id,
+            now_iso, bundle.cmp, bundle.strategy_score,
+            bundle.snapshot_version, bundle.snapshot_sha256, bundle.evidence_hash,
+            now_iso,
+        ))
+        conn.commit()
+
+    # STAGE 2 CRASH SIMULATION: Crash occurs after DB commit but before Parquet write
+    if simulate_failure_stage == "AFTER_DB_COMMIT_BEFORE_PARQUET":
+        logger.warning(f"[PERSISTENCE_CRASH] Simulated crash AFTER DB commit but BEFORE Parquet write for {bundle.symbol}")
+        return False, "CRASH_AFTER_DB_COMMIT_BEFORE_PARQUET"
+
+    # 6. Idempotent Parquet Materialization
     if alerts_parquet_path:
-        os.makedirs(os.path.dirname(alerts_parquet_path), exist_ok=True)
-        df_new = pd.DataFrame([alert_record])
+        os.makedirs(os.path.dirname(os.path.abspath(alerts_parquet_path)), exist_ok=True)
+        df_new_alert = pd.DataFrame([alert_record])
         if os.path.exists(alerts_parquet_path):
             try:
                 df_existing = pd.read_parquet(alerts_parquet_path)
-                df_new = pd.concat([df_existing, df_new], ignore_index=True)
-            except Exception:
-                pass
-        tmp_p = f"{alerts_parquet_path}.tmp.{os.getpid()}"
-        df_new.to_parquet(tmp_p, index=False)
+                if "alert_id" in df_existing.columns:
+                    df_existing = df_existing[df_existing["alert_id"] != alert_id]
+                else:
+                    df_existing = df_existing[
+                        ~((df_existing["symbol"] == bundle.symbol) &
+                          (df_existing["scanner"] == bundle.scanner) &
+                          (df_existing["run_id"] == bundle.scan_run_id))
+                    ]
+                df_combined = pd.concat([df_existing, df_new_alert], ignore_index=True)
+            except Exception as pe:
+                logger.warning(f"Error reading existing parquet {alerts_parquet_path}: {pe}")
+                df_combined = df_new_alert
+        else:
+            df_combined = df_new_alert
+
+        tmp_p = f"{alerts_parquet_path}.tmp.{os.getpid()}_{int(time.time()*1000)}"
+        df_combined.to_parquet(tmp_p, index=False)
         os.replace(tmp_p, alerts_parquet_path)
+
+    # STAGE 3 CRASH SIMULATION: Crash occurs after Parquet write but before DB marker update
+    if simulate_failure_stage == "AFTER_PARQUET_BEFORE_MARKER":
+        logger.warning(f"[PERSISTENCE_CRASH] Simulated crash AFTER Parquet write but BEFORE DB marker update for {bundle.symbol}")
+        return False, "CRASH_AFTER_PARQUET_BEFORE_MARKER"
+
+    # 7. Update DB Outbox Completion Marker
+    with sqlite3.connect(alerts_db_path, timeout=30.0) as conn:
+        conn.execute("""
+            UPDATE buy_alerts_journal
+            SET materialized_to_parquet = 1, materialized_at = ?
+            WHERE alert_id = ?
+        """, (datetime.now().isoformat(), alert_id))
+        conn.commit()
+
+    if alert_sink is not None and isinstance(alert_sink, list):
+        alert_sink.append(alert_record)
 
     logger.info(f"✅ [ATOMIC_BUY_COMMIT] {bundle.scanner}/{bundle.symbol}: BUY Alert committed with verified snapshot {str(bundle.snapshot_sha256)[:16]}")
     return True, "COMMITTED"
+
+
+def reconcile_alerts_outbox_materialization(
+    alerts_parquet_path: Optional[str] = None,
+    alerts_db_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    CRASH-CONSISTENCY RECONCILIATION & RECOVERY PROCEDURE:
+    Deterministically reconciles state across Authoritative DB Outbox and Parquet.
+    Guarantees:
+      1. Zero lost alerts: Any alert committed in DB outbox with materialized_to_parquet=0
+         is materialized to Parquet idempotently, and DB marker is updated.
+      2. Crash recovery / container restart: If Parquet file was wiped or missing,
+         it is completely reconstructed from the authoritative DB journal.
+      3. Zero orphaned Parquet records: Any record in Parquet that does not exist as
+         COMMITTED in the authoritative DB is pruned.
+      4. Invariant:
+         Never (DB BUY present + Parquet BUY absent indefinitely)
+         Never (Parquet BUY present + DB BUY absent indefinitely).
+    """
+    base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    data_dir = os.path.join(base_dir, "data")
+    if alerts_db_path is None:
+        alerts_db_path = os.path.join(data_dir, "buy_alerts_journal.db")
+    if alerts_parquet_path is None:
+        alerts_parquet_path = os.path.join(data_dir, "10_alerts.parquet")
+
+    init_buy_alerts_journal(alerts_db_path)
+
+    # 1. Fetch all committed alerts from authoritative DB journal
+    with sqlite3.connect(alerts_db_path, timeout=30.0) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT alert_id, symbol, scanner, run_id, alert_timestamp, cmp,
+                   strategy_score, snapshot_version, snapshot_sha256, evidence_hash,
+                   status, materialized_to_parquet
+            FROM buy_alerts_journal
+            WHERE status = 'COMMITTED'
+            ORDER BY alert_timestamp ASC
+        """)
+        db_alerts = [dict(r) for r in cur.fetchall()]
+
+    db_alert_ids = {r["alert_id"] for r in db_alerts}
+    pending_db_alerts = [r for r in db_alerts if r["materialized_to_parquet"] == 0]
+
+    # 2. Case: Parquet file does not exist (Container restart / volume wipe / crash)
+    if not os.path.exists(alerts_parquet_path):
+        if db_alerts:
+            rows_to_save = []
+            for r in db_alerts:
+                c = dict(r)
+                c.pop("materialized_to_parquet", None)
+                rows_to_save.append(c)
+            df_rebuilt = pd.DataFrame(rows_to_save)
+            os.makedirs(os.path.dirname(os.path.abspath(alerts_parquet_path)), exist_ok=True)
+            tmp_p = f"{alerts_parquet_path}.tmp.reconcile_{os.getpid()}_{int(time.time()*1000)}"
+            df_rebuilt.to_parquet(tmp_p, index=False)
+            os.replace(tmp_p, alerts_parquet_path)
+        
+        with sqlite3.connect(alerts_db_path, timeout=30.0) as conn:
+            conn.execute(
+                "UPDATE buy_alerts_journal SET materialized_to_parquet = 1, materialized_at = ? WHERE status = 'COMMITTED'",
+                (datetime.now().isoformat(),)
+            )
+            conn.commit()
+
+        return {
+            "reconciliation_status": "RECONSTRUCTED_FROM_DB",
+            "db_committed_total": len(db_alerts),
+            "parquet_count_after": len(db_alerts),
+            "materialized_repaired": len(db_alerts),
+            "orphans_pruned": 0,
+        }
+
+    # 3. Case: Parquet file exists -> Reconcile differences
+    df_pq = pd.read_parquet(alerts_parquet_path)
+    orphans_pruned = 0
+
+    # Prune orphaned records in Parquet that have no committed DB outbox record
+    if "alert_id" in df_pq.columns:
+        valid_mask = df_pq["alert_id"].isin(db_alert_ids)
+        orphans_pruned = int((~valid_mask).sum())
+        df_pq = df_pq[valid_mask]
+    else:
+        valid_keys = {(r["symbol"], r["scanner"], r["run_id"]) for r in db_alerts}
+        keys = list(zip(df_pq["symbol"], df_pq["scanner"], df_pq["run_id"]))
+        valid_mask = [k in valid_keys for k in keys]
+        orphans_pruned = sum(not v for v in valid_mask)
+        df_pq = df_pq[valid_mask]
+
+    # Find DB alerts missing from Parquet
+    pq_alert_ids = set(df_pq["alert_id"].dropna()) if "alert_id" in df_pq.columns else set()
+    missing_from_pq = [r for r in db_alerts if r["alert_id"] not in pq_alert_ids]
+
+    materialized_repaired = 0
+    if missing_from_pq or orphans_pruned > 0:
+        rows_to_append = []
+        for r in missing_from_pq:
+            c = dict(r)
+            c.pop("materialized_to_parquet", None)
+            rows_to_append.append(c)
+        if rows_to_append:
+            df_append = pd.DataFrame(rows_to_append)
+            df_pq = pd.concat([df_pq, df_append], ignore_index=True)
+            materialized_repaired = len(rows_to_append)
+        
+        tmp_p = f"{alerts_parquet_path}.tmp.reconcile_{os.getpid()}_{int(time.time()*1000)}"
+        df_pq.to_parquet(tmp_p, index=False)
+        os.replace(tmp_p, alerts_parquet_path)
+
+    # Mark pending rows in DB outbox as materialized
+    if pending_db_alerts:
+        with sqlite3.connect(alerts_db_path, timeout=30.0) as conn:
+            conn.execute(
+                "UPDATE buy_alerts_journal SET materialized_to_parquet = 1, materialized_at = ? WHERE materialized_to_parquet = 0",
+                (datetime.now().isoformat(),)
+            )
+            conn.commit()
+
+    return {
+        "reconciliation_status": "RECONCILED_CLEAN",
+        "db_committed_total": len(db_alerts),
+        "parquet_count_after": len(df_pq),
+        "materialized_repaired": materialized_repaired,
+        "orphans_pruned": orphans_pruned,
+    }
 
 
 def pre_buy_integrity_gate(
