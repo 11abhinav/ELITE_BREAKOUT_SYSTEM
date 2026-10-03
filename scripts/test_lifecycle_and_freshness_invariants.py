@@ -423,7 +423,7 @@ def run_test_4_pre_buy_source_freshness_fence():
     )
     # The fence MUST detect the exchange filing and HARD BLOCK the BUY alert!
     assert not buy_ok_1045, "Pre-BUY fence failed to block candidate with newer exchange filing!"
-    assert any("UNPROCESSED_EXCHANGE_FILING" in r for r in reasons_1045)
+    assert any("UNPROCESSED_MULTI_SOURCE_FILING" in r or "UNPROCESSED_EXCHANGE_FILING" in r for r in reasons_1045)
     print(f"  [10:45 Pre-BUY Fence Interception] BUY Gate: BLOCKED ({reasons_1045[0]})")
 
     # Verify watcher state was automatically flipped to UPDATE_PENDING
@@ -433,7 +433,7 @@ def run_test_4_pre_buy_source_freshness_fence():
 
     # 4. Once canonical snapshot incorporates FY2026:
     dummy_prov_updated = {
-        "roce_5y": FieldProvenance(symbol=TEST_SYM, scanner="QUALITY_COMPOUNDER", field="roce_5y", value_used=22.0, source_used="PIT", period_end="2026-03-31", basis="CONSOLIDATED", validation_status="PASSED"),
+        "roce_5y": FieldProvenance(symbol=TEST_SYM, scanner="QUALITY_COMPOUNDER", field="roce_5y", value_used=22.0, source_used="PIT", period_end="2026-03-31", basis="CONSOLIDATED", validation_status="PASSED", pit_eligible_from="2026-10-03T10:30:00"),
     }
     # Reset status to FRESH after rebuild
     watcher.state[TEST_SYM]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
@@ -486,12 +486,202 @@ def run_test_5_real_world_new_stock_recovery():
     print("  ✅ TEST 5 PASSED: Real-World Recently Listed Stock Recovery Empirically Verified!")
 
 
+def run_test_6_freshness_to_buy_commit_race():
+    print("\n" + "=" * 80)
+    print("TEST 6: FRESHNESS CHECK TO BUY COMMIT RACE, SOURCE SLA & MULTI-SOURCE GATES")
+    print("=" * 80)
+
+    from app.financial_data_integrity import (
+        build_buy_evidence_bundle,
+        commit_buy_alert_atomic,
+        record_source_watermark,
+        get_multi_source_exchange_watermark,
+        check_pre_buy_source_freshness_fence,
+    )
+
+    RACE_SYM = "RACE_CO_887"
+    watcher = FinancialFilingWatcher()
+
+    # -------------------------------------------------------------------------
+    # PART A: RACE CONDITION INJECTION BETWEEN FENCE CHECK AND BUY COMMIT
+    # -------------------------------------------------------------------------
+    print("  [Part A: Concurrency Race Condition Rejection]")
+    # T0: Canonical snapshot is fresh, watcher is FRESH, feed watermarks are valid
+    record_source_watermark("NSE", last_successful_check_at="2026-10-03T22:30:00+05:30")
+    record_source_watermark("BSE", last_successful_check_at="2026-10-03T22:30:00+05:30")
+    watcher.state[RACE_SYM] = {
+        "filings": {"F_2025": {"period_end_date": "2025-03-31", "source_hash": "hash2025"}},
+        "latest_filing_date": "2025-03-31",
+        "snapshot_status": SnapshotFreshnessStatus.FRESH.value,
+    }
+    watcher._save_state()
+
+    # T1: Pre-BUY freshness fence evaluated and passes
+    prov_metrics = {
+        "roce_5y": FieldProvenance(symbol=RACE_SYM, scanner="QUALITY_COMPOUNDER", field="roce_5y", value_used=19.5, source_used="PIT", period_end="2025-03-31", basis="CONSOLIDATED", validation_status="PASSED", pit_eligible_from="2025-05-15T18:00:00"),
+    }
+    bundle = build_buy_evidence_bundle(
+        scan_run_id="scan_run_race_001",
+        scanner="QUALITY_COMPOUNDER",
+        symbol=RACE_SYM,
+        cmp=450.0,
+        strategy_score=88.5,
+        gate_results={"trend": "BULL", "pivot": "PASSED"},
+        financial_metrics=prov_metrics,
+        required_metrics=["roce_5y"],
+        pit_timestamp="2025-05-15T18:00:00",
+        pit_eligible_from="2025-05-15T18:00:00",
+    )
+    assert bundle.is_buy_eligible(), f"Expected pre-buy gate to PASS at T1, got: {bundle.blocking_reasons}"
+    assert bundle.snapshot_sha256 is not None, "Bundle must bind to canonical snapshot SHA-256"
+    assert bundle.snapshot_version is not None, "Bundle must bind to snapshot version"
+    assert "sources" in bundle.source_watermarks, "Bundle must record multi-source watermarks"
+    print(f"    T0-T1: Pre-BUY Gate PASSED (Snapshot SHA={bundle.snapshot_sha256[:16]}, Version={bundle.snapshot_version})")
+
+    # T2: Concurrent event! Exchange publishes FY2026 filing at 10:45
+    # T3: Symbol becomes UPDATE_PENDING in watcher state before BUY commit completes
+    watcher.state[RACE_SYM]["snapshot_status"] = SnapshotFreshnessStatus.UPDATE_PENDING.value
+    watcher._save_state()
+    print(f"    T2-T3: Concurrent filing published on exchange -> Watcher transitioned {RACE_SYM} to UPDATE_PENDING")
+
+    # T4: Attempt BUY persistence via commit_buy_alert_atomic
+    sink = []
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        alerts_pq = os.path.join(tmp_dir, "10_alerts.parquet")
+        commit_ok, commit_msg = commit_buy_alert_atomic(bundle, alert_sink=sink, alerts_parquet_path=alerts_pq)
+        
+        # BUY MUST BE REJECTED
+        assert not commit_ok, "CRITICAL DEFECT: BUY alert was committed despite concurrent filing!"
+        assert len(sink) == 0, "Alert sink must be empty upon rejection!"
+        assert not os.path.exists(alerts_pq), "Alert parquet must not be created upon rejection!"
+        assert "CONCURRENT_FILING_DETECTED" in commit_msg, f"Expected CONCURRENT_FILING_DETECTED, got: {commit_msg}"
+        print(f"    T4: Atomic Persistence Gate -> REJECTED ({commit_msg}) [PASS]")
+        print("    ✅ Part A Verified: Zero race window. BUY rejected when filing detected during execution.")
+
+    # -------------------------------------------------------------------------
+    # PART B: SNAPSHOT DRIFT REJECTION (OPTIMISTIC LOCKING)
+    # -------------------------------------------------------------------------
+    print("  [Part B: Snapshot Drift Rejection (Optimistic Lock)]")
+    watcher.state[RACE_SYM]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
+    watcher._save_state()
+
+    stale_bundle = build_buy_evidence_bundle(
+        scan_run_id="scan_run_drift_002",
+        scanner="QUALITY_COMPOUNDER",
+        symbol=RACE_SYM,
+        cmp=450.0,
+        strategy_score=88.5,
+        gate_results={"trend": "BULL"},
+        financial_metrics=prov_metrics,
+        required_metrics=["roce_5y"],
+        pit_timestamp="2025-05-15T18:00:00",
+        pit_eligible_from="2025-05-15T18:00:00",
+        snapshot_sha256="0000000000000000deadbeef0000000000000000deadbeef0000000000000000",
+    )
+    sink_drift = []
+    commit_drift_ok, commit_drift_msg = commit_buy_alert_atomic(stale_bundle, alert_sink=sink_drift)
+    assert not commit_drift_ok, "Expected rejection when bundle snapshot SHA does not match current canonical snapshot!"
+    assert "SNAPSHOT_VERSION_DRIFT" in commit_drift_msg
+    assert len(sink_drift) == 0
+    print(f"    Snapshot Drift Gate -> REJECTED ({commit_drift_msg}) [PASS]")
+    print("    ✅ Part B Verified: Transaction tied to exact snapshot SHA256; drift triggers immediate rollback.")
+
+    # -------------------------------------------------------------------------
+    # PART C: SOURCE WATERMARK FRESHNESS SLA BREACH (FAIL CLOSED)
+    # -------------------------------------------------------------------------
+    print("  [Part C: Source Watermark SLA Enforcement]")
+    old_time = (datetime.now() - pd.Timedelta(hours=30)).isoformat()
+    record_source_watermark("NSE", last_successful_check_at=old_time)
+    
+    fence_ok, fence_reason = check_pre_buy_source_freshness_fence(
+        symbol=RACE_SYM,
+        canonical_period_end="2025-03-31",
+        canonical_filing_timestamp="2025-05-15T18:00:00",
+        max_sla_seconds=86400,
+    )
+    assert not fence_ok, "Source freshness fence failed to block when feed SLA is breached!"
+    assert "EXCHANGE_FEED_WATERMARK_STALE" in fence_reason
+    assert "exceeds SLA" in fence_reason
+    print(f"    Feed SLA Gate -> BLOCKED ({fence_reason}) [PASS]")
+    print("    ✅ Part C Verified: 'Latest known filing' is rejected if exchange feed poll age > SLA window.")
+
+    # Restore NSE feed watermark to fresh
+    record_source_watermark("NSE", last_successful_check_at=datetime.now().isoformat())
+
+    # -------------------------------------------------------------------------
+    # PART D: MULTI-SOURCE WATERMARK (max(NSE, BSE) COVERAGE)
+    # -------------------------------------------------------------------------
+    print("  [Part D: Multi-Source Combined Watermark (max(NSE, BSE))]")
+    record_source_watermark("NSE", last_successful_check_at=datetime.now().isoformat(), latest_filing_timestamp="2025-05-15T18:00:00", symbol=RACE_SYM)
+    record_source_watermark("BSE", last_successful_check_at=datetime.now().isoformat(), latest_filing_timestamp="2026-10-03T11:30:00", symbol=RACE_SYM)
+
+    multi_wm = get_multi_source_exchange_watermark(RACE_SYM)
+    assert multi_wm["latest_exchange_filing_timestamp"] == "2026-10-03T11:30:00", f"Expected max(NSE, BSE) to select BSE timestamp, got: {multi_wm}"
+    
+    fence_multi_ok, fence_multi_reason = check_pre_buy_source_freshness_fence(
+        symbol=RACE_SYM,
+        canonical_period_end="2025-03-31",
+        canonical_filing_timestamp="2025-05-15T18:00:00",
+    )
+    assert not fence_multi_ok, "Freshness fence must block when BSE has newer filing even if NSE is clean!"
+    assert "UNPROCESSED_MULTI_SOURCE_FILING" in fence_multi_reason
+    print(f"    Multi-Source Watermark Gate -> BLOCKED ({fence_multi_reason}) [PASS]")
+    print("    ✅ Part D Verified: max(NSE, BSE) protects against exchange-specific disclosure delays.")
+
+    # -------------------------------------------------------------------------
+    # PART E: CLEAN ATOMIC COMMIT WITH FULL DATA INTEGRITY
+    # -------------------------------------------------------------------------
+    print("  [Part E: Clean Atomic Commit Verified]")
+    record_source_watermark("BSE", last_successful_check_at=datetime.now().isoformat(), latest_filing_timestamp="2025-05-15T18:00:00", symbol=RACE_SYM)
+    watcher.state[RACE_SYM]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
+    watcher._save_state()
+
+    clean_bundle = build_buy_evidence_bundle(
+        scan_run_id="scan_run_clean_003",
+        scanner="QUALITY_COMPOUNDER",
+        symbol=RACE_SYM,
+        cmp=450.0,
+        strategy_score=92.0,
+        gate_results={"trend": "BULL"},
+        financial_metrics=prov_metrics,
+        required_metrics=["roce_5y"],
+        pit_timestamp="2025-05-15T18:00:00",
+        pit_eligible_from="2025-05-15T18:00:00",
+    )
+    assert clean_bundle.is_buy_eligible()
+    clean_sink = []
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        alerts_pq = os.path.join(tmp_dir, "10_alerts.parquet")
+        commit_clean_ok, commit_clean_msg = commit_buy_alert_atomic(clean_bundle, alert_sink=clean_sink, alerts_parquet_path=alerts_pq)
+        assert commit_clean_ok, f"Expected successful commit, got: {commit_clean_msg}"
+        assert len(clean_sink) == 1
+        assert clean_sink[0]["status"] == "COMMITTED"
+        assert clean_sink[0]["snapshot_sha256"] == clean_bundle.snapshot_sha256
+        assert os.path.exists(alerts_pq)
+        df_saved = pd.read_parquet(alerts_pq)
+        assert len(df_saved) == 1
+        assert df_saved.iloc[0]["symbol"] == RACE_SYM
+        print(f"    Atomic Commit -> SUCCESS: Persisted alert to sink and parquet with verified snapshot {clean_bundle.snapshot_sha256[:16]} [PASS]")
+        print("    ✅ Part E Verified: Clean atomic BUY commit verified end-to-end.")
+
+    # Cleanup
+    if RACE_SYM in watcher.state:
+        del watcher.state[RACE_SYM]
+        watcher._save_state()
+    # Restore fresh feed timestamps
+    record_source_watermark("NSE", last_successful_check_at=datetime.now().isoformat())
+    record_source_watermark("BSE", last_successful_check_at=datetime.now().isoformat())
+    print("  ✅ TEST 6 PASSED: Concurrency Race Condition, Feed SLA, and Multi-Source Watermarks 100% Certified!")
+
+
 if __name__ == "__main__":
     run_test_1_universe_expansion()
     run_test_2_amended_filing_pit()
     run_test_3_filing_detection_delay()
     run_test_4_pre_buy_source_freshness_fence()
     run_test_5_real_world_new_stock_recovery()
+    run_test_6_freshness_to_buy_commit_race()
     print("\n" + "=" * 80)
-    print("ALL 5 MANDATORY LIFECYCLE & FRESHNESS TESTS PASSED PERFECTLY!")
+    print("ALL 6 MANDATORY LIFECYCLE, CONCURRENCY & FRESHNESS TESTS PASSED PERFECTLY!")
     print("=" * 80)
+

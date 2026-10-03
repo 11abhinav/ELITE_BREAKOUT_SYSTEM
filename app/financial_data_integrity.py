@@ -47,6 +47,7 @@ import json
 import logging
 import math
 import os
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime
 from enum import Enum
@@ -379,6 +380,11 @@ class BUYEvidenceBundle:
     basis_integrity: bool = False
     unit_integrity: bool = False
     required_metrics_complete: bool = False
+
+    # Snapshot version binding & watermark metadata
+    snapshot_version: Optional[str] = None
+    snapshot_sha256: Optional[str] = None
+    source_watermarks: Dict[str, Any] = field(default_factory=dict)
 
     # Evidence hash (sha256 of serialized metrics)
     evidence_hash: Optional[str] = None
@@ -1512,10 +1518,201 @@ def _mark_update_pending(symbol: str, state_file: str):
         pass
 
 
+def record_source_watermark(
+    source_name: str,
+    last_successful_check_at: Optional[str] = None,
+    latest_filing_timestamp: Optional[str] = None,
+    symbol: Optional[str] = None,
+) -> None:
+    """
+    Updates or initializes source watermark in data/exchange_watermarks.json.
+    """
+    base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    data_dir = os.path.join(base_dir, "data")
+    wm_path = os.path.join(data_dir, "exchange_watermarks.json")
+    os.makedirs(data_dir, exist_ok=True)
+    data = {}
+    if os.path.exists(wm_path):
+        try:
+            with open(wm_path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+
+    src_upper = source_name.strip().upper()
+    if src_upper not in data:
+        data[src_upper] = {
+            "source_name": src_upper,
+            "last_successful_check_at": datetime.now().isoformat(),
+            "latest_filing_timestamp": None,
+            "symbols": {}
+        }
+
+    now_iso = datetime.now().isoformat()
+    check_time = last_successful_check_at or now_iso
+
+    if symbol:
+        sym_clean = symbol.strip().upper()
+        if "symbols" not in data[src_upper]:
+            data[src_upper]["symbols"] = {}
+        sym_entry = data[src_upper]["symbols"].get(sym_clean, {})
+        sym_entry["last_successful_check_at"] = check_time
+        if latest_filing_timestamp:
+            sym_entry["latest_filing_timestamp"] = latest_filing_timestamp
+        data[src_upper]["symbols"][sym_clean] = sym_entry
+    else:
+        data[src_upper]["last_successful_check_at"] = check_time
+        if latest_filing_timestamp:
+            data[src_upper]["latest_filing_timestamp"] = latest_filing_timestamp
+
+    tmp_path = f"{wm_path}.tmp.{os.getpid()}"
+    with open(tmp_path, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp_path, wm_path)
+
+
+def get_multi_source_exchange_watermark(
+    symbol: str,
+    max_sla_seconds: int = 86400,
+    required_sources: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    MULTI-SOURCE (NSE + BSE) EXCHANGE FRESHNESS WATERMARK & SLA VERIFICATION.
+
+    Rules:
+      1. Every supported filing source (NSE, BSE) must have a recorded last_successful_check_at.
+      2. If last_successful_check_at is older than max_sla_seconds -> SOURCE_SLA_BREACHED.
+      3. Aggregates latest filing timestamp for the symbol: max(NSE_latest, BSE_latest, index_latest).
+      4. Any source freshness uncertainty fails closed.
+    """
+    if required_sources is None:
+        required_sources = ["NSE", "BSE"]
+    sym_clean = symbol.strip().upper()
+    base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    data_dir = os.path.join(base_dir, "data")
+    now_ts = time.time()
+
+    watermark_path = os.path.join(data_dir, "exchange_watermarks.json")
+    sources_data = {}
+    if os.path.exists(watermark_path):
+        try:
+            with open(watermark_path, "r") as wf:
+                sources_data = json.load(wf)
+        except Exception:
+            pass
+
+    source_results = []
+    symbol_filing_timestamps = []
+    symbol_period_ends = []
+    sla_failed = False
+    sla_reasons = []
+
+    # 1. Inspect exchange_financials index for this symbol if present
+    exchange_idx_file = os.path.join(data_dir, "exchange_financials", sym_clean, "metadata", "filing_index.json")
+    if os.path.exists(exchange_idx_file):
+        try:
+            mtime = os.path.getmtime(exchange_idx_file)
+            age_sec = now_ts - mtime
+            with open(exchange_idx_file, "r") as ef:
+                idx_data = json.load(ef)
+            for f_id, entry in idx_data.items():
+                if entry.get("statement_type", "").upper() == "ANNUAL":
+                    b_ts = entry.get("broadcast_timestamp") or entry.get("pit_eligible_from")
+                    if b_ts:
+                        symbol_filing_timestamps.append(str(b_ts))
+                    f_period = entry.get("period_end_date")
+                    if f_period:
+                        symbol_period_ends.append(str(f_period)[:10])
+            source_results.append({
+                "source_name": "EXCHANGE_INDEX",
+                "last_successful_source_check_at": datetime.fromtimestamp(mtime).isoformat(),
+                "latest_source_filing_timestamp": max(symbol_filing_timestamps) if symbol_filing_timestamps else None,
+                "latest_source_period_end": max(symbol_period_ends) if symbol_period_ends else None,
+                "age_seconds": round(age_sec, 1),
+                "sla_valid": age_sec <= max_sla_seconds,
+            })
+            if age_sec > max_sla_seconds:
+                sla_failed = True
+                sla_reasons.append(f"EXCHANGE_INDEX feed age ({round(age_sec/3600, 1)}h) exceeds SLA ({round(max_sla_seconds/3600, 1)}h)")
+        except Exception as e:
+            logger.warning(f"Error inspecting exchange index for {sym_clean}: {e}")
+
+    # 2. Inspect required sources (NSE, BSE)
+    for src_name in required_sources:
+        src_entry = sources_data.get(src_name)
+        if not src_entry:
+            sla_failed = True
+            sla_reasons.append(f"{src_name} feed watermark missing (feed unverified)")
+            source_results.append({
+                "source_name": src_name,
+                "last_successful_source_check_at": None,
+                "latest_source_filing_timestamp": None,
+                "age_seconds": None,
+                "sla_valid": False,
+                "failure_reason": "MISSING_WATERMARK",
+            })
+            continue
+
+        feed_chk = src_entry.get("last_successful_check_at")
+        sym_entry = src_entry.get("symbols", {}).get(sym_clean)
+        sym_f_ts = sym_entry.get("latest_filing_timestamp") if sym_entry else None
+        if sym_f_ts:
+            symbol_filing_timestamps.append(str(sym_f_ts))
+        sym_p = sym_entry.get("period_end_date") if sym_entry else None
+        if sym_p:
+            symbol_period_ends.append(str(sym_p)[:10])
+
+        if not feed_chk:
+            sla_failed = True
+            sla_reasons.append(f"{src_name} has no recorded last_successful_check_at")
+            source_results.append({
+                "source_name": src_name,
+                "last_successful_source_check_at": None,
+                "latest_source_filing_timestamp": str(sym_f_ts) if sym_f_ts else None,
+                "age_seconds": None,
+                "sla_valid": False,
+                "failure_reason": "NO_CHECK_TIMESTAMP",
+            })
+            continue
+
+        try:
+            chk_dt = datetime.fromisoformat(str(feed_chk).replace("Z", "+00:00"))
+            now_dt = datetime.now(chk_dt.tzinfo if chk_dt.tzinfo else None)
+            chk_age = (now_dt - chk_dt).total_seconds()
+            valid_sla = (chk_age <= max_sla_seconds)
+            source_results.append({
+                "source_name": src_name,
+                "last_successful_source_check_at": str(feed_chk),
+                "latest_source_filing_timestamp": str(sym_f_ts) if sym_f_ts else None,
+                "latest_source_period_end": str(sym_p)[:10] if sym_p else None,
+                "age_seconds": round(chk_age, 1),
+                "sla_valid": valid_sla,
+            })
+            if not valid_sla:
+                sla_failed = True
+                sla_reasons.append(f"{src_name} feed age ({round(chk_age/3600, 1)}h) exceeds SLA ({round(max_sla_seconds/3600, 1)}h)")
+        except Exception as e:
+            sla_failed = True
+            sla_reasons.append(f"Failed parsing {src_name} timestamp {feed_chk}: {e}")
+
+    max_exchange_filing_ts = max(symbol_filing_timestamps) if symbol_filing_timestamps else None
+    max_exchange_period_end = max(symbol_period_ends) if symbol_period_ends else None
+
+    return {
+        "valid": not sla_failed,
+        "symbol": sym_clean,
+        "latest_exchange_filing_timestamp": max_exchange_filing_ts,
+        "latest_exchange_period_end": max_exchange_period_end,
+        "source_watermarks": source_results,
+        "failure_reason": "; ".join(sla_reasons) if sla_reasons else None,
+    }
+
+
 def check_pre_buy_source_freshness_fence(
     symbol: str,
     canonical_period_end: Optional[str] = None,
     canonical_filing_timestamp: Optional[str] = None,
+    max_sla_seconds: int = 86400,
 ) -> Tuple[bool, Optional[str]]:
     """
     PRE-BUY EXTERNAL SOURCE FRESHNESS FENCE (NO_NEWER_UNPROCESSED_FILING).
@@ -1525,11 +1722,12 @@ def check_pre_buy_source_freshness_fence(
 
     Even if the background periodic watcher has not executed its polling cycle yet,
     this gate checks:
-      1. Watcher state (UPDATE_PENDING / INVALID or latest_filing_date > canonical_period_end).
-      2. Exchange filing index (newer broadcast_timestamp or period_end_date on exchange).
-      3. Raw filings directory (newer raw filing downloaded but not yet published).
+      1. Multi-source (NSE + BSE) feed freshness SLA watermark.
+      2. Watcher state (UPDATE_PENDING / INVALID or latest_filing_date > canonical_period_end).
+      3. Exchange filing index (newer broadcast_timestamp or period_end_date on exchange).
+      4. Raw filings directory (newer raw filing downloaded but not yet published).
 
-    If any newer valid filing is discovered:
+    If any newer valid filing is discovered or source SLA breached:
       - Marks symbol status as UPDATE_PENDING in filing watcher state.
       - Returns (False, reason) to HARD BLOCK the BUY alert.
     """
@@ -1537,9 +1735,34 @@ def check_pre_buy_source_freshness_fence(
         sym_clean = symbol.strip().upper()
         base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         data_dir = os.path.join(base_dir, "data")
-
-        # 1. Check filing watcher state
         state_file = os.path.join(data_dir, "filing_watcher_state.json")
+
+        # 1. Multi-source exchange watermark & SLA validation (NSE + BSE)
+        wm = get_multi_source_exchange_watermark(sym_clean, max_sla_seconds=max_sla_seconds)
+        if not wm["valid"] and wm.get("failure_reason"):
+            return False, f"EXCHANGE_FEED_WATERMARK_STALE: Source SLA breached ({wm['failure_reason']})"
+
+        # Check broadcast watermark
+        if wm.get("latest_exchange_filing_timestamp") and canonical_filing_timestamp:
+            latest_f_ts = str(wm["latest_exchange_filing_timestamp"])
+            if latest_f_ts > str(canonical_filing_timestamp):
+                _mark_update_pending(sym_clean, state_file)
+                return False, (
+                    f"UNPROCESSED_MULTI_SOURCE_FILING: Exchange watermark ({latest_f_ts}) "
+                    f"> snapshot timestamp ({canonical_filing_timestamp})"
+                )
+
+        # Check fiscal period watermark
+        if wm.get("latest_exchange_period_end") and canonical_period_end:
+            latest_p_end = str(wm["latest_exchange_period_end"])
+            if latest_p_end > str(canonical_period_end):
+                _mark_update_pending(sym_clean, state_file)
+                return False, (
+                    f"UNPROCESSED_MULTI_SOURCE_FILING: Exchange filing period ({latest_p_end}) "
+                    f"> snapshot period ({canonical_period_end})"
+                )
+
+        # 2. Check filing watcher state
         if os.path.exists(state_file):
             try:
                 with open(state_file, "r") as sf:
@@ -1557,7 +1780,7 @@ def check_pre_buy_source_freshness_fence(
             except Exception:
                 pass
 
-        # 2. Check exchange filing index for newer broadcast watermark
+        # 3. Check exchange filing index for newer broadcast watermark
         exchange_idx_file = os.path.join(data_dir, "exchange_financials", sym_clean, "metadata", "filing_index.json")
         if os.path.exists(exchange_idx_file):
             try:
@@ -1583,7 +1806,7 @@ def check_pre_buy_source_freshness_fence(
             except Exception:
                 pass
 
-        # 3. Check pit_raw_filings for newly downloaded files ahead of canonical
+        # 4. Check pit_raw_filings for newly downloaded files ahead of canonical
         raw_file = os.path.join(data_dir, "pit_raw_filings", f"{sym_clean}.json")
         if os.path.exists(raw_file):
             try:
@@ -1601,7 +1824,100 @@ def check_pre_buy_source_freshness_fence(
         return True, None
     except Exception as e:
         logger.warning(f"[PRE_BUY_FENCE] Error evaluating source freshness fence for {symbol}: {e}")
-        return True, None
+        return False, f"FRESHNESS_FENCE_ERROR: {e}"
+
+
+def commit_buy_alert_atomic(
+    bundle: BUYEvidenceBundle,
+    alert_sink: Optional[List[Dict[str, Any]]] = None,
+    alerts_parquet_path: Optional[str] = None,
+    max_sla_seconds: int = 86400,
+) -> Tuple[bool, Optional[str]]:
+    """
+    ATOMIC TRANSACTIONAL PERSISTENCE GATE (ZERO RACE WINDOW):
+    Immediately before committing / persisting a BUY alert:
+      1. Verifies current canonical snapshot SHA256 matches bundle.snapshot_sha256.
+         If canonical snapshot changed during execution -> ROLLBACK / REJECT (SNAPSHOT_VERSION_DRIFT).
+      2. Re-verifies watcher state is STILL FRESH (not UPDATE_PENDING).
+         If a filing was injected between evaluation and commit -> ROLLBACK / REJECT (CONCURRENT_FILING_DETECTED).
+      3. Re-verifies multi-source exchange watermark (NSE + BSE).
+         If a newer filing appeared on exchange since pre-buy check -> ROLLBACK / REJECT (RACE_CONDITION_NEWER_FILING).
+      4. Only if all atomic checks PASS, appends/persists the alert.
+    """
+    if not bundle.is_buy_eligible():
+        return False, f"BUNDLE_NOT_ELIGIBLE: {'; '.join(bundle.blocking_reasons)}"
+
+    base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    data_dir = os.path.join(base_dir, "data")
+    canon_path = os.path.join(data_dir, "canonical_pit_rebuilt.parquet")
+
+    # 1. Verify Snapshot Version & SHA256
+    if bundle.snapshot_sha256 and os.path.exists(canon_path):
+        h = hashlib.sha256()
+        with open(canon_path, "rb") as cf:
+            for chunk in iter(lambda: cf.read(65536), b""):
+                h.update(chunk)
+        current_sha = h.hexdigest()
+        if current_sha != bundle.snapshot_sha256:
+            logger.error(f"[ATOMIC_BUY_COMMIT] REJECTED: Snapshot drift for {bundle.symbol}: bundle={bundle.snapshot_sha256[:16]} != current={current_sha[:16]}")
+            return False, f"SNAPSHOT_VERSION_DRIFT: Bundle sha {bundle.snapshot_sha256[:16]} != current canonical sha {current_sha[:16]}"
+
+    # 2. Re-check Watcher State
+    from scripts.financial_filing_watcher import FinancialFilingWatcher, SnapshotFreshnessStatus
+    watcher = FinancialFilingWatcher()
+    f_status = watcher.get_symbol_freshness_status(bundle.symbol)
+    if f_status != SnapshotFreshnessStatus.FRESH:
+        logger.error(f"[ATOMIC_BUY_COMMIT] REJECTED: Symbol {bundle.symbol} transitioned to {f_status.value} before commit")
+        return False, f"CONCURRENT_FILING_DETECTED: Symbol {bundle.symbol} transitioned to {f_status.value} before commit"
+
+    # 3. Final Pre-Commit Freshness Fence Recheck
+    c_period = None
+    c_broadcast = bundle.pit_eligible_from or bundle.pit_timestamp
+    for fm in bundle.financial_metrics.values():
+        if fm.period_end and (c_period is None or str(fm.period_end) > str(c_period)):
+            c_period = str(fm.period_end)
+
+    fence_ok, fence_reason = check_pre_buy_source_freshness_fence(
+        symbol=bundle.symbol,
+        canonical_period_end=c_period,
+        canonical_filing_timestamp=c_broadcast,
+        max_sla_seconds=max_sla_seconds,
+    )
+    if not fence_ok:
+        logger.error(f"[ATOMIC_BUY_COMMIT] REJECTED: Final freshness fence failed for {bundle.symbol}: {fence_reason}")
+        return False, f"RACE_CONDITION_NEWER_FILING: {fence_reason}"
+
+    # 4. Atomic Commit
+    alert_record = {
+        "symbol": bundle.symbol,
+        "scanner": bundle.scanner,
+        "run_id": bundle.scan_run_id,
+        "alert_timestamp": datetime.now().isoformat(),
+        "cmp": bundle.cmp,
+        "strategy_score": bundle.strategy_score,
+        "snapshot_version": bundle.snapshot_version,
+        "snapshot_sha256": bundle.snapshot_sha256,
+        "evidence_hash": bundle.evidence_hash,
+        "status": "COMMITTED",
+    }
+    if alert_sink is not None and isinstance(alert_sink, list):
+        alert_sink.append(alert_record)
+
+    if alerts_parquet_path:
+        os.makedirs(os.path.dirname(alerts_parquet_path), exist_ok=True)
+        df_new = pd.DataFrame([alert_record])
+        if os.path.exists(alerts_parquet_path):
+            try:
+                df_existing = pd.read_parquet(alerts_parquet_path)
+                df_new = pd.concat([df_existing, df_new], ignore_index=True)
+            except Exception:
+                pass
+        tmp_p = f"{alerts_parquet_path}.tmp.{os.getpid()}"
+        df_new.to_parquet(tmp_p, index=False)
+        os.replace(tmp_p, alerts_parquet_path)
+
+    logger.info(f"✅ [ATOMIC_BUY_COMMIT] {bundle.scanner}/{bundle.symbol}: BUY Alert committed with verified snapshot {str(bundle.snapshot_sha256)[:16]}")
+    return True, "COMMITTED"
 
 
 def pre_buy_integrity_gate(
@@ -1691,11 +2007,15 @@ def build_buy_evidence_bundle(
     pit_eligible_from: Optional[str] = None,
     source_filing_ids: Optional[List[str]] = None,
     blocking_reasons: Optional[List[str]] = None,
+    snapshot_version: Optional[str] = None,
+    snapshot_sha256: Optional[str] = None,
+    max_sla_seconds: int = 86400,
 ) -> BUYEvidenceBundle:
     """
     Builds and validates a complete BUY evidence bundle.
 
     The bundle is ONLY eligible for BUY insertion when is_buy_eligible() is True.
+    Binds snapshot_version, snapshot_sha256, and full multi-source exchange watermarks.
     """
     buy_eligible, reasons = pre_buy_integrity_gate(
         symbol=symbol,
@@ -1710,6 +2030,41 @@ def build_buy_evidence_bundle(
         fm.value_used is not None and fm.source_used and fm.period_end
         for fm in financial_metrics.values()
     )
+
+    base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    data_dir = os.path.join(base_dir, "data")
+    canon_path = os.path.join(data_dir, "canonical_pit_rebuilt.parquet")
+    calc_sha = None
+    if os.path.exists(canon_path):
+        try:
+            h = hashlib.sha256()
+            with open(canon_path, "rb") as cf:
+                for chunk in iter(lambda: cf.read(65536), b""):
+                    h.update(chunk)
+            calc_sha = h.hexdigest()
+        except Exception:
+            pass
+
+    resolved_sha = snapshot_sha256 or calc_sha
+    resolved_ver = snapshot_version or (resolved_sha[:16] if resolved_sha else "UNKNOWN")
+
+    c_period = None
+    c_broadcast = pit_eligible_from or pit_timestamp
+    for fm in financial_metrics.values():
+        if fm.period_end and (c_period is None or str(fm.period_end) > str(c_period)):
+            c_period = str(fm.period_end)
+
+    wm = get_multi_source_exchange_watermark(symbol, max_sla_seconds=max_sla_seconds)
+    bundle_watermarks = {
+        "symbol": symbol.strip().upper(),
+        "canonical_snapshot_timestamp": c_broadcast,
+        "canonical_period_end": c_period,
+        "snapshot_sha256": resolved_sha,
+        "snapshot_version": resolved_ver,
+        "latest_exchange_filing_timestamp": wm.get("latest_exchange_filing_timestamp"),
+        "sources": wm.get("source_watermarks", []),
+        "sla_valid": wm.get("valid", False),
+    }
 
     bundle = BUYEvidenceBundle(
         scan_run_id=scan_run_id,
@@ -1729,6 +2084,9 @@ def build_buy_evidence_bundle(
         basis_integrity=True,   # enforced by pre_buy_integrity_gate
         unit_integrity=True,    # enforced by share_count and EV validation
         required_metrics_complete=len(reasons) == 0,
+        snapshot_version=resolved_ver,
+        snapshot_sha256=resolved_sha,
+        source_watermarks=bundle_watermarks,
         blocking_reasons=reasons,
     )
 

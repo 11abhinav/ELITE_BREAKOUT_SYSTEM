@@ -35,6 +35,7 @@ data/*
 !data/v515_production_frozen_registry.json
 !data/pattern_confluence_golden_dataset.json
 *.parquet
+!data/exchange_watermarks.json
 # ── Certified PIT datasets required by V2_FINAL scanner at runtime ──
 !data/canonical_pit_rebuilt.parquet
 !data/canonical_pit_rebuilt_meta.json
