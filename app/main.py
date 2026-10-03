@@ -850,7 +850,8 @@ def run_all_seven_scanners_non_market_boot():
         all_scanners = [
             ("DAILY_BUILDER", _trigger_daily_builder),
             ("TECHNICAL", _trigger_technical),
-            ("Wealth Engine", _trigger_wealth_engine),
+            ("FUNDAMENTAL", _trigger_fundamental),
+            ("QUALITY_COMPOUNDER", _trigger_quality_compounder_v2),
             ("QUALITY_VALUE_RECOVERY", _trigger_quality_value_recovery),
         ]
 

@@ -66,7 +66,9 @@ except ImportError:
 # Universal sequential lock shared across the 3 main scanners
 _global_lock = ProcessLock("global_scanner_lock")
 _fundamental_scan_lock = threading.Lock()
-_v2_scan_lock = threading.Lock()
+_compounder_scan_lock = threading.Lock()
+_recovery_scan_lock = threading.Lock()
+_v2_scan_lock = _compounder_scan_lock
 
 try:
     from app.financial_data_integrity import (
@@ -3044,6 +3046,10 @@ class QualityCompounderValueV2Scanner:
 
     def __init__(self, strategy_id: str = "QUALITY_COMPOUNDER"):
         self.strategy_id = strategy_id
+        if self.strategy_id in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+            self.scan_thread_lock = _recovery_scan_lock
+        else:
+            self.scan_thread_lock = _compounder_scan_lock
         self.daily_builder_provider = DailyBuilderFundamentalProvider()
         self.universe_registry = ApprovedUniverseRegistry()
 
@@ -3425,8 +3431,8 @@ class QualityCompounderValueV2Scanner:
         exec_run_ctx_holder = [None]
 
         # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
-        if not _v2_scan_lock.acquire(blocking=False):
-            logger.warning("🔒 [QUALITY_COMPOUNDER] Scanner is already running in another thread. Skipping duplicate cycle.")
+        if not self.scan_thread_lock.acquire(blocking=False):
+            logger.warning(f"🔒 [{self.strategy_id}] Scanner is already running in another thread. Skipping duplicate cycle.")
             return {"status": "SKIPPED", "reason": "Already running"}
         acquired_scan = True
 
@@ -3460,7 +3466,7 @@ class QualityCompounderValueV2Scanner:
                         upsert_scanner_health(self.strategy_id, "IDLE", error_msg="Lock acquisition timed out")
                     except Exception:
                         pass
-                _v2_scan_lock.release()
+                self.scan_thread_lock.release()
                 return {"status": "FAILED", "reason": "Lock acquisition failed"}
         else:
             acquired_global = True
@@ -3484,7 +3490,7 @@ class QualityCompounderValueV2Scanner:
                     if acquired_global:
                         _global_lock.release()
                     if acquired_scan:
-                        _v2_scan_lock.release()
+                        self.scan_thread_lock.release()
                     return {
                         "status": "LIFECYCLE_BLOCKED",
                         "snapshot_status": snap_status.value,
@@ -3532,7 +3538,7 @@ class QualityCompounderValueV2Scanner:
                         logger.debug(f"Global lock release notice: {_ge}")
                 if acquired_scan:
                     try:
-                        _v2_scan_lock.release()
+                        self.scan_thread_lock.release()
                     except Exception as _se:
                         logger.debug(f"V2 scan lock release notice: {_se}")
 
