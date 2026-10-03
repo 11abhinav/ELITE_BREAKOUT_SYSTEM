@@ -170,6 +170,10 @@ def run_phase2():
         
     print(f"\n✅ Generated {len(df_trades)} trades across the universe.")
     
+    trades_path = os.path.join(REPO_ROOT, "reports", "quality_value_recovery_v1_trades_model_A.csv")
+    df_trades.to_csv(trades_path, index=False)
+    print(f"💾 Individual trades saved to {trades_path}")
+    
     # Analyze
     med_1y = df_trades['ret_1y'].median() * 100
     med_3y = df_trades['ret_3y'].median() * 100
