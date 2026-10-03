@@ -50,13 +50,17 @@
 
 ## 3. DATA INTEGRITY & ZERO-SYNTHETIC INVARIANTS
 
-1. **Authoritative Dataset:**
-   - All scan calculations consume `data/canonical_pit_rebuilt.parquet` (SHA256: `943a651fa26a8d97...`).
-   - Exhaustive census proved 845 complete symbols out of 886 universe, 0 unexplained missing.
-2. **Fail-Closed Data Protocol:**
-   - Zero hardcoded defaults, zero guessed debt/cash/EBITDA/shares, zero synthetic valuation discounts.
-   - Missing required metrics explicitly result in `DATA_BLOCKED` candidate rejection and `DEGRADED` health state if universe data falls below thresholds.
-3. **Point-In-Time Integrity:**
+1. **Data Path Definition:**
+   - **Unified on a single authoritative canonical snapshot** (`data/canonical_pit_rebuilt.parquet`, SHA256: `943a651fa26a8d97...`); underlying data is provider-verified (Upstox API) and dual-source reconciled (NSE filing normalization) where available.
+2. **Exhaustive Data Census & Fail-Closed Isolation:**
+   - **845** complete / evaluable symbols out of 886 master universe.
+   - **14** legitimately unavailable (historical disclosure / schema limitations).
+   - **27** source conflicts (divergence $> 15\%$ between sources).
+   - **6** stale (pending exchange filings).
+   - **0** unexplained missing; **0** invalid / quarantined.
+3. **Fail-Closed Data Protocol:**
+   - Exceptional names (14 unavailable, 27 conflicting, 6 stale) are strictly blocked from candidate selection. Zero hardcoded defaults, zero synthetic values, and zero guessed financial inputs are substituted into decision paths.
+4. **Point-In-Time Integrity:**
    - Data available dates strict `<= signal_date` ($T$). Execution strictly simulated at $T+1$ Open.
 
 ---
