@@ -40,9 +40,10 @@ SCANNER_CONFIG = {
     "QUALITY_COMPOUNDER":                 {"emoji": "💎", "display": "QUALITY COMPOUNDER",               "db_name": "QUALITY_COMPOUNDER"},
     "quality_compounder_v2":              {"emoji": "💎", "display": "QUALITY COMPOUNDER",               "db_name": "QUALITY_COMPOUNDER"},
     "QUALITY_COMPOUNDER_VALUE_V2_FINAL": {"emoji": "💎", "display": "QUALITY COMPOUNDER",               "db_name": "QUALITY_COMPOUNDER"},
-    "quality_value_recovery_wealth_v1":   {"emoji": "🛡️", "display": "QUALITY VALUE RECOVERY",          "db_name": "QUALITY_VALUE_RECOVERY_WEALTH_V1"},
-    "QUALITY_VALUE_RECOVERY_WEALTH_V1":   {"emoji": "🛡️", "display": "QUALITY VALUE RECOVERY",          "db_name": "QUALITY_VALUE_RECOVERY_WEALTH_V1"},
-    "QUALITY_VALUE_RECOVERY":             {"emoji": "🛡️", "display": "QUALITY VALUE RECOVERY",          "db_name": "QUALITY_VALUE_RECOVERY_WEALTH_V1"},
+    "quality_value_recovery_wealth_v1":   {"emoji": "🛡️", "display": "QUALITY VALUE RECOVERY",          "db_name": "QUALITY_VALUE_RECOVERY"},
+    "QUALITY_VALUE_RECOVERY_WEALTH_V1":   {"emoji": "🛡️", "display": "QUALITY VALUE RECOVERY",          "db_name": "QUALITY_VALUE_RECOVERY"},
+    "quality_value_recovery":             {"emoji": "🛡️", "display": "QUALITY VALUE RECOVERY",          "db_name": "QUALITY_VALUE_RECOVERY"},
+    "QUALITY_VALUE_RECOVERY":             {"emoji": "🛡️", "display": "QUALITY VALUE RECOVERY",          "db_name": "QUALITY_VALUE_RECOVERY"},
 }
 
 _BAR_LEN = 30

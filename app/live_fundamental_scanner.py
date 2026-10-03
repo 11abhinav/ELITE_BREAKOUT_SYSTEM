@@ -3598,17 +3598,18 @@ class QualityCompounderValueV2Scanner:
         # [FUNDAMENTAL PRE-RECOVERY HOOK]
         try:
             from fundamental_pre_recovery import FundamentalPreRecoveryEngine
-            logger.info("🔄 [FUNDAMENTAL_PRE_RECOVERY] Starting pre-scan fundamental data recovery sweep...")
-            pre_recovery_engine = FundamentalPreRecoveryEngine()
+            logger.info(f"🔄 [SCANNER: {self.strategy_id}] [FETCH_DATA] Starting pre-scan fundamental data recovery sweep...")
+            pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name=self.strategy_id)
             pre_recovery_engine.execute_pre_scan_sweep()
-            logger.info("✅ [FUNDAMENTAL_PRE_RECOVERY] Sweep complete. Loading final PIT snapshot.")
+            logger.info(f"✅ [SCANNER: {self.strategy_id}] [FETCH_DATA] Sweep complete. Loading final PIT snapshot.")
         except Exception as e:
-            logger.error(f"❌ [FUNDAMENTAL_PRE_RECOVERY] Sweep failed: {e}. Falling back to existing PIT data.")
+            logger.error(f"❌ [SCANNER: {self.strategy_id}] [FETCH_DATA] Sweep failed: {e}. Falling back to existing PIT data.")
 
         # Load PIT fundamentals dataset
+        logger.info(f"📡 [SCANNER: {self.strategy_id}] [FETCH_DATA] Loading canonical PIT dataset from data/canonical_pit_rebuilt.parquet...")
         pit_df = self.load_pit_dataset()
         if pit_df is None or pit_df.empty:
-            logger.error("❌ [SCANNER: QUALITY_COMPOUNDER] Failed to load PIT dataset — scan failed!")
+            logger.error(f"❌ [SCANNER: {self.strategy_id}] [FETCH_DATA] Failed to load PIT dataset — scan failed!")
             if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
                 try:
                     complete_scanner_execution_run(
@@ -3621,7 +3622,7 @@ class QualityCompounderValueV2Scanner:
                     pass
             if upsert_scanner_health is not None:
                 try:
-                    upsert_scanner_health("QUALITY_COMPOUNDER", status="DOWN", error_msg="PIT dataset unavailable", run_id=getattr(exec_run_ctx, "run_id", None))
+                    upsert_scanner_health(self.strategy_id, status="DOWN", error_msg="PIT dataset unavailable", run_id=getattr(exec_run_ctx, "run_id", None))
                 except Exception:
                     pass
             return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
@@ -6267,11 +6268,11 @@ _recovery_scanner_instance = None
 def get_quality_value_recovery_scanner() -> QualityCompounderValueV2Scanner:
     global _recovery_scanner_instance
     if _recovery_scanner_instance is None:
-        _recovery_scanner_instance = QualityCompounderValueV2Scanner(strategy_id="QUALITY_VALUE_RECOVERY_WEALTH_V1")
+        _recovery_scanner_instance = QualityCompounderValueV2Scanner(strategy_id="QUALITY_VALUE_RECOVERY")
     return _recovery_scanner_instance
 
 def run_quality_value_recovery_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
-    """Top-level invocation wrapper for QUALITY_VALUE_RECOVERY_WEALTH_V1 scanner."""
+    """Top-level invocation wrapper for QUALITY_VALUE_RECOVERY scanner."""
     return get_quality_value_recovery_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence)
 
 

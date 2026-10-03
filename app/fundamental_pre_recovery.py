@@ -88,7 +88,8 @@ class FundamentalPreRecoveryEngine:
     does NOT directly overwrite the canonical PIT dataset.
     """
 
-    def __init__(self, pit_parquet_path: Optional[str] = None):
+    def __init__(self, pit_parquet_path: Optional[str] = None, scanner_name: str = "QUALITY_VALUE_RECOVERY"):
+        self.scanner_name = scanner_name
         if pit_parquet_path is not None:
             self.pit_parquet_path = pit_parquet_path
         else:
@@ -239,18 +240,18 @@ class FundamentalPreRecoveryEngine:
         Orchestrator for the Pre-Recovery Backfill sweep.
         Called EXACTLY ONCE per scanner run at orchestration level.
         """
-        logger.info("🧹 [FUNDAMENTAL_PRE_RECOVERY] START — pre-scan fundamental sweep.")
+        logger.info(f"🧹 [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] START — pre-scan fundamental sweep.")
 
         if not os.path.exists(self.pit_parquet_path):
             logger.warning(
-                f"[PRE_RECOVERY] PIT dataset not found at {self.pit_parquet_path}. Skipping."
+                f"⚠️ [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] PIT dataset not found at {self.pit_parquet_path}. Skipping."
             )
             return
 
         try:
             df = pd.read_parquet(self.pit_parquet_path)
         except Exception as e:
-            logger.error(f"[PRE_RECOVERY] Failed to load PIT parquet: {e}")
+            logger.error(f"❌ [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Failed to load PIT parquet: {e}")
             return
 
         total_universe = len(df)
@@ -259,26 +260,27 @@ class FundamentalPreRecoveryEngine:
 
         # Field-level diagnostic log
         logger.info(
-            f"🔍 [PRE_RECOVERY] Universe={total_universe} | "
+            f"🔍 [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Universe={total_universe} | "
             f"Complete={complete_count} | "
             f"Incomplete={len(incomplete_symbols)} | "
             f"Recovery queue cap={self.global_daily_recovery_limit}"
         )
         # Per-symbol field breakdown (first 20 for readability)
         for sym, missing in list(field_map.items())[:20]:
-            logger.info(f"   [PRE_RECOVERY] {sym} → missing: {missing}")
+            logger.info(f"   [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] {sym} → missing: {missing}")
         if len(field_map) > 20:
-            logger.info(f"   [PRE_RECOVERY] ... and {len(field_map) - 20} more symbols")
+            logger.info(f"   [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] ... and {len(field_map) - 20} more symbols")
 
         recovery_queue = self.build_recovery_queue(field_map)
         if not recovery_queue:
-            logger.info("✅ [PRE_RECOVERY] All symbols complete. No recovery needed.")
+            logger.info(f"✅ [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] All symbols complete. No recovery needed.")
             return
 
-        logger.info(f"🚀 [PRE_RECOVERY] Starting recovery for {len(recovery_queue)} symbols.")
+        logger.info(f"🚀 [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Starting data recovery for {len(recovery_queue)} symbols.")
         recovered_count = 0
 
         for symbol, missing_fields in recovery_queue:
+            logger.info(f"📥 [SCANNER: {self.scanner_name}] [FETCH_DATA] Fetching Upstox/NSE filings for {symbol} (missing: {missing_fields})...")
             metrics = self.recover_symbol(symbol)
             self.publish_recovery_status(symbol, missing_fields, metrics.overall_status)
 

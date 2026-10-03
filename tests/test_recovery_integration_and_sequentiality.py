@@ -35,21 +35,21 @@ from live_fundamental_scanner import run_quality_value_recovery_scan, _v2_scan_l
 class TestRecoveryIntegrationAndSequentiality(unittest.TestCase):
 
     def setUp(self):
-        self.strategy_id = "QUALITY_VALUE_RECOVERY_WEALTH_V1"
+        self.strategy_id = "QUALITY_VALUE_RECOVERY"
 
     def test_01_scanner_name_normalization(self):
         """Verify normalization maps Recovery aliases to canonical strategy ID."""
-        self.assertEqual(normalize_scanner_name("QUALITY_VALUE_RECOVERY_WEALTH_V1"), "QUALITY_VALUE_RECOVERY_WEALTH_V1")
-        self.assertEqual(normalize_scanner_name("QUALITY_VALUE_RECOVERY"), "QUALITY_VALUE_RECOVERY_WEALTH_V1")
-        self.assertEqual(normalize_scanner_name("RECOVERY_WEALTH_V1"), "QUALITY_VALUE_RECOVERY_WEALTH_V1")
-        self.assertEqual(normalize_scanner_name("RECOVERY"), "QUALITY_VALUE_RECOVERY_WEALTH_V1")
+        self.assertEqual(normalize_scanner_name("QUALITY_VALUE_RECOVERY_WEALTH_V1"), "QUALITY_VALUE_RECOVERY")
+        self.assertEqual(normalize_scanner_name("QUALITY_VALUE_RECOVERY"), "QUALITY_VALUE_RECOVERY")
+        self.assertEqual(normalize_scanner_name("RECOVERY_WEALTH_V1"), "QUALITY_VALUE_RECOVERY")
+        self.assertEqual(normalize_scanner_name("RECOVERY"), "QUALITY_VALUE_RECOVERY")
 
     def test_02_health_card_registration(self):
         """Verify strategy appears in Health Scanner seeded schedule map."""
         health_rows = get_all_scanner_health()
         scanners_in_health = [r.get("scanner") for r in health_rows]
-        self.assertIn("QUALITY_VALUE_RECOVERY_WEALTH_V1", scanners_in_health,
-                      "QUALITY_VALUE_RECOVERY_WEALTH_V1 must be visible in Health Scanner cards")
+        self.assertIn("QUALITY_VALUE_RECOVERY", scanners_in_health,
+                      "QUALITY_VALUE_RECOVERY must be visible in Health Scanner cards")
 
     def test_03_global_lock_sequentiality(self):
         """Verify global_scanner_lock is acquired during execution and released upon completion."""

@@ -851,7 +851,7 @@ def run_all_seven_scanners_non_market_boot():
             ("DAILY_BUILDER", _trigger_daily_builder),
             ("TECHNICAL", _trigger_technical),
             ("Wealth Engine", _trigger_wealth_engine),
-            ("QUALITY_VALUE_RECOVERY_WEALTH_V1", _trigger_quality_value_recovery),
+            ("QUALITY_VALUE_RECOVERY", _trigger_quality_value_recovery),
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
@@ -1584,15 +1584,15 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ Wealth Engine is STOPPED by Admin. Skipping 17:00 IST daily scan.")
 
-            # 17:15 - Quality Value Recovery Wealth V1 Daily Scan
+            # 17:15 - Quality Value Recovery Daily Scan
             if (now.hour > 17 or (now.hour == 17 and now.minute >= 15)) and last_quality_recovery_date != now.date():
                 last_quality_recovery_date = now.date()
-                if not is_scanner_stopped("QUALITY_VALUE_RECOVERY_WEALTH_V1"):
-                    logger.info("🕒 SCHEDULER | [17:15] Triggering QUALITY_VALUE_RECOVERY_WEALTH_V1 Full Daily Scan")
+                if not is_scanner_stopped("QUALITY_VALUE_RECOVERY") and not is_scanner_stopped("QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+                    logger.info("🕒 SCHEDULER | [17:15] Triggering QUALITY_VALUE_RECOVERY Full Daily Scan")
                     import threading
                     threading.Thread(target=_trigger_quality_value_recovery, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="QualityValueRecoveryDaily", daemon=True).start()
                 else:
-                    logger.info("⏭️ QUALITY_VALUE_RECOVERY_WEALTH_V1 is STOPPED by Admin. Skipping 17:15 IST daily scan.")
+                    logger.info("⏭️ QUALITY_VALUE_RECOVERY is STOPPED by Admin. Skipping 17:15 IST daily scan.")
 
             # 21:00 - Corporate Filing Watcher Night Sweep
             if (now.hour > 21 or (now.hour == 21 and now.minute >= 0)) and last_filing_poll_night != now.date():
@@ -1638,7 +1638,8 @@ def check_scanner_staleness(now):
         "Wealth Engine":                      "DAILY",  # runs full scan once daily at 17:00 IST
         "QUALITY_COMPOUNDER":                 "DAILY",  # runs full scan once daily at 17:00 IST
         "QUALITY_COMPOUNDER_VALUE_V2_FINAL":  "DAILY",  # alias for backward compat
-        "QUALITY_VALUE_RECOVERY_WEALTH_V1":   "DAILY",  # runs full scan once daily at 17:15 IST
+        "QUALITY_VALUE_RECOVERY":             "DAILY",  # runs full scan once daily at 17:15 IST
+        "QUALITY_VALUE_RECOVERY_WEALTH_V1":   "DAILY",  # alias for backward compat
         "DAILY_BUILDER":                      "DAILY",
         "FILING_WATCHER":                     "DAILY",  # corporate filings watcher (08:00, 16:30, 21:00 IST)
     }
@@ -1885,6 +1886,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "FUNDAMENTAL":                        _trigger_fundamental,
         "QUALITY_COMPOUNDER":                 _trigger_quality_compounder_v2,
         "QUALITY_COMPOUNDER_VALUE_V2_FINAL": _trigger_quality_compounder_v2,
+        "QUALITY_VALUE_RECOVERY":             _trigger_quality_value_recovery,
         "QUALITY_VALUE_RECOVERY_WEALTH_V1":   _trigger_quality_value_recovery,
         "Wealth Engine":                      _trigger_wealth_engine,
         "AI Worker":                          _trigger_ai_worker,
@@ -1904,6 +1906,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "FUNDAMENTAL":                        lambda: __import__('live_fundamental_scanner')._fundamental_scan_lock,
         "QUALITY_COMPOUNDER":                 lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "QUALITY_COMPOUNDER_VALUE_V2_FINAL": lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
+        "QUALITY_VALUE_RECOVERY":             lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "QUALITY_VALUE_RECOVERY_WEALTH_V1":   lambda: __import__('live_fundamental_scanner')._v2_scan_lock,
         "Wealth Engine":                      lambda: __import__('wealth_engine')._scan_lock,
         "AI Worker":                          lambda: __import__('ai_worker')._scan_lock,
@@ -2150,10 +2153,10 @@ def _trigger_quality_compounder_v2(trigger_type="MANUAL", scheduler_name="MANUAL
 
 def _trigger_quality_value_recovery(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
     from database import is_scanner_stopped
-    if is_scanner_stopped("QUALITY_VALUE_RECOVERY_WEALTH_V1"):
-        logger.info("⏸️ [QUALITY_VALUE_RECOVERY_WEALTH_V1] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+    if is_scanner_stopped("QUALITY_VALUE_RECOVERY") or is_scanner_stopped("QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+        logger.info("⏸️ [QUALITY_VALUE_RECOVERY] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return
-    logger.info(f"🚀 [SCANNER: QUALITY_VALUE_RECOVERY_WEALTH_V1] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
+    logger.info(f"🚀 [SCANNER: QUALITY_VALUE_RECOVERY] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     from live_fundamental_scanner import run_quality_value_recovery_scan
     return run_quality_value_recovery_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
 

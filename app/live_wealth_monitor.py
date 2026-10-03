@@ -1331,7 +1331,7 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
                         SELECT * FROM alerts
-                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                           AND record_type = 'ALERT_EVENT'
                           AND status IN ('OPEN', 'ACTIVE')
                     """)

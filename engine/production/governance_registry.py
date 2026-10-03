@@ -90,7 +90,7 @@ UNDER_CERTIFICATION_SCANNERS: Set[str] = set()
 CERTIFIED_PRODUCTION_SCANNERS: Set[str] = {
     "TECHNICAL",
     "FUNDAMENTAL",
-    "QUALITY_VALUE_RECOVERY_WEALTH_V1"
+    "QUALITY_VALUE_RECOVERY"
 }
 
 # 5. Authoritative Three-Regime Certification Routing Matrix
@@ -156,11 +156,11 @@ SCANNER_REGIME_HEALTH_METADATA: Dict[str, Dict[str, Any]] = {
         "suppression_reason": None,
         "pending_condition": "Live production alerts active across BULL, SIDEWAYS, and BEAR."
     },
-    "QUALITY_VALUE_RECOVERY_WEALTH_V1": {
+    "QUALITY_VALUE_RECOVERY": {
         "selected_variant": "RECOVERY-V01-MODEL-D-E3",
         "supported_regime": "ALL (BULL, SIDEWAYS, BEAR)",
         "evidence_supported_regimes": ["BULL", "SIDEWAYS", "BEAR"],
-        "production_authorized_regimes": ["BULL", "SIDEWAYS", "BEAR"],
+        "production_authorized_regimes": ["BULL", "SIDEWAYS, BEAR"],
         "current_production_active_regime": "Active in all regimes (BULL, SIDEWAYS, BEAR)",
         "production_authorization_state": "CERTIFIED_FOR_PRODUCTION (ALL REGIMES)",
         "lifecycle_state": "CERTIFIED_FOR_PRODUCTION",
@@ -256,7 +256,7 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
                 suppression_reason = display_msg
                 reason_code = f"REGIME_MISMATCH_{current_regime}_VS_BULL"
                 is_prod_active = False
-        elif norm in ("FUNDAMENTAL", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+        elif norm in ("FUNDAMENTAL", "QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
             display_msg = f"Certified for production across all regimes (BULL, SIDEWAYS, BEAR). Current regime={current_regime}. Production alerts active."
             suppression_reason = None
             reason_code = "CERTIFIED_ACTIVE"
@@ -400,7 +400,7 @@ def normalize_scanner_name(scanner_name: Optional[str]) -> str:
     if "ACCUMULATION" in s:
         return "ACCUMULATION"
     if "QUALITY_VALUE_RECOVERY" in s or "RECOVERY_WEALTH" in s or "RECOVERY" in s:
-        return "QUALITY_VALUE_RECOVERY_WEALTH_V1"
+        return "QUALITY_VALUE_RECOVERY"
     if "TECHNICAL" in s:
         return "TECHNICAL"
     if "FUNDAMENTAL" in s:

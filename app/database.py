@@ -4641,7 +4641,7 @@ def get_all_scanner_health() -> list[dict]:
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
         "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
         "QUALITY_COMPOUNDER": "Daily 17:00 IST (Fundamental Quality Compounder · ALL Regimes)",
-        "QUALITY_VALUE_RECOVERY_WEALTH_V1": "Daily 17:15 IST (Quality Value Recovery Wealth V1 · ALL Regimes)",
+        "QUALITY_VALUE_RECOVERY": "Daily 17:15 IST (Quality Value Recovery · ALL Regimes)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
         "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
@@ -4900,8 +4900,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "WEALTH_EXIT_V2"
     elif upper in ["QUALITY_COMPOUNDER", "QUALITY_COMPOUNDER_VALUE_V2_FINAL", "QUALITY_COMPOUNDER_VALUE_V2", "QUALITY_COMPOUNDER_V2", "V2_QUALITY_COMPOUNDER", "QUALITY_VALUE_GEM"]:
         return "QUALITY_COMPOUNDER"
-    elif upper in ["QUALITY_VALUE_RECOVERY_WEALTH_V1", "QUALITY_VALUE_RECOVERY", "RECOVERY_WEALTH_V1", "RECOVERY"]:
-        return "QUALITY_VALUE_RECOVERY_WEALTH_V1"
+    elif upper in ["QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1", "RECOVERY_WEALTH_V1", "RECOVERY"]:
+        return "QUALITY_VALUE_RECOVERY"
     elif upper in ["FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY", "FUNDAMENTAL_BUY", "FUNDAMENTAL_SCANNER", "FUNDAMENTAL_BUY_SCANNER"]:
         return "FUNDAMENTAL"
     elif upper in ["MULTIBAGGER"]:
