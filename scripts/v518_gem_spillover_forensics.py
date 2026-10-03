@@ -212,7 +212,7 @@ def run_v518_gem_spillover_forensics():
     # =========================================================================
     # MASTER RESEARCH REPORT GENERATION
     # =========================================================================
-    report_content = f"""# V5.18 DAILY BUILDER GEM STATE CONDITIONAL ATTRIBUTION & ECOSYSTEM SPILLOVER REPORT
+    report_content = """# V5.18 DAILY BUILDER GEM STATE CONDITIONAL ATTRIBUTION & ECOSYSTEM SPILLOVER REPORT
 ### Empirical Matched-Control Attribution, Temporal Persistence, and Portfolio Synthesis
 **Date:** 2026-09-11 | **Status:** Empirically Certified | **Focus:** Gem State Alpha Isolation & Macro Spillover
 

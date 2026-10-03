@@ -31,7 +31,7 @@ import math
 import hashlib  # Rule 67: Required for SHA256 alert_payload_hash (BUY alert immutable fingerprint — Finding 2)
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Set, Union
 from enum import Enum
 import numpy as np
 import pandas as pd
@@ -4508,7 +4508,7 @@ class QualityCompounderValueV2Scanner:
                             "annual_filing_count": _inc_cls["filing_annual_count"],
                         }
                     ]
-                    provider_recs.extend(providers_audit if 'providers_audit' in locals() else [])
+                    provider_recs.extend(locals().get('providers_audit', []))
 
                     _emit_data_recovery_log(
                         scanner="QUALITY_COMPOUNDER",

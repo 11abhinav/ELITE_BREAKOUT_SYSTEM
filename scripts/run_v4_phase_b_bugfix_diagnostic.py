@@ -19,7 +19,7 @@ import json
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from typing import Dict, List, Any, Tuple, Set
+from typing import Dict, List, Any, Tuple, Set, Optional
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA_DIR = os.path.join(REPO_ROOT, "data")

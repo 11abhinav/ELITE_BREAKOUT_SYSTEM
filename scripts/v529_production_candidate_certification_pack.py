@@ -408,7 +408,7 @@ def generate_production_candidate_report():
 This report presents the formal **10-Gate Production Certification** for the **V5.29 Daily Builder Candidate Architecture** evaluated against the **V5.28 Certified Benchmark** on an untouched 250-session holdout.
 
 ### Exact Candidate Formula Under Test:
-$$\\mathbf{{V5.29\\_PRODUCTION\\_CANDIDATE}} = \\text{{Model G Composite}} + \\text{{Asymmetric Failure Vetoes}} + \\text{{30-Minute Breakout Trigger}}$$
+**V5.29_PRODUCTION_CANDIDATE = Model G Composite + Asymmetric Failure Vetoes + 30-Minute Breakout Trigger**
 *(Dynamic Regime Capacity was explicitly unbundled due to negative incremental holdout delta R).*
 
 ---
@@ -420,7 +420,7 @@ Evaluating each layer sequentially on identical holdout candidate events:
 {make_md_table(["Layer / Configuration", "N", "Win Rate (%)", "Mean E[R]", "Total R", "Profit Factor", "Incremental ΔR", "Layer Verdict"], comp_rows)}
 
 ### Critical Architectural Finding:
-1. **Model G Scoring**: Delivers **+$0.070R$** incremental lift by replacing linear age with exponential freshness ($\tau_{1/2}=7\text{d}$) and 3-day RS acceleration.
+1. **Model G Scoring**: Delivers **+$0.070R$** incremental lift by replacing linear age with exponential freshness (half-life = 7d) and 3-day RS acceleration.
 2. **Failure Vetoes**: Delivers **+$0.091R$** incremental lift by pruning toxic wick-drain and loose-base setups.
 3. **Dynamic Regime Cap**: Generated a **-$0.021R$ drag**; correctly **EXCLUDED** from the candidate architecture.
 4. **30-Minute Confirmation**: Delivers **+$0.126R$** incremental lift by eliminating morning gap-and-trap false breakouts.
@@ -437,11 +437,11 @@ Evaluating each layer sequentially on identical holdout candidate events:
 ## 4. Final Production Decision & Operational Stance
 
 ### Formal Decision:
-$$\\mathbf{{HOLD\\ V5.29\\ —\\ CERTIFIED\\ AS\\ FUTURE\\ SUCCESSOR}}$$
+**HOLD V5.29 — CERTIFIED AS FUTURE SUCCESSOR**
 
 ### Rationale:
 * **All 10 mandatory production gates passed** with pristine statistical, execution, and governance metrics.
-* **`V5.28_DB_SHADOW` is currently in active live observation** accumulating Gate #1 live evidence ($N_{\text{DB}} \ge 100$). Replacing V5.28 mid-stream would violate governance integrity and contaminate live sample accumulation.
+* **`V5.28_DB_SHADOW` is currently in active live observation** accumulating Gate #1 live evidence (N_DB >= 100). Replacing V5.28 mid-stream would violate governance integrity and contaminate live sample accumulation.
 * **`V5.29` is formally certified and frozen** as the primary successor candidate ready for shadow deployment once V5.28 completes its validation cycle.
 
 ```

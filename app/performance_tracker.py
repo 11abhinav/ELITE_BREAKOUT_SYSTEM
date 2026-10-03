@@ -42,6 +42,8 @@ from database import (
     update_alert_outcome,
     update_partial_exit,
     upsert_scanner_health,
+    normalize_scanner_name,
+    enrich_alerts_with_multi_scanner_confluence,
     save_system_state,
     get_connection,
     update_alert_current_price,
@@ -2086,7 +2088,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         logger.debug(f"Corporate event decoration warning in performance tracker: {_ce_err}")
 
     try:
-        from database import enrich_alerts_with_multi_scanner_confluence
         trades = enrich_alerts_with_multi_scanner_confluence(trades)
     except Exception as _confl_err:
         logger.debug(f"Multi-scanner confluence enrichment error in performance tracker: {_confl_err}")

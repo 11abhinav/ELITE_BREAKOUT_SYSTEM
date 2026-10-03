@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 try:
     from app.data_providers.fundamental_models import (

@@ -762,7 +762,7 @@ def main():
     }
     
     with open(os.path.join(OUTPUT_DIR, "23_MASTER_RESULT.json"), "w") as f:
-        json.dump(manifest_str, f) if False else json.dump(master_result, f, indent=2)
+        json.dump(master_result, f, indent=2)
         
     print("\n================================================================================")
     print(f"  MASTER GOVERNANCE VERDICT: {verdict}")

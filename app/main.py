@@ -61,8 +61,8 @@ _PROCESS_START_TIME = _time.monotonic()
 
 logger = logging.getLogger(__name__)
 
-from database import upsert_scanner_health, insert_notification, download_parquet_from_db, upload_parquet_to_db
-from config import DATA_DIR, WATCHLIST_PATH, SYSTEM_DEPLOYMENT_VERSION
+from database import upsert_scanner_health, insert_notification, download_parquet_from_db, download_parquet_from_db_today, upload_parquet_to_db
+from config import BASE_DIR, DATA_DIR, WATCHLIST_PATH, SYSTEM_DEPLOYMENT_VERSION
 from live_fundamental_scanner import run_fundamental_scan as _run_fundamental_scan
 
 # Print high-visibility deployment version & process PID banner on startup

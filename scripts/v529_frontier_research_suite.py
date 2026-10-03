@@ -404,8 +404,8 @@ Across 250 Development sessions, we evaluated the discrete performance of alerts
 ## 2. Vector 2, 4, 6 & 7: Model G Ranking & Asymmetric Failure Vetoes
 
 We formulated **Model G** incorporating:
-* **Exponential Base Freshness Decay**: $S_{{\\text{{fresh}}}} = e^{-\\lambda t}$ ($\lambda = 0.099$, 7-day half-life).
-* **3-Day RS Acceleration Derivative**: $\\Delta \\text{{RS}}_{{3\\text{{d}}}} = \\text{{RS}}_t - \\text{{RS}}_{{t-3}}$.
+* **Exponential Base Freshness Decay**: $S(fresh) = \exp(-\lambda \cdot t)$ ($\lambda = 0.099$, 7-day half-life).
+* **3-Day RS Acceleration Derivative**: $\Delta RS(3d) = RS[t] - RS[t-3]$.
 * **Multi-Feature Failure Vetoes**: Vetoing extended wicks with volume drain and sector laggards in chop.
 
 ### Comparative Performance (Development Set: 250 Sessions):

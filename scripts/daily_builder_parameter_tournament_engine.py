@@ -263,7 +263,7 @@ def generate_frozen_event_universe() -> Tuple[List[CandidateEvent], Dict[str, in
             if is_true_bo:
                 pit_hod = high_p + random.uniform(0.05, 0.25) * atr
                 pit_vwap = close_p + random.uniform(0.02, 0.15) * atr
-                price_30m = max(pit_hod, breakout_pivot + random.uniform(0.02, 0.18) * atr)
+                price_at_30m = max(pit_hod, breakout_pivot + random.uniform(0.02, 0.18) * atr)
                 
                 # Winner outcome
                 r_gain = random.expovariate(1.0 / 2.6) + 0.50
@@ -278,11 +278,11 @@ def generate_frozen_event_universe() -> Tuple[List[CandidateEvent], Dict[str, in
                 if random.random() < 0.55: # Morning trap (reverses below VWAP at 30m)
                     pit_hod = high_p + random.uniform(0.0, 0.08) * atr
                     pit_vwap = close_p + random.uniform(0.05, 0.20) * atr
-                    price_30m = close_p - random.uniform(0.05, 0.35) * atr
+                    price_at_30m = close_p - random.uniform(0.05, 0.35) * atr
                 else: # Never breaks pivot
                     pit_hod = high_p - random.uniform(0.05, 0.20) * atr
                     pit_vwap = close_p - random.uniform(0.05, 0.15) * atr
-                    price_30m = pit_hod
+                    price_at_30m = pit_hod
 
                 raw_r = -1.00 - random.uniform(0.0, 0.15) # Full loss
                 mfe = random.uniform(0.0, 0.4)
