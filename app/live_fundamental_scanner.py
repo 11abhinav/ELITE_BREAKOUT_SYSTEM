@@ -778,6 +778,19 @@ class DailyBuilderFundamentalProvider:
                 download_parquet_from_db_today("daily_builder_master_v2", path) or download_parquet_from_db("daily_builder_master_v2", path)
             except Exception as _dbe:
                 logger.debug(f"DB download attempt for daily_builder_master_v2 failed: {_dbe}")
+                
+        # --- NEW ARCHITECTURE: PRE-RECOVERY BACKFILL SWEEP ---
+        # Instead of doing live JIT during the scanner (which creates scan-order bias),
+        # we now do a progressive Dual-Source (Upstox + NSE XBRL) sweep on the dataset first.
+        try:
+            from fundamental_pre_recovery import FundamentalPreRecoveryEngine
+            pre_recovery_engine = FundamentalPreRecoveryEngine(pit_parquet_path=path)
+            pre_recovery_engine.execute_pre_scan_sweep()
+        except ImportError:
+            logger.warning("FundamentalPreRecoveryEngine module not found. Skipping pre-recovery backfill.")
+        except Exception as e:
+            logger.error(f"Failed to execute FundamentalPreRecoveryEngine: {e}")
+        # ------------------------------------------------------
 
         meta: Dict[str, Any] = {
             "source": "DAILY_BUILDER_2.0",
@@ -3136,57 +3149,7 @@ class QualityCompounderValueV2Scanner:
         detailed = cls.compute_100pt_score_detailed(row_dict, ev_discount, pe_discount, res_dd)
         return detailed["total_score_100"]
 
-    def recover_upstream_quality_data(
-        self,
-        symbol: str,
-        missing_fields: List[str]
-    ) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]], str]:
-        """
-        Controlled provider-recovery chain for missing quality metrics on eligible stocks.
-        Uses the JIT fundamental fetcher to resolve the data on-demand.
-        """
-        providers_audit: List[Dict[str, Any]] = []
-        clean_sym = str(symbol).strip().upper()
-        
-        logger.info(
-            f"🔄 [UPSTREAM_QUALITY_RECOVERY: START] {clean_sym}: Local quality metrics missing: {missing_fields}. "
-            f"Initiating controlled upstream JIT recovery before decision..."
-        )
-        
-        jit_row = None
-        recovery_verdict = "FAILED_NO_DATA"
-        
-        try:
-            from app.jit_fundamental_fetcher import fetch_symbol_on_demand
-            jit_row = fetch_symbol_on_demand(
-                clean_sym, as_of=date.today(), reason="UPSTREAM_RECOVERY_MISSING_QUALITY_FACTS"
-            )
-            if jit_row:
-                logger.info(f"✅ [UPSTREAM_QUALITY_RECOVERY: SUCCESS] {clean_sym}: Successfully executed JIT fetch.")
-                recovery_verdict = "JIT_ON_DEMAND_EXCHANGE_DERIVATION"
-                providers_audit.append({
-                    "provider": "JIT_ON_DEMAND_FETCHER",
-                    "result": "SUCCESS",
-                    "validation": "PASSED"
-                })
-            else:
-                logger.warning(f"⚠️ [UPSTREAM_QUALITY_RECOVERY: FAILED] {clean_sym}: JIT fetch returned None.")
-                providers_audit.append({
-                    "provider": "JIT_ON_DEMAND_FETCHER",
-                    "result": "FAILED",
-                    "validation": "FAILED",
-                    "validation_reason": "JIT_RETURNED_NONE"
-                })
-        except Exception as e:
-            logger.error(f"❌ [UPSTREAM_QUALITY_RECOVERY: EXCEPTION] {clean_sym}: {e}")
-            providers_audit.append({
-                "provider": "JIT_ON_DEMAND_FETCHER",
-                "result": "EXCEPTION",
-                "validation": "FAILED",
-                "validation_reason": str(e)
-            })
-            
-        return jit_row, providers_audit, recovery_verdict
+
 
     def recover_upstream_valuation_data(
         self,
@@ -3680,6 +3643,16 @@ class QualityCompounderValueV2Scanner:
                 logger.debug(f"Scanner health RUNNING warning: {e}")
 
         logger.info(f"📡 [SCANNER: QUALITY_COMPOUNDER] Starting 17:00 IST daily scan run ({today_str}, trigger={trigger_type})...")
+
+        # [FUNDAMENTAL PRE-RECOVERY HOOK]
+        try:
+            from fundamental_pre_recovery import FundamentalPreRecoveryEngine
+            logger.info("🔄 [FUNDAMENTAL_PRE_RECOVERY] Starting pre-scan fundamental data recovery sweep...")
+            pre_recovery_engine = FundamentalPreRecoveryEngine()
+            pre_recovery_engine.execute_pre_scan_sweep()
+            logger.info("✅ [FUNDAMENTAL_PRE_RECOVERY] Sweep complete. Loading final PIT snapshot.")
+        except Exception as e:
+            logger.error(f"❌ [FUNDAMENTAL_PRE_RECOVERY] Sweep failed: {e}. Falling back to existing PIT data.")
 
         # Load PIT fundamentals dataset
         pit_df = self.load_pit_dataset()
@@ -4542,27 +4515,10 @@ class QualityCompounderValueV2Scanner:
                             ("debt_to_equity", de_ratio, False),
                         ] if (val is None or pd.isna(val)) and not is_loss
                     ]
-
-                    # ── ACTIVE UPSTREAM RECOVERY ──
-                    jit_row, providers_audit, recovery_verdict = self.recover_upstream_quality_data(sym, _missing_fields)
-                    if jit_row:
-                        roce_5y = jit_row.get("roce_5y_avg", roce_5y)
-                        sales_cagr_5y = jit_row.get("sales_cagr_5y", sales_cagr_5y)
-                        pat_cagr_5y = jit_row.get("pat_cagr_5y", pat_cagr_5y)
-                        cfo_pat_5y = jit_row.get("cfo_pat_5y", cfo_pat_5y)
-                        de_ratio = jit_row.get("debt_to_equity", de_ratio)
-                        
-                        sales_cagr_loss = bool(float(sales_cagr_5y) < 0) if sales_cagr_5y is not None and not pd.isna(sales_cagr_5y) else False
-                        pat_cagr_loss = bool(float(pat_cagr_5y) < 0) if pat_cagr_5y is not None and not pd.isna(pat_cagr_5y) else False
-                        cfo_pat_loss = bool(float(cfo_pat_5y) < 0) if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else False
-                        
-                        quality_data_missing = (
-                            (roce_5y is None or pd.isna(roce_5y)) or
-                            ((sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and not sales_cagr_loss) or
-                            ((pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and not pat_cagr_loss) or
-                            ((cfo_pat_5y is None or pd.isna(cfo_pat_5y)) and not cfo_pat_loss) or
-                            (de_ratio is None or pd.isna(de_ratio))
-                        )
+                    # ── NO ACTIVE UPSTREAM RECOVERY ──
+                    # JIT recovery is now handled strictly in the Pre-Recovery Engine upstream.
+                    # If data is still missing here, it is a hard block.
+                    pass
 
                 if quality_data_missing:
                     rejections.append("DATA_INSUFFICIENT_QUALITY")

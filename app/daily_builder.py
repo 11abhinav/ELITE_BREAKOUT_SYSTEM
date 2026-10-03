@@ -2394,8 +2394,10 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
         except Exception as _filter_err:
             logger.debug(f"Watchlist symbol validation check: {_filter_err}")
             
-        logger.info(f"📋 [PROVENANCE] source_status={final_df['source_status'].value_counts().to_dict()}, build_date={final_df['build_date'].iloc[0]}")
-
+        if not final_df.empty:
+            logger.info(f"📋 [PROVENANCE] source_status={final_df['source_status'].value_counts().to_dict()}, build_date={final_df['build_date'].iloc[0]}")
+        else:
+            logger.info("📋 [PROVENANCE] final_df is empty. No candidates to process.")
         import threading
         os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
         tmp_csv = f"{OUTPUT_CSV}.{os.getpid()}_{threading.get_ident()}.tmp"
@@ -2420,7 +2422,8 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     logger.warning(f"⚠️ {tmp_parquet} was already replaced by a concurrent process/thread.")
                 else:
                     raise
-        logger.info(f"💾 [SAVE] Final watchlist saved: {len(final_df)} stocks (source: {final_df['source_status'].iloc[0]})")
+        source_stat = final_df['source_status'].iloc[0] if not final_df.empty else "N/A"
+        logger.info(f"💾 [SAVE] Final watchlist saved: {len(final_df)} stocks (source: {source_stat})")
 
         # Backup to Database in background thread to survive server restarts without blocking main thread
         def _bg_watchlist_db_backup(df_copy):
