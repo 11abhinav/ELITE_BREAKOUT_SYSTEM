@@ -2051,16 +2051,16 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
     # ── 9. Write scanner health to Postgres (source of truth for active scanners) ──
     today_str = datetime.now(IST).date().isoformat()
-    try:
-        from engine.production.governance_registry import DECOMMISSIONED_SCANNERS, normalize_scanner_name
-    except Exception:
-        DECOMMISSIONED_SCANNERS = {"SHORT_COVERING_5M", "REVERSAL", "ACCUMULATION", "PULLBACK", "EOD", "MULTIBAGGER", "TECHNICAL_INTRADAY"}
-        normalize_scanner_name = lambda s: str(s).upper()
+    ACTIVE_PRODUCTION_SCANNERS = {
+        "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
+        "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
+        "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
+        "PLEDGE WORKER", "AI WORKER", "FILING_WATCHER"
+    }
 
     active_scanners_for_health = {
         sc for sc in all_scanners 
-        if normalize_scanner_name(sc) not in DECOMMISSIONED_SCANNERS 
-        and sc.upper() not in DECOMMISSIONED_SCANNERS
+        if sc in ACTIVE_PRODUCTION_SCANNERS or normalize_scanner_name(sc) in ACTIVE_PRODUCTION_SCANNERS
     }
 
     for sc in active_scanners_for_health:

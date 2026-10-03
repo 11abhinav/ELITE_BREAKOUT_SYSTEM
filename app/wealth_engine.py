@@ -2904,7 +2904,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     run_ctx = None
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run
-        run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
+        run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT_V1", trigger_type="SCHEDULED", scheduler_name="CRON")
 
         if not os.path.exists(WEALTH_PATH):
             logger.info("⚠️ WEALTH_PATH parquet not found for intraday update. Running full scan once...")
@@ -3053,7 +3053,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                         duration_sec = round(time.time() - start_time, 1)
                         today_buys = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
                         upsert_scanner_health(
-                            scanner_name="WEALTH_EXIT", status="OK", last_success=datetime.now(IST).isoformat(),
+                            scanner_name="WEALTH_EXIT_V1", status="OK", last_success=datetime.now(IST).isoformat(),
                             today_alerts=today_buys, total_count=len(wealth_df),
                             duration_seconds=duration_sec
                         )

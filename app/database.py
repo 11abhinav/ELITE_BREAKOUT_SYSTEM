@@ -656,8 +656,8 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_today_unrejected ON alerts(alert_date DESC, is_rejected)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_is_rejected ON alerts(status, is_rejected)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_evolution_state ON alerts(trade_evolution_state, alert_date DESC)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_confirmed_active ON alerts (alert_time DESC) WHERE is_rejected = FALSE AND status IN ('OPEN', 'ACTIVE') AND scanner NOT IN ('MULTIBAGGER')")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_perf_tracker ON alerts(alert_time ASC) WHERE status IN ('OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING') AND is_rejected = FALSE AND scanner NOT IN ('MULTIBAGGER', 'WEALTH')")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_confirmed_active ON alerts (alert_time DESC) WHERE is_rejected = FALSE AND status IN ('OPEN', 'ACTIVE')")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_perf_tracker ON alerts(alert_time ASC) WHERE status IN ('OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING') AND is_rejected = FALSE")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_scanner_time_desc ON alerts(scanner, alert_time DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_scanner ON alerts(status, scanner, alert_time DESC)")
@@ -2680,20 +2680,16 @@ def canonicalize_scanner_name(scanner: str, breakout_type: str = "") -> str:
     """
     s = str(scanner or "").strip().upper()
     b = str(breakout_type or "").strip().upper()
-    if s == "TECHNICAL":
+    if s in ("DAILY_BUILDER", "DAILYBUILDER"):
+        return "DAILY_BUILDER"
+    if s == "TECHNICAL" or b in ("DAILY_BREAKOUT", "BREAKOUT_REVERSAL", "WEEKLY_MULTI_TF"):
         return "TECHNICAL"
-    if s == "PULLBACK":
-        return "PULLBACK"
-    if s in ("EOD", "BREAKOUT", "EOD_SCANNER"):
-        return "EOD"
-    if s in ("REVERSAL", "REVERSAL_SCANNER"):
-        return "REVERSAL"
-    if s in ("MULTI_TF", "MULTITF", "MULTI-TF"):
-        return "MULTI_TF"
-    if s in ("MULTIBAGGER", "WEALTH", "WEALTH_ENGINE"):
-        return s
-    if b in ("PULLBACK", "EOD", "REVERSAL", "MULTI_TF", "MULTIBAGGER"):
-        return b
+    if s in ("FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY"):
+        return "FUNDAMENTAL"
+    if s in ("QUALITY_COMPOUNDER", "QUALITY_COMPOUNDER_VALUE_V2_FINAL"):
+        return "QUALITY_COMPOUNDER"
+    if s in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+        return "QUALITY_VALUE_RECOVERY"
     return s or b or "UNKNOWN"
 
 
@@ -4708,16 +4704,17 @@ def get_all_scanner_health() -> list[dict]:
                     ORDER BY scanner_name
                 """)
                 rows = [dict(row) for row in cur.fetchall()]
-                # [RULE 67 CHANGE-RATIONALE]: Ensure decommissioned scanners are never surfaced in health dashboard
-                try:
-                    from engine.production.governance_registry import DECOMMISSIONED_SCANNERS, normalize_scanner_name
-                    rows = [
-                        r for r in rows
-                        if normalize_scanner_name(r.get("scanner_name")) not in DECOMMISSIONED_SCANNERS
-                        and r.get("scanner_name") not in DECOMMISSIONED_SCANNERS
-                    ]
-                except Exception as filter_err:
-                    logger.debug(f"Governance filter in get_all_scanner_health: {filter_err}")
+                ACTIVE_SCANNERS = {
+                    "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
+                    "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
+                    "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
+                    "Pledge Worker", "AI Worker", "FILING_WATCHER"
+                }
+                rows = [
+                    r for r in rows
+                    if r.get("scanner_name") in ACTIVE_SCANNERS
+                    or normalize_scanner_name(r.get("scanner_name")) in ACTIVE_SCANNERS
+                ]
                 existing_names = {r["scanner_name"] for r in rows if "scanner_name" in r}
                 for sc_name, sched_str in schedule_map.items():
                     if sc_name not in existing_names:
@@ -4803,19 +4800,14 @@ def reset_all_scanners_on_boot() -> None:
                     if pr and pr[0]:
                         _LOCAL_STOPPED_SCANNERS.add(normalize_scanner_name(pr[0]))
 
-                # [RULE 67 CHANGE-RATIONALE]: Permanently delete decommissioned scanner records from scanner_health on boot
+                # Delete any stale scanner records not belonging to active production scanners
                 cur.execute("""
                     DELETE FROM scanner_health
-                    WHERE scanner_name IN (
-                        'ACCUMULATION', 'PULLBACK', 'EOD', 'REVERSAL', 'MULTI_TF',
-                        'MULTI_TF_5M', 'MULTITF', 'TECHNICAL_INTRADAY', 'SHORT_COVERING',
-                        '5M_BREAKOUT', 'MOMENTUM_IGNITION', 'SHORT_COVERING_5M', 'SHORT_COVERING_EOD',
-                        'SHORT_COVERING_IGNITION', 'MOMENTUM_IGNITION_5M', 'MOMENTUM_THRUST',
-                        'BREAKOUT_5M', 'SCAN_5M_BREAKOUT', 'MULTITF_5M', 'MULTI_TF_LADDER',
-                        'MULTITF_V3', 'REVERSAL_SCANNER', 'REVERSAL_V2', 'EOD_SCANNER',
-                        'SCAN_SHORT_COVERING', 'SCAN_REVERSAL_KEYLEVEL', 'SCAN_ACCUMULATION',
-                        'SCAN_PULLBACK', 'SCAN_EOD', 'MULTIBAGGER', 'MULTIBAGGER_EXIT',
-                        'Wealth Engine', 'WEALTH_ENGINE', 'WEALTH', 'WEALTH_EXIT'
+                    WHERE scanner_name NOT IN (
+                        'DAILY_BUILDER', 'TECHNICAL', 'FUNDAMENTAL',
+                        'QUALITY_COMPOUNDER', 'QUALITY_VALUE_RECOVERY',
+                        'PERFORMANCE_TRACKER', 'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2',
+                        'Pledge Worker', 'AI Worker', 'FILING_WATCHER'
                     );
                 """)
 
@@ -4827,9 +4819,9 @@ def reset_all_scanners_on_boot() -> None:
                     "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
                     "QUALITY_COMPOUNDER": "Daily 17:00 IST (Fundamental Quality Compounder · ALL Regimes)",
                     "QUALITY_VALUE_RECOVERY": "Daily 17:15 IST (Quality Value Recovery · ALL Regimes)",
-                    "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
-                    "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
-                    "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
+                    "PERFORMANCE_TRACKER": "Exit Monitor · Technical (EOD, REVERSAL, MULTI_TF) · Every 5m (09:15 - 15:30 IST)",
+                    "WEALTH_EXIT_V1": "Exit Monitor V1 · Wealth (COMPOUNDER, QUALITY_RECOVERY) · Every 5m (09:15 - 15:30 IST)",
+                    "WEALTH_EXIT_V2": "Exit Monitor V2 · Model E3 (COMPOUNDER, QUALITY_RECOVERY) · 15:15 & 18:30 IST Pulses",
                     "Pledge Worker": "Continuous (Daily Refresh)",
                     "AI Worker": "Continuous (Sat-Sun Active)",
                     "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
@@ -4895,9 +4887,7 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "TECHNICAL"
     elif upper in ["WEALTH", "WEALTH_ENGINE"]:
         return "Wealth Engine"
-    elif upper in ["WEALTH_EXIT", "WEALTH_INTRADAY", "WEALTH_5M"]:
-        return "WEALTH_EXIT"
-    elif upper in ["WEALTH_EXIT_V1", "WEALTH_V1_EXIT"]:
+    elif upper in ["WEALTH_EXIT", "WEALTH_INTRADAY", "WEALTH_5M", "WEALTH_EXIT_V1", "WEALTH_V1_EXIT"]:
         return "WEALTH_EXIT_V1"
     elif upper in ["WEALTH_EXIT_V2", "WEALTH_V2_EXIT", "WEALTH_EXIT_V2_SHADOW"]:
         return "WEALTH_EXIT_V2"
@@ -4936,53 +4926,27 @@ def normalize_scanner_name(scanner_name: str) -> str:
 
 _LOCAL_STOPPED_SCANNERS: set[str] = set()
 
-DECOMMISSIONED_SCANNERS: set[str] = {
-    "SHORT_COVERING",
-    "SHORT_COVERING_5M",
-    "SHORT_COVERING_EOD",
-    "SHORT_COVERING_IGNITION",
-    "MOMENTUM_IGNITION",
-    "MOMENTUM_IGNITION_5M",
-    "MOMENTUM_THRUST",
-    "MOMENTUM_THRUST_H0",
-    "5M_BREAKOUT",
-    "BREAKOUT_5M",
-    "SCAN_5M_BREAKOUT",
-    "MULTI_TF",
-    "MULTITF",
-    "MULTI_TF_5M",
-    "MULTITF_5M",
-    "MULTI_TF_LADDER",
-    "MULTITF_V3",
-    "TECHNICAL_INTRADAY",
-    "REVERSAL",
-    "REVERSAL_SCANNER",
-    "REVERSAL_V2",
-    "ACCUMULATION",
-    "SCAN_ACCUMULATION",
-    "PULLBACK",
-    "SCAN_PULLBACK",
-    "EOD",
-    "SCAN_EOD",
-    "EOD_SCANNER",
-    "SCAN_SHORT_COVERING",
-    "SCAN_REVERSAL_KEYLEVEL",
-    "MULTIBAGGER",
-    "MULTIBAGGER_EXIT",
-    "Wealth Engine",
-    "WEALTH_ENGINE",
-    "WEALTH",
-    "WEALTH_EXIT",
-    "FUNDAMENTAL_WEALTH_BUY"
+ACTIVE_PRODUCTION_SCANNERS: set[str] = {
+    "DAILY_BUILDER",
+    "TECHNICAL",
+    "FUNDAMENTAL",
+    "QUALITY_COMPOUNDER",
+    "QUALITY_VALUE_RECOVERY",
+    "PERFORMANCE_TRACKER",
+    "WEALTH_EXIT_V1",
+    "WEALTH_EXIT_V2",
+    "PLEDGE WORKER",
+    "AI WORKER",
+    "FILING_WATCHER",
 }
 
 def is_scanner_stopped(scanner_name: str) -> bool:
-    """Return True if scanner is currently STOPPED, PAUSED, or PERMANENTLY DECOMMISSIONED."""
+    """Return True if scanner is currently STOPPED, PAUSED, or NOT AN ACTIVE PRODUCTION SCANNER."""
     if not scanner_name:
         return False
     norm_name = normalize_scanner_name(scanner_name)
-    # HARD DECOMMISSION CHECK: Never execute decommissioned scanners
-    if norm_name in DECOMMISSIONED_SCANNERS or (scanner_name and scanner_name.upper() in DECOMMISSIONED_SCANNERS):
+    # HARD GATE: Block execution of any non-active production scanner
+    if norm_name not in ACTIVE_PRODUCTION_SCANNERS and scanner_name.upper() not in ACTIVE_PRODUCTION_SCANNERS:
         return True
     try:
         init_db()
@@ -7818,30 +7782,8 @@ def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date
         return []
 
 def get_multibagger_alerts() -> list:
-    """Retrieve all multibagger alerts from the main alerts table."""
-    try:
-        from psycopg2.extras import RealDictCursor
-        with get_connection() as conn:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
-                    SELECT * FROM alerts
-                    WHERE scanner = 'MULTIBAGGER'
-                    ORDER BY timestamp DESC
-                """)
-                rows = cur.fetchall()
-
-                # Convert date/decimal
-                import decimal, datetime
-                for row in rows:
-                    for k, v in list(row.items()):
-                        if isinstance(v, decimal.Decimal):
-                            row[k] = float(v)
-                        elif isinstance(v, (datetime.datetime, datetime.date)):
-                            row[k] = v.isoformat()
-                return [dict(r) for r in rows]
-    except Exception as e:
-        logger.exception("❌ Failed to fetch multibagger alerts")
-        return []
+    """Decommissioned scanner helper - returns empty list."""
+    return []
 
 def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
     """Retrieve wealth buy alerts, optionally filtered by symbol."""
@@ -11259,7 +11201,13 @@ def get_scanner_execution_history(
                             expanded_sc_list.append(norm)
                             u = s.upper().replace("-", "_").replace(" ", "_")
                             if u in ["WEALTH", "WEALTH_ENGINE"]:
-                                expanded_sc_list.extend(["Wealth Engine", "WEALTH_ENGINE", "WEALTH_EXIT"])
+                                expanded_sc_list.extend(["Wealth Engine", "WEALTH_ENGINE"])
+                            elif u in ["WEALTH_EXIT_V1", "WEALTH_EXIT", "WEALTH_INTRADAY"]:
+                                expanded_sc_list.extend(["WEALTH_EXIT_V1", "WEALTH_EXIT", "WEALTH_INTRADAY"])
+                            elif u in ["WEALTH_EXIT_V2", "WEALTH_V2_EXIT", "V2_EXIT"]:
+                                expanded_sc_list.extend(["WEALTH_EXIT_V2", "WEALTH_V2_EXIT"])
+                            elif u in ["PERFORMANCE_TRACKER", "PERFORMANCE_TRACKER_EXIT"]:
+                                expanded_sc_list.extend(["PERFORMANCE_TRACKER", "PERFORMANCE_TRACKER_EXIT"])
                             elif u in ["MULTI_TF", "MULTITF"]:
                                 expanded_sc_list.extend(["MULTI_TF", "MULTI_TF_5M"])
                             elif u in ["MULTIBAGGER"]:
@@ -11276,10 +11224,15 @@ def get_scanner_execution_history(
                             for s in sc_list:
                                 params.append(normalize_scanner_name(s))
                     else:
-                        from engine.production.governance_registry import DECOMMISSIONED_SCANNERS
-                        placeholders = ", ".join(["UPPER(%s)"] * len(DECOMMISSIONED_SCANNERS))
-                        where_clauses.append(f"UPPER(scanner_name) NOT IN ({placeholders})")
-                        params.extend(list(DECOMMISSIONED_SCANNERS))
+                        active_scs = [
+                            "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
+                            "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
+                            "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
+                            "PLEDGE WORKER", "AI WORKER", "FILING_WATCHER"
+                        ]
+                        placeholders = ", ".join(["UPPER(%s)"] * len(active_scs))
+                        where_clauses.append(f"UPPER(scanner_name) IN ({placeholders})")
+                        params.extend(active_scs)
 
                 if lifecycle_status and lifecycle_status.upper() != "ALL":
                     where_clauses.append("lifecycle_status = %s")

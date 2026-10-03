@@ -1322,6 +1322,13 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
     now_ist = datetime.now(IST)
     today_str = now_ist.strftime("%Y-%m-%d")
 
+    run_ctx = None
+    try:
+        from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+        run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT_V2", trigger_type="SCHEDULED", scheduler_name="CRON")
+    except Exception as _tr_e:
+        logger.debug(f"WEALTH_EXIT_V2 telemetry init failed: {_tr_e}")
+
     logger.info(f"🛡️ [V2_EXIT_MONITOR] Running {check_type} exit check pulse for QUALITY_COMPOUNDER at {now_ist.strftime('%H:%M:%S IST')}...")
 
     active_alerts = []
@@ -1338,10 +1345,20 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                     active_alerts = [dict(r) for r in cur.fetchall()]
     except Exception as e:
         logger.error(f"Failed to fetch active V2 alerts: {e}")
+        if run_ctx:
+            try:
+                complete_scanner_execution_run(run_ctx, status_override="FAILED", error_summary=str(e))
+                upsert_scanner_health(scanner_name="WEALTH_EXIT_V2", status="DOWN", error_msg=str(e))
+            except Exception: pass
         return {"status": "FAILED", "error": str(e)}
 
     if not active_alerts:
         logger.info("ℹ️ [V2_EXIT_MONITOR] Zero active QUALITY_COMPOUNDER alerts found.")
+        if run_ctx:
+            try:
+                complete_scanner_execution_run(run_ctx, status_override="OK", processed_count=0, total_count=0, stop_reason="Zero active alerts")
+                upsert_scanner_health(scanner_name="WEALTH_EXIT_V2", status="OK", last_success=now_ist.isoformat(), processed_count=0, total_count=0)
+            except Exception: pass
         return {"status": "SUCCESS", "active_count": 0, "processed": 0}
 
     history_dir = os.path.join(DATA_DIR, "history", "1d")
@@ -1459,6 +1476,27 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
 
         except Exception as e:
             logger.error(f"Error evaluating V2 exit for {sym}: {e}")
+
+    if run_ctx:
+        try:
+            from database import complete_scanner_execution_run, upsert_scanner_health
+            complete_scanner_execution_run(
+                run_ctx,
+                status_override="OK",
+                processed_count=processed_count,
+                total_count=processed_count,
+                stop_reason=f"Pulse {check_type} complete (warnings={warnings_count}, exits={exits_count})"
+            )
+            upsert_scanner_health(
+                scanner_name="WEALTH_EXIT_V2",
+                status="OK",
+                last_success=now_ist.isoformat(),
+                processed_count=processed_count,
+                total_count=processed_count,
+                today_alerts=exits_count
+            )
+        except Exception as _ce_e:
+            logger.debug(f"WEALTH_EXIT_V2 completion telemetry error: {_ce_e}")
 
     logger.info(f"✅ [V2_EXIT_MONITOR] {check_type} Exit Check Complete: Processed={processed_count}, Warnings={warnings_count}, Exits={exits_count}")
     return {"status": "SUCCESS", "processed": processed_count, "warnings": warnings_count, "exits": exits_count}

@@ -3096,15 +3096,15 @@ function changeAdminPage(type, delta) {
 
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="PERFORMANCE_TRACKER" onchange="onSehScannerChange()" checked />
-                    <span>Alerts Exit Monitor</span>
+                    <span>Exit Monitor — Technical (EOD, REVERSAL, MULTI_TF)</span>
                   </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="WEALTH_EXIT_V1" onchange="onSehScannerChange()" checked />
-                    <span>Exit Monitor V1 (Live Primary)</span>
+                    <span>Exit Monitor V1 — Wealth (COMPOUNDER, QUALITY_RECOVERY)</span>
                   </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="WEALTH_EXIT_V2" onchange="onSehScannerChange()" checked />
-                    <span>Exit Monitor V2 (Shadow Research)</span>
+                    <span>Exit Monitor V2 — Model E3 (COMPOUNDER, QUALITY_RECOVERY)</span>
                   </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="DAILY_BUILDER" onchange="onSehScannerChange()" checked />
@@ -4189,9 +4189,9 @@ function changeAdminPage(type, delta) {
       'QUALITY_VALUE_RECOVERY': { label: 'Quality Value Recovery', desc: 'Quality Value Recovery · Daily 17:15 IST (ALL REGIMES)' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous (Daily Refresh)' },
-      'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
-      'WEALTH_EXIT_V1': { label: 'Exit Monitor V1 (Live Primary)', desc: 'Canonical V1 Primary Exit Monitor · Market Hours 09:00–16:00 IST' },
-      'WEALTH_EXIT_V2': { label: 'Exit Monitor V2 (Live Dual Pulse)', desc: 'Canonical V2 Live Dual Pulse Exit Monitor · 15:15 & 18:30 IST' },
+      'PERFORMANCE_TRACKER': { label: 'Exit Monitor — Technical (EOD, REVERSAL, MULTI_TF)', desc: 'Position & Exit Monitor for EOD, REVERSAL & MULTI_TF · Every 5m (09:15–15:30 IST)' },
+      'WEALTH_EXIT_V1': { label: 'Exit Monitor V1 — Wealth (COMPOUNDER, QUALITY_RECOVERY)', desc: 'Primary Intraday Portfolio & Exit Monitor for QUALITY_COMPOUNDER & QUALITY_VALUE_RECOVERY · Market Hours (09:15–15:30 IST)' },
+      'WEALTH_EXIT_V2': { label: 'Exit Monitor V2 — Model E3 (COMPOUNDER, QUALITY_RECOVERY)', desc: 'Model E3 Dual-Pulse Exit Guard for QUALITY_COMPOUNDER & QUALITY_VALUE_RECOVERY · 15:15 & 18:30 IST Pulses' },
       'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' },
       'FILING_WATCHER': { label: 'Filing Watcher', desc: 'NSE/BSE Corporate Filings & Freshness Watcher · Periodic (08:00, 16:30, 21:00 IST)' }
     };

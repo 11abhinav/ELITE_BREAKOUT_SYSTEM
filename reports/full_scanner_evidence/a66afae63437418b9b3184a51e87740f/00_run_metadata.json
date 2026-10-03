@@ -1,0 +1,20 @@
+{
+  "run_id": "a66afae63437418b9b3184a51e87740f",
+  "scanner_id": "QUALITY_COMPOUNDER",
+  "scanner_name": "Quality Compounder",
+  "scanner_version": "FROZEN_V2_PROD_1.0",
+  "run_start_timestamp": "2026-10-03T19:04:42.592199+05:30",
+  "run_end_timestamp": "2026-10-03T19:05:32.157666+05:30",
+  "execution_date": "2026-10-03",
+  "environment": "PRODUCTION",
+  "git_commit": "bc5224c137b92569c752b4d355df1568e7478437",
+  "code_version_hash": "bf04bf9ca9810bb62b4c1aa5e4125d19e99a807d9f75bfdc8ce645c38bc35fc2",
+  "config_version_hash": "35fe412d",
+  "universe_definition": "Approved Universe (886 Certified Clean Equities)",
+  "universe_size": 886,
+  "data_providers": [
+    "Upstox",
+    "NSE",
+    "PIT Statement Database"
+  ]
+}
