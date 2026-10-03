@@ -121,42 +121,64 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     if not period_end:
         return None
 
-    # NSE field name mapping (based on observed API response structure)
+    # NSE field name mapping (based on observed API response structure and NSE JSON schema)
     revenue = _safe_float(
-        row.get("income")           # "Total Income"
+        row.get("reFndRevOps")
+        or row.get("reFndTotIncm")
+        or row.get("revenueFromOperations")
+        or row.get("totalRevenue")
         or row.get("totalIncome")
         or row.get("netSales")
+        or row.get("income")
         or row.get("revenue")
+        or row.get("totInc")
     )
     net_profit = _safe_float(
-        row.get("netProfit")
-        or row.get("pat")
-        or row.get("profitAfterTax")
+        row.get("reFndNetPftLoss")
         or row.get("netProfitLoss")
+        or row.get("profitAfterTax")
+        or row.get("netProfit")
+        or row.get("profitLoss")
+        or row.get("pat")
+        or row.get("netProfitForPeriod")
     )
     # EBIT: use operating_profit only when it is explicitly labelled as such,
     # never as a silent proxy for EBIT
     ebit = _safe_float(
-        row.get("operatingProfit")  # NSE labels this EBITDA-ish; keep for reference
-        or row.get("ebit")
+        row.get("reFndPbit")
         or row.get("pbit")
+        or row.get("pbdit")
+        or row.get("operatingProfit")
+        or row.get("ebit")
     )
     operating_cash_flow = _safe_float(
-        row.get("cashFlowOperations")
+        row.get("reFndCfo")
+        or row.get("cashFlowFromOperatingActivities")
+        or row.get("cashFlowOperations")
         or row.get("operatingCashFlow")
         or row.get("cfo")
     )
     total_debt = _safe_float(
-        row.get("totalDebt")
-        or row.get("debt")
+        row.get("reFndBorrowings")
         or row.get("totalBorrowings")
+        or row.get("totalDebt")
+        or row.get("borrowings")
+        or row.get("debt")
     )
     total_equity = _safe_float(
         row.get("shareholderEquity")
         or row.get("equity")
         or row.get("netWorth")
+        or row.get("equityShareCapital")
     )
-    eps = _safe_float(row.get("eps") or row.get("basicEps") or row.get("epsBasic"))
+    eps = _safe_float(
+        row.get("reFndBscEps")
+        or row.get("reFndDilEps")
+        or row.get("basicEps")
+        or row.get("dilutedEps")
+        or row.get("eps")
+        or row.get("epsBasic")
+    )
 
     # capital_employed: total_assets - current_liabilities if available,
     # else equity + total_debt (rough alternative — flagged in derivation)

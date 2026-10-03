@@ -89,3 +89,56 @@ class ReconciledCanonicalMetrics:
     eps_ttm: Optional[float] = None
     provenance_chain: List[FundamentalProvenance] = field(default_factory=list)
     overall_status: FundamentalStatus = FundamentalStatus.INSUFFICIENT
+
+
+class DataFailureClass(enum.Enum):
+    API_VALUE_CONFIRMED = "API_VALUE_CONFIRMED"
+    API_VALUE_CONFIRMED_BUT_INVALID_FOR_RULE = "API_VALUE_CONFIRMED_BUT_INVALID_FOR_RULE"
+    API_HAS_DATA_PARSER_FAILURE = "API_HAS_DATA_PARSER_FAILURE"
+    API_HAS_DATA_BUT_PERIOD_GAP = "API_HAS_DATA_BUT_PERIOD_GAP"
+    API_HAS_DATA_BUT_SCOPE_MISMATCH = "API_HAS_DATA_BUT_SCOPE_MISMATCH"
+    CALCULATION_FAILURE = "CALCULATION_FAILURE"
+    API_DATA_GENUINELY_UNAVAILABLE = "API_DATA_GENUINELY_UNAVAILABLE"
+    STRUCTURAL_HISTORY_DEFICIT = "STRUCTURAL_HISTORY_DEFICIT"
+    CORPORATE_RESTRUCTURING_REMAPPING = "CORPORATE_RESTRUCTURING_REMAPPING"
+
+
+class QuarantineAction(enum.Enum):
+    IMMEDIATE_REPROCESS = "IMMEDIATE_REPROCESS"
+    IMMEDIATE_REMAPPING = "IMMEDIATE_REMAPPING"
+    QUARANTINE_COOLDOWN = "QUARANTINE_COOLDOWN"
+    EVENT_DRIVEN_ANNUAL_WAIT = "EVENT_DRIVEN_ANNUAL_WAIT"
+    STRATEGY_BLOCK_NO_REFETCH = "STRATEGY_BLOCK_NO_REFETCH"
+
+
+@dataclass
+class MetricResolutionResult:
+    symbol: str
+    metric: str
+    value: Optional[float]
+    source: str
+    source_rank: int
+    period_start: Optional[str]
+    period_end: Optional[str]
+    broadcast_timestamp: Optional[str]
+    statement_scope: str
+    raw_document_hash: str
+    calculation_method: str
+    validation_status: str
+    failure_class: Optional[DataFailureClass] = None
+    difference_pct: Optional[float] = None
+    independent_reference_value: Optional[Any] = None
+
+
+@dataclass
+class DataQuarantineRecord:
+    symbol: str
+    metric: str
+    failure_class: str
+    action: str
+    quarantined_at: str
+    cooldown_until: str
+    cooldown_days: int
+    provenance_hash: str
+    reason: str
+
