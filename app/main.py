@@ -61,7 +61,7 @@ _PROCESS_START_TIME = _time.monotonic()
 
 logger = logging.getLogger(__name__)
 
-from database import upsert_scanner_health, insert_notification
+from database import upsert_scanner_health, insert_notification, download_parquet_from_db, upload_parquet_to_db
 from config import DATA_DIR, WATCHLIST_PATH, SYSTEM_DEPLOYMENT_VERSION
 from live_fundamental_scanner import run_fundamental_scan as _run_fundamental_scan
 
@@ -1201,6 +1201,92 @@ def run_system_scheduler():
         # This block runs unconditionally at every boot, independent of watchlist state.
         try:
             import glob, shutil
+            import pandas as _pd
+            import json as _json
+
+            # ── STEP 00: CANONICAL PIT REBUILT SNAPSHOT BOOT RESTORATION PROTOCOL ──
+            # Required by Governance Gate: containers must restore certified 886 canonical snapshot
+            # and verify exact set equality before allowing any scanner execution.
+            canonical_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
+            meta_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt_meta.json")
+            master_v2_path = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+            univ_886_path = os.path.join(DATA_DIR, "certified_clean_universe_886.json")
+            
+            # Load required universe
+            req_symbols_886 = set()
+            if os.path.exists(univ_886_path):
+                try:
+                    with open(univ_886_path) as _uf:
+                        req_symbols_886 = set(s.upper() for s in _json.load(_uf).get("symbols", []))
+                except Exception as _ue:
+                    logger.warning(f"Could not read clean universe 886: {_ue}")
+
+            def _is_valid_canonical_df(df_check):
+                if df_check is None or not isinstance(df_check, _pd.DataFrame) or df_check.empty:
+                    return False
+                if "symbol" not in df_check.columns or df_check["symbol"].isna().any():
+                    return False
+                syms = set(df_check["symbol"].astype(str).str.strip().str.upper())
+                if req_symbols_886 and syms != req_symbols_886:
+                    return False
+                return True
+
+            local_canonical_valid = False
+            if os.path.exists(canonical_path):
+                try:
+                    _df_local = _pd.read_parquet(canonical_path)
+                    local_canonical_valid = _is_valid_canonical_df(_df_local)
+                except Exception as _ce:
+                    logger.warning(f"Local canonical read check warning: {_ce}")
+
+            # Case 1 & 2: Local missing or truncated/invalid → restore from DB
+            if not local_canonical_valid:
+                logger.warning("⚠️ [CANONICAL BOOT] Local canonical_pit_rebuilt is missing or incomplete. Restoring from DB...")
+                db_restored = False
+                try:
+                    if download_parquet_from_db("canonical_pit_rebuilt", canonical_path):
+                        _df_db = _pd.read_parquet(canonical_path)
+                        if _is_valid_canonical_df(_df_db):
+                            logger.info(f"✅ [CANONICAL BOOT] Restored certified canonical_pit_rebuilt ({len(_df_db)} symbols) from DB")
+                            _df_db.to_parquet(master_v2_path, index=False)
+                            db_restored = True
+                        else:
+                            logger.error(f"❌ [CANONICAL BOOT] Downloaded DB canonical snapshot failed universe validation ({len(_df_db)} symbols)")
+                except Exception as _c_dl_err:
+                    logger.error(f"❌ [CANONICAL BOOT] Failed to restore canonical_pit_rebuilt from DB: {_c_dl_err}")
+
+                if not db_restored:
+                    for seed_cand in ["/app/data_seed", "/app/data", os.path.join(BASE_DIR, "data_seed")]:
+                        seed_p = os.path.join(seed_cand, "canonical_pit_rebuilt.parquet")
+                        if os.path.exists(seed_p):
+                            try:
+                                _df_seed = _pd.read_parquet(seed_p)
+                                if _is_valid_canonical_df(_df_seed):
+                                    shutil.copy2(seed_p, canonical_path)
+                                    shutil.copy2(seed_p, master_v2_path)
+                                    seed_meta = seed_p.replace(".parquet", "_meta.json")
+                                    if os.path.exists(seed_meta):
+                                        shutil.copy2(seed_meta, meta_path)
+                                    logger.info(f"✅ [CANONICAL BOOT] Seeded certified canonical snapshot ({len(_df_seed)} symbols) from {seed_cand}")
+                                    try:
+                                        upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                                    except Exception:
+                                        pass
+                                    db_restored = True
+                                    break
+                            except Exception:
+                                pass
+
+                if not db_restored and not os.path.exists(canonical_path):
+                    logger.critical("🛑 [CANONICAL BOOT] HARD BLOCK: Both local and DB canonical snapshots unavailable. Fail-closed guaranteed.")
+            else:
+                try:
+                    upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                    upload_parquet_to_db("daily_builder_master_v2", canonical_path)
+                    logger.info(f"⚡ [CANONICAL BOOT] Verified local certified canonical snapshot ({len(_df_local)} symbols) and synced to DB")
+                except Exception as _c_up_err:
+                    logger.debug(f"Canonical DB upload notice: {_c_up_err}")
+
             # Step 0: Ensure pit_raw_filings directory exists and is populated
             pit_raw_dir = os.path.join(DATA_DIR, "pit_raw_filings")
             pit_parquet_dir = os.path.join(DATA_DIR, "pit_fundamentals_v1")

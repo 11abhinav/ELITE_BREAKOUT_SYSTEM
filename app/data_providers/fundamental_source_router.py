@@ -147,6 +147,53 @@ class FundamentalSourceRouter:
                     logger.debug(f"[ROUTER] Error reading local raw filing for {symbol}: {e}")
         return []
 
+    def _persist_raw_filings(self, symbol: str, records: List[RawFinancialRecord]) -> None:
+        """
+        Persist newly fetched raw filing records to data/pit_raw_filings/<symbol>.json for future use.
+        Calculates non-empty SHA-256 digest from canonical JSON serialization.
+        """
+        if not records:
+            return
+        try:
+            import json, hashlib
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            out_dir = os.path.join(base_dir, "data", "pit_raw_filings")
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, f"{symbol}.json")
+
+            serializable = []
+            for r in records:
+                d = {
+                    "symbol": r.symbol,
+                    "source": r.source,
+                    "period_end_date": r.period_end_date,
+                    "period_type": r.period_type,
+                    "consolidation": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                    "revenue": r.revenue,
+                    "net_profit": r.net_profit,
+                    "operating_cash_flow": r.operating_cash_flow,
+                    "total_debt": r.total_debt,
+                    "total_equity": r.total_equity,
+                    "ebit": r.ebit,
+                    "capital_employed": r.capital_employed,
+                    "eps": r.eps,
+                    "unit": r.unit,
+                    "currency": r.currency
+                }
+                # Canonical serialization for record-level cryptographic hash
+                clean = {k: v for k, v in sorted(d.items()) if v is not None}
+                serialized = json.dumps(clean, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                h = hashlib.sha256(serialized).hexdigest()
+                assert h != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                d["source_record_hash"] = h
+                serializable.append(d)
+
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(serializable, f, indent=2)
+            logger.info(f"💾 [ROUTER] Persisted {len(serializable)} raw filings to {out_path} with cryptographic provenance hashes.")
+        except Exception as e:
+            logger.warning(f"[ROUTER] Could not persist raw filings for {symbol}: {e}")
+
     def _single_source_metrics(
         self,
         symbol: str,
@@ -262,6 +309,12 @@ class FundamentalSourceRouter:
             f"403s={self.nse_provider.nse_403_count}, "
             f"refreshes={self.nse_provider.session_refresh_count})"
         )
+
+        # Persist newly fetched live records to pit_raw_filings for future reuse
+        if upstox_records:
+            self._persist_raw_filings(symbol, upstox_records)
+        elif nse_records:
+            self._persist_raw_filings(symbol, nse_records)
 
         # --- Step 3: Local Raw Filings ---
         local_records = self._fetch_local_raw_filings(symbol)

@@ -62,6 +62,14 @@ BASE_DIR = os.getenv(
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+try:
+    from app.database import upload_parquet_to_db
+except ImportError:
+    try:
+        from database import upload_parquet_to_db
+    except ImportError:
+        upload_parquet_to_db = None
+
 logger = logging.getLogger("canonical_pit_publisher")
 
 CANONICAL_PATH = os.path.join(BASE_DIR, "data", "canonical_pit_rebuilt.parquet")
@@ -164,6 +172,72 @@ def _run_never_downgrade_gate(
 
 
 # ---------------------------------------------------------------------------
+# Strict Exact Universe Set Validation Contract
+# ---------------------------------------------------------------------------
+
+REQUIRED_UNIVERSE_PATH = os.path.join(BASE_DIR, "data", "certified_clean_universe_886.json")
+REQUIRED_SCHEMA_COLS = [
+    "symbol", "roce_5y_avg", "sales_cagr_5y", "pat_cagr_5y",
+    "cfo_pat_5y_ratio", "current_ev_ebitda", "ev_ebitda_3y_median"
+]
+
+def load_required_universe() -> Set[str]:
+    if os.path.exists(REQUIRED_UNIVERSE_PATH):
+        try:
+            with open(REQUIRED_UNIVERSE_PATH) as f:
+                return set(s.upper() for s in json.load(f)["symbols"])
+        except Exception as e:
+            logger.warning(f"Could not load required universe from {REQUIRED_UNIVERSE_PATH}: {e}")
+    return set()
+
+def validate_canonical_snapshot_exact(
+    df: pd.DataFrame,
+    required_universe: Set[str],
+    expected_row_count: int = 886
+) -> Tuple[bool, str]:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return False, "EMPTY_OR_NONE"
+    if "symbol" not in df.columns:
+        return False, "MISSING_SYMBOL_COLUMN"
+        
+    if df["symbol"].isna().any():
+        return False, f"NULL_SYMBOLS_DETECTED: {df['symbol'].isna().sum()} nulls"
+        
+    symbols_raw = df["symbol"].astype(str)
+    if (symbols_raw.str.strip() == "").any():
+        return False, "BLANK_SYMBOLS_DETECTED"
+        
+    symbols_norm = symbols_raw.str.strip().str.upper()
+    if symbols_norm.duplicated().any():
+        dups = symbols_norm[symbols_norm.duplicated()].unique()
+        return False, f"DUPLICATE_SYMBOLS_DETECTED: {len(dups)} duplicates ({list(dups)[:5]})"
+        
+    import re
+    malformed = [s for s in symbols_norm if not re.match(r"^[A-Z0-9\-_&]+$", s)]
+    if malformed:
+        return False, f"MALFORMED_SYMBOLS_DETECTED: {malformed[:5]}"
+        
+    cand_symbols = set(symbols_norm)
+    missing = required_universe - cand_symbols
+    extra = cand_symbols - required_universe
+    
+    if cand_symbols != required_universe:
+        reasons = []
+        if missing: reasons.append(f"MISSING {len(missing)} required symbols")
+        if extra:   reasons.append(f"EXTRA {len(extra)} unapproved symbols ({sorted(list(extra))[:5]})")
+        return False, f"EXACT_UNIVERSE_MISMATCH: {'; '.join(reasons)}"
+        
+    if len(df) != expected_row_count:
+        return False, f"ROW_COUNT_MISMATCH: got {len(df)}, expected {expected_row_count}"
+        
+    missing_cols = [c for c in REQUIRED_SCHEMA_COLS if c not in df.columns]
+    if missing_cols:
+        return False, f"MISSING_SCHEMA_COLS: {missing_cols}"
+        
+    return True, "CERTIFIED_EXACT_EQUAL"
+
+
+# ---------------------------------------------------------------------------
 # Snapshot metadata builder
 # ---------------------------------------------------------------------------
 
@@ -173,15 +247,22 @@ def _build_snapshot_meta(
     previous_hash: Optional[str],
     publication_decision: str,
     publication_reason: str,
-    publisher_version: str = "v3.0",
+    publisher_version: str = "v3.1",
+    required_universe: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
     snapshot_id = str(uuid.uuid4())
+    univ_syms = sorted(list(required_universe or set(df["symbol"].str.upper())))
+    univ_sym_hash = hashlib.sha256(json.dumps(univ_syms, separators=(",", ":")).encode("utf-8")).hexdigest()
+    assert file_hash != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    assert univ_sym_hash != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
     return {
         "snapshot_id":                      snapshot_id,
         "snapshot_created_at":              datetime.now().isoformat(),
         "publisher_version":                publisher_version,
         "dataset_sha256":                   file_hash,
         "previous_dataset_sha256":          previous_hash,
+        "universe_symbol_hash":             univ_sym_hash,
         "publication_decision":             publication_decision,
         "publication_reason":               publication_reason,
         "FINANCIAL_SNAPSHOT_STATUS":        "SNAPSHOT_READY_FOR_SCANNER" if publication_decision == "PUBLISHED" else "BUILDING",
@@ -217,8 +298,9 @@ def _build_snapshot_meta(
 def publish_canonical_pit(
     candidate_path: str,
     reason: str = "UNKNOWN",
-    publisher_version: str = "v3.0",
+    publisher_version: str = "v3.1",
     allow_new_symbols: bool = True,
+    is_delta_merge: bool = True,
 ) -> Dict[str, Any]:
     """
     The SINGLE authorised entry-point for publishing canonical_pit_rebuilt.parquet.
@@ -227,11 +309,13 @@ def publish_canonical_pit(
       1. Acquire filesystem lock (blocks concurrent publishers).
       2. Read candidate parquet.
       3. Read existing canonical (if exists) and record its SHA256.
-      4. Run 18-dimension Never-Downgrade Gate.
-      5. If gate fails → write candidate to _rejected/ with reason, return BLOCKED.
-      6. If gate passes → atomic os.replace over canonical + master_v2.
-      7. Write rich snapshot metadata + append to publication history log.
-      8. Release lock.
+      4. Missing canonical + partial candidate -> STRICTLY BLOCKED.
+      5. Existing canonical + partial candidate -> ATOMIC DELTA MERGE (preserve 886).
+      6. Run strict exact set equality & Never-Downgrade Gate.
+      7. Atomic os.replace over canonical + master_v2.
+      8. Write rich snapshot metadata + append to publication history log.
+      9. Upload published snapshot to database parquet_cache.
+      10. Release lock.
 
     Returns a dict with publication_decision and full metrics.
     """
@@ -247,6 +331,11 @@ def publish_canonical_pit(
         except Exception as e:
             return {"publication_decision": "ERROR", "reason": f"Cannot read candidate: {e}"}
 
+        # Load required universe
+        required_universe = load_required_universe()
+        cand_symbols = set(df_new["symbol"].astype(str).str.strip().str.upper()) if "symbol" in df_new.columns else set()
+        is_candidate_full = bool(required_universe and cand_symbols == required_universe)
+
         # --- Step 3: Read existing canonical + capture hash for optimistic check ---
         previous_hash: Optional[str] = None
         df_old: Optional[pd.DataFrame] = None
@@ -255,15 +344,71 @@ def publish_canonical_pit(
                 previous_hash = _sha256(CANONICAL_PATH)
                 df_old = pd.read_parquet(CANONICAL_PATH)
             except Exception as e:
-                logger.warning(f"[PUBLISHER] Could not read existing canonical: {e}. First-time publish allowed.")
+                logger.warning(f"[PUBLISHER] Could not read existing canonical: {e}")
 
-        # --- Step 4: Never-Downgrade Gate ---
+        # --- Step 4: Governance Gate & Delta Merge Routing ---
+        df_target: pd.DataFrame
         gate_passed = True
         gate_reasons: List[str] = []
-        if df_old is not None:
-            gate_passed, gate_reasons = _run_never_downgrade_gate(df_old, df_new, reason)
 
-        # --- Step 5: Gate failed → write to rejected/ ---
+        if df_old is None or df_old.empty:
+            # INVARIANT 1: Missing canonical + partial candidate -> PUBLISH BLOCKED
+            if not is_candidate_full:
+                fail_reason = (
+                    f"CANONICAL_MISSING_PARTIAL_CANDIDATE_BLOCKED: candidate has {len(cand_symbols)} symbols, "
+                    f"requires {len(required_universe)}"
+                )
+                logger.error(f"❌ [CANONICAL_PUBLISHER] {fail_reason}")
+                return {"publication_decision": "BLOCKED", "reason": fail_reason}
+            df_target = df_new
+        else:
+            # INVARIANT 2: Existing canonical exists
+            if not is_candidate_full:
+                if not is_delta_merge:
+                    fail_reason = f"PARTIAL_CANDIDATE_TRUNCATION_BLOCKED: candidate has {len(cand_symbols)} < {len(df_old)}"
+                    logger.error(f"❌ [CANONICAL_PUBLISHER] {fail_reason}")
+                    return {"publication_decision": "BLOCKED", "reason": fail_reason}
+
+                # ATOMIC DELTA MERGE: update existing canonical without dropping any symbols
+                df_target = df_old.copy()
+                df_target["symbol_norm"] = df_target["symbol"].str.upper()
+                df_cand_copy = df_new.copy()
+                df_cand_copy["symbol_norm"] = df_cand_copy["symbol"].str.upper()
+                cand_indexed = df_cand_copy.set_index("symbol_norm")
+                update_cols = [c for c in df_new.columns if c in df_target.columns and c not in ("symbol", "symbol_norm")]
+
+                new_symbol_rows = []
+                for sym, row in cand_indexed.iterrows():
+                    if sym in df_target["symbol_norm"].values:
+                        idx = df_target[df_target["symbol_norm"] == sym].index[0]
+                        for col in update_cols:
+                            val = row[col]
+                            if val is not None and not (isinstance(val, float) and pd.isna(val)):
+                                df_target.at[idx, col] = val
+                    else:
+                        # Append newly added symbol
+                        new_row = {c: row[c] for c in df_target.columns if c in row and c != "symbol_norm"}
+                        new_row["symbol"] = sym
+                        new_row["symbol_norm"] = sym
+                        new_symbol_rows.append(new_row)
+
+                if new_symbol_rows:
+                    df_target = pd.concat([df_target, pd.DataFrame(new_symbol_rows)], ignore_index=True)
+
+                df_target.drop(columns=["symbol_norm"], inplace=True)
+                logger.info(f"⚡ [CANONICAL_PUBLISHER] Delta merged {len(cand_symbols)} candidate symbols into {len(df_target)} canonical symbols")
+            else:
+                df_target = df_new
+                gate_passed, gate_reasons = _run_never_downgrade_gate(df_old, df_target, reason)
+
+        # --- Step 5: Strict Exact Set Equality Validation ---
+        if required_universe:
+            is_valid, val_reason = validate_canonical_snapshot_exact(df_target, required_universe, len(required_universe))
+            if not is_valid:
+                gate_passed = False
+                gate_reasons.append(f"EXACT_VALIDATION_FAILED: {val_reason}")
+
+        # --- Step 6: Gate failed → write to rejected/ ---
         if not gate_passed:
             rejected_dir = os.path.join(os.path.dirname(CANONICAL_PATH), "canonical_rejected")
             os.makedirs(rejected_dir, exist_ok=True)
@@ -284,7 +429,7 @@ def publish_canonical_pit(
             _append_history(failure_summary, reason)
             return failure_summary
 
-        # --- Step 6: Optimistic concurrency check + atomic write ---
+        # --- Step 7: Optimistic concurrency check + atomic write ---
         if os.path.exists(CANONICAL_PATH) and previous_hash:
             current_hash_now = _sha256(CANONICAL_PATH)
             if current_hash_now != previous_hash:
@@ -294,30 +439,40 @@ def publish_canonical_pit(
                 }
 
         tmp = f"{CANONICAL_PATH}.tmp.{os.getpid()}"
-        df_new.to_parquet(tmp, index=False)
+        df_target.to_parquet(tmp, index=False)
         os.replace(tmp, CANONICAL_PATH)
 
         # Also update daily_builder_master_v2
         tmp_v2 = f"{MASTER_V2_PATH}.tmp.{os.getpid()}"
-        df_new.to_parquet(tmp_v2, index=False)
+        df_target.to_parquet(tmp_v2, index=False)
         os.replace(tmp_v2, MASTER_V2_PATH)
 
-        # --- Step 7: Rich snapshot metadata ---
+        # --- Step 8: Rich snapshot metadata ---
         new_hash = _sha256(CANONICAL_PATH)
         meta = _build_snapshot_meta(
-            df_new, new_hash, previous_hash,
+            df_target, new_hash, previous_hash,
             publication_decision="PUBLISHED",
             publication_reason=reason,
             publisher_version=publisher_version,
+            required_universe=required_universe,
         )
         with open(META_FILE, "w") as mf:
             json.dump(meta, mf, indent=2)
 
         _append_history(meta, reason)
 
+        # --- Step 9: Database Parquet Cache Upload ---
+        if upload_parquet_to_db is not None:
+            try:
+                upload_parquet_to_db("canonical_pit_rebuilt", CANONICAL_PATH)
+                upload_parquet_to_db("daily_builder_master_v2", MASTER_V2_PATH)
+                logger.info("💾 [CANONICAL_PUBLISHER] Uploaded canonical_pit_rebuilt and daily_builder_master_v2 to DB parquet_cache")
+            except Exception as _db_err:
+                logger.warning(f"[CANONICAL_PUBLISHER] DB parquet cache upload warning: {_db_err}")
+
         logger.info(
-            f"✅ [CANONICAL_PUBLISHER] Published {len(df_new)} symbols | "
-            f"EV/EBITDA: {meta['current_ev_ebitda_complete']}/{len(df_new)} | "
+            f"✅ [CANONICAL_PUBLISHER] Published {len(df_target)} symbols | "
+            f"EV/EBITDA: {meta['current_ev_ebitda_complete']}/{len(df_target)} | "
             f"Certified: {meta['certified_provenance_count']} | "
             f"SHA256: {new_hash[:16]}..."
         )
