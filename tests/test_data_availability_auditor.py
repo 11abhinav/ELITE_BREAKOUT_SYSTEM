@@ -272,3 +272,117 @@ def test_discrete_notifications_per_field_per_stock():
         assert "sales_cagr_5y found on Screener.in" in rec_sales.admin_message
         assert "pat_cagr_5y found on Screener.in" in rec_pat.admin_message
 
+
+def test_full_provider_exhaustion_screener_available():
+    """
+    Mandatory Acceptance Test (User Specification):
+      Simulate:
+        NSE → RAW_PRESENT/PARSER_FAIL
+        BSE → NO_DATA
+        UPSTOX → PARTIAL (<6 annual observations)
+        FYERS → UNSUPPORTED_FIELD
+        SCREENER → AVAILABLE
+      Expected:
+        final = REFERENCE_ONLY_AVAILABLE
+        production_write = False
+        buy_allowed = False
+        quarantine = False
+        admin_notification = True
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fyers_p = os.path.join(tmpdir, "fyers.csv")
+        screener_p = os.path.join(tmpdir, "screener.csv")
+        with open(fyers_p, "w") as f:
+            f.write("symbol,field,available,checked_at\nTEST_SYM,sales_cagr_5y,NO,2026-10-04\n")
+        with open(screener_p, "w") as f:
+            f.write("symbol,field,available,checked_at\nTEST_SYM,sales_cagr_5y,YES,2026-10-04\n")
+
+        fyers = OperatorAttestedReferenceSource("FYERS", AuthorityTier.TIER_2_DIAGNOSTIC, fyers_p)
+        screener = OperatorAttestedReferenceSource("SCREENER", AuthorityTier.TIER_3_FORENSIC, screener_p)
+        auditor = DataAvailabilityAuditor(references=[fyers, screener], persist_to_db=False)
+
+        trace = {
+            "isin": "INE999A01010",
+            "nse_raw_count": 8,
+            "nse_usable_count": 0,
+            "nse_parser_status": "PARSER_OR_FIELD_MAPPING_FAILURE",
+            "bse_records": 0,
+            "bse_status": "BSE_NO_DATA",
+            "upstox_records": 2,
+            "upstox_annual": 2,  # Insufficient (<6) for 5Y CAGR
+            "fyers_status": "UNSUPPORTED_FIELD",
+            "exhausted": True,
+        }
+
+        rec = auditor.classify_field("TEST_SYM", "sales_cagr_5y", trace)
+
+        assert rec.classification == AvailabilityClassification.REFERENCE_ONLY_AVAILABLE.value
+        assert rec.production_value_written is False
+        assert rec.buy_allowed is False
+        assert rec.admin_alert_generated is True
+        assert rec.bse_status == "BSE_NO_DATA"
+        assert rec.fyers_status == "UNSUPPORTED_FIELD"
+        assert rec.screener_status == "AVAILABLE"
+
+        # Verify negative cache store does NOT apply 7-day quarantine to reference-available stock
+        store_path = os.path.join(tmpdir, "pit_status.parquet")
+        from app.pit_recovery_cache import PitRecoveryStatusStore
+        store = PitRecoveryStatusStore(parquet_path=store_path)
+        is_quarantined = store.is_quarantined_for_scanner("TEST_SYM", "QUALITY_COMPOUNDER")
+        assert is_quarantined is False
+
+
+def test_full_provider_exhaustion_confirmed_no_data_anywhere():
+    """
+    Mandatory Acceptance Test (User Specification):
+      Simulate:
+        NSE → NO_DATA
+        BSE → NO_DATA
+        UPSTOX → NO_DATA
+        FYERS → NO_DATA
+        SCREENER → NO_DATA
+      Expected:
+        final = CONFIRMED_NO_DATA_ANYWHERE
+        quarantine = 7 days
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fyers_p = os.path.join(tmpdir, "fyers.csv")
+        screener_p = os.path.join(tmpdir, "screener.csv")
+        with open(fyers_p, "w") as f:
+            f.write("symbol,field,available,checked_at\nTEST_EMPTY,sales_cagr_5y,NO,2026-10-04\n")
+        with open(screener_p, "w") as f:
+            f.write("symbol,field,available,checked_at\nTEST_EMPTY,sales_cagr_5y,NO,2026-10-04\n")
+
+        fyers = OperatorAttestedReferenceSource("FYERS", AuthorityTier.TIER_2_DIAGNOSTIC, fyers_p)
+        screener = OperatorAttestedReferenceSource("SCREENER", AuthorityTier.TIER_3_FORENSIC, screener_p)
+        auditor = DataAvailabilityAuditor(references=[fyers, screener], persist_to_db=False)
+
+        trace = {
+            "isin": "INE999B01011",
+            "nse_records": 0,
+            "bse_records": 0,
+            "bse_status": "BSE_NO_DATA",
+            "upstox_records": 0,
+            "fyers_status": "NO_DATA",
+        }
+
+        rec = auditor.classify_field("TEST_EMPTY", "sales_cagr_5y", trace)
+
+        assert rec.classification == AvailabilityClassification.CONFIRMED_NO_DATA_ANYWHERE.value
+        assert rec.production_value_written is False
+        assert rec.buy_allowed is False
+
+        # Apply negative cache and verify 7-day quarantine
+        store_path = os.path.join(tmpdir, "pit_status.parquet")
+        from app.pit_recovery_cache import PitRecoveryStatusStore
+        store = PitRecoveryStatusStore(parquet_path=store_path)
+        store.record_unavailability(
+            symbol="TEST_EMPTY",
+            provider="NSE_XBRL",
+            status=rec.classification,
+            reason=rec.classification,
+            scanner_family="QUALITY_COMPOUNDER",
+            field_name="sales_cagr_5y",
+        )
+        assert store.is_quarantined_for_scanner("TEST_EMPTY", "QUALITY_COMPOUNDER") is True
+

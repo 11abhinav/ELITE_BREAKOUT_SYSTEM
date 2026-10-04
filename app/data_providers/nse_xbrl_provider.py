@@ -332,6 +332,70 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     )
 
 
+def validate_semantic_record(rec: RawFinancialRecord) -> tuple[bool, Optional[str]]:
+    """
+    [RULE 67 CHANGE-RATIONALE: P0 Semantic Correctness Invariant (usable_count > 0 != valid_data).
+    Validates that a parsed RawFinancialRecord is semantically valid:
+      1. Correct period_end date (valid ISO YYYY-MM-DD, 1990 <= date <= today + 2d)
+      2. Correct statement_type (ANNUAL, QUARTERLY, HALF_YEARLY)
+      3. Correct consolidation (CONSOLIDATED, STANDALONE)
+      4. Correct currency (INR) and unit (cr, crores, lakhs, rupees, units)
+      5. Correct metric signs (revenue >= 0 unless exceptional, finite values, no NaNs/Infs)
+      6. At least one core financial fact present and finite.]
+    """
+    if not rec:
+        return False, "NULL_RECORD"
+
+    # 1. Period end validation
+    if not rec.period_end_date or len(rec.period_end_date) != 10:
+        return False, f"INVALID_PERIOD_END_FORMAT: '{rec.period_end_date}'"
+    try:
+        from datetime import datetime, date, timedelta
+        dt = datetime.strptime(rec.period_end_date, "%Y-%m-%d").date()
+        today = date.today()
+        if dt > today + timedelta(days=2):
+            return False, f"FUTURE_PERIOD_END: {rec.period_end_date} > {today}"
+        if dt < date(1990, 1, 1):
+            return False, f"STALE_OR_CORRUPT_PERIOD_END: {rec.period_end_date} < 1990"
+    except Exception as e:
+        return False, f"UNPARSEABLE_PERIOD_END: {e}"
+
+    # 2. Statement type validation
+    st_type = str(getattr(rec, "period_type", "")).upper()
+    if st_type not in ("ANNUAL", "QUARTERLY", "HALF_YEARLY"):
+        return False, f"INVALID_STATEMENT_TYPE: '{st_type}'"
+
+    # 3. Consolidation validation
+    cons = rec.consolidation
+    cons_str = cons.value if hasattr(cons, "value") else str(cons).upper()
+    if cons_str not in ("CONSOLIDATED", "STANDALONE"):
+        return False, f"INVALID_CONSOLIDATION_TYPE: '{cons_str}'"
+
+    # 4. Currency & Unit validation
+    if not rec.currency or rec.currency.upper() != "INR":
+        return False, f"UNSUPPORTED_CURRENCY: '{rec.currency}'"
+    if not rec.unit or str(rec.unit).lower() not in ("cr", "crores", "lakhs", "rupees", "units"):
+        return False, f"UNKNOWN_FINANCIAL_UNIT: '{rec.unit}'"
+
+    # 5. Core metric presence & sanity
+    core_metrics = [rec.revenue, rec.net_profit, rec.ebit, rec.operating_cash_flow, rec.total_debt, rec.total_equity]
+    has_finite_metric = False
+    import math
+    for m in core_metrics:
+        if m is not None:
+            if math.isnan(m) or math.isinf(m):
+                return False, "NAN_OR_INF_METRIC_DETECTED"
+            has_finite_metric = True
+
+    if not has_finite_metric:
+        return False, "ZERO_FINITE_CORE_METRICS"
+
+    # 6. Metric sign checks (Revenues should not be negative in normal GAAP statements)
+    if rec.revenue is not None and rec.revenue < 0:
+        return False, f"NEGATIVE_REVENUE_DETECTED: {rec.revenue}"
+
+    return True, None
+
 
 class NseXbrlProvider:
     """
@@ -473,52 +537,46 @@ class NseXbrlProvider:
                 self.last_status[symbol] = "SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE"
                 return []
 
-        records = []
+        parsed_records = []
+        semantically_valid_records = []
+        semantic_errors = []
+
         for row in raw:
             rec = _parse_row(symbol, row)
             if rec is None:
                 continue
             self.parse_success_count += 1
+            parsed_records.append(rec)
 
-            # Determine if this record has usable financial data
-            has_data = any(
-                v is not None
-                for v in [rec.revenue, rec.net_profit, rec.ebit, rec.operating_cash_flow]
-            )
-            if has_data:
+            is_valid, err_reason = validate_semantic_record(rec)
+            if is_valid:
+                semantically_valid_records.append(rec)
                 self.financial_data_present += 1
-
-            records.append(rec)
-
-        usable = [
-            r for r in records
-            if any(
-                v is not None
-                for v in [r.revenue, r.net_profit, r.ebit, r.operating_cash_flow, r.total_debt]
-            )
-        ]
+            else:
+                semantic_errors.append(f"{rec.period_end_date}: {err_reason}")
 
         logger.info(
-            f"[NSE] {symbol}: {len(usable)}/{len(records)} records with financial data "
+            f"[NSE] {symbol}: {len(semantically_valid_records)}/{len(parsed_records)} semantically valid records "
             f"(401s={self.nse_401_count}, 403s={self.nse_403_count}, "
             f"refreshes={self.session_refresh_count}, retries={self.retry_count})"
         )
 
         self.last_raw_count[symbol] = len(raw)
-        self.last_usable_count[symbol] = len(usable)
+        self.last_usable_count[symbol] = len(semantically_valid_records)
 
-        if raw and not usable:
-            # [RULE 67 CHANGE-RATIONALE: HTTP 200 + raw rows returned > 0 with usable == 0.
+        if raw and not semantically_valid_records:
+            # [RULE 67 CHANGE-RATIONALE: HTTP 200 + raw rows returned > 0 with semantically valid == 0.
             # Explicitly classify as PARSER_OR_FIELD_MAPPING_FAILURE. Never DATA_UNAVAILABLE.]
             self.last_status[symbol] = "PARSER_OR_FIELD_MAPPING_FAILURE"
+            err_summary = "; ".join(semantic_errors[:3])
             logger.warning(
                 f"[NSE] {symbol}: HTTP 200 + {len(raw)} raw rows returned != data unavailable "
-                f"({len(records)} parsed, {len(usable)} usable). "
+                f"({len(parsed_records)} parsed, 0 semantically valid: {err_summary}). "
                 f"Tagging as PARSER_OR_FIELD_MAPPING_FAILURE."
             )
-        elif usable:
+        elif semantically_valid_records:
             self.last_status[symbol] = "PARSE_SUCCESS"
         else:
             self.last_status[symbol] = "NO_DATA_RETURNED"
 
-        return usable
+        return semantically_valid_records

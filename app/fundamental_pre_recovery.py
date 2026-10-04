@@ -107,6 +107,81 @@ class FundamentalPreRecoveryEngine:
     _generate_deterministic_key = staticmethod(_generate_deterministic_key)
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Pre-Recovery Cache Schema Validation Gate
+    # ------------------------------------------------------------------
+
+    def validate_pre_recovery_cache_schema(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        [P0 SCHEMA VALIDATION GATE]
+        Validates the pre-recovery cache schema before initiating any network recovery:
+          - required_field
+          - expected_aliases
+          - schema hash
+          - completeness %
+        Prevents column alias regressions (e.g. roce_5y_avg vs ROCE) from falsely declaring
+        100% of universe incomplete and triggering a massive recovery network storm.
+        """
+        cols_sorted = sorted(str(c) for c in df.columns)
+        schema_hash = hashlib.sha256(",".join(cols_sorted).encode("utf-8")).hexdigest()[:16]
+
+        field_reports: Dict[str, Dict[str, Any]] = {}
+        is_valid = True
+        critical_issues = []
+
+        total_rows = len(df)
+        for field_name, aliases in REQUIRED_FIELD_ALIASES.items():
+            matched_col = None
+            for alias in aliases:
+                if alias in df.columns:
+                    matched_col = alias
+                    break
+
+            if matched_col is not None:
+                non_null = int(df[matched_col].notna().sum())
+                pct = round((non_null / total_rows * 100.0), 1) if total_rows > 0 else 0.0
+                field_reports[field_name] = {
+                    "status": "MATCHED",
+                    "matched_column": matched_col,
+                    "expected_aliases": aliases,
+                    "non_null_count": non_null,
+                    "completeness_pct": pct,
+                }
+            else:
+                is_valid = False
+                issue = f"Missing column alias for required field '{field_name}' (expected one of {aliases})"
+                critical_issues.append(issue)
+                field_reports[field_name] = {
+                    "status": "UNMATCHED_ALIAS",
+                    "matched_column": None,
+                    "expected_aliases": aliases,
+                    "non_null_count": 0,
+                    "completeness_pct": 0.0,
+                }
+
+        audit_result = {
+            "is_valid": is_valid,
+            "schema_hash": schema_hash,
+            "total_columns": len(df.columns),
+            "total_rows": total_rows,
+            "field_reports": field_reports,
+            "critical_issues": critical_issues,
+        }
+
+        if not is_valid:
+            logger.error(
+                f"🚨 [PRE_RECOVERY_SCHEMA_GATE] Schema validation failed (schema_hash={schema_hash}): "
+                f"{critical_issues}. Available columns: {list(df.columns[:15])}..."
+            )
+        else:
+            logger.info(
+                f"✅ [PRE_RECOVERY_SCHEMA_GATE] Schema validation passed (schema_hash={schema_hash}). "
+                f"Completeness: " + ", ".join(f"{k}={v['completeness_pct']}%" for k, v in field_reports.items())
+            )
+
+        return audit_result
+
+    # ------------------------------------------------------------------
     # Field-level incomplete detection
     # ------------------------------------------------------------------
 
@@ -137,9 +212,11 @@ class FundamentalPreRecoveryEngine:
                     break
 
             if matched_col is None:
-                # Column missing entirely → all symbols affected
-                for sym in eval_df.get("symbol", pd.Series([])).unique():
-                    field_map.setdefault(str(sym), []).append(field_name)
+                # Column missing entirely → Log schema warning and avoid false universal incompleteness storm
+                logger.warning(
+                    f"⚠️ [PRE_RECOVERY] Column missing entirely for field '{field_name}' (expected aliases: {aliases}). "
+                    f"Skipping universal missing marking to protect provider quotas."
+                )
             else:
                 missing_mask = eval_df[matched_col].isna()
                 for sym in eval_df[missing_mask]["symbol"].unique():
@@ -287,6 +364,12 @@ class FundamentalPreRecoveryEngine:
             return
 
         total_universe = len(df)
+        schema_audit = self.validate_pre_recovery_cache_schema(df)
+        if not schema_audit["is_valid"] and total_universe > 50:
+            logger.warning(
+                f"⚠️ [SCANNER: {self.scanner_name}] Pre-recovery schema validation flagged issues: {schema_audit['critical_issues']}."
+            )
+
         incomplete_symbols, field_map = self.identify_incomplete_symbols(df)
         complete_count = total_universe - len(incomplete_symbols)
 

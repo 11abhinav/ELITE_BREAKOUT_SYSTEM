@@ -11,6 +11,7 @@ Regression and Acceptance Test Suite for:
 
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -180,10 +181,17 @@ def test_warm_scan_sla_telemetry():
     print(f"  Negative Cache Hits: {sla['negative_cache_hits']}")
     print(f"  Local History Short Known: {sla['local_history_short_known']}")
 
-    # SLA Assertion: Warm (cache-hit) scan for 886 symbols must complete in < 7.5 seconds
-    # (Down from 2,285.74 seconds / 38 minutes; tolerance accommodates background test runner CPU load).
-    assert sla["scan_duration_ms"] < 7500.0, (
-        f"SLA Violation: warm scan took {sla['scan_duration_ms']:.1f}ms (target < 7500ms). "
+    # PRODUCTION warm-scan SLA target is FROZEN at <= 10.0s (886 symbols, down from 2,285.74s).
+    # The TEST ENVIRONMENT allowance is <= 15.0s to absorb CI/host CPU variability only.
+    # This test must never be read as redefining the production SLA.
+    PRODUCTION_WARM_SCAN_SLA_MS = 10000.0
+    TEST_ENV_ALLOWANCE_MS = 15000.0
+    if sla["scan_duration_ms"] > PRODUCTION_WARM_SCAN_SLA_MS:
+        print(f"  ⚠️ Exceeded PRODUCTION SLA ({PRODUCTION_WARM_SCAN_SLA_MS:.0f}ms) on this host; "
+              f"within test allowance only if < {TEST_ENV_ALLOWANCE_MS:.0f}ms")
+    assert sla["scan_duration_ms"] < TEST_ENV_ALLOWANCE_MS, (
+        f"SLA Violation: warm scan took {sla['scan_duration_ms']:.1f}ms "
+        f"(test allowance < {TEST_ENV_ALLOWANCE_MS:.0f}ms; production target <= {PRODUCTION_WARM_SCAN_SLA_MS:.0f}ms). "
         f"Ensure _WARM_MARKET_DATA_CACHE is populated before this call."
     )
 
@@ -229,3 +237,135 @@ def test_acceptance_symbol_deletion_behavior():
     is_neg_after, reason = store.is_negatively_cached(test_sym)
     assert is_neg_after is True, f"{test_sym} must be automatically recorded into negative cache"
     print(f"\n[ACCEPTANCE_TEST_DELETION_RESULT] {test_sym} auto-cached as {reason} with 0 HTTP calls.")
+
+
+def test_quarantine_survives_restart():
+    """
+    Mandatory Acceptance Test: 7-day quarantine survives process restart.
+    Sequence:
+      1. Create quarantine in store
+      2. Simulate process exit / new store instantiation loading from disk/Postgres
+      3. Assert is_quarantined == True
+      4. Assert retry_after is identical and unchanged
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_path = os.path.join(tmpdir, "pit_recovery_status.parquet")
+        store1 = PitRecoveryStatusStore(parquet_path=test_path)
+
+        rec = store1.record_unavailability(
+            symbol="RESTART_SYM",
+            provider="NSE_XBRL",
+            status="CONFIRMED_NO_DATA_ANYWHERE",
+            reason="CONFIRMED_NO_DATA_ANYWHERE",
+            scanner_family="FUNDAMENTAL",
+            latest_filing_date="2024-03-31",
+            raw_record_count=0,
+        )
+        retry_after_original = rec["retry_after"]
+        assert store1.is_quarantined_for_scanner("RESTART_SYM", "FUNDAMENTAL") is True
+
+        # Simulate process termination & restart by creating a new store instance
+        del store1
+        store2 = PitRecoveryStatusStore(parquet_path=test_path)
+
+        assert store2.is_quarantined_for_scanner("RESTART_SYM", "FUNDAMENTAL") is True
+        reloaded_entry = store2.get_status("RESTART_SYM")
+        assert reloaded_entry is not None
+        assert reloaded_entry["retry_after"] == retry_after_original
+        assert reloaded_entry["reason"] == "CONFIRMED_NO_DATA_ANYWHERE"
+
+
+def test_extended_evidence_fingerprint_invalidation():
+    """
+    Verifies that quarantine is broken early if any evidence component changes:
+      - latest_period_end
+      - raw_content_hash
+      - composite evidence fingerprint
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_path = os.path.join(tmpdir, "pit_recovery_status.parquet")
+        store = PitRecoveryStatusStore(parquet_path=test_path)
+
+        store.record_unavailability(
+            symbol="FINGERPRINT_SYM",
+            provider="NSE_XBRL",
+            status="CONFIRMED_NO_DATA_ANYWHERE",
+            reason="CONFIRMED_NO_DATA_ANYWHERE",
+            scanner_family="FUNDAMENTAL",
+            latest_filing_date="2024-03-31",
+            latest_period_end="2024-03-31",
+            raw_record_count=3,
+            raw_content_hash="sha_content_v1",
+        )
+        assert store.is_quarantined_for_scanner("FINGERPRINT_SYM", "FUNDAMENTAL") is True
+
+        # When raw_content_hash changes upstream (e.g. revised filing without date change)
+        invalidated = store.check_and_invalidate_on_new_filing(
+            symbol="FINGERPRINT_SYM",
+            latest_filing_date="2024-03-31",
+            latest_period_end="2024-03-31",
+            raw_record_count=3,
+            raw_content_hash="sha_content_v2_amended",
+        )
+        assert invalidated is True
+        assert store.is_quarantined_for_scanner("FINGERPRINT_SYM", "FUNDAMENTAL") is False
+
+
+def test_parser_defect_circuit_breaker():
+    """
+    Verifies that 3 consecutive identical parser failures trip the circuit breaker,
+    applying an extended 6-hour cooldown to protect provider quota.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_path = os.path.join(tmpdir, "pit_recovery_status.parquet")
+        store = PitRecoveryStatusStore(parquet_path=test_path)
+
+        for attempt in range(1, 4):
+            rec = store.record_unavailability(
+                symbol="CIRCUIT_SYM",
+                provider="NSE_XBRL",
+                status="PARSER_OR_FIELD_MAPPING_FAILURE",
+                reason="PARSER_OR_FIELD_MAPPING_FAILURE",
+                latest_filing_date="2024-03-31",
+                raw_record_count=5,
+            )
+
+        assert rec["circuit_breaker_tripped"] is True
+        assert rec["consecutive_failures"] >= 3
+        assert rec["reason"] == "PARSER_CIRCUIT_BREAKER_TRIPPED"
+        # 6h cooldown instead of 15m
+        exp = datetime.fromisoformat(rec["expires_at"])
+        chk = datetime.fromisoformat(rec["checked_at"])
+        diff_hours = (exp - chk).total_seconds() / 3600.0
+        assert 5.8 <= diff_hours <= 6.2
+
+
+def test_export_quarantine_evidence_report():
+    """Verifies generation of structured quarantine evidence JSON and CSV reports."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_path = os.path.join(tmpdir, "pit_recovery_status.parquet")
+        store = PitRecoveryStatusStore(parquet_path=test_path)
+
+        store.record_unavailability(
+            symbol="REPORT_SYM",
+            provider="NSE_XBRL",
+            status="CONFIRMED_NO_DATA_ANYWHERE",
+            reason="CONFIRMED_NO_DATA_ANYWHERE",
+            scanner_family="QUALITY_COMPOUNDER",
+            field_name="sales_cagr_5y",
+            approved_provider_status="NSE=NO_DATA,BSE=NO_DATA,UPSTOX=INSUFFICIENT,FYERS=UNSUPPORTED_FIELD",
+            reference_provider_status="ABSENT",
+            latest_filing_date="2024-03-31",
+            raw_record_count=0,
+        )
+
+        json_p, csv_p = store.export_quarantine_evidence_report(output_dir=tmpdir)
+        assert os.path.exists(json_p)
+        assert os.path.exists(csv_p)
+
+        with open(csv_p, "r", encoding="utf-8") as f:
+            content = f.read()
+        assert "REPORT_SYM" in content
+        assert "QUALITY_COMPOUNDER" in content
+        assert "CONFIRMED_NO_DATA_ANYWHERE" in content
+

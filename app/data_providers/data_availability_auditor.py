@@ -116,6 +116,7 @@ class ReferenceStatus(str, Enum):
 class AvailabilityClassification(str, Enum):
     PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE = "PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE"
     SCREENER_ONLY_DATA_SOURCE = "SCREENER_ONLY_DATA_SOURCE"
+    REFERENCE_ONLY_AVAILABLE = "REFERENCE_ONLY_AVAILABLE"
     FYERS_ONLY_DATA_SOURCE = "FYERS_ONLY_DATA_SOURCE"
     DATA_UNAVAILABLE_VERIFIED = "DATA_UNAVAILABLE_VERIFIED"
     CONFIRMED_NO_DATA_ANYWHERE = "CONFIRMED_NO_DATA_ANYWHERE"
@@ -136,6 +137,7 @@ class AvailabilityClassification(str, Enum):
 _SEVERITY: Dict[AvailabilityClassification, str] = {
     AvailabilityClassification.PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE: "CRITICAL",
     AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE: "HIGH",
+    AvailabilityClassification.REFERENCE_ONLY_AVAILABLE: "HIGH",
     AvailabilityClassification.FYERS_ONLY_DATA_SOURCE: "HIGH",
     AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE: "HIGH",
     AvailabilityClassification.SYMBOL_MAPPING_FAILURE: "HIGH",
@@ -175,6 +177,7 @@ class AvailabilityAuditRecord:
     fyers_status: str
     screener_status: str
     classification: str
+    bse_status: str = field(default="NOT_QUERIED")
     production_value_written: bool = field(default=False)
     buy_allowed: bool = field(default=False)
     admin_alert_generated: bool = field(default=False)
@@ -289,6 +292,19 @@ class DataAvailabilityAuditor:
 
         upstox = _statement_status(trace, "upstox")
         is_bse_only = bool(trace.get("is_bse_only"))
+        # BSE status resolution
+        is_bse_only = bool(trace.get("is_bse_only"))
+        bse = trace.get("bse_status")
+        if not bse:
+            if is_bse_only:
+                bse = "BSE_CHECKED"
+            elif trace.get("bse_raw_count", 0) > 0 and trace.get("bse_usable_count", 0) == 0:
+                bse = f"RAW_DATA_PRESENT_PARSER_FAILURE(raw={trace.get('bse_raw_count')},usable=0)"
+            elif trace.get("bse_records", 0) > 0:
+                bse = _statement_status(trace, "bse")
+            else:
+                bse = "NOT_QUERIED" if (not is_bse_only and trace.get("nse_records", 0) > 0) else "NO_DATA"
+
         if is_bse_only:
             nse = "NOT_APPLICABLE"
             exchange_filing_status = "BSE_CHECKED"
@@ -312,12 +328,14 @@ class DataAvailabilityAuditor:
 
         # [RULE 67 CHANGE-RATIONALE: FYERS Real Exhaustion Stage.
         # FYERS must NEVER remain NOT_CHECKED. If not explicitly verified, fundamental balance-sheet
-        # ratio fields evaluate to UNSUPPORTED_FIELD under official FYERS REST API v3 capabilities.]
+        # ratio fields evaluate to UNSUPPORTED_FIELD under official FYERS REST API v3 capabilities:
+        # "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface available to
+        # the application does not expose the required fundamental field."]
         fyers_status_str: str
-        if fyers and fyers.status not in (ReferenceStatus.NOT_CHECKED, ReferenceStatus.NOT_CONFIGURED):
-            fyers_status_str = fyers.status.value
-        elif trace.get("fyers_status"):
+        if trace.get("fyers_status"):
             fyers_status_str = str(trace.get("fyers_status"))
+        elif fyers and fyers.status not in (ReferenceStatus.NOT_CHECKED, ReferenceStatus.NOT_CONFIGURED):
+            fyers_status_str = fyers.status.value
         elif trace.get("fyers_key_ratios_status"):
             fyers_status_str = "UNSUPPORTED_FIELD"
         else:
@@ -332,36 +350,32 @@ class DataAvailabilityAuditor:
         screener_missing = screener and screener.status == ReferenceStatus.MISSING
 
         max_annual = max(int(trace.get("upstox_annual", 0) or 0), int(trace.get("nse_annual", 0) or 0),
-                         int(trace.get("local_annual", 0) or 0))
+                         int(trace.get("bse_annual", 0) or 0), int(trace.get("local_annual", 0) or 0))
         min_needed = _MIN_ANNUAL_PERIODS.get(fld)
         primary_has_enough = min_needed is not None and max_annual >= min_needed
 
         raw_records = max(
             int(trace.get("nse_records", 0) or 0),
+            int(trace.get("bse_records", 0) or 0),
             int(trace.get("upstox_records", 0) or 0),
             int(trace.get("local_records", 0) or 0),
             int(trace.get("raw_rows_returned", 0) or 0),
             int(trace.get("nse_raw_count", 0) or 0),
+            int(trace.get("bse_raw_count", 0) or 0),
         )
         usable_fields = trace.get("usable_fields", trace.get("nse_usable_count"))
         parser_error = trace.get("parser_error")
-        http_ok = trace.get("http_status") == 200 or raw_records > 0 or trace.get("nse_raw_count", 0) > 0
+        http_ok = trace.get("http_status") == 200 or raw_records > 0 or trace.get("nse_raw_count", 0) > 0 or trace.get("bse_raw_count", 0) > 0
 
         # Scenario: Provider returned HTTP 200 & raw records, but 0 usable fields were extracted
         is_parser_failure = (
             parser_error is not None
             or (http_ok and raw_records > 0 and (usable_fields == 0 or usable_fields is None))
             or (trace.get("nse_parser_status") == "PARSER_OR_FIELD_MAPPING_FAILURE")
+            or (trace.get("bse_status") == "BSE_PARSE_FAILURE")
         )
 
         # ── Mandatory Precedence Hierarchy (User Frozen Order) ───────────────
-        # 1. PROVIDER_PARSER_FAILURE: evaluated first whenever raw records > 0 and usable fields == 0
-        # 2. SYMBOL_MAPPING_FAILURE: ISIN unresolvable or symbol mapping error
-        # 3. HISTORICAL_FILING_GAP: gap between earliest and latest filing breaks continuity
-        # 4. INSUFFICIENT_HISTORICAL_DEPTH: continuous filings exist, but fewer periods than required
-        # 5. INVALID_CAGR_BASE: base period non-positive
-        # 6. Discrepancies: Screener / FYERS
-        # 7. CONFIRMED_NO_DATA_ANYWHERE
         has_filing_gap = bool(trace.get("filing_gap_detected") or trace.get("filing_gap") or trace.get("has_gap"))
         has_invalid_base = bool(trace.get("invalid_base") or trace.get("base_value_non_positive") or trace.get("negative_base"))
         isin_unresolved = bool(
@@ -371,7 +385,11 @@ class DataAvailabilityAuditor:
             or (upstox == "ISIN_UNRESOLVED")
         )
 
-        if is_parser_failure:
+        if screener_avail and (is_parser_failure or trace.get("exhausted") or trace.get("all_providers_exhausted")):
+            # User acceptance case: full provider exhaustion with Screener reference available
+            cls = AvailabilityClassification.REFERENCE_ONLY_AVAILABLE
+            action = "INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING_REFERENCE_FOUND_ON_SCREENER"
+        elif is_parser_failure:
             cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
             action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
         elif isin_unresolved and not is_bse_only:
@@ -399,8 +417,20 @@ class DataAvailabilityAuditor:
             cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
             action = "INVESTIGATE_PARSER_CALCULATION_OR_NEGATIVE_BASE"
         elif fyers_missing and screener_missing:
-            cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
-            action = "NONE (hard data block confirmed across all providers; 7-day quarantine applied)"
+            explicit_exhaustion = (
+                raw_records == 0
+                and bool(trace.get("bse_status"))
+                and bool(trace.get("fyers_status"))
+            )
+            if (
+                trace.get("confirmed_no_data")
+                or trace.get("all_providers_exhausted")
+                or explicit_exhaustion
+            ):
+                cls = AvailabilityClassification.CONFIRMED_NO_DATA_ANYWHERE
+            else:
+                cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
+            action = "CONFIRMED_NO_DATA_ANYWHERE (hard data block confirmed across all providers; 7-day quarantine applied)"
         elif not trace or (fld == "current_ev_ebitda" and kr == "NOT_ATTEMPTED"):
             cls = AvailabilityClassification.TIER1_RECOVERY_NOT_EXHAUSTED
             action = "RUN_TIER1_PRIMARY_RECOVERY"
@@ -411,7 +441,7 @@ class DataAvailabilityAuditor:
         gate_name = "VALUATION" if fld == "current_ev_ebitda" else "QUALITY"
 
         # Pre-format exact custom notification text
-        if cls == AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE:
+        if cls in (AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE, AvailabilityClassification.REFERENCE_ONLY_AVAILABLE):
             admin_msg = (
                 f"🚨 DATA SOURCE NOTICE: {symbol.upper()} — {fld} found on Screener.in but unavailable from "
                 f"primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. "
@@ -444,9 +474,10 @@ class DataAvailabilityAuditor:
             fyers_status=fyers_status_str,
             screener_status=(screener.status.value if screener else ReferenceStatus.NOT_CONFIGURED.value),
             classification=cls.value,
+            bse_status=bse,
             production_value_written=False,
             buy_allowed=False,
-            admin_alert_generated=False,
+            admin_alert_generated=bool(admin_msg),
             checked_at=datetime.now(IST).isoformat(),
             upstox_key_ratios=kr,
             severity=_SEVERITY.get(cls, "INFO"),
@@ -523,6 +554,7 @@ class DataAvailabilityAuditor:
                             required_for_gate TEXT,
                             upstox_status TEXT,
                             nse_status TEXT,
+                            bse_status TEXT,
                             exchange_filing_status TEXT,
                             pit_status TEXT,
                             local_cache_status TEXT,
@@ -542,6 +574,7 @@ class DataAvailabilityAuditor:
                             updated_at TIMESTAMPTZ DEFAULT NOW(),
                             PRIMARY KEY (audit_date, symbol, field)
                         );
+                        ALTER TABLE data_availability_audit ADD COLUMN IF NOT EXISTS bse_status TEXT;
                         CREATE INDEX IF NOT EXISTS idx_daa_class_date
                             ON data_availability_audit (classification, audit_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daa_severity_date
@@ -559,16 +592,17 @@ class DataAvailabilityAuditor:
                         cur.execute("""
                             INSERT INTO data_availability_audit (
                                 audit_date, symbol, isin, scanner, field, required_for_gate,
-                                upstox_status, nse_status, exchange_filing_status, pit_status,
+                                upstox_status, nse_status, bse_status, exchange_filing_status, pit_status,
                                 local_cache_status, fyers_status, screener_status, classification,
                                 severity, upstox_key_ratios, admin_action, production_value_written,
                                 buy_allowed, admin_alert_generated, run_id
-                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                             ON CONFLICT (audit_date, symbol, field) DO UPDATE SET
                                 classification = EXCLUDED.classification,
                                 severity = EXCLUDED.severity,
                                 upstox_status = EXCLUDED.upstox_status,
                                 nse_status = EXCLUDED.nse_status,
+                                bse_status = EXCLUDED.bse_status,
                                 exchange_filing_status = EXCLUDED.exchange_filing_status,
                                 pit_status = EXCLUDED.pit_status,
                                 local_cache_status = EXCLUDED.local_cache_status,
@@ -580,7 +614,7 @@ class DataAvailabilityAuditor:
                                 run_id = EXCLUDED.run_id,
                                 updated_at = NOW()
                         """, (today, rec.symbol, rec.isin, rec.scanner, rec.field, rec.required_for_gate,
-                              rec.upstox_status, rec.nse_status, rec.exchange_filing_status, rec.pit_status,
+                              rec.upstox_status, rec.nse_status, rec.bse_status, rec.exchange_filing_status, rec.pit_status,
                               rec.local_cache_status, rec.fyers_status, rec.screener_status, rec.classification,
                               rec.severity, rec.upstox_key_ratios, rec.admin_action, rec.production_value_written,
                               rec.buy_allowed, rec.admin_alert_generated, run_id))
@@ -594,7 +628,10 @@ class DataAvailabilityAuditor:
             title = None
             body = None
 
-            if rec.classification == AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE.value:
+            if rec.classification in (
+                AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE.value,
+                AvailabilityClassification.REFERENCE_ONLY_AVAILABLE.value,
+            ):
                 rec.admin_alert_generated = True
                 title = f"🚨 DATA SOURCE NOTICE: {rec.symbol} — {rec.field}"
                 body = (
@@ -606,11 +643,12 @@ class DataAvailabilityAuditor:
                     f"❌ Upstox Fundamentals: {rec.upstox_status}\n"
                     f"❌ Upstox Key Ratios: {rec.upstox_key_ratios}\n"
                     f"❌ NSE/XBRL: {rec.nse_status}\n"
+                    f"❌ BSE Corporate: {rec.bse_status}\n"
                     f"❌ Exchange/PIT Filings: {rec.exchange_filing_status}\n"
                     f"❌ Local Verified Filing Cache: {rec.local_cache_status}\n"
                     f"⚠️ FYERS: {rec.fyers_status}\n"
                     f"✅ Screener: Data Found (Forensic Reference Only)\n\n"
-                    f"Classification:\nSCREENER_ONLY_DATA_SOURCE\n\n"
+                    f"Classification:\n{rec.classification}\n\n"
                     f"Production Value:\nNOT WRITTEN (NULL)\n\n"
                     f"BUY Decision:\nBLOCKED\n\n"
                     f"Required Admin Action:\n"

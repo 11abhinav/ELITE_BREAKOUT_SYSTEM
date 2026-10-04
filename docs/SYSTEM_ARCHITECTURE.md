@@ -864,7 +864,84 @@ EXIT_PROFILES = {
 
 # 21. FROZEN PRODUCTION DATA-RECOVERY & 7-DAY SCANNER QUARANTINE POLICY
 
-### Priority Order & Policy Invariants
+> [!IMPORTANT]
+> **CERTIFICATION STATUS (2026-10-04 18:01 IST): `NOT PRODUCTION-CERTIFIED`.**
+> The real-provider read-only canary (§21.9) returned `CANARY_FAIL`. The architecture and state machine
+> below are frozen; the NSE and BSE *data paths* are proven defective against real data.
+
+## 21.1 Provider Exhaustion Chain (Frozen Order)
+```text
+REQUIRED FIELD
+   ↓
+CANONICAL PIT / DAILY BUILDER CACHE  ── valid + complete? ── YES → USE (no network)
+   ↓ NO  (offline pre-scan recovery only; scanners run WARM, allow_live_refresh=False, 0 HTTP)
+NSE  /  BSE        (listing-aware: BSE-only → NSE = NOT_APPLICABLE)
+   ↓
+UPSTOX
+   ↓
+FYERS              (adapter classification — see §21.3)
+   ↓  approved providers exhausted?
+SCREENER           (FORENSIC_REFERENCE_ONLY; operator-attested, never production truth)
+   ├─ FOUND     → REFERENCE_ONLY_AVAILABLE: canonical write BLOCKED, BUY BLOCKED, admin notified, NO quarantine
+   └─ NOT FOUND → CONFIRMED_NO_DATA_ANYWHERE → 7-day quarantine + evidence fingerprint + retry_after
+```
+Invariant: **"our pipeline failed to retrieve/parse the data" must never be reported as "the data does not exist."**
+
+## 21.2 Raw ≠ Usable ≠ Valid ≠ Metric (P0 Invariants)
+1. `HTTP 200 + raw_records > 0 + usable_records == 0` → `PARSER_OR_FIELD_MAPPING_FAILURE`, never `DATA_UNAVAILABLE`.
+2. `usable_count > 0 ≠ valid_data`: every record passes `validate_semantic_record` (period_end not in future, valid statement type, finite floats, non-negative revenue, unit + currency present, ≥1 finite core metric).
+3. `provider records ≠ metric`: `RECORDS_PRESENT` is distinct from `METRIC_UNAVAILABLE`. 5Y CAGR requires ≥6 annual periods, positive base, continuity; otherwise `CONFIRMED_SHORT_HISTORY` / `INVALID_CAGR_BASE`. A 3Y value is never written into a 5Y field.
+4. `CONFIRMED_NO_DATA_ANYWHERE` requires explicit evidence that every approved provider was checked (`bse_status` and `fyers_status` recorded, or `all_providers_exhausted`). Zero raw records alone yields `DATA_UNAVAILABLE_VERIFIED`.
+
+## 21.3 FYERS API vs FYERS Product UI
+- `fyers_api_classification = UNSUPPORTED_FIELD` — *"FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface available to the application does not expose the required fundamental field."*
+- `fyers_ui_fundamentals = REFERENCE_ONLY` — FYERS displays key ratios in its product UI; that is not an API data path.
+- ~~FYERS API v3 natively returns `UNSUPPORTED_FIELD`.~~ *(Corrected 2026-10-04: no official API-v3 fundamentals endpoint documents this; wording replaced as above.)*
+- Consequence: `RECOVERED_FROM_FYERS` is `UNREACHABLE_BY_DESIGN` under the current API surface.
+
+## 21.4 Reason-Specific TTLs (`app/pit_recovery_cache.py`)
+| Classification | Action |
+|---|---|
+| `PARSER_OR_FIELD_MAPPING_FAILURE` | retry ~15 min; **never** 7-day quarantine |
+| same parser failure ≥3 consecutive | `PARSER_CIRCUIT_BREAKER_TRIPPED`: 6 h cooldown, stop hammering provider, admin P0/P1 |
+| `SYMBOL_MAPPING_FAILURE` | 2 h |
+| provider timeout / 5xx / auth | 30 min |
+| `CONFIRMED_SHORT_HISTORY` / `CONFIRMED_HISTORICAL_GAP` / `CONFIRMED_NO_DATA_ANYWHERE` | **7-day quarantine** |
+
+## 21.5 Dependency-Level Scope
+Quarantine key = `(symbol, field, scanner_family)` — never company-wide. Example: `XYZ.sales_cagr_5y` unavailable everywhere → `QUALITY_COMPOUNDER` quarantined; `TECHNICAL` unaffected. Quarantined pairs are removed from the working universe **before** scanner evaluation. Day 8: upstream re-check; re-quarantine if still absent.
+
+## 21.6 Early Invalidation (Evidence Fingerprint)
+Composite SHA256 of `latest_filing_date, latest_period_end, latest_broadcast_timestamp, raw_record_count, raw_content_hash, provider_snapshot_hash`. Any component or composite change → immediate quarantine release (`check_and_invalidate_on_new_filing`). Catches revised filings that change neither date nor count.
+- ~~Fingerprint = `latest_filing_date` + `raw_record_count` only.~~ *(Replaced 2026-10-04 by the 6-component fingerprint.)*
+
+## 21.7 Persistence, Evidence & Test Isolation
+- Parquet `data/pit_recovery_status.parquet` + PostgreSQL `pit_recovery_status`; survives restart (`test_quarantine_survives_restart`).
+- Evidence export: `data/reports/quarantine_evidence_report.{json,csv}` (symbol, field, scanner, per-provider status, Screener status, classification, window, fingerprint).
+- **DB-sync isolation (P0, 2026-10-04):** PostgreSQL download/upload happens only if the store path resolves exactly to `PRODUCTION_QUARANTINE_PATH` **and** `QUARANTINE_DB_SYNC_ENABLED` is not false. A non-production path can never enable sync. `tests/conftest.py` sets the flag false for every pytest session. Proven by `tests/test_quarantine_db_sync_isolation.py` (temp store → local writes OK, PostgreSQL calls = 0).
+- Recovery vs promotion are separate: `recovery_status ∈ {SUCCESS, PARTIAL_SUCCESS, UNAVAILABLE}`, `promotion_status ∈ {PROMOTED, BLOCKED}` with reason.
+- Pre-recovery cache schema gate (`validate_pre_recovery_cache_schema`) checks required fields/aliases/schema hash/completeness before any network recovery, preventing alias regressions (e.g. `ROCE` vs `roce_5y_avg`) from triggering recovery storms.
+
+## 21.8 Performance SLA
+Production warm-scan target: **≤ 10 s** (886 symbols, 0 HTTP). Test-environment allowance: ≤ 15 s for host variability only — the test does not redefine the production SLA.
+
+## 21.9 Real-Provider Canary (`scripts/canary_recovery_audit.py`)
+Read-only by six independent guards (env kill-switch, raw-filing persist no-op, DB write entry points blocked, auditor `classify_field` only, no quarantine store, filesystem tripwire over `data/`). 25-symbol frozen cohort across large-cap, banks, P0 parser cohort, renamed, recent listings, negative numbers, consolidated/standalone, deliberate mapping failure.
+
+**Run 2026-10-04 18:01 IST — `CANARY_FAIL`** (evidence `data/reports/canary/20261004_180134/`, sha256 `b7d51d70…`). Read-only intact: 0 blocked DB calls, 0 filesystem changes.
+
+| Finding | Severity |
+|---|---|
+| **NSE: 16/16 symbols with rows → `raw > 0, usable = 0`** (incl. TCS, RELIANCE). Root cause: `/api/corporates-financial-results?index=equities&symbol=` returns a **filing index** (dates, `xbrl`/`resultDetailedDataLink` URLs) with **no financial values**. Alias/date fixes cannot work; the per-filing XBRL document must be fetched and parsed. | P0 |
+| NSE: `period: "Half-Yearly"` (Apr–Sep) rows are typed `ANNUAL` — semantic misclassification masked only because values are empty. | P0 |
+| NSE: index returns only legacy 2009–2012 rows for these symbols (no recent filings in the window). | P1 |
+| **BSE: `BSE_HTTP_ERROR` for every mapped symbol; `BSE_SYMBOL_NOT_FOUND` for unmapped** (resolver relies on 12-entry static map). BSE exhaustion is not real. | P0 |
+| All recovered metrics came from **Upstox** only. | — |
+| State coverage — observed: `RECOVERED_FROM_UPSTOX`, `REFERENCE_ONLY_AVAILABLE`, `CONFIRMED_SHORT_HISTORY`, `PARSER_OR_FIELD_MAPPING_FAILURE`, `SYMBOL_MAPPING_FAILURE`; not observed: `RECOVERED_FROM_NSE`, `RECOVERED_FROM_BSE`, `CONFIRMED_NO_DATA_ANYWHERE`, `HISTORICAL_FILING_GAP`; unreachable: `RECOVERED_FROM_FYERS`. | — |
+
+- ~~P0 NSE parser fix (date normalization, parentheses, aliases, annual/quarterly inference) resolves ADOR/BASF/GABRIEL/GLOBUSSPR/STYRENIX.~~ *(Disproved 2026-10-04 by real-provider canary: the endpoint carries no financial values; mocked tests used a payload shape NSE does not return.)*
+
+### ~~Priority Order & Policy Invariants~~ *(Superseded 2026-10-04 by §21.1–21.9 above; retained for audit history. Item 1's parser-fix claim and item 6's 2-field fingerprint are no longer accurate.)*
 1. **P0: Fix Provider Parsing & Mapping First**:
    - `HTTP 200 + raw rows > 0 + usable fields == 0` $\rightarrow$ `PARSER_OR_FIELD_MAPPING_FAILURE`, never `DATA_UNAVAILABLE`.
    - Comprehensive exchange date normalization (`%Y-%m-%d`, `%d-%b-%Y`, `%d/%m/%Y`, `%d-%m-%Y`, `%b-%Y`, `%Y%m%d`), span-based period inference (span $\ge 300\text{d} \rightarrow$ ANNUAL), and parenthesis negative handling `(12.34) \rightarrow -12.34`.

@@ -18,9 +18,10 @@ Implements P1 Governance Directive:
 """
 
 from __future__ import annotations
-import os
+import hashlib
 import json
 import logging
+import os
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Tuple, List
@@ -33,9 +34,29 @@ IST = ZoneInfo("Asia/Kolkata")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DEFAULT_RECOVERY_STATUS_PATH = os.path.join(DATA_DIR, "pit_recovery_status.parquet")
+PRODUCTION_QUARANTINE_PATH = DEFAULT_RECOVERY_STATUS_PATH
+QUARANTINE_DB_SYNC_ENV = "QUARANTINE_DB_SYNC_ENABLED"
+
+
+def is_quarantine_db_sync_allowed(parquet_path: str) -> bool:
+    """
+    [RULE 67 CHANGE-RATIONALE: P0 TEST->PRODUCTION DB ISOLATION]
+    PostgreSQL sync of the quarantine table is permitted ONLY when BOTH hold:
+      1. The store path resolves exactly to PRODUCTION_QUARANTINE_PATH.
+      2. QUARANTINE_DB_SYNC_ENABLED is not explicitly disabled ("false"/"0"/"no").
+    A non-production path can NEVER enable sync, regardless of the env flag.
+    """
+    try:
+        if os.path.realpath(parquet_path) != os.path.realpath(PRODUCTION_QUARANTINE_PATH):
+            return False
+    except Exception:
+        return False
+    flag = os.environ.get(QUARANTINE_DB_SYNC_ENV, "true").strip().lower()
+    return flag not in ("false", "0", "no", "off")
 
 # [RULE 67 CHANGE-RATIONALE: Strict reason-specific TTLs.
 # PARSER_OR_FIELD_MAPPING_FAILURE is an internal code/mapping bug requiring short retries (15m).
+# If repeated >= 3 times with identical fingerprint, PARSER_CIRCUIT_BREAKER_TRIPPED applies 6h cooldown.
 # 7-day quarantine applies ONLY to confirmed, deterministic data absences.]
 REASON_SPECIFIC_TTLS: Dict[str, timedelta] = {
     "PROVIDER_FAILURE": timedelta(minutes=30),     # Transient broker/upstream network outage
@@ -45,6 +66,7 @@ REASON_SPECIFIC_TTLS: Dict[str, timedelta] = {
     "SYMBOL_MAPPING_FAILURE": timedelta(hours=2),
     "PARSER_OR_FIELD_MAPPING_FAILURE": timedelta(minutes=15),  # High priority defect: NEVER 7 days!
     "PARSER_FAILURE": timedelta(minutes=15),
+    "PARSER_CIRCUIT_BREAKER_TRIPPED": timedelta(hours=6),     # Repeated parser failures circuit breaker
     "CONFIRMED_NO_DATA": timedelta(days=7),
     "CONFIRMED_SHORT_HISTORY": timedelta(days=7),
     "CONFIRMED_HISTORICAL_GAP": timedelta(days=7),
@@ -71,13 +93,41 @@ COLUMNS = [
     "retry_after",
     "failure_fingerprint",
     "provider_fingerprint",
+    "evidence_fingerprint",
     "latest_filing_date",
     "latest_period",
+    "latest_period_end",
+    "latest_broadcast_timestamp",
     "raw_record_count",
+    "raw_content_hash",
+    "provider_snapshot_hash",
     "attempt_count",
+    "consecutive_failures",
+    "circuit_breaker_tripped",
     "resolution_status",
     "source_attempts",
 ]
+
+
+def compute_evidence_fingerprint(
+    latest_filing_date: Optional[str] = None,
+    latest_period_end: Optional[str] = None,
+    latest_broadcast_timestamp: Optional[str] = None,
+    raw_record_count: Optional[int] = None,
+    raw_content_hash: Optional[str] = None,
+    provider_snapshot_hash: Optional[str] = None,
+) -> str:
+    """Computes a canonical SHA256 digest over all upstream exchange filing properties."""
+    components = [
+        str(latest_filing_date or ""),
+        str(latest_period_end or ""),
+        str(latest_broadcast_timestamp or ""),
+        str(raw_record_count or 0),
+        str(raw_content_hash or ""),
+        str(provider_snapshot_hash or ""),
+    ]
+    raw_str = "|".join(components)
+    return hashlib.sha256(raw_str.encode("utf-8")).hexdigest()
 
 _QUARANTINE_REASONS = {
     "CONFIRMED_NO_DATA_ANYWHERE",
@@ -95,6 +145,8 @@ class PitRecoveryStatusStore:
 
     def __init__(self, parquet_path: Optional[str] = None):
         self.parquet_path = parquet_path or DEFAULT_RECOVERY_STATUS_PATH
+        self.db_sync_enabled = is_quarantine_db_sync_allowed(self.parquet_path)
+        self.db_sync_attempts = 0  # Telemetry for isolation regression tests
         self._lock = threading.RLock()
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._loaded = False
@@ -104,7 +156,7 @@ class PitRecoveryStatusStore:
         with self._lock:
             # [RULE 67 CHANGE-RATIONALE: P1_DURABLE_NEGATIVE_CACHE]
             # Download negative cache from PostgreSQL if absent on local disk after restart.
-            if not os.path.exists(self.parquet_path):
+            if not os.path.exists(self.parquet_path) and self.db_sync_enabled:
                 try:
                     from app.database import download_parquet_from_db
                     download_parquet_from_db("pit_recovery_status", self.parquet_path)
@@ -161,8 +213,12 @@ class PitRecoveryStatusStore:
                 df.to_parquet(tmp_path, index=False)
                 os.replace(tmp_path, self.parquet_path)
                 # Sync negative availability cache to PostgreSQL asynchronously
+                # (production path + env flag only; see is_quarantine_db_sync_allowed)
+                if not self.db_sync_enabled:
+                    return
                 try:
                     from app.database import upload_parquet_to_db, submit_background_upload
+                    self.db_sync_attempts += 1
                     submit_background_upload(lambda: upload_parquet_to_db("pit_recovery_status", self.parquet_path))
                 except Exception as _sync_err:
                     logger.debug(f"DB sync notice for pit_recovery_status: {_sync_err}")
@@ -223,13 +279,23 @@ class PitRecoveryStatusStore:
         self,
         symbol: str,
         latest_filing_date: Optional[str] = None,
-        raw_record_count: Optional[int] = None
+        raw_record_count: Optional[int] = None,
+        latest_period_end: Optional[str] = None,
+        latest_broadcast_timestamp: Optional[str] = None,
+        raw_content_hash: Optional[str] = None,
+        provider_snapshot_hash: Optional[str] = None,
     ) -> bool:
         """
         [RULE 67 CHANGE-RATIONALE: Evidence Fingerprint Invalidation Invariant.
-        Breaks the 7-day quarantine early if a newer filing date or increased raw record
-        count is observed upstream on the exchange, ensuring no symbol remains blocked
-        after publishing new financial statements.]
+        Breaks the 7-day quarantine early if any component of upstream exchange
+        evidence changes:
+          - latest_filing_date
+          - latest_period_end
+          - latest_broadcast_timestamp
+          - raw_record_count
+          - raw_content_hash
+          - provider_snapshot_hash
+        Ensuring revised filings or updated periods immediately release the stock.]
         """
         sym = symbol.strip().upper()
         with self._lock:
@@ -239,18 +305,60 @@ class PitRecoveryStatusStore:
 
             invalidated = False
             cached_date = str(entry.get("latest_filing_date") or "")
+            cached_period_end = str(entry.get("latest_period_end") or "")
+            cached_broadcast = str(entry.get("latest_broadcast_timestamp") or "")
             cached_count = int(entry.get("raw_record_count") or 0)
+            cached_content_hash = str(entry.get("raw_content_hash") or "")
+            cached_snapshot_hash = str(entry.get("provider_snapshot_hash") or "")
+            cached_evidence_hash = str(entry.get("evidence_fingerprint") or "")
 
             if latest_filing_date and cached_date and str(latest_filing_date)[:10] > cached_date[:10]:
                 logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer filing detected for {sym}: "
+                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer filing date detected for {sym}: "
                     f"exchange={latest_filing_date[:10]} > cached={cached_date[:10]}. Invalidating cooldown immediately."
+                )
+                invalidated = True
+            elif latest_period_end and cached_period_end and str(latest_period_end)[:10] > cached_period_end[:10]:
+                logger.info(
+                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer period end detected for {sym}: "
+                    f"exchange={latest_period_end[:10]} > cached={cached_period_end[:10]}. Invalidating cooldown immediately."
+                )
+                invalidated = True
+            elif latest_broadcast_timestamp and cached_broadcast and str(latest_broadcast_timestamp) > cached_broadcast:
+                logger.info(
+                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer broadcast timestamp detected for {sym}: "
+                    f"exchange={latest_broadcast_timestamp} > cached={cached_broadcast}. Invalidating cooldown immediately."
                 )
                 invalidated = True
             elif raw_record_count is not None and raw_record_count > cached_count and cached_count > 0:
                 logger.info(
                     f"⚡ [NEGATIVE_CACHE_INVALIDATED] Additional raw records detected for {sym}: "
                     f"raw_records={raw_record_count} > cached={cached_count}. Invalidating cooldown immediately."
+                )
+                invalidated = True
+            elif raw_content_hash and cached_content_hash and raw_content_hash != cached_content_hash:
+                logger.info(
+                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Raw content hash changed for {sym}. Invalidating cooldown immediately."
+                )
+                invalidated = True
+            elif provider_snapshot_hash and cached_snapshot_hash and provider_snapshot_hash != cached_snapshot_hash:
+                logger.info(
+                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Provider snapshot hash changed for {sym}. Invalidating cooldown immediately."
+                )
+                invalidated = True
+
+            new_fingerprint = compute_evidence_fingerprint(
+                latest_filing_date=latest_filing_date or cached_date or None,
+                latest_period_end=latest_period_end or cached_period_end or None,
+                latest_broadcast_timestamp=latest_broadcast_timestamp or cached_broadcast or None,
+                raw_record_count=raw_record_count if raw_record_count is not None else cached_count,
+                raw_content_hash=raw_content_hash or cached_content_hash or None,
+                provider_snapshot_hash=provider_snapshot_hash or cached_snapshot_hash or None,
+            )
+            if cached_evidence_hash and new_fingerprint != cached_evidence_hash:
+                logger.info(
+                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Composite evidence fingerprint changed for {sym}: "
+                    f"{new_fingerprint[:8]} != {cached_evidence_hash[:8]}. Invalidating cooldown immediately."
                 )
                 invalidated = True
 
@@ -273,24 +381,72 @@ class PitRecoveryStatusStore:
         field_name: str = "ALL",
         latest_filing_date: Optional[str] = None,
         latest_period: Optional[str] = None,
+        latest_period_end: Optional[str] = None,
+        latest_broadcast_timestamp: Optional[str] = None,
         raw_record_count: Optional[int] = None,
+        raw_content_hash: Optional[str] = None,
+        provider_snapshot_hash: Optional[str] = None,
         approved_provider_status: Optional[str] = None,
         reference_provider_status: Optional[str] = None,
         persist: bool = True
     ) -> Dict[str, Any]:
         """
-        Records a negative cache entry with reason-specific TTL and atomically persists.
+        Records a negative cache entry with reason-specific TTL, circuit breaker for
+        repeated identical parser defects, and atomically persists.
         """
         sym = symbol.strip().upper()
         now_dt = datetime.now(IST)
         status_u = str(status).upper()
         reason_u = str(reason).upper()
 
-        if ttl is None:
-            # Check exact reason match first, then status
+        fail_fp = f"{sym}:{reason_u}:{latest_filing_date or 'NONE'}:{raw_record_count or 0}"
+        consecutive_failures = 1
+        circuit_breaker_tripped = False
+
+        with self._lock:
+            existing = self._cache.get(sym)
+            if existing is not None:
+                attempt_cnt = int(existing.get("attempt_count", 0)) + 1
+                prev_fp = str(existing.get("failure_fingerprint", ""))
+                prev_cons = int(existing.get("consecutive_failures", 1))
+                if prev_fp == fail_fp:
+                    consecutive_failures = prev_cons + 1
+                else:
+                    consecutive_failures = 1
+            else:
+                attempt_cnt = 1
+
+        # Circuit Breaker: Repeated parser failures (>2 times) trip extended 6-hour cooldown
+        if ("PARSER" in reason_u or "PARSER" in status_u) and consecutive_failures >= 3:
+            circuit_breaker_tripped = True
+            ttl = timedelta(hours=6)
+            reason_u = "PARSER_CIRCUIT_BREAKER_TRIPPED"
+            logger.error(
+                f"🛑 [PARSER_CIRCUIT_BREAKER] {sym}: Repeated identical parser failure ({consecutive_failures}x). "
+                f"Tripping circuit breaker! Extended 6h cooldown applied to prevent quota exhaustion."
+            )
+            try:
+                from database import insert_notification
+                insert_notification(
+                    "P0_PARSER_CIRCUIT_BREAKER_TRIPPED",
+                    f"🛑 Parser failure circuit breaker tripped for {sym}. Provider: {provider}. Fingerprint: {fail_fp}. Cooldown: 6 hours.",
+                    priority="HIGH",
+                )
+            except Exception:
+                pass
+        elif ttl is None:
             ttl = REASON_SPECIFIC_TTLS.get(reason_u, REASON_SPECIFIC_TTLS.get(status_u, timedelta(days=7)))
 
         expires_dt = now_dt + ttl
+        evidence_fp = compute_evidence_fingerprint(
+            latest_filing_date=latest_filing_date,
+            latest_period_end=latest_period_end or latest_period,
+            latest_broadcast_timestamp=latest_broadcast_timestamp,
+            raw_record_count=raw_record_count,
+            raw_content_hash=raw_content_hash,
+            provider_snapshot_hash=provider_snapshot_hash,
+        )
+
         record = {
             "symbol": sym,
             "scanner_family": str(scanner_family).upper(),
@@ -305,25 +461,85 @@ class PitRecoveryStatusStore:
             "checked_at": now_dt.isoformat(),
             "expires_at": expires_dt.isoformat(),
             "retry_after": expires_dt.isoformat(),
-            "failure_fingerprint": f"{sym}:{reason_u}:{latest_filing_date or 'NONE'}",
+            "failure_fingerprint": fail_fp,
             "provider_fingerprint": f"{provider}:{raw_record_count or 0}",
+            "evidence_fingerprint": evidence_fp,
             "latest_filing_date": str(latest_filing_date) if latest_filing_date else None,
             "latest_period": str(latest_period) if latest_period else None,
+            "latest_period_end": str(latest_period_end) if latest_period_end else None,
+            "latest_broadcast_timestamp": str(latest_broadcast_timestamp) if latest_broadcast_timestamp else None,
             "raw_record_count": int(raw_record_count or 0),
-            "attempt_count": 1,
+            "raw_content_hash": str(raw_content_hash) if raw_content_hash else None,
+            "provider_snapshot_hash": str(provider_snapshot_hash) if provider_snapshot_hash else None,
+            "attempt_count": attempt_cnt,
+            "consecutive_failures": consecutive_failures,
+            "circuit_breaker_tripped": circuit_breaker_tripped,
             "resolution_status": "BLOCKED",
             "source_attempts": json.dumps(source_attempts) if source_attempts else "{}",
         }
 
         with self._lock:
-            existing = self._cache.get(sym)
-            if existing is not None:
-                record["attempt_count"] = int(existing.get("attempt_count", 0)) + 1
             self._cache[sym] = record
             if persist:
                 self._atomic_persist()
 
         return record
+
+    def export_quarantine_evidence_report(self, output_dir: Optional[str] = None) -> Tuple[str, str]:
+        """
+        Exports structured quarantine evidence table to data/reports/quarantine_evidence_report.json and .csv.
+        Columns: Symbol, Field, Scanner_Family, Approved_Providers, Screener, Classification,
+                 Quarantine_Start, Retry_After, Evidence_Fingerprint, Circuit_Breaker_Status.
+        """
+        out_dir = output_dir or os.path.join(DATA_DIR, "reports")
+        os.makedirs(out_dir, exist_ok=True)
+        json_path = os.path.join(out_dir, "quarantine_evidence_report.json")
+        csv_path = os.path.join(out_dir, "quarantine_evidence_report.csv")
+
+        with self._lock:
+            entries = list(self._cache.values())
+
+        report_rows = []
+        for e in entries:
+            sym = e.get("symbol")
+            field = e.get("field", "ALL")
+            scanner = e.get("scanner_family", "FUNDAMENTAL")
+            approved = e.get("approved_provider_status", e.get("provider", "UNKNOWN"))
+            screener = e.get("reference_provider_status", "NOT_CHECKED")
+            cls = e.get("classification", e.get("reason", "UNKNOWN"))
+            q_start = e.get("checked_at", "")
+            retry_after = e.get("retry_after", e.get("expires_at", ""))
+            fp = e.get("evidence_fingerprint") or e.get("failure_fingerprint", "")
+            cb = "TRIPPED" if e.get("circuit_breaker_tripped") else "NORMAL"
+
+            report_rows.append({
+                "Symbol": sym,
+                "Field": field,
+                "Scanner_Family": scanner,
+                "Approved_Providers": approved,
+                "Screener": screener,
+                "Classification": cls,
+                "Quarantine_Start": q_start,
+                "Retry_After": retry_after,
+                "Evidence_Fingerprint": fp,
+                "Circuit_Breaker_Status": cb,
+            })
+
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(report_rows, f, indent=2)
+
+        if report_rows:
+            import csv
+            with open(csv_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=list(report_rows[0].keys()))
+                writer.writeheader()
+                writer.writerows(report_rows)
+        else:
+            with open(csv_path, "w", encoding="utf-8") as f:
+                f.write("Symbol,Field,Scanner_Family,Approved_Providers,Screener,Classification,Quarantine_Start,Retry_After,Evidence_Fingerprint,Circuit_Breaker_Status\n")
+
+        logger.info(f"📊 [QUARANTINE_REPORT] Exported {len(report_rows)} quarantine evidence records to {json_path} and {csv_path}")
+        return json_path, csv_path
 
     def bulk_record_unavailability(self, records: List[Dict[str, Any]]) -> None:
         """Batch-records multiple negative availability entries with a single atomic disk write."""

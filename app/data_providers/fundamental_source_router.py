@@ -34,6 +34,7 @@ try:
     )
     from app.data_providers.fundamental_reconciler import FundamentalReconciler
     from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+    from app.data_providers.bse_corporate_provider import BseCorporateProvider
     from app.data_providers.upstox_fundamentals_provider import UpstoxFundamentalsProvider
 except ImportError:
     from data_providers.fundamental_models import (
@@ -44,6 +45,7 @@ except ImportError:
     )
     from data_providers.fundamental_reconciler import FundamentalReconciler
     from data_providers.nse_xbrl_provider import NseXbrlProvider
+    from data_providers.bse_corporate_provider import BseCorporateProvider
     from data_providers.upstox_fundamentals_provider import UpstoxFundamentalsProvider
 
 logger = logging.getLogger(__name__)
@@ -51,12 +53,14 @@ logger = logging.getLogger(__name__)
 
 class FundamentalSourceRouter:
     """
-    Progressive dual-source router for fundamental data recovery.
+    Progressive multi-source router for fundamental data recovery:
+    Exhaustion order: Canonical PIT -> NSE -> BSE -> Upstox -> FYERS -> Screener.
     """
 
     def __init__(self):
         self.upstox_provider = UpstoxFundamentalsProvider()
         self.nse_provider = NseXbrlProvider()
+        self.bse_provider = BseCorporateProvider()
         self.reconciler = FundamentalReconciler()
         # [RULE 67 CHANGE-RATIONALE: Per-symbol Tier-1 provider trace consumed by the
         # DataAvailabilityAuditor to distinguish "provider returned periods but field unresolved"
@@ -430,11 +434,28 @@ class FundamentalSourceRouter:
         else:
             logger.info(f"[NSE] {symbol}: Security is BSE-only. NSE is NOT_APPLICABLE.")
 
+        # --- Step 2b: BSE Corporate Results (Listing-Aware & Exchange Exhaustion) ---
+        bse_records: List[RawFinancialRecord] = []
+        bse_raw_cnt = 0
+        bse_parser_status = "NOT_CHECKED"
+        # Check BSE if security is BSE-only, or if NSE returned 0 usable records (or parser error)
+        if is_bse_only or len(nse_records) == 0:
+            bse_records = self.bse_provider.fetch_raw_financials(symbol)
+            bse_raw_cnt = self.bse_provider.last_raw_count.get(symbol, 0)
+            bse_parser_status = self.bse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
+            logger.info(
+                f"[BSE] {symbol}: {len(bse_records)} usable records (raw={bse_raw_cnt}, status={bse_parser_status})"
+            )
+        else:
+            bse_parser_status = "NSE_SUFFICIENT"
+
         # Persist newly fetched live records to pit_raw_filings for future reuse
         if upstox_records:
             self._persist_raw_filings(symbol, upstox_records)
         elif nse_records:
             self._persist_raw_filings(symbol, nse_records)
+        elif bse_records:
+            self._persist_raw_filings(symbol, bse_records)
 
         # --- Step 3: Local Raw Filings ---
         local_records = self._fetch_local_raw_filings(symbol)
@@ -453,22 +474,50 @@ class FundamentalSourceRouter:
             "nse_raw_count": nse_raw_cnt,
             "nse_usable_count": len(nse_records),
             "nse_parser_status": nse_parser_status,
-            "raw_rows_returned": nse_raw_cnt or len(upstox_records) or len(local_records),
-            "usable_fields": len(nse_records) if nse_raw_cnt > 0 else (len(upstox_records) or len(local_records)),
-            "parser_error": "PARSER_OR_FIELD_MAPPING_FAILURE" if (nse_raw_cnt > 0 and len(nse_records) == 0) else None,
+            "bse_records": len(bse_records),
+            "bse_annual": _annual_count(bse_records),
+            "bse_raw_count": bse_raw_cnt,
+            "bse_usable_count": len(bse_records),
+            "bse_status": bse_parser_status,
+            "raw_rows_returned": nse_raw_cnt or bse_raw_cnt or len(upstox_records) or len(local_records),
+            "usable_fields": len(nse_records) or len(bse_records) or len(upstox_records) or len(local_records),
+            "parser_error": (
+                "PARSER_OR_FIELD_MAPPING_FAILURE"
+                if ((nse_raw_cnt > 0 and len(nse_records) == 0) or (bse_raw_cnt > 0 and len(bse_records) == 0))
+                else None
+            ),
             "local_records": len(local_records),
             "local_annual": _annual_count(local_records),
+            "fyers_api_classification": "UNSUPPORTED_FIELD",
+            "fyers_api_reason": (
+                "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface "
+                "available to the application does not expose the required fundamental field."
+            ),
+            "fyers_ui_fundamentals": "REFERENCE_ONLY",
         })
 
         # --- Step 4: Route ---
         has_upstox = len(upstox_records) > 0
         has_nse = len(nse_records) > 0
+        has_bse = len(bse_records) > 0
         has_local = len(local_records) > 0
 
         # Tier 1: Upstox + NSE dual-source
         if has_upstox and has_nse:
             metrics = self.reconciler.reconcile_and_calculate(symbol, nse_records, upstox_records)
             logger.info(f"[RECONCILIATION] {symbol}: status={metrics.overall_status.name}")
+            return metrics
+
+        # Tier 1b: Upstox + BSE dual-source
+        if has_upstox and has_bse:
+            metrics = self.reconciler.reconcile_and_calculate(symbol, bse_records, upstox_records)
+            logger.info(f"[RECONCILIATION_UPSTOX_BSE] {symbol}: status={metrics.overall_status.name}")
+            return metrics
+
+        # Tier 1c: NSE + BSE dual-source
+        if has_nse and has_bse:
+            metrics = self.reconciler.reconcile_and_calculate(symbol, nse_records, bse_records)
+            logger.info(f"[RECONCILIATION_NSE_BSE] {symbol}: status={metrics.overall_status.name}")
             return metrics
 
         # Tier 2: Upstox + Certified Local Raw Filings dual-source
@@ -483,12 +532,21 @@ class FundamentalSourceRouter:
             logger.info(f"[DUAL_SOURCE_NSE_LOCAL] {symbol}: status={metrics.overall_status.name}")
             return metrics
 
+        # Tier 3b: BSE + Certified Local Raw Filings dual-source
+        if has_bse and has_local:
+            metrics = self._reconcile_upstox_and_local(symbol, bse_records, local_records, as_of_timestamp=as_of_timestamp)
+            logger.info(f"[DUAL_SOURCE_BSE_LOCAL] {symbol}: status={metrics.overall_status.name}")
+            return metrics
+
         # Tier 4: Single source fallbacks
         if has_upstox:
             return self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp)
 
         if has_nse:
             return self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
+
+        if has_bse:
+            return self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp)
 
         if has_local:
             logger.info(f"[LOCAL_RAW] {symbol}: Loaded {len(local_records)} records from certified local raw filings.")
@@ -636,12 +694,18 @@ class FundamentalSourceRouter:
                         trace["fyers_quotes_endpoint"] = "https://api-t1.fyers.in/data/quotes"
                         # [PROVENANCE INVARIANT: FYERS API v3 Key Ratios Boundary]
                         # FYERS Quotes API v3 returns market quote fields (lp, volume, open_price, high_price, low_price, etc).
-                        # FYERS API v3 documentation (https://myapi.fyers.in/docsv3) does NOT provide a public REST
-                        # endpoint for Key Ratios (EV/EBITDA, ROCE, ROE, Debt/Equity).
-                        # Therefore, fundamental valuation ratios cannot be fabricated from quotes.
-                        trace["fyers_key_ratios_status"] = "UNSUPPORTED_IN_PUBLIC_REST_API_V3"
-                        trace["fyers_status"] = "MARKET_QUOTES_AVAILABLE_KEY_RATIOS_UNSUPPORTED"
-                        logger.info(f"⚡ [ROUTER: FYERS_APPROVED_SOURCE] Retrieved Fyers API v3 market quotes for {symbol} (LTP={quote_data.get('lp')}). Fundamental ratios remain unsupported in public REST v3.")
+                        # FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface
+                        # available to the application does not expose the required fundamental field.
+                        # (Key ratios displayed in FYERS platform/product UI serve as forensic reference only).
+                        trace["fyers_api_status"] = "UNSUPPORTED_FIELD"
+                        trace["fyers_ui_fundamentals"] = "REFERENCE_ONLY"
+                        trace["fyers_key_ratios_status"] = "UNSUPPORTED_FIELD"
+                        trace["fyers_status"] = "UNSUPPORTED_FIELD"
+                        trace["fyers_reason"] = (
+                            "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface "
+                            "available to the application does not expose the required fundamental field."
+                        )
+                        logger.info(f"⚡ [ROUTER: FYERS_APPROVED_SOURCE] Retrieved Fyers API v3 market quotes for {symbol} (LTP={quote_data.get('lp')}). FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface available to the application does not expose the required fundamental field.")
             except Exception as _fe:
                 logger.debug(f"[ROUTER] FYERS recovery attempt notice for {symbol}: {_fe}")
 
