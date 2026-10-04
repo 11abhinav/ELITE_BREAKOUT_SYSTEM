@@ -114,7 +114,8 @@ class AvailabilityClassification(str, Enum):
     INSUFFICIENT_HISTORICAL_DEPTH = "INSUFFICIENT_HISTORICAL_DEPTH"
     STALE_PIT = "STALE_PIT"
     UNPROCESSED_FILING = "UNPROCESSED_FILING"
-    PARSER_MAPPING_FAILURE = "PARSER_MAPPING_FAILURE"
+    PARSER_OR_FIELD_MAPPING_FAILURE = "PARSER_OR_FIELD_MAPPING_FAILURE"
+    PARSER_MAPPING_FAILURE = "PARSER_OR_FIELD_MAPPING_FAILURE"  # backward-compatible alias
     CALCULATION_FAILURE = "CALCULATION_FAILURE"
     STRUCTURAL_INELIGIBLE = "STRUCTURAL_INELIGIBLE"
     TIER1_RECOVERY_NOT_EXHAUSTED = "TIER1_RECOVERY_NOT_EXHAUSTED"
@@ -124,7 +125,7 @@ _SEVERITY: Dict[AvailabilityClassification, str] = {
     AvailabilityClassification.PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE: "CRITICAL",
     AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE: "HIGH",
     AvailabilityClassification.FYERS_ONLY_DATA_SOURCE: "HIGH",
-    AvailabilityClassification.PARSER_MAPPING_FAILURE: "HIGH",
+    AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE: "HIGH",
     AvailabilityClassification.CALCULATION_FAILURE: "WARNING",
     AvailabilityClassification.UNPROCESSED_FILING: "WARNING",
     AvailabilityClassification.STALE_PIT: "WARNING",
@@ -165,6 +166,7 @@ class AvailabilityAuditRecord:
     upstox_key_ratios: str = field(default="N/A")
     severity: str = field(default="INFO")
     admin_action: str = field(default="")
+    admin_message: str = field(default="")
 
 
 class OperatorAttestedReferenceSource:
@@ -289,8 +291,27 @@ class DataAvailabilityAuditor:
         min_needed = _MIN_ANNUAL_PERIODS.get(fld)
         primary_has_enough = min_needed is not None and max_annual >= min_needed
 
-        # ── 3 Core Mandatory Governance Conditions ─────────────────────────
-        if fyers_avail and screener_avail:
+        raw_records = max(
+            int(trace.get("nse_records", 0) or 0),
+            int(trace.get("upstox_records", 0) or 0),
+            int(trace.get("local_records", 0) or 0),
+            int(trace.get("raw_rows_returned", 0) or 0),
+        )
+        usable_fields = trace.get("usable_fields")
+        parser_error = trace.get("parser_error")
+        http_ok = trace.get("http_status") == 200 or raw_records > 0
+
+        # Scenario: Provider returned HTTP 200 & raw records, but 0 usable fields were extracted
+        is_parser_failure = (
+            parser_error is not None
+            or (http_ok and raw_records > 0 and usable_fields == 0)
+        )
+
+        # ── 3 Core Mandatory Governance Conditions & Diagnoses ────────────
+        if is_parser_failure:
+            cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
+            action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
+        elif fyers_avail and screener_avail:
             cls = AvailabilityClassification.PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE
             action = "INVESTIGATE_UPSTOX_NSE_PARSER_OR_MAPPING"
         elif screener_avail and not fyers_avail:
@@ -300,7 +321,7 @@ class DataAvailabilityAuditor:
             cls = AvailabilityClassification.FYERS_ONLY_DATA_SOURCE
             action = "INVESTIGATE_FYERS_API_INGESTION_FOR_VERIFIED_PIPELINE"
         elif primary_has_enough:
-            cls = AvailabilityClassification.PARSER_MAPPING_FAILURE
+            cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
             action = "INVESTIGATE_PARSER_CALCULATION_OR_NEGATIVE_BASE"
         elif fyers_missing and screener_missing:
             cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
@@ -316,6 +337,26 @@ class DataAvailabilityAuditor:
             action = "ATTEST_INDEPENDENT_AVAILABILITY"
 
         gate_name = "VALUATION" if fld == "current_ev_ebitda" else "QUALITY"
+
+        # Pre-format exact custom notification text
+        if cls == AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE:
+            admin_msg = (
+                f"🚨 DATA SOURCE NOTICE: {symbol.upper()} — {fld} found on Screener.in but unavailable from "
+                f"primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. "
+                f"Potential upstream ingestion gap flagged for review."
+            )
+        elif cls == AvailabilityClassification.PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE:
+            admin_msg = (
+                f"🚨 DATA PROVIDER DISCREPANCY: {symbol.upper()} — {fld} failed on Upstox/NSE but exists in "
+                f"independent diagnostic source (FYERS/Screener). Ingestion gap flagged for review."
+            )
+        elif cls == AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE:
+            admin_msg = (
+                f"🚨 PARSER OR FIELD MAPPING FAILURE: {symbol.upper()} — {fld}. HTTP 200 raw filings were received "
+                f"and parsed ({raw_records} raw records), but 0 usable fields were extracted. Upstream parser inspection required."
+            )
+        else:
+            admin_msg = ""
 
         return AvailabilityAuditRecord(
             symbol=symbol.upper(),
@@ -338,6 +379,7 @@ class DataAvailabilityAuditor:
             upstox_key_ratios=kr,
             severity=_SEVERITY.get(cls, "INFO"),
             admin_action=action,
+            admin_message=admin_msg,
         )
 
     def audit(self, unresolved: Dict[str, List[str]], traces: Dict[str, Dict[str, Any]],
@@ -476,17 +518,17 @@ class DataAvailabilityAuditor:
         return changed
 
     def _notify_admin(self, records: List[AvailabilityAuditRecord], changed: set) -> None:
-        if insert_notification is None or not self.persist_to_db:
-            return
         for rec in records:
-            if (rec.symbol, rec.field) not in changed:
-                continue
+            title = None
+            body = None
 
             if rec.classification == AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE.value:
                 rec.admin_alert_generated = True
-                title = f"🚨 SCREENER-ONLY DATA FOUND — {rec.symbol}"
+                title = f"🚨 DATA SOURCE NOTICE: {rec.symbol} — {rec.field}"
                 body = (
-                    f"🚨 SCREENER-ONLY DATA FOUND — {rec.symbol}\n\n"
+                    f"🚨 DATA SOURCE NOTICE: {rec.symbol} — {rec.field} found on Screener.in but unavailable from "
+                    f"primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. "
+                    f"Potential upstream ingestion gap flagged for review.\n\n"
                     f"Missing Field:\n{rec.field}\n\n"
                     f"Verified Production Sources:\n"
                     f"❌ Upstox Fundamentals: {rec.upstox_status}\n"
@@ -495,25 +537,22 @@ class DataAvailabilityAuditor:
                     f"❌ Exchange/PIT Filings: {rec.exchange_filing_status}\n"
                     f"❌ Local Verified Filing Cache: {rec.local_cache_status}\n"
                     f"⚠️ FYERS: {rec.fyers_status}\n"
-                    f"✅ Screener: Data Found\n\n"
+                    f"✅ Screener: Data Found (Forensic Reference Only)\n\n"
                     f"Classification:\nSCREENER_ONLY_DATA_SOURCE\n\n"
-                    f"Production Value:\nNOT WRITTEN\n\n"
+                    f"Production Value:\nNOT WRITTEN (NULL)\n\n"
                     f"BUY Decision:\nBLOCKED\n\n"
                     f"Required Admin Action:\n"
                     f"Investigate why the value available in Screener cannot be recovered "
                     f"from an authorized verified production source.\n\n"
                     f"IMPORTANT:\nScreener data must NOT be promoted to production truth."
                 )
-                try:
-                    insert_notification("admin", title, body, symbol=rec.symbol)
-                except Exception as e:
-                    logger.debug(f"[DATA_AVAILABILITY_AUDIT] admin notification failed for {rec.symbol}: {e}")
+                rec.admin_message = body
 
             elif rec.classification == AvailabilityClassification.PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE.value:
                 rec.admin_alert_generated = True
-                title = f"🚨 DATA PROVIDER DISCREPANCY — {rec.symbol}"
+                title = f"🚨 DATA PROVIDER DISCREPANCY — {rec.symbol} — {rec.field}"
                 body = (
-                    f"🚨 DATA PROVIDER DISCREPANCY — {rec.symbol}\n\n"
+                    f"🚨 DATA PROVIDER DISCREPANCY — {rec.symbol} — {rec.field}\n\n"
                     f"Required Field: {rec.field}\n\n"
                     f"Primary/Verified Sources: DATA NOT RECOVERED\n"
                     f"FYERS: ✅ DATA FOUND\n"
@@ -522,8 +561,34 @@ class DataAvailabilityAuditor:
                     f"provider ingestion / parser / field mapping / normalization / PIT integration\n\n"
                     f"Production:\nBLOCKED"
                 )
+                rec.admin_message = body
+
+            elif rec.classification == AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE.value:
+                rec.admin_alert_generated = True
+                title = f"🚨 PARSER/MAPPING FAILURE: {rec.symbol} — {rec.field}"
+                body = (
+                    f"🚨 PARSER OR FIELD MAPPING FAILURE: {rec.symbol} — {rec.field}\n\n"
+                    f"HTTP 200 raw filings were received and parsed, but target metric {rec.field} "
+                    f"could not be extracted (0 usable fields extracted).\n\n"
+                    f"Likely Issue: official taxonomy tag change, standalone vs consolidated divergence, or regex parsing failure.\n\n"
+                    f"Required Action: Inspect raw JSON/XML filings for {rec.symbol} and update tag mapping.\n\n"
+                    f"Production: BLOCKED"
+                )
+                rec.admin_message = body
+
+            if title and body and self.persist_to_db and insert_notification:
                 try:
+                    if get_connection:
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    "SELECT 1 FROM global_notifications WHERE symbol = %s AND title = %s AND created_at > NOW() - INTERVAL '24 hours' LIMIT 1",
+                                    (rec.symbol, title)
+                                )
+                                if cur.fetchone():
+                                    continue
                     insert_notification("admin", title, body, symbol=rec.symbol)
+                    logger.info(f"🔔 [ADMIN_NOTIFICATION_DELIVERED] {title} dispatched to global_notifications")
                 except Exception as e:
                     logger.debug(f"[DATA_AVAILABILITY_AUDIT] admin notification failed for {rec.symbol}: {e}")
 

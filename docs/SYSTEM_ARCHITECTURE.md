@@ -1052,7 +1052,7 @@ To maintain strict point-in-time integrity without compromising production safet
   - NSE XBRL filings & Exchange PIT filing store
   - Certified local raw filing Parquet/JSON cache
 - **Tier 2 — Independent Approved Diagnostic & Broker Recovery Source**:
-  - **FYERS API v3** (`https://myapi.fyers.in/docsv3`): Officially approved broker source. When Upstox or NSE do not have required market quotes, depth, or ratios, FYERS is certified for recovery.
+  - **FYERS API v3** (`https://myapi.fyers.in/docsv3`): Officially approved broker source. FYERS Quotes API v3 provides real-time market quotes (LTP, depth, volume, OHLCV), but does NOT expose a public documented REST fundamentals / key-ratios endpoint for annual balance sheets. Tier 2 fundamental ratio diagnostic evidence requires authorized machine-readable interfaces or verified operator attestation.
 - **Tier 3 — Forensic Diagnostic & Discovery Oracle Only**:
   - **Screener.in**: Strictly `FORENSIC_REFERENCE_ONLY`. Prohibited from writing to canonical PIT, prohibited from modifying scanner inputs, and prohibited from triggering BUY alerts.
 
@@ -1074,10 +1074,10 @@ And enforces the hard invariants:
 - `canonical_pit_write = FALSE`
 - `production_metric_write = FALSE`
 - `buy_decision = BLOCKED`
-- Emits dedicated stock-level administrator diagnostic notification:
-  `"DATA SOURCE NOTICE: {symbol} - {field} found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review."`
+- Emits discrete per-stock per-field administrator diagnostic notification to `global_notifications` for the Admin Bell Icon:
+  `"🚨 DATA SOURCE NOTICE: {symbol} — {field} found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review."`
 
-### 8.4.4 Granular 11 Diagnostic Categories & APIs
+### 8.4.4 Granular Diagnostic Categories & APIs
 Exposed via `GET /api/admin/data_availability/counts` and `GET /api/admin/data_availability/audits`:
 1. `verified_data_missing`
 2. `provider_discrepancies`
@@ -1087,7 +1087,7 @@ Exposed via `GET /api/admin/data_availability/counts` and `GET /api/admin/data_a
 6. `insufficient_historical_depth`
 7. `stale_pit`
 8. `unprocessed_filing`
-9. `parser_mapping_failure`
+9. `parser_mapping_failure` / `PARSER_OR_FIELD_MAPPING_FAILURE` (HTTP 200 + raw filings present + 0 usable fields extracted)
 10. `calculation_failure`
 11. `structural_ineligible`
 

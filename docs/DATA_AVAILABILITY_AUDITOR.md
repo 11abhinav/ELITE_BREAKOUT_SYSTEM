@@ -74,7 +74,11 @@ The **Elite Breakout System** enforces a strict architectural boundary between *
   - Cryptographically audited local PIT filing cache (`data/pit_raw_filings/`)
 - **Tier 2 — Independent Diagnostic & Approved Broker Source**:
   - **FYERS API v3** ([myapi.fyers.in/docsv3](https://myapi.fyers.in/docsv3))
-  - If Upstox and NSE do not have data, FYERS is an approved broker source and can be used for recovery with full source audit.
+  - **Proven API Capabilities & Provenance Boundary**:
+    - `fyers_client.quotes({"symbols": ...})` queries the Quotes API endpoint (`https://api-t1.fyers.in/data/quotes`) returning real-time market data (`lp`, `open_price`, `high_price`, `low_price`, `prev_close_price`, `volume`, `ch`, `chp`, `tt`).
+    - FYERS API v3 does **NOT** expose a public documented REST fundamentals / key-ratios endpoint for annual balance sheets, P&L, or cash flow ratios (ROCE, ROE, Sales CAGR, PAT CAGR, EV/EBITDA).
+    - Therefore, for fundamental valuation ratios, FYERS API v3 is classified as `UNSUPPORTED_IN_PUBLIC_REST_API_V3` / `NOT_AVAILABLE`.
+    - Tier 2 diagnostic evidence for fundamental ratios requires an authorized machine-readable interface or verified operator attestation (`data/reference_availability/fyers_availability.csv`).
 - **Tier 3 — Forensic Reference Only**:
   - **Screener.in**: Strictly an offline diagnostic oracle.
   - Mandatory rule: `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, `buy_decision = BLOCKED`.
@@ -83,7 +87,7 @@ The **Elite Breakout System** enforces a strict architectural boundary between *
 
 ## 3. Mandatory Governance Diagnostic Conditions
 
-The auditor distinguishes between three critical availability states to eliminate ambiguous `DATA_INSUFFICIENT` logs:
+The auditor distinguishes between four critical availability states to eliminate ambiguous `DATA_INSUFFICIENT` logs:
 
 ### Condition 1: DATA PROVIDER DISCREPANCY
 * **Status Pattern**:
@@ -98,7 +102,7 @@ The auditor distinguishes between three critical availability states to eliminat
 * **Meaning**: An authoritative or independent source has the data, but our primary automated pipeline failed to acquire it.
 * **Administrator Message**:
   ```text
-  🚨 DATA PROVIDER DISCREPANCY — <STOCK>
+  🚨 DATA PROVIDER DISCREPANCY — <STOCK> — <FIELD>
 
   Required Field: <FIELD>
 
@@ -127,9 +131,11 @@ The auditor distinguishes between three critical availability states to eliminat
 * **Classification**: `SCREENER_ONLY_DATA_SOURCE`
 * **Severity**: `HIGH`
 * **Meaning**: The required metric appears on public company disclosures (as indexed by Screener), but could not be certified from an approved production source.
-* **Administrator Message**:
+* **Discrete Notification Rule**: Emitted **per-field and per-stock** (never lumped into an aggregate count).
+* **Administrator Notification Format & Delivery**:
+  Surfaced directly on the Admin Dashboard Bell Icon (`#notif-badge`, `#notif-list`) and persisted in `global_notifications`:
   ```text
-  🚨 SCREENER-ONLY DATA FOUND — <STOCK>
+  🚨 DATA SOURCE NOTICE: <STOCK> — <FIELD> found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review.
 
   Missing Field:
   <FIELD>
@@ -140,14 +146,14 @@ The auditor distinguishes between three critical availability states to eliminat
   ❌ NSE/XBRL: Not Available
   ❌ Exchange/PIT Filings: Not Available
   ❌ Local Verified Filing Cache: Not Available
-  ⚠️ FYERS: Not Available / Not Confirmed
-  ✅ Screener: Data Found
+  ⚠️ FYERS: Not Available / Unsupported in API v3 REST
+  ✅ Screener: Data Found (Forensic Reference Only)
 
   Classification:
   SCREENER_ONLY_DATA_SOURCE
 
   Production Value:
-  NOT WRITTEN
+  NOT WRITTEN (NULL)
 
   BUY Decision:
   BLOCKED
@@ -174,6 +180,34 @@ The auditor distinguishes between three critical availability states to eliminat
 * **Classification**: `DATA_UNAVAILABLE_VERIFIED`
 * **Severity**: `INFO`
 * **Meaning**: Confirmed across all primary and independent secondary sources that the company lacks public data for this period (e.g. recent IPO, reporting exemptions). Legitimate fail-closed hard block.
+
+---
+
+### Condition 4: PARSER OR FIELD MAPPING FAILURE
+* **Status Pattern**:
+  ```text
+  HTTP Status     = 200 OK
+  Raw Records     = > 0 (filing rows present)
+  Usable Fields   = 0 (target metric unextracted / missing)
+  ```
+* **Classification**: `PARSER_OR_FIELD_MAPPING_FAILURE`
+* **Severity**: `HIGH`
+* **Meaning**: The provider successfully returned raw filings (HTTP 200), but the parser or field mapping failed to extract usable metrics due to XBRL taxonomy changes, standalone vs consolidated mismatch, or regex parser errors.
+* **Administrator Message**:
+  ```text
+  🚨 PARSER OR FIELD MAPPING FAILURE: <STOCK> — <FIELD>
+
+  HTTP 200 raw filings were received and parsed, but target metric <FIELD> could not be extracted (0 usable fields extracted).
+
+  Likely Issue:
+  official taxonomy tag change, standalone vs consolidated divergence, or regex parsing failure.
+
+  Required Action:
+  Inspect raw JSON/XML filings for <STOCK> in data/pit_raw_filings/<STOCK>.json and update tag mapping in nse_xbrl_provider.py or upstox_fundamentals_provider.py.
+
+  Production:
+  BLOCKED
+  ```
 
 ---
 

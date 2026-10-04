@@ -604,9 +604,16 @@ class FundamentalSourceRouter:
                     if q_res and q_res.get("s") == "ok" and q_res.get("d"):
                         quote_data = q_res["d"][0].get("v", {})
                         trace["fyers_quote_data"] = quote_data
-                        trace["fyers_api_checked"] = True
-                        trace["fyers_status"] = "AVAILABLE"
-                        logger.info(f"⚡ [ROUTER: FYERS_APPROVED_SOURCE] Successfully retrieved Fyers API v3 market data for {symbol}.")
+                        trace["fyers_quotes_api_checked"] = True
+                        trace["fyers_quotes_endpoint"] = "https://api-t1.fyers.in/data/quotes"
+                        # [PROVENANCE INVARIANT: FYERS API v3 Key Ratios Boundary]
+                        # FYERS Quotes API v3 returns market quote fields (lp, volume, open_price, high_price, low_price, etc).
+                        # FYERS API v3 documentation (https://myapi.fyers.in/docsv3) does NOT provide a public REST
+                        # endpoint for Key Ratios (EV/EBITDA, ROCE, ROE, Debt/Equity).
+                        # Therefore, fundamental valuation ratios cannot be fabricated from quotes.
+                        trace["fyers_key_ratios_status"] = "UNSUPPORTED_IN_PUBLIC_REST_API_V3"
+                        trace["fyers_status"] = "MARKET_QUOTES_AVAILABLE_KEY_RATIOS_UNSUPPORTED"
+                        logger.info(f"⚡ [ROUTER: FYERS_APPROVED_SOURCE] Retrieved Fyers API v3 market quotes for {symbol} (LTP={quote_data.get('lp')}). Fundamental ratios remain unsupported in public REST v3.")
             except Exception as _fe:
                 logger.debug(f"[ROUTER] FYERS recovery attempt notice for {symbol}: {_fe}")
 

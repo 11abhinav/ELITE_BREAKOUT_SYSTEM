@@ -83,6 +83,11 @@ Fyers serves as the **Secondary Fallback Provider** if Upstox encounters downtim
 - **Endpoint:** `GET /api/v3/quotes`
 - **Market Depth:** Setting `ohlcv_flag=1` includes full 5-level order book depth alongside OHLCV snapshots.
 
+#### C. Provenance Boundary: Market Quotes vs Fundamental Ratios
+- **Market Quotes (`/quotes`)**: Verified and documented for real-time market quotes (LTP, depth, volume, OHLCV, 52W high/low).
+- **Fundamental & Valuation Ratios**: FYERS platform UI displays Key Ratios (EV/EBITDA, PE, Debt/Equity) and Fundamentals (ROCE, ROE), but **FYERS API v3 does NOT expose a documented public REST endpoint** for annual financial statements or ratios.
+- **Auditor Governance Rule**: For fundamental ratios, FYERS API v3 is classified as `UNSUPPORTED_IN_PUBLIC_REST_API_V3` / `NOT_AVAILABLE`. Tier 2 diagnostic evidence for fundamental ratios requires an authorized machine-readable interface or verified operator attestation (`data/reference_availability/fyers_availability.csv`).
+
 ---
 
 ## 4. Yahoo Finance Integration (Isolated Fundamentals & Earnings Calendar)
