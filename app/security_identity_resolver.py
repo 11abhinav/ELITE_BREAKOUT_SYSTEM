@@ -103,7 +103,22 @@ class SecurityIdentityResolver:
             if clean in self._isin_map:
                 canonical_symbol = self._isin_map[clean]
 
-        # 4. Lookup institutional InstrumentRegistry for ISIN & metadata
+        # 4. Lookup dynamic BSE Security Master Resolver (12,000+ securities)
+        try:
+            from app.data_providers.bse_security_master import BseSecurityMasterResolver
+            bse_master = BseSecurityMasterResolver()
+            bse_entry = bse_master.resolve(clean)
+            if bse_entry:
+                if bse_entry.bse_scrip_code and not bse_code:
+                    bse_code = bse_entry.bse_scrip_code
+                if bse_entry.isin and not isin:
+                    isin = bse_entry.isin
+                if bse_entry.canonical_symbol:
+                    canonical_symbol = bse_entry.canonical_symbol
+        except Exception as _bse_err:
+            logger.debug(f"[RESOLVER] BseSecurityMasterResolver error: {_bse_err}")
+
+        # 5. Lookup institutional InstrumentRegistry for ISIN & metadata
         try:
             from instrument_registry import get_instrument_registry
             rec = get_instrument_registry().lookup(canonical_symbol)

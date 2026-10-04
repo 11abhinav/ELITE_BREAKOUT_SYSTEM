@@ -392,7 +392,15 @@ class FundamentalSourceRouter:
         """
         logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp})...")
 
-        # --- Step 0: Listing Awareness (BSE-only vs NSE) ---
+        # --- Step 0: Canonical Local PIT Raw Filings (Zero Network Check) ---
+        local_records = self._fetch_local_raw_filings(symbol)
+        if local_records:
+            loc_metrics = self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS", as_of_timestamp=as_of_timestamp)
+            if loc_metrics.overall_status == FundamentalStatus.VERIFIED_SINGLE_SOURCE:
+                logger.info(f"⚡ [ROUTER] {symbol}: Authoritative verified data present in Canonical PIT. Stopping recovery.")
+                return loc_metrics
+
+        # --- Step 1: Listing Awareness (BSE-only vs NSE) ---
         is_bse_only = False
         try:
             try:
@@ -405,7 +413,47 @@ class FundamentalSourceRouter:
         except Exception as _res_err:
             logger.debug(f"[ROUTER] Security identity check for {symbol}: {_res_err}")
 
-        # --- Step 1: Upstox ---
+        # --- Step 2: NSE Ingestion (Primary for NSE Listed) ---
+        nse_records: List[RawFinancialRecord] = []
+        nse_raw_cnt = 0
+        nse_parser_status = "NOT_APPLICABLE" if is_bse_only else "NO_DATA_RETURNED"
+        if not is_bse_only:
+            nse_records = self.nse_provider.fetch_raw_financials(symbol)
+            nse_raw_cnt = self.nse_provider.last_raw_count.get(symbol, 0)
+            nse_parser_status = self.nse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
+            logger.info(
+                f"[NSE] {symbol}: {len(nse_records)} usable records (raw={nse_raw_cnt}, status={nse_parser_status})"
+            )
+            # If NSE produced fully verified canonical metrics, persist and stop (Exhaustion Logic)
+            if nse_records:
+                nse_metrics = self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
+                if nse_metrics.overall_status == FundamentalStatus.VERIFIED_SINGLE_SOURCE:
+                    self._persist_raw_filings(symbol, nse_records)
+                    logger.info(f"✅ [ROUTER] {symbol}: Verified via NSE XBRL. Stopping provider exhaustion.")
+                    return nse_metrics
+
+        # --- Step 3: BSE Ingestion (Secondary / BSE-only) ---
+        bse_records: List[RawFinancialRecord] = []
+        bse_raw_cnt = 0
+        bse_parser_status = "NOT_CHECKED"
+        if is_bse_only or len(nse_records) == 0:
+            bse_records = self.bse_provider.fetch_raw_financials(symbol)
+            bse_raw_cnt = self.bse_provider.last_raw_count.get(symbol, 0)
+            bse_parser_status = self.bse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
+            logger.info(
+                f"[BSE] {symbol}: {len(bse_records)} usable records (raw={bse_raw_cnt}, status={bse_parser_status})"
+            )
+            # If BSE produced fully verified canonical metrics, persist and stop
+            if bse_records:
+                bse_metrics = self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp)
+                if bse_metrics.overall_status == FundamentalStatus.VERIFIED_SINGLE_SOURCE:
+                    self._persist_raw_filings(symbol, bse_records)
+                    logger.info(f"✅ [ROUTER] {symbol}: Verified via BSE Corporate. Stopping provider exhaustion.")
+                    return bse_metrics
+        else:
+            bse_parser_status = "NSE_SUFFICIENT"
+
+        # --- Step 4: Upstox Ingestion (Tertiary Provider) ---
         isin = self._resolve_isin(symbol)
         upstox_records: List[RawFinancialRecord] = []
         if isin:
@@ -417,38 +465,6 @@ class FundamentalSourceRouter:
         else:
             logger.warning(f"[UPSTOX] {symbol}: ISIN not resolved. Skipping Upstox fetch.")
 
-        # --- Step 2: NSE (Listing-Aware) ---
-        nse_records: List[RawFinancialRecord] = []
-        nse_raw_cnt = 0
-        nse_parser_status = "NOT_APPLICABLE" if is_bse_only else "NO_DATA_RETURNED"
-        if not is_bse_only:
-            nse_records = self.nse_provider.fetch_raw_financials(symbol)
-            nse_raw_cnt = self.nse_provider.last_raw_count.get(symbol, 0)
-            nse_parser_status = self.nse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
-            logger.info(
-                f"[NSE] {symbol}: {len(nse_records)} usable records (raw={nse_raw_cnt}, status={nse_parser_status}, "
-                f"401s={self.nse_provider.nse_401_count}, "
-                f"403s={self.nse_provider.nse_403_count}, "
-                f"refreshes={self.nse_provider.session_refresh_count})"
-            )
-        else:
-            logger.info(f"[NSE] {symbol}: Security is BSE-only. NSE is NOT_APPLICABLE.")
-
-        # --- Step 2b: BSE Corporate Results (Listing-Aware & Exchange Exhaustion) ---
-        bse_records: List[RawFinancialRecord] = []
-        bse_raw_cnt = 0
-        bse_parser_status = "NOT_CHECKED"
-        # Check BSE if security is BSE-only, or if NSE returned 0 usable records (or parser error)
-        if is_bse_only or len(nse_records) == 0:
-            bse_records = self.bse_provider.fetch_raw_financials(symbol)
-            bse_raw_cnt = self.bse_provider.last_raw_count.get(symbol, 0)
-            bse_parser_status = self.bse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
-            logger.info(
-                f"[BSE] {symbol}: {len(bse_records)} usable records (raw={bse_raw_cnt}, status={bse_parser_status})"
-            )
-        else:
-            bse_parser_status = "NSE_SUFFICIENT"
-
         # Persist newly fetched live records to pit_raw_filings for future reuse
         if upstox_records:
             self._persist_raw_filings(symbol, upstox_records)
@@ -456,9 +472,6 @@ class FundamentalSourceRouter:
             self._persist_raw_filings(symbol, nse_records)
         elif bse_records:
             self._persist_raw_filings(symbol, bse_records)
-
-        # --- Step 3: Local Raw Filings ---
-        local_records = self._fetch_local_raw_filings(symbol)
 
         def _annual_count(rs: List[RawFinancialRecord]) -> int:
             return sum(1 for r in rs if getattr(r, "period_type", "ANNUAL") == "ANNUAL")
@@ -496,7 +509,7 @@ class FundamentalSourceRouter:
             "fyers_ui_fundamentals": "REFERENCE_ONLY",
         })
 
-        # --- Step 4: Route ---
+        # --- Step 5: Dual-Source Reconciliations & Final Fallbacks ---
         has_upstox = len(upstox_records) > 0
         has_nse = len(nse_records) > 0
         has_bse = len(bse_records) > 0
@@ -539,14 +552,14 @@ class FundamentalSourceRouter:
             return metrics
 
         # Tier 4: Single source fallbacks
-        if has_upstox:
-            return self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp)
-
         if has_nse:
             return self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
 
         if has_bse:
             return self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp)
+
+        if has_upstox:
+            return self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp)
 
         if has_local:
             logger.info(f"[LOCAL_RAW] {symbol}: Loaded {len(local_records)} records from certified local raw filings.")
