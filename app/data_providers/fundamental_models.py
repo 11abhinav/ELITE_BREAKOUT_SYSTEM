@@ -111,11 +111,13 @@ class ReconciledCanonicalMetrics:
     pat_cagr_5y: Optional[float] = None
     cfo_pat_5y: Optional[float] = None
     debt_to_equity: Optional[float] = None
+    share_dilution_3y: Optional[float] = None
     q_eps_growth_yoy: Optional[float] = None
     q_sales_growth_yoy: Optional[float] = None
     eps_ttm: Optional[float] = None
     provenance_chain: List[FundamentalProvenance] = field(default_factory=list)
     overall_status: FundamentalStatus = FundamentalStatus.INSUFFICIENT
+    rejection_reason: Optional[str] = None
 
     @property
     def recovered_fields(self) -> Dict[str, Any]:
@@ -126,11 +128,71 @@ class ReconciledCanonicalMetrics:
             "pat_cagr_5y",
             "cfo_pat_5y",
             "debt_to_equity",
+            "share_dilution_3y",
             "q_eps_growth_yoy",
             "q_sales_growth_yoy",
             "eps_ttm",
         )
         return {f: getattr(self, f) for f in fields if getattr(self, f) is not None}
+
+    @property
+    def missing_fields(self) -> List[str]:
+        """Returns list of field names that are None."""
+        fields = (
+            "roce_5y",
+            "sales_cagr_5y",
+            "pat_cagr_5y",
+            "cfo_pat_5y",
+            "debt_to_equity",
+            "share_dilution_3y",
+        )
+        return [f for f in fields if getattr(self, f) is None]
+
+
+@dataclass(frozen=True)
+class ProviderAttempt:
+    provider: str
+    status: str
+    timestamp: datetime
+    error_message: Optional[str] = None
+    records_count: int = 0
+
+
+@dataclass(frozen=True)
+class FieldEvidence:
+    symbol: str
+    field: str
+    value: Optional[float]
+    provider: str
+    provider_status: str
+    basis: str = "CONSOLIDATED"
+    unit: str = "INR"
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    filing_date: Optional[str] = None
+    available_at: Optional[str] = None
+    source_document_id: Optional[str] = None
+    raw_hash: Optional[str] = None
+    validation_status: str = "VERIFIED"
+    validation_reason: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class RecoveryResult:
+    symbol: str
+    requested_fields: tuple[str, ...]
+    recovered_fields: tuple[str, ...]
+    missing_fields: tuple[str, ...]
+    status: FundamentalStatus
+    rejection_reason: Optional[str] = None
+    provider_attempts: tuple[ProviderAttempt, ...] = ()
+    field_evidence: Dict[str, FieldEvidence] = field(default_factory=dict)
+    canonical_ready: bool = False
+    persisted: bool = False
+    raw_persist_path: Optional[str] = None
+    validated_persist_path: Optional[str] = None
+    evidence_fingerprint: str = ""
+    calculation_version: str = "v2.1"
 
 
 class DataFailureClass(enum.Enum):

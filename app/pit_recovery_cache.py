@@ -694,3 +694,250 @@ def get_pit_recovery_store(path: Optional[str] = None) -> PitRecoveryStatusStore
 # Backward-compatible alias for live scanner pre-filter
 get_pit_recovery_cache = get_pit_recovery_store
 
+
+DEFAULT_VALIDATED_CACHE_DIR = os.path.join(DATA_DIR, "pit_recovery_cache", "validated")
+
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+
+def _sync_dir(dir_path: str) -> None:
+    """Invokes fsync on directory file descriptor for strict crash-persistence."""
+    try:
+        if hasattr(os, "O_RDONLY") and hasattr(os, "fsync"):
+            dir_fd = os.open(dir_path, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except Exception as _e:
+        logger.debug(f"Directory fsync notice for {dir_path}: {_e}")
+
+
+class InterProcessFileLock:
+    """Inter-process OS-level file lock using fcntl.flock on POSIX / macOS systems."""
+
+    def __init__(self, lock_file_path: str):
+        self.lock_file_path = lock_file_path
+        self._fd = None
+
+    def __enter__(self):
+        if fcntl is not None:
+            try:
+                os.makedirs(os.path.dirname(self.lock_file_path), exist_ok=True)
+                self._fd = open(self.lock_file_path, "w")
+                fcntl.flock(self._fd.fileno(), fcntl.LOCK_EX)
+            except Exception as _e:
+                logger.debug(f"Inter-process lock notice for {self.lock_file_path}: {_e}")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if fcntl is not None and self._fd is not None:
+            try:
+                fcntl.flock(self._fd.fileno(), fcntl.LOCK_UN)
+                self._fd.close()
+            except Exception:
+                pass
+
+
+class ValidatedRecoveryDiskCache:
+    """
+    Layer B — Durable Validated Recovery Disk Cache for Point-in-Time (PIT) metrics.
+
+    Stores validated production-eligible fields in data/pit_recovery_cache/validated/{SYMBOL}.json.
+    Ensures thread-safe and multi-process-safe concurrent read-modify-write merging via
+    per-symbol threading locks, OS fcntl.flock inter-process locks, and atomic file writes with directory fsync.
+    Enables cross-scanner reuse and process-restart persistence with 0 network calls.
+    """
+
+    def __init__(self, cache_dir: Optional[str] = None):
+        self.cache_dir = cache_dir or DEFAULT_VALIDATED_CACHE_DIR
+        os.makedirs(self.cache_dir, exist_ok=True)
+        self._lock = threading.RLock()
+        self._symbol_locks: Dict[str, threading.Lock] = {}
+
+    def _get_symbol_path(self, symbol: str) -> str:
+        sym = str(symbol or "").strip().upper()
+        return os.path.join(self.cache_dir, f"{sym}.json")
+
+    def _get_lock_file_path(self, symbol: str) -> str:
+        sym = str(symbol or "").strip().upper()
+        return os.path.join(self.cache_dir, f"{sym}.lock")
+
+    def _get_symbol_lock(self, symbol: str) -> threading.Lock:
+        sym = str(symbol or "").strip().upper()
+        with self._lock:
+            if sym not in self._symbol_locks:
+                self._symbol_locks[sym] = threading.Lock()
+            return self._symbol_locks[sym]
+
+    def _read_disk_file(self, target_path: str) -> Optional[Dict[str, Any]]:
+        if not os.path.exists(target_path):
+            return None
+        try:
+            with open(target_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except Exception as e:
+            logger.warning(f"⚠️ [VALIDATED_CACHE] Read error for {target_path}: {e}")
+        return None
+
+    def get_validated_record(
+        self,
+        symbol: str,
+        required_calculation_version: Optional[str] = None,
+        required_snapshot_fingerprint: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Reads validated metrics for a symbol if cache exists and schema/version matches."""
+        sym = str(symbol or "").strip().upper()
+        target_path = self._get_symbol_path(sym)
+        sym_lock = self._get_symbol_lock(sym)
+        proc_lock_path = self._get_lock_file_path(sym)
+
+        with sym_lock:
+            with InterProcessFileLock(proc_lock_path):
+                data = self._read_disk_file(target_path)
+                if not data or data.get("symbol") != sym:
+                    return None
+
+                # Validate calculation version if specified
+                if required_calculation_version is not None:
+                    if data.get("calculation_version") != required_calculation_version:
+                        logger.info(f"🔄 [VALIDATED_CACHE] Version mismatch for {sym}: {data.get('calculation_version')} != {required_calculation_version}")
+                        return None
+
+                # Validate PIT snapshot fingerprint if specified
+                if required_snapshot_fingerprint is not None:
+                    if data.get("pit_snapshot_fingerprint") and data.get("pit_snapshot_fingerprint") != required_snapshot_fingerprint:
+                        logger.info(f"🔄 [VALIDATED_CACHE] Snapshot fingerprint mismatch for {sym}")
+                        return None
+
+                return data
+
+    def get_all_validated_records(self) -> Dict[str, Dict[str, Any]]:
+        """Reads all validated symbol records in the cache directory."""
+        records = {}
+        with self._lock:
+            if not os.path.exists(self.cache_dir):
+                return records
+            for fname in os.listdir(self.cache_dir):
+                if fname.endswith(".json") and not fname.endswith(".tmp"):
+                    sym = fname[:-5].upper()
+                    rec = self.get_validated_record(sym)
+                    if rec:
+                        records[sym] = rec
+        return records
+
+    def save_validated_record(
+        self,
+        symbol: str,
+        fields: Dict[str, Any],
+        evidence_map: Optional[Dict[str, Any]] = None,
+        evidence_fingerprint: str = "",
+        pit_snapshot_fingerprint: str = "",
+        calculation_version: str = "v2.1",
+    ) -> str:
+        """
+        Thread-safe & Multi-process safe saving of validated metrics to
+        data/pit_recovery_cache/validated/{SYMBOL}.json.
+        Sequence: per-symbol thread lock -> OS inter-process lock -> read disk -> field merge -> write .tmp -> fsync file -> os.replace -> fsync dir
+        """
+        sym = str(symbol or "").strip().upper()
+        target_path = self._get_symbol_path(sym)
+        tmp_path = target_path + ".tmp"
+        sym_lock = self._get_symbol_lock(sym)
+        proc_lock_path = self._get_lock_file_path(sym)
+
+        with sym_lock:
+            with InterProcessFileLock(proc_lock_path):
+                existing = self._read_disk_file(target_path) or {"symbol": sym, "fields": {}, "evidence_fingerprint": ""}
+                existing_fields = existing.get("fields", {})
+
+                now_iso = datetime.now(IST).isoformat()
+                today_str = datetime.now(IST).strftime("%Y-%m-%d")
+
+                for k, v in fields.items():
+                    if v is not None:
+                        ev = (evidence_map or {}).get(k, {})
+                        is_valuation_metric = k in ("current_ev_ebitda", "current_pe")
+                        existing_fields[k] = {
+                            "value": v,
+                            "status": "VERIFIED",
+                            "source": ev.get("provider", "NSE+UPSTOX+LOCAL") if isinstance(ev, dict) else getattr(ev, "provider", "NSE+UPSTOX+LOCAL"),
+                            "basis": ev.get("basis", "CONSOLIDATED") if isinstance(ev, dict) else getattr(ev, "basis", "CONSOLIDATED"),
+                            "period_start": ev.get("period_start") if isinstance(ev, dict) else getattr(ev, "period_start", None),
+                            "period_end": ev.get("period_end") if isinstance(ev, dict) else getattr(ev, "period_end", None),
+                            "filing_date": ev.get("filing_date") if isinstance(ev, dict) else getattr(ev, "filing_date", None),
+                            "available_at": ev.get("available_at", now_iso) if isinstance(ev, dict) else getattr(ev, "available_at", now_iso),
+                            "as_of_date": today_str if is_valuation_metric else ev.get("available_at", now_iso),
+                            "source_hash": ev.get("raw_hash") if isinstance(ev, dict) else getattr(ev, "raw_hash", None),
+                            "calculation_version": calculation_version,
+                            "updated_at": now_iso,
+                        }
+
+                record_data = {
+                    "symbol": sym,
+                    "fields": existing_fields,
+                    "evidence_fingerprint": evidence_fingerprint or existing.get("evidence_fingerprint", ""),
+                    "pit_snapshot_fingerprint": pit_snapshot_fingerprint or existing.get("pit_snapshot_fingerprint", ""),
+                    "schema_version": "1",
+                    "validation_version": "1",
+                    "calculation_version": calculation_version,
+                    "updated_at": now_iso,
+                }
+
+                try:
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    with open(tmp_path, "w", encoding="utf-8") as f:
+                        json.dump(record_data, f, indent=2)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    os.replace(tmp_path, target_path)
+                    _sync_dir(self.cache_dir)
+                    logger.info(f"💾 [VALIDATED_CACHE] Persisted {len(fields)} verified fields for {sym} -> {target_path}")
+                    return target_path
+                except Exception as e:
+                    logger.error(f"❌ [VALIDATED_CACHE] Atomic write failed for {sym}: {e}")
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except Exception:
+                            pass
+                    raise
+
+    def invalidate_metric(self, symbol: str, metric: str) -> None:
+        """Invalidates a specific metric entry for a symbol under symbol lock."""
+        sym = str(symbol or "").strip().upper()
+        target_path = self._get_symbol_path(sym)
+        sym_lock = self._get_symbol_lock(sym)
+
+        with sym_lock:
+            existing = self._read_disk_file(target_path)
+            if existing and "fields" in existing and metric in existing["fields"]:
+                del existing["fields"][metric]
+                existing["updated_at"] = datetime.now(IST).isoformat()
+                tmp_path = target_path + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(existing, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, target_path)
+                logger.info(f"🧹 [VALIDATED_CACHE] Invalidated {metric} for {sym}")
+
+
+_GLOBAL_VALIDATED_CACHE: Optional[ValidatedRecoveryDiskCache] = None
+_VALIDATED_LOCK = threading.Lock()
+
+
+def get_validated_recovery_cache(cache_dir: Optional[str] = None) -> ValidatedRecoveryDiskCache:
+    global _GLOBAL_VALIDATED_CACHE
+    with _VALIDATED_LOCK:
+        if _GLOBAL_VALIDATED_CACHE is None or cache_dir is not None:
+            _GLOBAL_VALIDATED_CACHE = ValidatedRecoveryDiskCache(cache_dir)
+        return _GLOBAL_VALIDATED_CACHE
+
+

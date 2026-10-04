@@ -58,12 +58,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 REQUIRED_FIELD_ALIASES: Dict[str, List[str]] = {
-    "ROCE":             ["roce_5y_avg", "ROCE", "roce"],
-    "sales_cagr_5y":     ["sales_cagr_5y", "sales_cagr"],
-    "pat_cagr_5y":       ["pat_cagr_5y", "pat_cagr"],
-    "cfo_pat_5y":        ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"],
-    "debt":              ["debt_to_equity", "debt", "total_debt"],
-    "current_ev_ebitda": ["current_ev_ebitda"],
+    "ROCE":              ["roce_5y_avg", "ROCE", "roce"],
+    "sales_cagr_5y":      ["sales_cagr_5y", "sales_cagr"],
+    "pat_cagr_5y":        ["pat_cagr_5y", "pat_cagr"],
+    "cfo_pat_5y":         ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"],
+    "debt":               ["debt_to_equity", "debt", "total_debt"],
+    "share_dilution_3y":  ["share_dilution_3y_pct", "share_dilution_3y"],
+    "current_ev_ebitda":  ["current_ev_ebitda"],
 }
 REQUIRED_FIELDS: List[str] = list(REQUIRED_FIELD_ALIASES.keys())
 
@@ -90,7 +91,12 @@ class FundamentalPreRecoveryEngine:
     does NOT directly overwrite the canonical PIT dataset.
     """
 
-    def __init__(self, pit_parquet_path: Optional[str] = None, scanner_name: str = "QUALITY_VALUE_RECOVERY"):
+    def __init__(
+        self,
+        pit_parquet_path: Optional[str] = None,
+        scanner_name: str = "QUALITY_VALUE_RECOVERY",
+        validated_cache: Optional[Any] = None,
+    ):
         self.scanner_name = scanner_name
         if pit_parquet_path is not None:
             self.pit_parquet_path = pit_parquet_path
@@ -102,6 +108,14 @@ class FundamentalPreRecoveryEngine:
                 self.pit_parquet_path = "data/daily_builder_master_v2.parquet"
         self.router = FundamentalSourceRouter()
         self.auditor = DataAvailabilityAuditor()
+        if validated_cache is not None:
+            self.validated_cache = validated_cache
+        else:
+            try:
+                from app.pit_recovery_cache import get_validated_recovery_cache
+            except ImportError:
+                from pit_recovery_cache import get_validated_recovery_cache
+            self.validated_cache = get_validated_recovery_cache()
         # 0 or negative means uncapped (processes every incomplete symbol in universe)
         self.global_daily_recovery_limit = int(os.getenv("PRE_RECOVERY_LIMIT", "0"))
 
@@ -301,6 +315,32 @@ class FundamentalPreRecoveryEngine:
         df.loc[idx, "calculation_version"] = CALCULATION_VERSION
         df.loc[idx, "recovery_status"] = metrics.overall_status.name
         df.loc[idx, "provenance_hash"] = _generate_deterministic_key(symbol, metrics)
+
+        # Layer B — Persist to Validated Recovery Disk Cache for cross-scanner and process restart reuse
+        try:
+            val_cache = getattr(self, "validated_cache", None)
+            if val_cache is None:
+                try:
+                    from app.pit_recovery_cache import get_validated_recovery_cache
+                except ImportError:
+                    from pit_recovery_cache import get_validated_recovery_cache
+                val_cache = get_validated_recovery_cache()
+            rec_fields = metrics.recovered_fields
+            if rec_fields:
+                val_cache.save_validated_record(
+                    symbol=symbol,
+                    fields=rec_fields,
+                    evidence_fingerprint=_generate_deterministic_key(symbol, metrics),
+                    calculation_version=CALCULATION_VERSION,
+                )
+                for f_name, f_val in rec_fields.items():
+                    logger.info(
+                        f"RECOVERY_TRACE scanner={self.scanner_name} symbol={symbol} field={f_name} "
+                        f"cache_status=MISS provider={metrics.overall_status.name} provider_status=SUCCESS "
+                        f"validation_status=VERIFIED persist_status=PERSISTED final_status=AVAILABLE_TO_SCANNER"
+                    )
+        except Exception as _vc_err:
+            logger.error(f"❌ [PRE_RECOVERY] Validated disk cache write error for {symbol}: {_vc_err}")
 
     def publish_recovery_status(
         self, symbol: str, missing_fields: List[str], metrics: ReconciledCanonicalMetrics

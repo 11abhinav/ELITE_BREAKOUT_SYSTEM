@@ -4126,13 +4126,16 @@ class QualityCompounderValueV2Scanner:
 
         # [FUNDAMENTAL PRE-RECOVERY HOOK]
         try:
-            from fundamental_pre_recovery import FundamentalPreRecoveryEngine
+            try:
+                from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
+            except ImportError:
+                from fundamental_pre_recovery import FundamentalPreRecoveryEngine
             logger.info(f"🔄 [SCANNER: {self.strategy_id}] [FETCH_DATA] Starting pre-scan fundamental data recovery sweep...")
             pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name=self.strategy_id)
             pre_recovery_engine.execute_pre_scan_sweep()
-            logger.info(f"✅ [SCANNER: {self.strategy_id}] [FETCH_DATA] Sweep complete. Loading final PIT snapshot.")
+            logger.info(f"✅ [SCANNER: {self.strategy_id}] [FETCH_DATA] Sweep complete. Loading final PIT snapshot with Layer B Overlay.")
         except Exception as e:
-            logger.error(f"❌ [SCANNER: {self.strategy_id}] [FETCH_DATA] Sweep failed: {e}. Falling back to existing PIT data.")
+            logger.error(f"❌ [SCANNER: {self.strategy_id}] [FETCH_DATA] RECOVERY_PIPELINE_ERROR: Pre-recovery sweep notice: {e}. Proceeding with Base PIT + Layer B Validated Overlay.")
 
         # Load PIT fundamentals dataset
         logger.info(f"📡 [SCANNER: {self.strategy_id}] [FETCH_DATA] Loading canonical PIT dataset from data/canonical_pit_rebuilt.parquet...")
@@ -4985,7 +4988,8 @@ class QualityCompounderValueV2Scanner:
                     ((sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and not sales_cagr_loss) or
                     ((pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and not pat_cagr_loss) or
                     ((cfo_pat_5y is None or pd.isna(cfo_pat_5y)) and not cfo_pat_loss) or
-                    (de_ratio is None or pd.isna(de_ratio))
+                    (de_ratio is None or pd.isna(de_ratio)) or
+                    (share_dilution_3y is None or pd.isna(share_dilution_3y))
                 )
                 if quality_data_missing:
                     # Identify exactly which fields are missing for the audit log
@@ -4996,6 +5000,7 @@ class QualityCompounderValueV2Scanner:
                             ("pat_cagr_5y", pat_cagr_5y, pat_cagr_loss),
                             ("cfo_pat_5y", cfo_pat_5y, cfo_pat_loss),
                             ("debt_to_equity", de_ratio, False),
+                            ("share_dilution_3y", share_dilution_3y, False),
                         ] if (val is None or pd.isna(val)) and not is_loss
                     ]
                     # ── NO ACTIVE UPSTREAM RECOVERY ──
@@ -5111,9 +5116,10 @@ class QualityCompounderValueV2Scanner:
                     if cfo_pat_loss or float(cfo_pat_5y) < 0.80: rejections.append("FAIL_CFO_PAT")
                     if de_val > 0.50: rejections.append("FAIL_DEBT")
 
-                    if share_dilution_3y is not None and not pd.isna(share_dilution_3y):
-                        if float(share_dilution_3y) > 10.0:
-                            rejections.append("FAIL_DILUTION")
+                    if share_dilution_3y is None or pd.isna(share_dilution_3y):
+                        rejections.append("DATA_INSUFFICIENT_QUALITY")
+                    elif float(share_dilution_3y) > 10.0:
+                        rejections.append("FAIL_DILUTION")
 
                     quality_gate_passed = not any(r.startswith("FAIL_") or r.startswith("DATA_") for r in rejections)
                     if quality_gate_passed:
@@ -6602,18 +6608,22 @@ class QualityCompounderValueV2Scanner:
 
 
     def load_pit_dataset(self) -> Optional[pd.DataFrame]:
-        """Load certified PIT dataset from canonical PIT rebuilt snapshot or statement filings."""
-        # 0. Primary Canonical Source: Pre-built certified canonical snapshot from Rebuild Engine
+        """Load certified PIT dataset from canonical PIT rebuilt snapshot or statement filings with Layer B Validated Overlay."""
         canonical_p = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
         if os.path.exists(canonical_p):
             try:
-                df_canon = pd.read_parquet(canonical_p)
+                try:
+                    from app.scanner_data_gateway import ScannerDataGateway
+                except ImportError:
+                    from scanner_data_gateway import ScannerDataGateway
+                gateway = ScannerDataGateway(pit_parquet_path=canonical_p)
+                df_canon = gateway.get_working_dataset()
                 if not df_canon.empty and 'symbol' in df_canon.columns and len(df_canon) >= 800:
                     if 'shares_outstanding' not in df_canon.columns and 'shares_outstanding_m' in df_canon.columns:
                         df_canon['shares_outstanding'] = df_canon['shares_outstanding_m'] * 1e6
                     curr_ev_cnt = int((df_canon['current_ev_ebitda'].notna() & (df_canon['current_ev_ebitda'] > 0)).sum()) if 'current_ev_ebitda' in df_canon.columns else 0
                     logger.info(
-                        f"⚡ [CANONICAL_LINEAGE] Loaded primary certified snapshot from {canonical_p} "
+                        f"⚡ [CANONICAL_LINEAGE] Loaded primary certified snapshot with Layer B Overlay from {canonical_p} "
                         f"({len(df_canon)} symbols, Current EV/EBITDA Complete: {curr_ev_cnt}/{len(df_canon)})"
                     )
                     return df_canon

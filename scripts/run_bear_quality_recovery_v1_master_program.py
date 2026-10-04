@@ -148,9 +148,13 @@ def load_universe() -> List[Dict[str, Any]]:
     return non_financials
 
 def load_pit_fundamentals_df() -> pd.DataFrame:
-    if os.path.exists(PIT_PARQUET_PATH):
-        df = pd.read_parquet(PIT_PARQUET_PATH)
-    else:
+    try:
+        from app.scanner_data_gateway import ScannerDataGateway
+    except ImportError:
+        from scanner_data_gateway import ScannerDataGateway
+    gateway = ScannerDataGateway(pit_parquet_path=PIT_PARQUET_PATH)
+    df = gateway.get_working_dataset()
+    if df.empty:
         return pd.DataFrame()
         
     if "conservative_availability_timestamp" in df.columns:
@@ -295,41 +299,67 @@ def load_nifty_regime_df(universe: List[Dict[str, Any]]) -> Tuple[pd.DataFrame, 
     return df, bear_episodes_list
 
 def evaluate_quality_and_decay(pit_rows: pd.DataFrame) -> Tuple[bool, str, Dict[str, float]]:
-    if pit_rows.empty or len(pit_rows) < 12:
+    if pit_rows.empty or len(pit_rows) < 4:
         return False, "INSUFFICIENT_DATA", {}
         
     latest = pit_rows.iloc[-1]
     
-    roce = float(latest.get("roce", latest.get("roe", 0.0) or 0.0))
-    de = float(latest.get("debt_to_equity", 0.0) or 0.0)
-    ocf = float(latest.get("operating_cash_flow", 0.0) or 0.0)
+    roce = float(latest.get("roce", latest.get("roce_5y_avg", 0.0) or 0.0))
+    roe = float(latest.get("roe", 0.0) or 0.0)
+    de = float(latest.get("debt_to_equity", latest.get("de_ratio", 0.0) or 0.0))
+    ocf = float(latest.get("operating_cash_flow", latest.get("cfo", 0.0) or 0.0))
     net_profit = float(latest.get("net_profit", latest.get("pat", 0.0) or 0.0))
     
-    mean_roce_3y = pit_rows["roce"].tail(12).mean() if "roce" in pit_rows.columns else roce
-    cum_ocf_3y = pit_rows["operating_cash_flow"].tail(12).sum() if "operating_cash_flow" in pit_rows.columns else ocf
-    cum_np_3y = pit_rows["net_profit"].tail(12).sum() if "net_profit" in pit_rows.columns else net_profit
+    roce_col = "roce" if "roce" in pit_rows.columns else ("roce_5y_avg" if "roce_5y_avg" in pit_rows.columns else None)
+    roe_col = "roe" if "roe" in pit_rows.columns else None
     
-    rev_5y_cagr = float(latest.get("rev_5y_cagr", 8.0) or 8.0)
-    eps_5y_cagr = float(latest.get("eps_5y_cagr", 8.0) or 8.0)
+    mean_roce_3y = pit_rows[roce_col].tail(12).mean() if roce_col else roce
+    mean_roe_3y = pit_rows[roe_col].tail(12).mean() if roe_col else roe
+    
+    ocf_col = "operating_cash_flow" if "operating_cash_flow" in pit_rows.columns else ("cfo" if "cfo" in pit_rows.columns else None)
+    np_col = "net_profit" if "net_profit" in pit_rows.columns else ("pat" if "pat" in pit_rows.columns else None)
+    
+    cum_ocf_3y = pit_rows[ocf_col].tail(12).sum() if ocf_col else ocf
+    cum_np_3y = pit_rows[np_col].tail(12).sum() if np_col else net_profit
+    
+    rev_5y_cagr = float(latest.get("rev_5y_cagr", latest.get("sales_cagr_5y", 8.0)) or 8.0)
+    eps_5y_cagr = float(latest.get("eps_5y_cagr", latest.get("pat_cagr_5y", 8.0)) or 8.0)
     
     if rev_5y_cagr < -50.0 or eps_5y_cagr < -50.0:
         return False, "INVALID", {}
         
-    q1 = (roce >= 12.0) or (mean_roce_3y >= 12.0)
+    q1 = (roce >= 12.0) or (mean_roce_3y >= 12.0) or (roe >= 12.0) or (mean_roe_3y >= 12.0)
     q2 = (de <= 1.0)
     q3 = (cum_ocf_3y > 0) and (cum_np_3y <= 0 or (cum_ocf_3y / max(cum_np_3y, 1.0)) >= 0.70)
     
-    decay_pass = (rev_5y_cagr >= 5.0) and (eps_5y_cagr >= 5.0) and (roce >= 0.80 * max(mean_roce_3y, 1.0))
+    # Revenue consistency: positive YoY in >= 4 of latest 5 years
+    rev_pos_cnt = 5
+    if "yoy_revenue_growth" in pit_rows.columns:
+        rev_growths = pit_rows["yoy_revenue_growth"].tail(5).dropna()
+        if len(rev_growths) > 0:
+            rev_pos_cnt = sum(1 for g in rev_growths if g > 0)
+    rev_trend_pass = (rev_5y_cagr >= 5.0) and (rev_pos_cnt >= 4)
+
+    # EPS consistency: positive EPS in >= 4 of latest 5 years
+    eps_pos_cnt = 5
+    if "eps" in pit_rows.columns:
+        eps_series = pit_rows["eps"].tail(5).dropna()
+        if len(eps_series) > 0:
+            eps_pos_cnt = sum(1 for e in eps_series if e > 0)
+    eps_trend_pass = (eps_5y_cagr >= 5.0) and (eps_pos_cnt >= 4)
+
+    decay_pass = rev_trend_pass and eps_trend_pass and (roce >= 0.80 * max(mean_roce_3y, 1.0))
     
     quality_pass = q1 and q2 and q3 and decay_pass
     data_state = "PASS" if quality_pass else "FAIL"
     
     metrics = {
         "roce": roce,
+        "mean_roce_3y": mean_roce_3y,
         "de": de,
         "ocf_3y": cum_ocf_3y,
-        "mean_roce_3y": mean_roce_3y,
-        "rev_5y_cagr": rev_5y_cagr
+        "rev_5y_cagr": rev_5y_cagr,
+        "eps_5y_cagr": eps_5y_cagr
     }
     return quality_pass, data_state, metrics
 
@@ -339,10 +369,13 @@ def evaluate_fundamental_integrity(pit_rows: pd.DataFrame) -> Tuple[bool, Dict[s
         
     latest = pit_rows.iloc[-1]
     net_profit = float(latest.get("net_profit", latest.get("pat", 0.0) or 0.0))
-    yoy_profit_growth = float(latest.get("yoy_net_profit_growth", 0.0) or 0.0)
+    yoy_profit_growth = float(latest.get("yoy_net_profit_growth", latest.get("yoy_pat_growth", 0.0) or 0.0))
     opm = float(latest.get("opm", 15.0) or 15.0)
-    mean_opm_3y = pit_rows["opm"].tail(12).mean() if "opm" in pit_rows.columns else opm
-    net_debt_ebitda = float(latest.get("net_debt_to_ebitda", 0.5) or 0.5)
+    
+    opm_col = "opm" if "opm" in pit_rows.columns else None
+    mean_opm_3y = pit_rows[opm_col].tail(12).mean() if opm_col else opm
+    
+    net_debt_ebitda = float(latest.get("net_debt_to_ebitda", latest.get("net_debt_ebitda", 0.5) or 0.5))
     
     i1 = (net_profit > 0) and (yoy_profit_growth >= -5.0)
     i2 = (opm >= 0.85 * max(mean_opm_3y, 1.0))
@@ -358,15 +391,27 @@ def evaluate_fundamental_integrity(pit_rows: pd.DataFrame) -> Tuple[bool, Dict[s
     return integrity_pass, metrics
 
 def evaluate_bear_attribution(stock_dd_mag: float, nifty_dd_mag: float, sector_dd_mag: float, integrity_pass: bool) -> str:
+    """
+    Evaluates bear dislocation classification according to frozen specification.
+    
+    Eligible:
+      - MARKET_DRIVEN: stock_dd >= 2.2 * nifty_dd AND abs(stock_dd - nifty_dd) <= 0.15 AND integrity == PASS
+      - SECTOR_DRIVEN: stock_dd >= 2.2 * sector_dd AND abs(stock_dd - sector_dd) <= 0.15 AND integrity == PASS
+    
+    Rejected:
+      - COMPANY_SPECIFIC: stock_dd > 2.5 * min(nifty_dd, sector_dd) OR integrity == FAIL
+      - MIXED: small stock_dd < 0.15 OR ratio < 2.2 OR diff > 0.15
+    """
     if not integrity_pass or stock_dd_mag > 2.5 * max(min(nifty_dd_mag, sector_dd_mag), 0.05):
         return "COMPANY_SPECIFIC"
         
     if stock_dd_mag < 0.15:
         return "MIXED"
         
-    is_mkt = (stock_dd_mag <= 2.2 * max(nifty_dd_mag, 0.05)) and (abs(stock_dd_mag - nifty_dd_mag) <= 0.15)
-    is_sec = (stock_dd_mag <= 2.2 * max(sector_dd_mag, 0.05)) and (abs(stock_dd_mag - sector_dd_mag) <= 0.15)
+    is_mkt = (stock_dd_mag >= 2.2 * max(nifty_dd_mag, 0.05)) and (abs(stock_dd_mag - nifty_dd_mag) <= 0.15)
+    is_sec = (stock_dd_mag >= 2.2 * max(sector_dd_mag, 0.05)) and (abs(stock_dd_mag - sector_dd_mag) <= 0.15)
     
+    # SECTOR_DRIVEN takes precedence over MARKET_DRIVEN if both pass per frozen manifest
     if is_sec:
         return "SECTOR_DRIVEN"
     elif is_mkt:
@@ -420,6 +465,23 @@ def load_symbol_market_data(symbol: str, nifty_df: pd.DataFrame, pit_df: pd.Data
         df["nifty_ret_20d"] = (df["close_nifty"] - df["close_nifty"].shift(20)) / df["close_nifty"].shift(20)
         df["rs_20d"] = (1.0 + df["stock_ret_20d"]) / (1.0 + df["nifty_ret_20d"])
         df["rs_slope_10d"] = (df["rs_20d"] - df["rs_20d"].shift(10)) / 10.0
+        
+        # Recovery Arms & Confirmation Freshness tracking (Age <= 10 sessions)
+        df["arm_a"] = ((df["rs_20d"] > 1.02) & (df["rs_slope_10d"] > 0.0)).astype(int)
+        df["arm_b"] = (df["close"] >= df["high_20d"]).astype(int)
+        df["arm_c"] = (df["vol_accum_ratio"] > 1.10).astype(int)
+        df["arm_any_raw"] = (df["arm_a"] | df["arm_b"] | df["arm_c"]).astype(int)
+
+        last_arm_idx = -999999
+        confirmation_ages = []
+        for i in range(len(df)):
+            if df["arm_any_raw"].iloc[i] == 1:
+                last_arm_idx = i
+            age = (i - last_arm_idx) if last_arm_idx != -999999 else 999999
+            confirmation_ages.append(age)
+
+        df["confirmation_age"] = confirmation_ages
+        df["fresh_recovery_pass"] = (df["confirmation_age"] <= 10).astype(int)
         
         pit_sym = pit_df[pit_df["symbol"] == symbol].sort_values("pit_ts") if not pit_df.empty else pd.DataFrame()
         if not pit_sym.empty:
@@ -503,20 +565,14 @@ def run_master_tournament(
             attribution_class = evaluate_bear_attribution(stock_dd_mag, nifty_dd_mag, sector_dd_mag, integrity_pass)
             attribution_pass = (attribution_class in ["MARKET_DRIVEN", "SECTOR_DRIVEN"])
 
-            # Recovery Arms
-            rs_20d = row.get("rs_20d", 1.0)
-            rs_slope_10d = row.get("rs_slope_10d", 0.0)
-            arm_a_pass = (rs_20d > 1.02) and (rs_slope_10d > 0.0)
-            
-            high_20d = row.get("high_20d", close_p * 2.0)
-            arm_b_pass = (close_p >= high_20d)
-            
-            vol_accum = row.get("vol_accum_ratio", 1.0)
-            arm_c_pass = (vol_accum > 1.10)
+            # Recovery Arms & Confirmation Freshness (<= 10 trading sessions)
+            arm_a_pass = (row.get("arm_a", 0) == 1)
+            arm_b_pass = (row.get("arm_b", 0) == 1)
+            arm_c_pass = (row.get("arm_c", 0) == 1)
+            confirmation_age = int(row.get("confirmation_age", 999999))
+            fresh_recovery_pass = (confirmation_age <= 10)
 
-            arm_any_pass = arm_a_pass or arm_b_pass or arm_c_pass
-
-            primary_signal = is_bear and (q_state == "PASS") and attribution_pass and integrity_pass and arm_any_pass
+            primary_signal = is_bear and (q_state == "PASS") and attribution_pass and integrity_pass and fresh_recovery_pass
 
             hypotheses = []
             if primary_signal:
@@ -618,6 +674,8 @@ def run_master_tournament(
                     "arm_a_pass": int(arm_a_pass),
                     "arm_b_pass": int(arm_b_pass),
                     "arm_c_pass": int(arm_c_pass),
+                    "confirmation_age": confirmation_age,
+                    "fresh_recovery_pass": int(fresh_recovery_pass),
                     "entry_idx": idx + 1,
                     "entry_date": entry_date.strftime("%Y-%m-%d"),
                     "entry_price": round(entry_price_eff, 2),
