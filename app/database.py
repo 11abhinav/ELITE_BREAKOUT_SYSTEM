@@ -6765,11 +6765,49 @@ def get_sector_momentum(days=7):
 
 # ── Parquet Binary Cache ──────────────────────────────────────────────────────
 
+DATASET_SCHEMA_IDENTITY = {
+    "daily_builder_master_v2": {
+        "required": {"symbol", "fundamental_category"},
+        "prohibited": {"latest_annual_period", "pit_freshness_status", "filing_gaps"},
+    },
+    "canonical_pit_rebuilt": {
+        "required": {"symbol", "pit_freshness_status"},
+        "prohibited": {"fundamental_category", "is_value_trap", "quality_score"},
+    },
+    "pit_fundamentals_v1": {
+        "required": {"symbol", "period_end_date"},
+    },
+    "pit_recovery_status": {
+        "required": {"symbol", "status", "reason"},
+        "prohibited": {"operating_revenue", "total_equity"},
+    },
+}
+
 def upload_parquet_to_db(name: str, file_path: str) -> bool:
     """Upload a binary parquet file to the database for today."""
     if not os.path.exists(file_path):
         logger.warning(f"⚠️ [PARQUET DB SYNC SKIPPED] Cannot upload '{name}': file does not exist at {file_path}")
         return False
+
+    # [RULE 67 CHANGE-RATIONALE: P0_SCHEMA_IDENTITY_ENFORCEMENT]
+    # Enforce strict dataset identity before uploading to Postgres DB cache.
+    # Prevents catastrophic boot overwrite where canonical_pit_rebuilt was uploaded as daily_builder_master_v2.
+    if name in DATASET_SCHEMA_IDENTITY:
+        try:
+            import pyarrow.parquet as pq
+            file_cols = set(pq.ParquetFile(file_path).schema.names)
+            spec = DATASET_SCHEMA_IDENTITY[name]
+            missing_req = spec.get("required", set()) - file_cols
+            found_proh = spec.get("prohibited", set()) & file_cols
+            if missing_req or found_proh:
+                logger.error(
+                    f"🛑 [PARQUET DB SYNC BLOCKED] Schema identity violation for '{name}' at {file_path}! "
+                    f"Missing required: {missing_req} | Prohibited detected: {found_proh}. Upload REJECTED."
+                )
+                return False
+        except Exception as _schema_err:
+            logger.warning(f"⚠️ [PARQUET DB SYNC] Schema check warning for '{name}': {_schema_err}")
+
     import time
     import psycopg2
     today = datetime.now(IST).strftime("%Y-%m-%d")
@@ -6968,9 +7006,13 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
         os.remove(tmp_path)
         current_md5 = hashlib.md5(binary_data).hexdigest()
 
-        if not force and _last_bundle_checksum.get(interval) == current_md5 and st.generation == target_upload_generation:
-            logger.info(f"ℹ️ [HISTORY BUNDLE DB SYNC] Skipped history_bundle_{interval} upload — dataset unchanged (MD5: {current_md5[:8]}, Gen: {target_upload_generation})")
+        # [RULE 67 CHANGE-RATIONALE: P1_BUNDLE_DEDUPLICATION]
+        # Never upload if binary content MD5 is identical to previously uploaded bundle, even if force=True.
+        if _last_bundle_checksum.get(interval) == current_md5:
+            logger.info(f"ℹ️ [HISTORY BUNDLE DB SYNC] Skipped history_bundle_{interval} upload — content hash identical (MD5: {current_md5[:8]}, Gen: {target_upload_generation})")
             _last_bundle_upload_time[interval] = now_ts
+            with _bundle_state_lock:
+                st.uploaded_generation = max(st.uploaded_generation, target_upload_generation)
             upload_success = True
             return True
 

@@ -1209,7 +1209,6 @@ def run_system_scheduler():
             # and verify exact set equality before allowing any scanner execution.
             canonical_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
             meta_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt_meta.json")
-            master_v2_path = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
             univ_886_path = os.path.join(DATA_DIR, "certified_clean_universe_886.json")
             
             # Load required universe
@@ -1248,7 +1247,10 @@ def run_system_scheduler():
                         _df_db = _pd.read_parquet(canonical_path)
                         if _is_valid_canonical_df(_df_db):
                             logger.info(f"✅ [CANONICAL BOOT] Restored certified canonical_pit_rebuilt ({len(_df_db)} symbols) from DB")
-                            _df_db.to_parquet(master_v2_path, index=False)
+                            # [RULE 67 CHANGE-RATIONALE: P0_BOOT_OVERWRITE_FIX]
+                            # DO NOT write canonical_pit_rebuilt into master_v2_path (daily_builder_master_v2.parquet).
+                            # canonical_pit_rebuilt is a 48-col raw balance sheet/statement dataset.
+                            # daily_builder_master_v2 is a 26-col calculated ratio dataset restored separately.
                             db_restored = True
                         else:
                             logger.error(f"❌ [CANONICAL BOOT] Downloaded DB canonical snapshot failed universe validation ({len(_df_db)} symbols)")
@@ -1263,7 +1265,8 @@ def run_system_scheduler():
                                 _df_seed = _pd.read_parquet(seed_p)
                                 if _is_valid_canonical_df(_df_seed):
                                     shutil.copy2(seed_p, canonical_path)
-                                    shutil.copy2(seed_p, master_v2_path)
+                                    # [RULE 67 CHANGE-RATIONALE: P0_BOOT_OVERWRITE_FIX]
+                                    # DO NOT copy canonical seed over master_v2_path!
                                     seed_meta = seed_p.replace(".parquet", "_meta.json")
                                     if os.path.exists(seed_meta):
                                         shutil.copy2(seed_meta, meta_path)
@@ -1282,7 +1285,9 @@ def run_system_scheduler():
             else:
                 try:
                     upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                    upload_parquet_to_db("daily_builder_master_v2", canonical_path)
+                    # [RULE 67 CHANGE-RATIONALE: P0_BOOT_OVERWRITE_FIX]
+                    # NEVER upload canonical_path as daily_builder_master_v2!
+                    # daily_builder_master_v2 is uploaded exclusively by FundamentalWealthEngine / DailyBuilder.
                     logger.info(f"⚡ [CANONICAL BOOT] Verified local certified canonical snapshot ({len(_df_local)} symbols) and synced to DB")
                 except Exception as _c_up_err:
                     logger.debug(f"Canonical DB upload notice: {_c_up_err}")
@@ -2170,8 +2175,9 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
         # so it does not block the orchestrator or downstream scanners in the boot batch.
         def _bg_rebuild_valuation():
             try:
-                from pit_valuation_history_builder import build_pit_valuation_history, _count_both_complete_from_dict
+                from pit_valuation_history_builder import build_pit_valuation_history, _count_both_complete_from_dict, _load_current_cache_completeness
                 logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build in background...")
+                current_cache_both_complete, _ = _load_current_cache_completeness()
                 _vc_result = build_pit_valuation_history(save_cache=True, upload_db=True)
                 if _vc_result:
                     # Secondary audit: use the same row-level both-field completeness metric as the builder.
@@ -2179,9 +2185,15 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
                     _ev_valid = sum(1 for v in _vc_result.values() if v.get("ev_ebitda_3y_median") is not None)
                     _pe_valid = sum(1 for v in _vc_result.values() if v.get("pe_3y_median") is not None)
                     _cache_cert = "CERTIFIED" if (_both_complete == len(_vc_result) and _both_complete > 0) else "PARTIAL_INCOMPLETE"
-                    if _both_complete > 0:
+                    if current_cache_both_complete > 0 and _both_complete < current_cache_both_complete:
+                        logger.warning(
+                            f"⚠️ [DAILY_BUILDER] STAGING_REBUILD_COMPLETE: build returned {len(_vc_result)} symbols "
+                            f"(Both-required: {_both_complete}), but PRODUCTION_PUBLISH_BLOCKED by NEVER-DOWNGRADE "
+                            f"(Active baseline: {current_cache_both_complete}). ACTIVE_CACHE_PRESERVED."
+                        )
+                    elif _both_complete > 0:
                         logger.info(
-                            f"✅ [DAILY_BUILDER] Background valuation rebuild accepted: {len(_vc_result)} symbols | "
+                            f"✅ [DAILY_BUILDER] PRODUCTION_PUBLISH_ACCEPTED: {len(_vc_result)} symbols | "
                             f"EV/EBITDA: {_ev_valid} | PE: {_pe_valid} | "
                             f"Both-required (EV∩PE): {_both_complete}/{len(_vc_result)} | "
                             f"cache_certification={_cache_cert}"
@@ -2267,19 +2279,21 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
     count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx, session=session)
     return {"total_count": count, "processed_count": count}
 
-def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session=None, allow_live_refresh: bool = False):
     from database import is_scanner_stopped
 
     if is_scanner_stopped("FUNDAMENTAL"):
         logger.info("⏸️ [FUNDAMENTAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
 
-    logger.info(f"🚀 [SCANNER: FUNDAMENTAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
+    logger.info(f"🚀 [SCANNER: FUNDAMENTAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name}, allow_live_refresh={allow_live_refresh})...")
 
     # _run_fundamental_scan is imported at module level from live_fundamental_scanner.
-    # Do NOT add fallback try/except chains here — if the module fails to load the
-    # error must be visible immediately, not silently swallowed.
-    funnel = _run_fundamental_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
+    # Enforces P0 directive: scheduled scans are strictly local and read-only (allow_live_refresh=False).
+    funnel = _run_fundamental_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, allow_live_refresh=allow_live_refresh)
+    if isinstance(funnel, dict) and funnel.get("status") == "COALESCED":
+        logger.info("⚡ [FUNDAMENTAL] Trigger coalesced (lock busy/scan active). Dropped cleanly without waiting queue.")
+        return {"total_count": 0, "processed_count": 0, "status": "COALESCED"}
     count = funnel.get("scanned_count", 0) if isinstance(funnel, dict) else 0
     return {"total_count": count, "processed_count": count}
 

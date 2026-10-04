@@ -402,7 +402,35 @@ def publish_canonical_pit(
                 df_target.drop(columns=["symbol_norm"], inplace=True)
                 logger.info(f"⚡ [CANONICAL_PUBLISHER] Delta merged {len(cand_symbols)} candidate symbols into {len(df_target)} canonical symbols")
             else:
-                df_target = df_new
+                # [RULE 67 CHANGE-RATIONALE: MONOTONIC_CONFLICT_ISOLATION_v1.0]
+                # If a full candidate has regressed metrics for isolated symbols compared to df_old,
+                # preserve the verified non-null historical state from df_old for those specific symbols/fields.
+                # This ensures valid recoveries across the rest of the batch are not discarded by a single symbol regression.
+                df_target = df_new.copy()
+                if df_old is not None and not df_old.empty:
+                    df_old_idx = df_old.set_index(df_old["symbol"].str.upper())
+                    target_syms = df_target["symbol"].str.upper()
+                    tracked_preserve_cols = [
+                        "current_ev_ebitda", "ev_ebitda_3y_median", "current_pe", "pe_3y_median",
+                        "revenue", "ebitda", "net_profit", "operating_cash_flow", "total_debt",
+                        "cash_and_equivalents", "shares_outstanding_m", "roce_5y_avg", "annual_filing_count"
+                    ]
+                    preserved_count = 0
+                    for col in tracked_preserve_cols:
+                        if col in df_old.columns and col in df_target.columns:
+                            old_series = df_old_idx[col]
+                            for row_idx, sym in enumerate(target_syms):
+                                if sym in old_series.index:
+                                    old_v = old_series.loc[sym]
+                                    if isinstance(old_v, pd.Series):
+                                        old_v = old_v.iloc[0]
+                                    t_v = df_target.at[row_idx, col]
+                                    if (t_v is None or (isinstance(t_v, float) and pd.isna(t_v))) and (old_v is not None and not (isinstance(old_v, float) and pd.isna(old_v))):
+                                        df_target.at[row_idx, col] = old_v
+                                        preserved_count += 1
+                    if preserved_count > 0:
+                        logger.info(f"🛡️ [CANONICAL_PUBLISHER] Conflict isolation: preserved {preserved_count} verified field(s) from existing canonical to prevent regression")
+
                 gate_passed, gate_reasons = _run_never_downgrade_gate(df_old, df_target, reason)
 
         # --- Step 5: Strict Exact Set Equality Validation ---
@@ -446,10 +474,9 @@ def publish_canonical_pit(
         df_target.to_parquet(tmp, index=False)
         os.replace(tmp, CANONICAL_PATH)
 
-        # Also update daily_builder_master_v2
-        tmp_v2 = f"{MASTER_V2_PATH}.tmp.{os.getpid()}"
-        df_target.to_parquet(tmp_v2, index=False)
-        os.replace(tmp_v2, MASTER_V2_PATH)
+        # [RULE 67 CHANGE-RATIONALE: P0_BOOT_OVERWRITE_FIX]
+        # DO NOT overwrite MASTER_V2_PATH (daily_builder_master_v2.parquet) with canonical_pit_rebuilt!
+        # daily_builder_master_v2 has a completely distinct 26-column calculated ratio schema.
 
         # --- Step 8: Rich snapshot metadata ---
         new_hash = _sha256(CANONICAL_PATH)
@@ -469,8 +496,7 @@ def publish_canonical_pit(
         if upload_parquet_to_db is not None:
             try:
                 upload_parquet_to_db("canonical_pit_rebuilt", CANONICAL_PATH)
-                upload_parquet_to_db("daily_builder_master_v2", MASTER_V2_PATH)
-                logger.info("💾 [CANONICAL_PUBLISHER] Uploaded canonical_pit_rebuilt and daily_builder_master_v2 to DB parquet_cache")
+                logger.info("💾 [CANONICAL_PUBLISHER] Uploaded canonical_pit_rebuilt to DB parquet_cache")
             except Exception as _db_err:
                 logger.warning(f"[CANONICAL_PUBLISHER] DB parquet cache upload warning: {_db_err}")
 

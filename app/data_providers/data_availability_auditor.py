@@ -314,8 +314,25 @@ class DataAvailabilityAuditor:
             or (http_ok and raw_records > 0 and usable_fields == 0)
         )
 
-        # ── 3 Core Mandatory Governance Conditions & Diagnoses ────────────
-        if is_parser_failure:
+        # ── Mandatory Precedence Hierarchy (Finding 12 & 13 Fix) ───────────
+        # 1. INSUFFICIENT_HISTORICAL_DEPTH: cannot compute 5Y CAGR without 6 annual periods or 5Y ROCE without 5
+        # 2. HISTORICAL_FILING_GAP: missing periods between earliest and latest filing break continuity
+        # 3. INVALID_CAGR_BASE: negative or zero base revenue/PAT prevents compound annual growth calculation
+        # 4. PARSER_OR_FIELD_MAPPING_FAILURE: only after proving sufficient periods & continuity exist
+        # 5. Diagnostic Discrepancies (FYERS / Screener forensic discovery)
+        has_filing_gap = bool(trace.get("filing_gap_detected") or trace.get("filing_gap") or trace.get("has_gap"))
+        has_invalid_base = bool(trace.get("invalid_base") or trace.get("base_value_non_positive") or trace.get("negative_base"))
+
+        if max_annual > 0 and min_needed is not None and max_annual < min_needed:
+            cls = AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH
+            action = f"CONFIRMED_SHORT_HISTORY (has {max_annual} annual periods, requires {min_needed})"
+        elif has_filing_gap:
+            cls = AvailabilityClassification.HISTORICAL_FILING_GAP
+            action = f"HISTORICAL_FILING_GAP_BLOCKING_{fld.upper()}"
+        elif has_invalid_base:
+            cls = AvailabilityClassification.INVALID_CAGR_BASE
+            action = f"INVALID_BASE_PERIOD_VALUE_FOR_{fld.upper()}"
+        elif is_parser_failure and (primary_has_enough or max_annual == 0):
             cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
             action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
         elif fyers_avail and screener_avail:
@@ -333,9 +350,6 @@ class DataAvailabilityAuditor:
         elif fyers_missing and screener_missing:
             cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
             action = "NONE (hard data block confirmed across all providers)"
-        elif max_annual > 0 and min_needed is not None and max_annual < min_needed:
-            cls = AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH
-            action = f"CONFIRMED_SHORT_HISTORY (has {max_annual} annual periods, requires {min_needed})"
         elif not trace or (fld == "current_ev_ebitda" and kr == "NOT_ATTEMPTED"):
             cls = AvailabilityClassification.TIER1_RECOVERY_NOT_EXHAUSTED
             action = "RUN_TIER1_PRIMARY_RECOVERY"

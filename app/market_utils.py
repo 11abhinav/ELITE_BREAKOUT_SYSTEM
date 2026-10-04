@@ -3,6 +3,17 @@ from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
 
+def _get_trading_calendar():
+    try:
+        from trading_calendar import default_trading_calendar
+        return default_trading_calendar
+    except ImportError:
+        try:
+            from app.trading_calendar import default_trading_calendar
+            return default_trading_calendar
+        except ImportError:
+            return None
+
 def is_market_open(now_dt: datetime = None) -> bool:
     """
     Returns True ONLY if the current time is between 09:15 and 15:30 on an official trading day (Mon-Fri, non-holiday).
@@ -13,12 +24,9 @@ def is_market_open(now_dt: datetime = None) -> bool:
     if now_dt.weekday() >= 5:  # 5 is Saturday, 6 is Sunday
         return False
         
-    try:
-        from trading_calendar import default_trading_calendar
-        if not default_trading_calendar.is_trading_day(now_dt):
-            return False
-    except Exception:
-        pass
+    cal = _get_trading_calendar()
+    if cal is not None and not cal.is_trading_day(now_dt):
+        return False
 
     current_time = now_dt.time()
     return dt_time(9, 15) <= current_time <= dt_time(15, 30)
@@ -77,12 +85,9 @@ def is_valid_price_tick(ts, check_calendar: bool = False) -> bool:
 
         # Optional: reject NSE/BSE holidays
         if check_calendar:
-            try:
-                from trading_calendar import default_trading_calendar
-                if not default_trading_calendar.is_trading_day(ts_dt):
-                    return False
-            except Exception:
-                pass  # Calendar check is best-effort; do not reject on failure
+            cal = _get_trading_calendar()
+            if cal is not None and not cal.is_trading_day(ts_dt):
+                return False
 
         return True
     except Exception:
@@ -99,12 +104,9 @@ def is_within_custom_hours(start_time: dt_time, end_time: dt_time, now_dt: datet
     if now_dt.weekday() >= 5:
         return False
         
-    try:
-        from trading_calendar import default_trading_calendar
-        if not default_trading_calendar.is_trading_day(now_dt):
-            return False
-    except Exception:
-        pass
+    cal = _get_trading_calendar()
+    if cal is not None and not cal.is_trading_day(now_dt):
+        return False
 
     current_time = now_dt.time()
     return start_time <= current_time <= end_time
@@ -119,16 +121,17 @@ def get_expected_latest_trading_date(now_dt: datetime = None) -> date:
     if now_dt is None:
         now_dt = datetime.now(IST)
     
-    from trading_calendar import default_trading_calendar
+    cal = _get_trading_calendar()
     current_time = now_dt.time()
     # If official trading day and time >= 09:15 AM IST, expected bar is TODAY
-    if default_trading_calendar.is_trading_day(now_dt) and current_time >= dt_time(9, 15):
+    if cal is not None and cal.is_trading_day(now_dt) and current_time >= dt_time(9, 15):
         return now_dt.date()
     
     # Otherwise (Pre-market morning before 9:15 AM IST or Weekend/Holiday), expected bar is from PREVIOUS trading day
     candidate = now_dt.date() - timedelta(days=1)
-    while not default_trading_calendar.is_trading_day(candidate):
-        candidate -= timedelta(days=1)
+    if cal is not None:
+        while not cal.is_trading_day(candidate):
+            candidate -= timedelta(days=1)
     return candidate
 
 
@@ -143,17 +146,18 @@ def get_expected_latest_closed_daily_bar(now_dt: datetime = None) -> date:
     if now_dt is None:
         now_dt = datetime.now(IST)
     
-    from trading_calendar import default_trading_calendar
+    cal = _get_trading_calendar()
     current_time = now_dt.time()
     
     # If after 15:30 IST on an official trading day, today's session is CLOSED
-    if default_trading_calendar.is_trading_day(now_dt) and current_time >= dt_time(15, 30):
+    if cal is not None and cal.is_trading_day(now_dt) and current_time >= dt_time(15, 30):
         return now_dt.date()
     
     # Otherwise, the latest completed closed daily bar is from the PREVIOUS trading session
     candidate = now_dt.date() - timedelta(days=1)
-    while not default_trading_calendar.is_trading_day(candidate):
-        candidate -= timedelta(days=1)
+    if cal is not None:
+        while not cal.is_trading_day(candidate):
+            candidate -= timedelta(days=1)
     return candidate
 
 

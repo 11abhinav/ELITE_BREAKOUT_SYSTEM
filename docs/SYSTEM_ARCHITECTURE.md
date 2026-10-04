@@ -36,7 +36,7 @@
 # 1. ARCHITECTURAL PHILOSOPHY & SYSTEM RUNTIME MODEL
 
 ## 1.1 Process Architecture & Deployment Budget
-- **Runtime Model**: Single Python 3.9 process running inside a secure Linux/Railway container.
+- **Runtime Model**: ~~Single Python 3.9 process running inside a secure Linux/Railway container.~~ Single Python 3.9 process running inside a secure Contabo VPS + Coolify Docker container. *(Updated 2026-10-04: Enforced Rule 66 Contabo VPS + Coolify deployment architecture)*
 - **Resource Budget**: **2.0 GB RAM (2048 MB)** Container Operating Budget (Minimum floor = **1.0 GB RAM**). Warning/eviction threshold = 1200 MB (60%), peak transient = 1400–1600 MB, emergency GC kill = 1800 MB (90%).
 - **Process Isolation Directive**: Microservices are explicitly prohibited due to RAM duplication, inter-process serialization overhead, and latency. All subsystems run in-process using managed thread pools, shared memory structures, and non-blocking asynchronous loops.
 - **System Invariants**:
@@ -487,6 +487,43 @@ The fundamental pipeline enforces strict financial integrity invariants:
      ```
    - Only `compute_fundamental_provenance_valid(...)` can set `prov_valid = True`, validating: (1) 4-field quality completeness (`roce`, `roe`, `debt_equity`, `operating_cash_flow`), (2) strict provider-status pair binding (`VALID_PROVIDER_PROVENANCE_COMBINATIONS`), (3) annual filing basis (`quality_source_basis == 'ANNUAL' and annual_filing_present is True`), (4) PIT freshness and non-staleness (`snapshot_status in {'FRESH', 'CERTIFIED'}` and `not is_data_stale`), and (5) verifiable PIT period/filing metadata.
    - Eliminates all historical state leaks and ensures trivial Rule 65 auditability.
+
+5. **Dataset Schema Identity Gate (`DATASET_SCHEMA_IDENTITY`)**:
+   - Registered in `app/database.py`. Strictly segregates distinct Parquet datasets to prevent cross-contamination:
+     - `daily_builder_master_v2`: requires financial ratio columns (`symbol`, `roce`, `roe`, `debt_equity`, `operating_cash_flow`, `pat_growth_cagr_5y`).
+     - `canonical_pit_rebuilt`: requires statement-level accounting columns (`symbol`, `period_end`, `filing_date`, `equity_share_capital`, `total_debt`).
+     - `pit_fundamentals_v1`: requires PIT ratio columns (`symbol`, `period_end`, `roce`).
+     - `pit_recovery_status`: requires negative cache audit columns (`symbol`, `field`, `status`, `expires_at`).
+   - Every `upload_parquet_to_db` and sync operation verifies `ParquetFile.schema.names` in <1ms before database writes. Any mismatched dataset upload is aborted with `RuntimeError`, permanently preventing wrong-dataset DB publication.
+
+6. **Deprecation of Startup Boot-Seed Overwrite**:
+   - ~~On startup, `app/main.py` copied `canonical_pit_rebuilt.parquet` into `master_v2_path` and uploaded it as `daily_builder_master_v2`.~~ *(Deprecated 2026-10-04: Removed boot overwrite. Raw accounting statements lacked derived ratio columns like `roce`, causing `roce_null_frac=100.00%` and triggering catastrophic 38-minute live network recoveries)*.
+
+7. **Network-Free Scheduled Scanner Architecture & Performance SLA (<5.0s)**:
+   - For all scheduled/cron executions (`scheduler_name != "MANUAL"` or `trigger_type != "MANUAL"`), `allow_live_refresh` is forced to `False`.
+   - The scanner loop relies strictly on local pre-built datasets (`daily_builder_master_v2`, `canonical_pit_rebuilt`, and local filing cache).
+   - In-scanner network recovery (`_get_pit_filings(sym, allow_live_refresh=True)`) is eliminated from the hot evaluation path. Missing fields fail closed immediately in 0ms.
+   - Warm 886-symbol scan runtime SLA dropped from 2,285 seconds (~38 min) to <5.0 seconds (empirically measured at 4.66s), with 0 HTTP calls and 0 broker calls during scanning.
+
+8. **Durable Negative Availability Cache in PostgreSQL (`pit_recovery_status`)**:
+   - Implemented via `app/pit_recovery_cache.py`. Negative recovery cache records (fields proven unavailable from upstream with TTL) are persisted to local disk and synchronously/asynchronously synchronized with PostgreSQL table `pit_recovery_status`.
+   - On container restart, the negative cache is downloaded from PostgreSQL, preventing redundant HTTP re-queries across application reboots while keeping negative markers strictly out of the canonical filing dataset.
+
+9. **Monotonic Per-Symbol Conflict Isolation in Canonical Publisher**:
+   - In `scripts/canonical_pit_publisher.py`, the Never-Downgrade gate is preceded by per-symbol conflict preservation.
+   - If a batch of 41 recovered symbols contains 1 symbol with a lower metric (e.g., ROCE 5Y count 831 → 830), the publisher preserves the old verified metric for that isolated symbol while atomically promoting the remaining 40 valid recoveries. Eliminates coarse whole-batch rejections.
+
+10. **Pre-BUY Integrity Alert Suppression & Telemetry Funnel Reconciliation**:
+    - When strategy rules pass but Pre-BUY data integrity gates block an alert (e.g. unverified/stale filing), the suppression is recorded in `AlertTelemetryCollector` with reason `PRE_BUY_INTEGRITY_BLOCKED`.
+    - Reconciliation invariant: `buy_eligible == buy_alerts_created + buy_alerts_suppressed`.
+    - If telemetry integrity fails or reconciliation fails, health is marked `DEGRADED`, and is strictly prohibited from being overridden to `OK`.
+
+11. **Classification Precedence in Data Availability Auditor**:
+    - In `app/data_providers/data_availability_auditor.py`, classification order strictly enforces:
+      1. `INSUFFICIENT_HISTORICAL_DEPTH` (e.g. symbol has only 3–4 annual filings; 5Y CAGR cannot mathematically be calculated).
+      2. `HISTORICAL_FILING_GAP` (discontinuous filing periods).
+      3. `INVALID_CAGR_BASE` (zero or negative base-year metric).
+      4. `PARSER_OR_FIELD_MAPPING_FAILURE` (only emitted when adequate historical filing depth exists but extraction yielded 0 fields).
 
 ---
 

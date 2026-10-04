@@ -356,14 +356,26 @@ Architectural separation between quantitative strategy scanners and upstream dat
      ```
    - Strictly enforces `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, and `buy_decision = BLOCKED`.
 3. **PARSER OR FIELD MAPPING FAILURE (`PARSER_OR_FIELD_MAPPING_FAILURE`)**:
-   - HTTP 200 raw filings returned, raw records present, but target metric unextracted (0 usable fields extracted).
-   - High-priority defect alerting to taxonomy tag changes or parser errors.
+   - HTTP 200 raw filings returned, raw records present, but target metric unextracted (0 usable fields extracted) despite sufficient historical filing depth.
+   - **Strict Classification Precedence**: The auditor evaluates `INSUFFICIENT_HISTORICAL_DEPTH` (e.g. <5 annual statements for 5Y CAGR), `HISTORICAL_FILING_GAP`, and `INVALID_CAGR_BASE` BEFORE considering a parser/mapping bug. Stocks with only 3–4 annual filings (e.g. KRSNAA, MARSONS) are classified as historical depth limits, never parser failures.
 4. **GENUINELY UNAVAILABLE (`DATA_UNAVAILABLE_VERIFIED`)**:
    - Missing across Upstox, NSE, PIT, FYERS, and Screener. Confirms legitimate public data absence.
 
 ## 5.3 Granular Diagnostic Categories & REST Endpoints
 - `GET /api/admin/data_availability/counts`: Real-time counts across all 11 categories (`verified_data_missing`, `provider_discrepancies`, `fyers_only_data_found`, `screener_only_data_found`, `genuinely_unavailable`, `insufficient_historical_depth`, `stale_pit`, `unprocessed_filing`, `parser_mapping_failure`, `calculation_failure`, `structural_ineligible`).
 - `GET /api/admin/data_availability/audits`: Stock-by-stock audit records containing complete 17-field provenance metadata.
+
+## 5.4 Data Pipeline Architectural Invariants
+1. **Dataset Schema Identity Gate (`DATASET_SCHEMA_IDENTITY`)**:
+   - Strictly enforces column schema verification for `daily_builder_master_v2`, `canonical_pit_rebuilt`, `pit_fundamentals_v1`, and `pit_recovery_status` prior to database writes. Cross-dataset overwrites (e.g. uploading raw PIT statements as builder master) are permanently blocked in <1ms.
+2. **Network-Free Scheduled Scanner**:
+   - Scheduled/cron executions run with `allow_live_refresh = False`. Zero HTTP recovery calls or broker fetches occur inside the scanner evaluation loop. Missing data fails closed immediately (0ms). Warm scan SLA is <5.0 seconds (measured at 4.66s for 886 symbols).
+3. **Durable Negative Availability Cache**:
+   - `pit_recovery_status` is persisted to disk and synchronized with PostgreSQL to ensure negative knowledge survives container reboots without polluting canonical filing data.
+4. **Funnel Reconciliation & Health Integrity**:
+   - Suppression of alerts by Pre-BUY data integrity gates is tracked as `PRE_BUY_INTEGRITY_BLOCKED`.
+   - Strict reconciliation: `buy_eligible == buy_alerts_created + buy_alerts_suppressed`.
+   - If telemetry or reconciliation fails, health is reported as `DEGRADED`. It is strictly prohibited to override failed integrity checks to `OK`.
 
 ---
 

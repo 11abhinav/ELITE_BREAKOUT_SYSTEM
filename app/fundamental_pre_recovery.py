@@ -318,6 +318,13 @@ class FundamentalPreRecoveryEngine:
             ):
                 self.persist_verified_record(df, symbol, metrics)
                 recovered_count += 1
+                logger.info(f"✅ [PRE_RECOVERY] {symbol}: recovery_status=SUCCESS | promotion_status=PROMOTED | fields={list(metrics.recovered_fields.keys())}")
+            else:
+                logger.info(
+                    f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=FETCH_COMPLETED | promotion_status=BLOCKED | "
+                    f"reason={metrics.rejection_reason or metrics.overall_status.value} | "
+                    f"unverified_fields={list(metrics.recovered_fields.keys())}"
+                )
 
         published = False
         if recovered_count > 0:
