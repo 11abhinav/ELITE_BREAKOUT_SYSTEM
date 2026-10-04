@@ -117,6 +117,22 @@ The system operates strictly certified scanning engines reading configuration di
 - **Never-Downgrade Gate & Source Freshness Fence**:
   - Never allow older or lower-quality data to overwrite certified canonical PIT records.
   - Pre-BUY Filing Freshness Fence enforces that no BUY alert may be committed if a newer filing was published on the exchange before transaction commit.
+- **Single-Point Provenance Certification Gate Invariant (Rule 65 / Rule 67 Clean Architecture)**:
+  - `prov_valid` starts strictly initialized to `False` (`prov_valid = False`).
+  - No earlier branch (shared canonical snapshot gate, initial cache defaults, or intermediate PIT recovery branches) is permitted to certify provenance or set `prov_valid = True`.
+  - Exactly ONE closed Boolean certification gate exists in the entire fundamental scanner pipeline:
+    ```python
+    prov_valid = False
+    # ... snapshot integration / PIT recovery / field derivations / normalization ...
+    prov_valid = compute_fundamental_provenance_valid(funds, is_data_stale=is_data_stale)
+    ```
+  - `compute_fundamental_provenance_valid` evaluates the final post-recovery candidate state against 5 mandatory criteria:
+    1. Complete 4-field quality gate inputs (`roce`, `roe`, `debt_equity`, `operating_cash_flow`).
+    2. Strict provider-provenance pair authorization (`VALID_PROVIDER_PROVENANCE_COMBINATIONS`).
+    3. Annual statement basis verification (`quality_source_basis == 'ANNUAL'` and `annual_filing_present is True`).
+    4. PIT snapshot freshness and non-staleness (`snapshot_status in {'FRESH', 'CERTIFIED'}` and `not is_data_stale`).
+    5. Verifiable PIT filing/period metadata.
+  - Zero premature certifications, zero if/elif branch state preservation, zero fallback leakage. Auditing requires inspecting only that single call site.
 - **Execution Schedule**:
   - Pre-market sweep at **02:00 AM IST**.
   - Intraday 15-minute BUY alert scan during market hours (`09:15` to `15:30` IST).

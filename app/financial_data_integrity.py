@@ -2925,6 +2925,8 @@ class SharedFinancialSnapshot:
             "provenance_status": self.provenance_status,
             "snapshot_status": self.snapshot_status,
             "pit_freshness_status": self.pit_freshness_status,
+            "quality_source_basis": "ANNUAL",
+            "annual_filing_present": bool(self.latest_annual_period or (self.roce is not None)),
         }
 
 

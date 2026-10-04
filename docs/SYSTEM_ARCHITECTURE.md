@@ -476,6 +476,17 @@ The fundamental pipeline enforces strict financial integrity invariants:
 1. **Point-in-Time (PIT) Causality**: Decisions are strictly conditioned on filings publicly published prior to the decision timestamp.
 2. **Never-Downgrade Gate**: A previously certified, high-completeness financial snapshot is permanently protected against being overwritten by an incomplete or downgraded record.
 3. **Source Freshness Fence**: No BUY alert may be committed when a newer valid filing is known to have been published on the exchange prior to the alert commit transaction.
+4. **Single-Point Provenance Certification Gate Invariant (Rule 65 / Rule 67 Clean Architecture)**:
+   - Within `LiveFundamentalBuyScanner`, `prov_valid` starts strictly initialized to `False` (`prov_valid = False`).
+   - Zero premature certifications are permitted in any pre-recovery snapshot branch or intermediate PIT recovery branch.
+   - Exactly ONE closed Boolean certification gate exists in the entire pipeline:
+     ```python
+     prov_valid = False
+     # ... snapshot integration / recovery / field derivations / normalization ...
+     prov_valid = compute_fundamental_provenance_valid(funds, is_data_stale=is_data_stale)
+     ```
+   - Only `compute_fundamental_provenance_valid(...)` can set `prov_valid = True`, validating: (1) 4-field quality completeness (`roce`, `roe`, `debt_equity`, `operating_cash_flow`), (2) strict provider-status pair binding (`VALID_PROVIDER_PROVENANCE_COMBINATIONS`), (3) annual filing basis (`quality_source_basis == 'ANNUAL' and annual_filing_present is True`), (4) PIT freshness and non-staleness (`snapshot_status in {'FRESH', 'CERTIFIED'}` and `not is_data_stale`), and (5) verifiable PIT period/filing metadata.
+   - Eliminates all historical state leaks and ensures trivial Rule 65 auditability.
 
 ---
 
