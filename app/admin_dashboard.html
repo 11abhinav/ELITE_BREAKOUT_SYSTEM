@@ -4255,12 +4255,9 @@ function changeAdminPage(type, delta) {
       'FUNDAMENTAL': { label: 'Fundamental Breakout', desc: 'Quality + Growth + 20D BO · Daily 18:30 IST (ALL REGIMES)' },
       'QUALITY_COMPOUNDER': { label: 'Quality Compounder', desc: 'Quality × Value Compounder · Daily 17:00 IST (ALL REGIMES)' },
       'QUALITY_VALUE_RECOVERY': { label: 'Quality Value Recovery', desc: 'Quality Value Recovery · Daily 17:15 IST (ALL REGIMES)' },
-      'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
-      'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous (Daily Refresh)' },
-      'PERFORMANCE_TRACKER': { label: 'Exit Monitor — Technical (EOD, REVERSAL, MULTI_TF)', desc: 'Position & Exit Monitor for EOD, REVERSAL & MULTI_TF · Every 5m (09:15–15:30 IST)' },
+      'PERFORMANCE_TRACKER': { label: 'Exit Monitor — Technical', desc: 'Position & Exit Monitor for Active Technical Breakout Positions · Every 5m (09:15–15:30 IST)' },
       'WEALTH_EXIT_V1': { label: 'Exit Monitor V1 — Wealth (COMPOUNDER, QUALITY_RECOVERY)', desc: 'Primary Intraday Portfolio & Exit Monitor for QUALITY_COMPOUNDER & QUALITY_VALUE_RECOVERY · Market Hours (09:15–15:30 IST)' },
       'WEALTH_EXIT_V2': { label: 'Exit Monitor V2 — Model E3 (COMPOUNDER, QUALITY_RECOVERY)', desc: 'Model E3 Dual-Pulse Exit Guard for QUALITY_COMPOUNDER & QUALITY_VALUE_RECOVERY · 15:15 & 18:30 IST Pulses' },
-      'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' },
       'FILING_WATCHER': { label: 'Filing Watcher', desc: 'NSE/BSE Corporate Filings & Freshness Watcher · Periodic (08:00, 16:30, 21:00 IST)' }
     };
 
@@ -4419,8 +4416,6 @@ function getEarningsBadgeHtml(item) {
         'PERFORMANCE_TRACKER',
         'WEALTH_EXIT_V1',
         'WEALTH_EXIT_V2',
-        'Pledge Worker',
-        'AI Worker',
         'FILING_WATCHER'
       ];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));

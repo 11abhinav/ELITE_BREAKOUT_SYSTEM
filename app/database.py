@@ -963,6 +963,15 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_scanner_health_status ON scanner_health(status)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_scanner_health_upper ON scanner_health(UPPER(scanner_name))")
+                # Purge decommissioned scanners and unused workers from scanner_health
+                cur.execute("""
+                    DELETE FROM scanner_health
+                    WHERE UPPER(scanner_name) IN (
+                        'AI WORKER', 'PLEDGE WORKER', 'EOD', 'EOD_SCANNER', 'ACCUMULATION',
+                        'PULLBACK', 'SHORT_COVERING', '5M_BREAKOUT', 'REVERSAL', 'MULTIBAGGER',
+                        'MUTUAL_FUND', 'MF', 'MF_SCANNER', 'BAYESIANUPDATER'
+                    );
+                """)
 
                 # 11. wealth_score_history
                 cur.execute("""
@@ -4797,8 +4806,6 @@ def get_all_scanner_health() -> list[dict]:
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
         "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
-        "Pledge Worker": "Continuous (Daily Refresh)",
-        "AI Worker": "Continuous (Sat-Sun Active)",
         "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
     }
 
@@ -5212,10 +5219,11 @@ def resume_scanner(scanner_name: str) -> bool:
 
 
 ALL_KNOWN_SCANNERS = [
-    'DAILY_BUILDER', 'TECHNICAL',
+    'DAILY_BUILDER', 'TECHNICAL', 'FUNDAMENTAL',
+    'QUALITY_COMPOUNDER', 'QUALITY_VALUE_RECOVERY',
     'PERFORMANCE_TRACKER',
     'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2',
-    'Pledge Worker', 'AI Worker', 'BayesianUpdater'
+    'FILING_WATCHER'
 ]
 
 

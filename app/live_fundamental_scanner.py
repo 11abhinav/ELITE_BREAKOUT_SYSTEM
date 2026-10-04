@@ -2929,20 +2929,29 @@ class LiveFundamentalBuyScanner:
                         except Exception as _tel_err:
                             logger.debug(f"Telemetry check notice: {_tel_err}")
 
-                    is_degraded = is_crashed or data_gap or telemetry_failed
-                    # health_status=OK means: all approved symbols evaluated, no systemic infrastructure outage, telemetry verified.
-                    # health_status=DEGRADED means: a system-level outage or reconciliation failure affected run completeness/quality.
-                    health_status = "DEGRADED" if is_degraded else "OK"
-                    _computed_health_status = health_status  # propagate to end banner override
-                    health_outcome = "PARTIAL" if is_degraded else "SUCCESS"
-                    gap_msg = None
-                    if is_degraded:
+                    fail_cnt = di + dm + pf
+                    fail_ratio = fail_cnt / max(1, total_symbols_cnt)
+                    is_down = is_crashed or fail_ratio > 0.25
+                    is_degraded = is_down or data_gap or telemetry_failed
+                    if is_down:
+                        health_status = "DOWN"
+                        health_outcome = "FAILED"
                         gap_msg = (
-                            f"Data gaps: {funnel.get('price_data_insufficient_count', 0)} insufficient technicals, "
-                            f"{funnel.get('growth_data_insufficient_count', 0)} insufficient growth, {dm} missing fundamentals, "
-                            f"{pf} provider failures of {total_symbols_cnt} approved "
-                            f"(combined_gap={di+dm}/{total_symbols_cnt} = {round((di+dm)/max(total_symbols_cnt,1)*100,1)}%)"
+                            f"DATA_DOWN: {fail_cnt}/{total_symbols_cnt} stocks "
+                            f"({round(fail_ratio * 100, 1)}% > 25% threshold) incomplete/stale data failures"
                         )
+                    elif is_degraded:
+                        health_status = "DEGRADED"
+                        health_outcome = "PARTIAL"
+                        gap_msg = (
+                            f"DATA_DEGRADED: {fail_cnt}/{total_symbols_cnt} stocks "
+                            f"({round(fail_ratio * 100, 1)}%) data gaps/failures"
+                        )
+                    else:
+                        health_status = "OK"
+                        health_outcome = "SUCCESS"
+                        gap_msg = None
+                    _computed_health_status = health_status  # propagate to end banner override
 
                     upsert_scanner_health(
                         "FUNDAMENTAL",
@@ -6082,11 +6091,22 @@ class QualityCompounderValueV2Scanner:
                     f"Evaluable != Alerts ({alerts_count}) + Rejected ({rejected_count})"
                 )
             elif (incomplete_count + stale_count) > 0:
-                _health_status = "DEGRADED"
-                _health_error = (
-                    f"DATA_DEGRADED: {incomplete_count + stale_count} stocks incomplete/stale with data failures "
-                    f"({', '.join(sorted(incomplete_symbols)[:10])})"
-                )
+                data_fail_count = incomplete_count + stale_count
+                data_fail_ratio = data_fail_count / max(1, scanned_count)
+                if data_fail_ratio > 0.25:
+                    _health_status = "DOWN"
+                    _health_error = (
+                        f"DATA_DOWN: {data_fail_count}/{scanned_count} stocks "
+                        f"({round(data_fail_ratio * 100, 1)}% > 25% threshold) incomplete/stale with data failures "
+                        f"({', '.join(sorted(incomplete_symbols)[:10])})"
+                    )
+                else:
+                    _health_status = "DEGRADED"
+                    _health_error = (
+                        f"DATA_DEGRADED: {data_fail_count}/{scanned_count} stocks "
+                        f"({round(data_fail_ratio * 100, 1)}%) incomplete/stale with data failures "
+                        f"({', '.join(sorted(incomplete_symbols)[:10])})"
+                    )
             else:
                 _health_status = "OK"
                 _health_error = None

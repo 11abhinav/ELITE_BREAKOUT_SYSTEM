@@ -4489,53 +4489,8 @@ def api_scanner_status():
                     except Exception as _we_err:
                         logger.debug(f"Wealth trades parse warning: {_we_err}")
 
-            processed_count = None
-            total_count = None
-            
-            if sc in ["Pledge Worker", "AI Worker"]:
-                # [RULE 67 CHANGE-RATIONALE]:
-                # Memoize worker universe size and cached count for 30 seconds to prevent scanning
-                # daily_watchlist and daily_excluded_watchlist on every 5s dashboard poll.
-                if (now_ts - _WORKER_STATS_CACHE["ts"]) < 30.0 and _WORKER_STATS_CACHE["total_count"] > 0:
-                    processed_count = _WORKER_STATS_CACHE["processed_count"]
-                    total_count = _WORKER_STATS_CACHE["total_count"]
-                else:
-                    try:
-                        from database import get_ai_concall_stats, get_connection
-                        symbols_set = set()
-                        with get_connection() as conn:
-                            with conn.cursor() as cur:
-                                try:
-                                    cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                                    symbols_set.update(r[0] for r in cur.fetchall())
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                                    symbols_set.update(r[0] for r in cur.fetchall())
-                                except Exception:
-                                    pass
-                        try:
-                            from constituent_service import ConstituentService
-                            if ConstituentService._cached_symbols:
-                                symbols_set.update(ConstituentService._cached_symbols)
-                            else:
-                                import threading
-                                threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
-                        except Exception:
-                            pass
-                        
-                        symbols = list(symbols_set)
-                        stats = get_ai_concall_stats(symbols)
-                        processed_count = stats.get("total_cached", 0)
-                        total_count = len(symbols) or processed_count
-                        _WORKER_STATS_CACHE["ts"] = now_ts
-                        _WORKER_STATS_CACHE["processed_count"] = processed_count
-                        _WORKER_STATS_CACHE["total_count"] = total_count
-                    except Exception:
-                        logger.exception("Failed to query fallback AI worker stats")
-                        processed_count = _WORKER_STATS_CACHE.get("processed_count", 0)
-                        total_count = _WORKER_STATS_CACHE.get("total_count", 0)
+            processed_count = row.get("processed_count")
+            total_count = row.get("total_count")
 
             result[sc] = {
                     "status":        row.get("status", "IDLE"),
@@ -4544,8 +4499,8 @@ def api_scanner_status():
                     "error":         row.get("error_msg"),
                     "updated_at":    row.get("updated_at"),
                     "is_acknowledged": row.get("is_acknowledged", False),
-                    "processed_count": processed_count if sc in ["Pledge Worker", "AI Worker"] else row.get("processed_count"),
-                    "total_count":   total_count if sc in ["Pledge Worker", "AI Worker"] else row.get("total_count"),
+                    "processed_count": processed_count,
+                    "total_count":   total_count,
                     "scheduled_for": row.get("scheduled_for"),
                     "outcome":       row.get("outcome"),
                     "provider_stats": row.get("provider_stats"),
