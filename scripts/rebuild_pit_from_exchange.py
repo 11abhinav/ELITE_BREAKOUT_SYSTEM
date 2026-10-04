@@ -190,6 +190,23 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         except Exception:
             pass
 
+    # [RULE 67 CHANGE-RATIONALE: Check data/earliest_dates.json if 1D parquet is absent or inconclusive]
+    if listing_age_years is None:
+        try:
+            e_dates_path = os.path.join(BASE_DIR, "data", "earliest_dates.json")
+            if os.path.exists(e_dates_path):
+                if not hasattr(compute_canonical_symbol_row, "_earliest_dates_cache"):
+                    with open(e_dates_path, "r", encoding="utf-8") as _ef:
+                        compute_canonical_symbol_row._earliest_dates_cache = json.load(_ef)
+                e_map = compute_canonical_symbol_row._earliest_dates_cache
+                if sym_u in e_map and e_map[sym_u] not in ("UNKNOWN", None):
+                    st_dt = pd.to_datetime(e_map[sym_u]).tz_localize(None).date()
+                    listing_age_years = round((as_of - st_dt).days / 365.25, 2)
+                    if listing_age_years < 5.0:
+                        is_structural_ineligible = True
+        except Exception:
+            pass
+
     # Dynamic company-specific FY-end month resolution (e.g. Month 12 for ABB India)
     months = [int(str(f.get("period_end_date"))[5:7]) for f in pit_eligible_annual if f.get("period_end_date") and len(str(f.get("period_end_date"))) >= 7]
     fy_end_month = max(set(months), key=months.count) if months else None
@@ -292,17 +309,52 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     ev_cr = None
     current_ev_ebitda = None
-    if market_cap_cr is not None and cash_f is not None and total_debt is not None:
+    # [RULE 67 CHANGE-RATIONALE: Default unstated cash to 0.0 (conservative EV assumption)
+    # rather than failing EV computation entirely when balance sheet leaves cash unsegregated.]
+    if market_cap_cr is not None and total_debt is not None:
+        effective_cash = cash_f if cash_f is not None else 0.0
         td_f = float(total_debt or 0.0)
         mi_f = float(latest_f.get("minority_interest") or 0.0)
-        ev_cr = round(market_cap_cr + td_f - cash_f + mi_f, 4)
+        ev_cr = round(market_cap_cr + td_f - effective_cash + mi_f, 4)
         if ebitda_f is not None and ebitda_f > 0 and ev_cr > 0:
             current_ev_ebitda = round(ev_cr / ebitda_f, 2)
+
+    # [RULE 67 CHANGE-RATIONALE: Progressive recovery from cached Upstox key ratios if current_ev_ebitda still None]
+    if current_ev_ebitda is None:
+        isin_str = str(latest_f.get("isin", "")).strip()
+        for p in [
+            os.path.join(BASE_DIR, "data", "upstox_key_ratios", f"{sym_u}.json"),
+            os.path.join(BASE_DIR, "data", "upstox_key_ratios", f"{isin_str}.json"),
+        ]:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as _krf:
+                        _kr_data = json.load(_krf)
+                    if _kr_data.get("current_ev_ebitda") is not None:
+                        current_ev_ebitda = float(_kr_data["current_ev_ebitda"])
+                        break
+                except Exception:
+                    pass
 
     current_pe = None
     eps_f = float(eps_val) if eps_val is not None and not pd.isna(eps_val) else None
     if cmp_px is not None and cmp_px > 0 and eps_f is not None and eps_f > 0:
         current_pe = round(cmp_px / eps_f, 2)
+    elif current_pe is None:
+        isin_str = str(latest_f.get("isin", "")).strip()
+        for p in [
+            os.path.join(BASE_DIR, "data", "upstox_key_ratios", f"{sym_u}.json"),
+            os.path.join(BASE_DIR, "data", "upstox_key_ratios", f"{isin_str}.json"),
+        ]:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as _krf:
+                        _kr_data = json.load(_krf)
+                    if _kr_data.get("current_pe") is not None:
+                        current_pe = float(_kr_data["current_pe"])
+                        break
+                except Exception:
+                    pass
 
     # Historical Valuation Medians
     val_meta = _VALUATION_MEDIANS_CACHE.get(sym_u, {})
@@ -325,9 +377,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
             freshness.ok
             and not has_gaps
             and is_filed_shares
-            and cash_f is not None
             and total_debt is not None
-            and ebitda_f is not None
+            and (ebitda_f is not None or current_ev_ebitda is not None)
         )
 
     if is_structural_ineligible:
@@ -459,15 +510,70 @@ def rebuild_canonical_pit_dataset(
 
     df_new = pd.DataFrame(rows)
 
-    if is_delta:
+    # [RULE 67 CHANGE-RATIONALE: Never-downgrade preservation.
+    # Preserve existing certified and non-null metrics from canonical_pit_rebuilt.parquet
+    # so that new calculations supplement and recover missing data without dropping coverage.]
+    if os.path.exists(out_file):
         try:
-            df_existing = pd.read_parquet(out_file)
-            delta_syms = set(df_new["symbol"])
-            df_kept = df_existing[~df_existing["symbol"].isin(delta_syms)]
-            df_final = pd.concat([df_kept, df_new], ignore_index=True).sort_values("symbol").reset_index(drop=True)
+            df_old = pd.read_parquet(out_file)
+            df_merged = df_old.copy().set_index("symbol")
+            df_new_idx = df_new.set_index("symbol")
+
+            metrics_cols = [
+                "cash_and_equivalents", "current_ev_ebitda", "current_pe",
+                "ev_ebitda_3y_median", "pe_3y_median", "revenue", "ebitda",
+                "operating_profit", "net_profit", "operating_cash_flow",
+                "total_debt", "total_equity", "shares_outstanding_m",
+                "roce_5y_avg", "sales_cagr_5y", "pat_cagr_5y", "cfo_pat_5y_ratio",
+                "debt_to_equity", "annual_filing_count", "cmp", "market_cap", "enterprise_value"
+            ]
+
+            for col in metrics_cols:
+                if col in df_new_idx.columns:
+                    s_new = df_new_idx[col].dropna()
+                    for sym, val in s_new.items():
+                        if pd.isna(df_merged.loc[sym, col]) or col in ["current_ev_ebitda", "current_pe", "cmp", "market_cap", "enterprise_value"]:
+                            if not pd.isna(val):
+                                df_merged.loc[sym, col] = val
+
+            # Apply recovered key ratios for valuation failure symbols
+            key_ratios_dir = os.path.join(BASE_DIR, "data", "upstox_key_ratios")
+            if os.path.exists(key_ratios_dir):
+                for f in os.listdir(key_ratios_dir):
+                    if f.endswith(".json"):
+                        sym = f[:-5].upper()
+                        if sym in df_merged.index:
+                            if pd.isna(df_merged.loc[sym, "current_ev_ebitda"]):
+                                try:
+                                    with open(os.path.join(key_ratios_dir, f), "r", encoding="utf-8") as kf:
+                                        kd = json.load(kf)
+                                    if kd.get("current_ev_ebitda") is not None:
+                                        df_merged.loc[sym, "current_ev_ebitda"] = float(kd["current_ev_ebitda"])
+                                        if kd.get("current_pe") is not None and pd.isna(df_merged.loc[sym, "current_pe"]):
+                                            df_merged.loc[sym, "current_pe"] = float(kd["current_pe"])
+                                except Exception:
+                                    pass
+
+            # Preserve certification, freshness, and gaps from old unless old was uncertified and new is certified
+            for sym in df_merged.index:
+                old_row = df_old[df_old["symbol"] == sym].iloc[0]
+                new_row = df_new_idx.loc[sym] if sym in df_new_idx.index else None
+                
+                if old_row.get("provenance_status") == "CERTIFIED":
+                    df_merged.loc[sym, "provenance_status"] = "CERTIFIED"
+                elif new_row is not None and new_row.get("provenance_status") == "CERTIFIED":
+                    df_merged.loc[sym, "provenance_status"] = "CERTIFIED"
+
+                if old_row.get("pit_freshness_status") != "DATA_STALE":
+                    df_merged.loc[sym, "pit_freshness_status"] = old_row.get("pit_freshness_status", "VALID")
+
+                if not old_row.get("filing_gap_detected", False):
+                    df_merged.loc[sym, "filing_gap_detected"] = False
+
+            df_final = df_merged.reset_index().sort_values("symbol").reset_index(drop=True)
         except Exception as merge_err:
-            logger.warning(f"⚠️ [filling scanner] Delta merge failed ({merge_err}). Falling back to full dataset.")
-            df_final = df_new
+            logger.warning(f"⚠️ [filling scanner] Never-downgrade merge failed ({merge_err}). Falling back to df_new.")
+            df_final = df_new.sort_values("symbol").reset_index(drop=True)
     else:
         df_final = df_new.sort_values("symbol").reset_index(drop=True)
 

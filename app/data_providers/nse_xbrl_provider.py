@@ -121,6 +121,10 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     if not period_end:
         return None
 
+    # [RULE 67 CHANGE-RATIONALE: Robust field mapping for NSE XBRL API.
+    # Include case-insensitive dictionary fallback to prevent mapping failures when NSE changes casing.]
+    lower_row = {str(k).lower().strip(): v for k, v in row.items()}
+
     # NSE field name mapping (based on observed API response structure and NSE JSON schema)
     revenue = _safe_float(
         row.get("reFndRevOps")
@@ -132,6 +136,15 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("income")
         or row.get("revenue")
         or row.get("totInc")
+        or row.get("sales")
+        or row.get("turnover")
+        or lower_row.get("refndrevops")
+        or lower_row.get("revenuefromoperations")
+        or lower_row.get("totalrevenue")
+        or lower_row.get("totalincome")
+        or lower_row.get("netsales")
+        or lower_row.get("revenue")
+        or lower_row.get("sales")
     )
     net_profit = _safe_float(
         row.get("reFndNetPftLoss")
@@ -141,6 +154,11 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("profitLoss")
         or row.get("pat")
         or row.get("netProfitForPeriod")
+        or lower_row.get("refndnetpftloss")
+        or lower_row.get("profitaftertax")
+        or lower_row.get("netprofit")
+        or lower_row.get("profitloss")
+        or lower_row.get("pat")
     )
     # EBIT: use operating_profit only when it is explicitly labelled as such,
     # never as a silent proxy for EBIT
@@ -150,6 +168,10 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("pbdit")
         or row.get("operatingProfit")
         or row.get("ebit")
+        or lower_row.get("refndpbit")
+        or lower_row.get("pbit")
+        or lower_row.get("operatingprofit")
+        or lower_row.get("ebit")
     )
     operating_cash_flow = _safe_float(
         row.get("reFndCfo")
@@ -157,6 +179,10 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("cashFlowOperations")
         or row.get("operatingCashFlow")
         or row.get("cfo")
+        or lower_row.get("refndcfo")
+        or lower_row.get("operatingcashflow")
+        or lower_row.get("cashflowfromoperatingactivities")
+        or lower_row.get("cfo")
     )
     total_debt = _safe_float(
         row.get("reFndBorrowings")
@@ -164,12 +190,21 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("totalDebt")
         or row.get("borrowings")
         or row.get("debt")
+        or lower_row.get("refndborrowings")
+        or lower_row.get("totalborrowings")
+        or lower_row.get("totaldebt")
+        or lower_row.get("borrowings")
+        or lower_row.get("debt")
     )
     total_equity = _safe_float(
         row.get("shareholderEquity")
         or row.get("equity")
         or row.get("netWorth")
         or row.get("equityShareCapital")
+        or lower_row.get("shareholderequity")
+        or lower_row.get("networth")
+        or lower_row.get("equitysharecapital")
+        or lower_row.get("equity")
     )
     eps = _safe_float(
         row.get("reFndBscEps")
@@ -178,13 +213,16 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("dilutedEps")
         or row.get("eps")
         or row.get("epsBasic")
+        or lower_row.get("refndbsceps")
+        or lower_row.get("basiceps")
+        or lower_row.get("eps")
     )
 
     # capital_employed: total_assets - current_liabilities if available,
     # else equity + total_debt (rough alternative — flagged in derivation)
-    total_assets = _safe_float(row.get("totalAssets") or row.get("assets"))
+    total_assets = _safe_float(row.get("totalAssets") or row.get("assets") or lower_row.get("totalassets") or lower_row.get("assets"))
     curr_liab = _safe_float(
-        row.get("currentLiabilities") or row.get("totalCurrentLiabilities")
+        row.get("currentLiabilities") or row.get("totalCurrentLiabilities") or lower_row.get("currentliabilities") or lower_row.get("totalcurrentliabilities")
     )
     if total_assets is not None and curr_liab is not None:
         capital_employed = total_assets - curr_liab
@@ -197,6 +235,8 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         row.get("broadcastDate")
         or row.get("filingDate")
         or row.get("submissionDate")
+        or lower_row.get("broadcastdate")
+        or lower_row.get("filingdate")
         or ""
     )
 
@@ -220,6 +260,7 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     )
 
 
+
 class NseXbrlProvider:
     """
     Fetches raw corporate financial results from NSE India API.
@@ -240,6 +281,7 @@ class NseXbrlProvider:
         self.retry_count:             int = 0
         self.nse_401_count:           int = 0
         self.nse_403_count:           int = 0
+        self.last_status: Dict[str, str] = {}
 
     def _init_session(self) -> bool:
         """Establish NSE session cookie. Returns True on success."""
@@ -345,6 +387,7 @@ class NseXbrlProvider:
 
         if raw is None:
             logger.warning(f"[NSE] {symbol}: No response data (session/network failure).")
+            self.last_status[symbol] = "PROVIDER_UNAVAILABLE"
             return []
 
         if not isinstance(raw, list):
@@ -353,6 +396,7 @@ class NseXbrlProvider:
                 raw = raw.get("data", raw.get("results", []))
             if not isinstance(raw, list):
                 logger.warning(f"[NSE] {symbol}: Unexpected response type: {type(raw)}")
+                self.last_status[symbol] = "SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE"
                 return []
 
         records = []
@@ -387,9 +431,16 @@ class NseXbrlProvider:
         )
 
         if records and not usable:
+            # [RULE 67 CHANGE-RATIONALE: HTTP 200 + rows returned != data unavailable.
+            # Explicitly classify as SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE.]
+            self.last_status[symbol] = "SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE"
             logger.warning(
-                f"[NSE] {symbol}: HTTP 200 + {len(records)} rows parsed but "
-                f"FINANCIAL_DATA_INSUFFICIENT. Check NSE field names."
+                f"[NSE] {symbol}: HTTP 200 + {len(records)} rows returned != data unavailable. "
+                f"Tagging as SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE."
             )
+        elif usable:
+            self.last_status[symbol] = "PARSE_SUCCESS"
+        else:
+            self.last_status[symbol] = "NO_DATA_RETURNED"
 
         return usable

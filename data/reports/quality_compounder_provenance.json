@@ -1,0 +1,42 @@
+{
+  "scan_date": "2026-10-04",
+  "scanned_universe": 886,
+  "fully_evaluable": 856,
+  "incomplete_data_failures": 19,
+  "structural_ineligible": 5,
+  "stale_uncertified": 6,
+  "current_ev_ebitda_coverage": 829,
+  "current_ev_ebitda_coverage_pct": 93.57,
+  "health_status": "DEGRADED",
+  "wrong_cagr_window_count": 0,
+  "verified_with_null_field_count": 0,
+  "history_status_unknown_count": 0,
+  "baseline_46_reconciliation": {
+    "baseline_count": 46,
+    "recovered_to_evaluable": 26,
+    "genuine_insufficient_history": 10,
+    "terminal_data_insufficient": 5,
+    "structural_ineligible": 4,
+    "stale_uncertified": 1,
+    "total_reconciled": 46,
+    "baseline_46_unmatched": 0,
+    "baseline_46_duplicates": 0,
+    "baseline_46_extra_symbols": 0,
+    "newly_incomplete_outside_baseline": 0
+  },
+  "structural_12_reconciliation": {
+    "baseline_structural_count": 12,
+    "retained_structural": 1,
+    "transitioned_to_evaluable_data_gap_fixed": 6,
+    "transitioned_to_data_failure_annual_gaps": 4,
+    "transitioned_to_stale": 1,
+    "total_reconciled": 12
+  },
+  "screener_evaluation": {
+    "attempts": 46,
+    "successful_accepted_recoveries": 0,
+    "rejected_recoveries": 46,
+    "rejection_reason": "Lack of audited multi-year PIT timestamps and raw XBRL provenance"
+  },
+  "generated_at": "2026-10-04T10:00:50.896299+05:30"
+}

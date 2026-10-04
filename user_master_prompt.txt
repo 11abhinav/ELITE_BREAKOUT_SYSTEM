@@ -1,0 +1,1925 @@
+<USER_REQUEST>
+
+# MASTER IMPLEMENTATION PROMPT
+## Quality Compounder — Production Data Recovery Remediation
+### Objective: Fix the current 46-stock incomplete population without weakening PIT/data-integrity governance
+
+Use the **4-Oct-2026 production log as the baseline source of truth**.
+
+Do not simply reduce the `DATA_INSUFFICIENT` count by filling values from approximate, stale, current-only, synthetic, fallback, or unverified sources.
+
+The objective is:
+
+> **Recover every legitimately recoverable Quality Compounder value from approved data sources, preserve strict PIT integrity, and leave only genuinely impossible cases as DATA_INSUFFICIENT with an explicit auditable reason.**
+
+---
+
+# 1. BASELINE — THIS IS THE PRODUCTION PROBLEM WE ARE FIXING
+
+The 4-Oct PROD run processed an approved Quality Compounder universe of **886 symbols**.
+
+Final canonical population:
+
+```text
+Scanned Universe                 886
+Fully Evaluable                  824
+Incomplete / Data Failures        46
+Structural Ineligible             12
+Stale                              4
+```
+
+The scanner reported:
+
+```text
+Quality Data Failures             29
+Valuation Data Failures           19
+Price Data Failures                1
+Multi-failure overlap              3
+```
+
+The final health state was:
+
+```text
+DEGRADED
+```
+
+and the system explicitly reported:
+
+```text
+Incomplete = 46
+```
+
+with 886 snapshots retained for audit.
+
+The population identities were internally consistent:
+
+```text
+886 = 12 Structural + 4 Stale + 46 Incomplete + 824 Evaluable
+824 = 53 Alerts + 771 Filter Rejections
+```
+
+This is our **baseline cohort** and must not be forgotten after remediation.
+
+The same production run reported these population reasons:
+
+```text
+HISTORY_STATUS_UNKNOWN                                      24
+HISTORY_STATUS_UNKNOWN + valuation gap                       1
+QUALITY_METRIC_CALCULATION_FAILURE                           3
+QUALITY_METRIC_CALCULATION_FAILURE + valuation gap           1
+CURRENT_EV_EBITDA_MISSING                                   13
+CURRENT_EV_EBITDA_MISSING + PRICE_PROVIDER_FAILURE           1
+CURRENT_EV_EBITDA_MISSING_AND_3Y_MEDIAN_MISSING              2
+EV_EBITDA_3Y_MEDIAN_MISSING                                  1
+```
+
+Therefore the remediation must specifically attack these categories.
+
+---
+
+# 2. CRITICAL FINDING #1 — "VERIFIED" IS SOMETIMES FALSE
+
+This is currently the most important correctness problem.
+
+## Example: UTLSOLAR
+
+The log says:
+
+```text
+missing:
+sales_cagr_5y
+pat_cagr_5y
+debt
+```
+
+Then:
+
+```text
+UPSTOX: 1/1 records with financial data
+NSE: 0/0 records
+```
+
+Then the router reports:
+
+roce=None
+sales_cagr=None
+pat_cagr=None
+cfo/pat=None
+d/e=None
+
+Yet immediately afterward:
+
+```text
+DUAL_SOURCE_UPSTOX_LOCAL: status=VERIFIED
+PRE_RECOVERY VERIFIED UTLSOLAR
+fields recovered:
+['sales_cagr_5y', 'pat_cagr_5y', 'debt']
+```
+
+This is logically invalid.
+
+The system must NEVER report:
+
+```text
+VERIFIED
+```
+
+when the actual requested fields remain `None`.
+
+Source: production log.
+
+---
+
+# 3. CRITICAL FINDING #2 — ADOR PROVES NSE PARSER / FIELD-MAPPING FAILURE
+
+ADOR is even more important.
+
+The log shows:
+
+```text
+UPSTOX: 4/4 records with financial data
+NSE: 0/6 records with financial data
+```
+
+but NSE explicitly says:
+
+```text
+HTTP 200 + 6 rows parsed
+but FINANCIAL_DATA_INSUFFICIENT
+Check NSE field names
+```
+
+Then:
+
+```text
+CAGR_GAP:
+revenue
+net_profit
+```
+
+and the router still reports:
+
+```text
+roce=20.8
+sales_cagr=None
+pat_cagr=None
+cfo/pat=1.23
+d/e=None
+```
+
+followed by:
+
+```text
+VERIFIED ADOR
+```
+
+Source: production log.
+
+Therefore:
+
+**HTTP 200 + rows returned != financial data unavailable.**
+
+Classify this as:
+
+```text
+SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE
+```
+
+not:
+
+```text
+PROVIDER_UNAVAILABLE
+```
+
+---
+
+# 4. CRITICAL FINDING #3 — DO NOT WRITE 3Y DATA INTO A 5Y FIELD
+
+The BORORENEW log says:
+
+```text
+2023-03-31 → 2026-03-31
+3.00Y
+CAGR = 20.04%
+```
+
+and:
+
+```text
+2023-03-31 → 2026-03-31
+3.00Y
+CAGR = 21.72%
+```
+
+but the resulting fields are:
+
+```text
+sales_cagr_5y = 20.04
+pat_cagr_5y   = 21.72
+```
+
+This must be investigated and fixed.
+
+A 3-year CAGR must NEVER populate a field named:
+
+```text
+sales_cagr_5y
+pat_cagr_5y
+```
+
+unless the scanner's actual metric definition is changed explicitly and all governance documentation is changed accordingly.
+
+Source: production log.
+
+---
+
+# 5. CRITICAL FINDING #4 — PRE-RECOVERY AND FINAL POPULATION MUST BE RECONCILED
+
+The pre-recovery stage reported:
+
+```text
+Universe = 886
+Complete = 845
+Incomplete = 41
+```
+
+and then launched recovery for those 41.
+
+Source: production log.
+
+Yet the final canonical population became:
+
+```text
+Fully Evaluable = 824
+Incomplete = 46
+```
+
+Source: production log.
+
+Therefore the remediation MUST explain:
+
+```text
+41 pre-recovery incomplete
+            ↓
+recovery
+            ↓
+46 final incomplete
+```
+
+Do not assume this is normal.
+
+Produce a per-symbol transition table:
+
+```text
+symbol
+pre_recovery_status
+pre_recovery_missing_fields
+recovery_attempts
+recovery_provider
+recovered_fields
+final_status
+final_missing_fields
+```
+
+Every transition from:
+
+```text COMPLETE → INCOMPLETE
+INCOMPLETE → INCOMPLETE
+INCOMPLETE → EVALUABLE
+```
+
+must be explainable.
+
+Also investigate the suspicious log combination:
+
+```text
+Recovery queue cap = 0
+```
+
+followed immediately by:
+
+```text
+Starting data recovery for 41 symbols
+```
+
+Determine whether this is only a logging/configuration interpretation issue or an actual queue-control bug.
+
+---
+
+# 6. NO FALLBACK SCANNER
+
+Do NOT create:
+
+```text
+FallbackScanner
+```
+
+Do NOT create a second Quality scanner.
+
+Do NOT make the fallback independently evaluate stocks.
+
+The architecture must be:
+
+```text
+                     QUALITY COMPOUNDER
+                            │
+                            ▼
+                   load certified PIT
+                            │
+                     missing fields?
+                            │
+                            ▼
+                  FUNDAMENTAL RECOVERY
+                            │
+          ┌─────────────────┼─────────────────┐
+          ▼                 ▼                 ▼
+      Existing           Upstox            Screener
+      Providers          APIs              API/feed
+          │                 │                 │
+          └─────────────────┼─────────────────┘
+                            ▼
+                       NSE / XBRL
+                            │
+                            ▼
+                calculate + validate + certify
+                            │
+                      update PIT snapshot
+                            │
+                            ▼
+                  Quality Compounder
+                    evaluates ONLY
+                    certified data
+```
+
+The scanner should not know which provider supplied the value.
+
+---
+
+# 7. NEW COMPONENT REQUIRED
+
+Create or extend:
+
+```python
+FundamentalRecoveryEngine
+```
+
+with provider adapters:
+
+```text
+ExistingPITProvider
+ExistingFilingProvider
+UpstoxFundamentalsProvider
+ScreenerProvider
+NSEXBRLProvider
+```
+
+and separate:
+
+```text
+MetricCalculationEngine
+DataValidationEngine
+PITCertificationEngine
+ProvenanceStore
+```
+
+Recommended logical flow:
+
+```python
+recover(
+    symbol,
+    isin,
+    missing_fields,
+    scan_date,
+    statement_basis
+)
+```
+
+The engine must be **field-specific**.
+
+Example:
+
+```text
+ARIS
+missing = current_ev_ebitda
+```
+
+Do NOT fetch:
+
+```text
+income statement
+cash flow
+balance sheet
+ROE
+ROCE
+```
+
+only to recover one field.
+
+Fetch only what is needed.
+
+---
+
+# 8. FALLBACK ORDER
+
+Use this general hierarchy:
+
+```text
+1. Existing certified PIT data / existing approved provider
+2. Existing filing/recovery provider
+3. Upstox Company Fundamentals
+4. Screener
+5. NSE/XBRL raw filing recovery / authoritative PIT repair
+6. Deterministic calculation from verified raw inputs
+7. DATA_INSUFFICIENT
+```
+
+However, the order is **field-specific**.
+
+Do not blindly force every field through every provider.
+
+---
+
+# 9. WHERE UPSTOX FITS
+
+Upstox officially provides a Company Fundamentals API suite covering:
+
+- Company Profile
+- Balance Sheet
+- Cash Flow
+- Income Statement
+- Share Holdings
+- Key Ratios
+- Corporate Actions
+- Competitors
+
+The suite was launched on May 11, 2026.
+
+## 9.1 Current EV/EBITDA
+
+This is one of the highest-priority fixes.
+
+Official endpoint:
+
+```http
+GET /v2/fundamentals/{ISIN}/key-ratios
+```
+
+The response includes:
+
+```text
+P/E
+P/B
+ROA
+ROE
+ROCE
+EV/EBITDA
+```
+
+and explicitly describes these as the company's **current values**.
+
+Use:
+
+```text
+Existing current EV/EBITDA
+        ↓ failed
+Upstox Key Ratios
+        ↓
+EV/EBITDA
+```
+
+This directly targets the production gap where:
+
+```text
+Current EV/EBITDA = 811 / 886
+Missing = 75
+```
+
+Source: production log.
+
+Example request:
+
+```bash
+curl --location \
+'https://api.upstox.com/v2/fundamentals/INE002A01018/key-ratios' \
+--header 'Accept: application/json' \
+--header 'Authorization: Bearer {TOKEN}'
+```
+
+Do NOT use current Upstox EV/EBITDA to construct a historical 3Y median.
+
+---
+
+# 10. UPSTOX INCOME STATEMENT — HISTORICAL FUNDAMENTALS
+
+Official endpoint:
+
+```http
+GET /v2/fundamentals/{ISIN}/income-statement
+```
+
+Supported:
+
+```text
+consolidated / standalone
+yearly / quarterly
+fs=true
+```
+
+and the response contains:
+
+```text
+Revenue
+Operating Profit
+Net Profit
+```
+
+in historical periods.
+
+Use it for:
+
+```text
+Revenue history
+Operating Profit history
+PAT history
+EPS/raw earnings components
+Sales CAGR inputs
+PAT CAGR inputs
+growth calculations
+```
+
+Example:
+
+```bash
+curl --location \
+'https://api.upstox.com/v2/fundamentals/INE002A01018/income-statement?type=consolidated&time_period=yearly&fs=true' \
+--header 'Accept: application/json' \
+--header 'Authorization: Bearer {TOKEN}'
+```
+
+But:
+
+```text
+4 annual records
+```
+
+does NOT automatically satisfy:
+
+```text
+5Y CAGR
+```
+
+The exact number of periods required by the scanner must be validated.
+
+---
+
+# 11. UPSTOX CASH FLOW
+
+Official endpoint:
+
+```http
+GET /v2/fundamentals/{ISIN}/cash-flow
+```
+
+The API provides historical cash-flow data including operating cash flow, with detailed line items when `fs=true`.
+
+Use this for:
+
+```text
+CFO
+CFO/PAT
+5Y cumulative CFO/PAT
+```
+
+Example:
+
+```bash
+curl --location \
+'https://api.upstox.com/v2/fundamentals/INE002A01018/cash-flow?type=consolidated&fs=true' \
+--header 'Accept: application/json' \
+--header 'Authorization: Bearer {TOKEN}'
+```
+
+Never treat:
+
+```text
+Total liabilities
+```
+
+as:
+
+```text
+Debt
+```
+
+for D/E.
+
+---
+
+# 12. UPSTOX BALANCE SHEET
+
+Use:
+
+```http
+GET /v2/fundamentals/{ISIN}/balance-sheet
+```
+
+for historical balance-sheet components.
+
+The official suite supports consolidated/standalone and detailed line items with `fs=true`.
+
+Use it for components required by the existing formulas.
+
+Do NOT change the definition of:
+
+```text
+Debt/Equity
+ROCE
+Capital Employed
+```
+
+just because another provider exposes a differently named value.
+
+---
+
+# 13. UPSTOX CURRENT ROCE / ROE
+
+The Key Ratios endpoint directly exposes:
+
+```text
+ROCE
+ROE
+EV/EBITDA
+P/E
+```
+
+as current ratios.
+
+Therefore:
+
+```text
+current ROCE
+current ROE
+current PE
+current EV/EBITDA
+```
+
+may be used as fallback values for current/live calculations where appropriate.
+
+But:
+
+```text
+current ROCE
+```
+
+must NEVER be silently substituted for:
+
+```text
+roce_5y
+```
+
+The 5Y metric must remain historical.
+
+---
+
+# 14. WHERE SCREENER FITS
+
+Screener should be implemented as a **third-party historical/current fundamental recovery source**, after the primary/Upstox layer and before final NSE/XBRL repair.
+
+Screener's official feature documentation says it provides:
+
+```text
+10–15 years of financial data
+Export to Excel
+company analysis
+regulatory filings tracking
+```
+
+
+Its company data exposes:
+
+```text
+Profit & Loss
+Sales
+Operating Profit
+Net Profit
+EPS
+Compounded Sales Growth
+Compounded Profit Growth
+Balance Sheet
+Borrowings
+Cash Flow
+Cash from Operating Activity
+ROCE
+```
+
+
+Therefore Screener is particularly valuable for missing:
+
+```text
+sales history
+PAT history
+operating profit
+EPS history
+CFO history
+borrowings
+ROCE history
+current fundamental ratios
+```
+
+## IMPORTANT
+
+Only use an **authorized/licensed Screener API, feed, export mechanism, or other permitted machine-readable access**.
+
+Do NOT build production around undocumented/private endpoints or bypass access controls.
+
+If the available Screener access is an export/feed rather than a REST API, build the `ScreenerProvider` adapter around that supported mechanism.
+
+---
+
+# 15. SCREENER MUST NOT BE TREATED AS AUTOMATIC PIT TRUTH
+
+Screener can be used to recover historical financial series.
+
+But before a value becomes a certified PIT value, validate:
+
+```text
+company
+ISIN / instrument identity
+statement basis
+period
+revision state where available
+data freshness
+source timestamp
+raw source hash
+```
+
+For a historical/backtest dataset:
+
+```text
+Screener value
+        ↓
+candidate recovery
+        ↓
+NSE/XBRL verification
+        ↓
+canonical PIT
+```
+
+Do not simply copy a Screener number into the PIT snapshot and mark it authoritative.
+
+---
+
+# 16. FIELD-SPECIFIC FALLBACK MATRIX
+
+Implement approximately this:
+
+| Missing metric | Primary recovery | Upstox | Screener | NSE/XBRL |
+|---|---|---|---|---|
+| Current EV/EBITDA | Existing calculator | **Key Ratios** | Current ratio/value if authorized | Derive |
+| Current ROCE | Existing | **Key Ratios** | Ratio | Derive |
+| Current ROE | Existing | **Key Ratios** | Ratio | Derive |
+| Current PE | Existing | **Key Ratios** | Current ratio | Derive |
+| Sales history | Existing PIT | **Income Statement** | **P&L** | **XBRL** |
+| PAT history | Existing PIT | **Income Statement** | **P&L** | **XBRL** |
+| Operating profit | Existing PIT | **Income Statement** | **P&L** | **XBRL** |
+| EPS/raw earnings | Existing PIT | Income Statement | **P&L** | XBRL |
+| Sales CAGR | Existing PIT | Historical IS | **Historical P&L** | XBRL |
+| PAT CAGR | Existing PIT | Historical IS | **Historical P&L** | XBRL |
+| CFO | Existing PIT | **Cash Flow** | **Cash Flow** | XBRL |
+| CFO/PAT | Existing PIT | CF + IS | CF + P&L | XBRL |
+| Debt | Existing certified source | Balance Sheet components | **Borrowings** | **XBRL** |
+| D/E | Existing exact formula | Balance Sheet inputs where valid | Borrowings/equity if validated | **XBRL** |
+| ROCE 5Y | Existing calculation | historical components | historical ROCE / raw inputs | **XBRL** |
+| Current EV/EBITDA | Existing | **YES** | **YES, if authorized** | derive |
+| 3Y EV/EBITDA median | Existing PIT history | **NO direct historical-ratio replacement** | Historical rebuild only if validated | **Preferred PIT repair** |
+| 3Y PE median | Existing | no current-ratio substitution | historical rebuild | PIT rebuild |
+| CMP | Existing quote | Upstox market quote | not primary | NSE where appropriate |
+
+---
+
+# 17. HISTORICAL VALUATION — DO NOT CHEAT
+
+The current production state is:
+
+```text
+Current EV/EBITDA complete     811/886
+3Y EV/EBITDA median complete   879/886
+```
+
+Source: production log.
+
+This tells us:
+
+**The major valuation problem is current EV/EBITDA, not the historical median.**
+
+Therefore fix:
+
+```text
+CURRENT_EV_EBITDA
+```
+
+first.
+
+For the 7 missing historical medians, rebuild them using the existing PIT valuation methodology.
+
+Never do:
+
+```text
+today's EV/EBITDA
+        ↓
+pretend it was historical
+        ↓
+calculate historical median
+```
+
+---
+
+# 18. NSE/XBRL ROLE
+
+NSE should be treated as the strongest source for **filing/PIT provenance and last-mile repair**.
+
+NSE's current Integrated Filing page exposes:
+
+```text
+Symbol
+Quarter End Date
+Submission Type
+Audited / Unaudited
+Consolidated / Standalone
+Details
+XBRL
+Broadcast Date/Time
+Revised Date/Time
+Revision Remarks
+```
+
+
+This is especially important where a third-party provider produces a number but we must establish:
+
+```text
+What was filed?
+When was it filed?
+Was it revised?
+Which statement basis?
+Which period?
+```
+
+NSE explicitly exposes revisions, including revision remarks.
+
+Therefore:
+
+```text
+Upstox / Screener
+       ↓
+recover candidate value
+       ↓
+NSE/XBRL verification
+       ↓
+PIT certification
+```
+
+---
+
+# 19. REPAIR THE NSE PARSER
+
+When NSE returns:
+
+```text
+HTTP 200
+rows > 0
+```
+
+but the parser reports:
+
+```text
+0 usable records
+```
+
+the system must inspect field mapping.
+
+Build canonical mappings from raw XBRL concepts/fields to internal fields.
+
+Do not depend only on display labels.
+
+Create:
+
+```text
+RawProviderField
+       ↓
+CanonicalFinancialConcept
+       ↓
+CanonicalMetric
+```
+
+Example concept normalization:
+
+```text
+Revenue / RevenueFromOperations / NetSales
+        ↓
+CANONICAL_REVENUE
+
+ProfitAfterTax / NetProfit / ProfitLoss
+        ↓
+CANONICAL_PAT
+
+CashFromOperatingActivities
+        ↓
+CANONICAL_CFO
+```
+
+Use the actual XBRL taxonomy and provider payload discovered by the implementation.
+
+Do not invent aliases.
+
+---
+
+# 20. DATA STATUS TAXONOMY
+
+Remove generic ambiguity such as:
+
+```text
+HISTORY_STATUS_UNKNOWN
+```
+
+Every failure must terminate in a specific state.
+
+Required statuses:
+
+```text
+DATA_RECOVERED
+SOURCE_DATA_PRESENT_PARSE_FAILURE
+SOURCE_DATA_PRESENT_MAPPING_FAILURE
+PROVIDER_FAILURE
+NO_FILING_FOUND
+INSUFFICIENT_HISTORY
+STALE_HISTORY
+CALCULATION_FAILURE
+INVALID_VALUE
+STRUCTURAL_INELIGIBLE
+PIT_CONFLICT
+REVISION_PENDING
+DATA_INSUFFICIENT
+```
+
+`UNKNOWN` is not an acceptable final production reason.
+
+The existing run has:
+
+```text
+HISTORY_STATUS_UNKNOWN = 24
+```
+
+and this must be specifically resolved.
+
+---
+
+# 21. STRICT "VERIFIED" RULE
+
+A provider result is VERIFIED only if:
+
+```text
+required field exists
+AND
+value != NULL
+AND
+value is numeric where numeric expected
+AND
+value is not forbidden sentinel
+AND
+correct period
+AND
+correct statement basis
+AND
+correct unit/currency
+AND
+required history depth satisfied
+AND
+calculation succeeded
+AND
+PIT constraints satisfied
+AND
+provenance captured
+```
+
+For multiple missing fields:
+
+```text
+all required fields
+```
+
+must be recovered.
+
+Example:
+
+```text
+missing:
+sales_cagr_5y
+pat_cagr_5y
+debt
+```
+
+If only:
+
+```text
+debt
+```
+
+was recovered, do NOT print:
+
+```text
+VERIFIED
+```
+
+The result must be:
+
+```text
+PARTIAL_RECOVERY
+```
+
+and the remaining fields must continue through fallback.
+
+---
+
+# 22. RECOVERY MUST BE FIELD-SPECIFIC
+
+Example:
+
+```text
+Stock = MARSONS
+
+Missing:
+sales_cagr_5y
+pat_cagr_5y
+current_ev_ebitda
+```
+
+Do:
+
+```text
+Existing PIT
+    ↓ missing
+Upstox Income Statement
+    ↓
+sales/PAT history
+    ↓
+calculate CAGR
+```
+
+Then:
+
+```text
+Upstox Key Ratios
+    ↓
+current EV/EBITDA
+```
+
+If historical valuation median is missing:
+
+```text
+PIT valuation builder
+    ↓
+rebuild historical observations
+```
+
+Do not fetch unrelated datasets.
+
+---
+
+# 23. DATA RECOVERY MUST HAPPEN BEFORE PIT PUBLISH
+
+The correct architecture is:
+
+```text
+Provider recovery
+        ↓
+raw source capture
+        ↓
+normalization
+        ↓
+metric calculation
+        ↓
+validation
+        ↓
+provenance
+        ↓
+canonical PIT rebuild
+        ↓
+certification
+        ↓
+scanner
+```
+
+The scanner must NOT perform network recovery during decision-making.
+
+No:
+
+```text
+scanner
+   ↓
+HTTP call
+   ↓
+change data
+   ↓
+evaluate
+```
+
+The scanner should only read:
+
+```text
+certified canonical PIT snapshot
+```
+
+---
+
+# 24. PROVENANCE REQUIRED FOR EVERY FALLBACK VALUE
+
+Store at minimum:
+
+```text
+symbol
+ISIN
+canonical_field
+raw_value
+normalized_value
+source
+endpoint / access mechanism
+retrieved_at
+statement_type
+period
+filing_date if available
+broadcast_date if available
+revision_date if available
+revision information
+calculation_method
+source_hash
+validation_status
+```
+
+Example:
+
+```text
+symbol = ARIS
+field = current_ev_ebitda
+value = 12.34
+source = UPSTOX
+endpoint = /v2/fundamentals/{ISIN}/key-ratios
+retrieved_at = ...
+statement_basis = current
+validation = PASSED
+```
+
+For historical PIT:
+
+```text
+source = NSE_XBRL
+period = 2024-03-31
+broadcast_time = ...
+revision_time = ...
+source_hash = ...
+```
+
+---
+
+# 25. DO NOT CHANGE THE QUALITY SCANNER'S BUSINESS RULES
+
+The purpose of this remediation is:
+
+```text
+better data
+```
+
+not:
+
+```text
+looser Quality rules
+```
+
+Do NOT:
+
+```text
+lower ROCE threshold
+lower growth threshold
+accept shorter CAGR history
+relax debt threshold
+relax valuation threshold
+turn missing into pass
+replace 5Y with 3Y
+use approximate calculations
+```
+
+Only improve data acquisition, normalization, calculation correctness and provenance.
+
+---
+
+# 26. SPECIAL CASE — STRUCTURAL INELIGIBILITY
+
+The following population is separate:
+
+```text
+12 Structural Ineligible
+```
+
+The logged list is:
+
+```text
+AXISCADES
+BORORENEW
+CAMPUS
+GODREJPROP
+KIRLPNU
+PFOCUS
+SAFARI
+SANDUMA
+SPARC
+STYRENIX
+THELEELA
+UTLSOLAR
+```
+
+Source: production log.
+
+Do NOT attempt to turn structural ineligibility into EVALUABLE merely by adding another provider.
+
+For example:
+
+```text
+insufficient historical existence
+```
+
+is not a provider outage.
+
+---
+
+# 27. IMPORTANT EXAMPLE — MAHLIFE
+
+The log shows:
+
+```text
+pat_cagr_5y
+```
+
+was fetched from PIT database but failed validation because there was insufficient annual history.
+
+Then:
+
+```text
+current_ev_ebitda
+```
+
+failed.
+
+And:
+
+```text
+ev_ebitda_3y_median
+```
+
+was unavailable.
+
+Therefore the stock became:
+
+```text
+DATA_INSUFFICIENT_QUALITY
+DATA_INSUFFICIENT_VALUATION
+```
+
+Source: production log.
+
+The recovery engine must distinguish:
+
+```text
+PIT source unavailable
+```
+
+from:
+
+```text
+PIT source exists but doesn't have enough history
+```
+
+Then try:
+
+```text
+Upstox historical IS
+→ Screener historical series
+→ NSE historical filing/XBRL
+```
+
+before declaring the metric impossible.
+
+---
+
+# 28. IMPORTANT EXAMPLE — MARSONS
+
+The log shows:
+
+```text
+sales_cagr_5y
+pat_cagr_5y
+```
+
+remain unavailable after PIT recovery.
+
+And:
+
+```text
+current_ev_ebitda
+```
+
+also remains unavailable.
+
+The final telemetry shows:
+
+```text
+DATA_INSUFFICIENT_QUALITY
+DATA_INSUFFICIENT_VALUATION
+```
+
+with:
+
+```text
+roce_5y = -20.09
+d/e = 0.005
+cfo_pat_5y = INVALID_SENTINEL
+```
+
+Source: production log.
+
+For this stock the implementation must demonstrate:
+
+```text
+Existing PIT
+→ Upstox IS
+→ Screener
+→ NSE/XBRL
+```
+
+and report exactly where/why each metric failed.
+
+---
+
+# 29. IMPORTANT EXAMPLE — FEDFINA / FINANCIAL COMPANY
+
+The log shows:
+
+```text
+ROCE
+```
+
+failed because:
+
+```text
+PIT_DATABASE = NOT_AVAILABLE
+DERIVED_FROM_RAW = INSUFFICIENT_RAW_EBIT_OR_EQUITY
+FILING_PROVIDER_REFRESH = NOT_AVAILABLE
+```
+
+while ROE was successfully recovered.
+
+Growth fields separately failed due:
+
+```text
+INSUFFICIENT_QUARTERS
+CANNOT_DERIVE
+```
+
+Source: production log.
+
+This should not simply become:
+
+```text
+PROVIDER_EXHAUSTED
+```
+
+The recovery report must separately state:
+
+```text
+ROCE → insufficient historical/raw components
+Revenue YoY → insufficient history
+Operating Profit YoY → insufficient history
+EPS YoY → recovered
+```
+
+---
+
+# 30. CANDIDATE SAFETY
+
+The run produced candidate-looking records but some were suppressed by data integrity gates.
+
+Example final audit:
+
+```text
+3MINDIA
+AFFLE
+AHLUCONT
+APCOTEXIND
+BIKAJI
+BLS
+CMSINFO
+...
+```
+
+The system must continue suppressing any candidate whose data integrity is not certified.
+
+Do NOT trade off integrity for candidate count.
+
+Source: production log.
+
+---
+
+# 31. REQUIRED RECOVERY REPORT FOR EACH STOCK
+
+For every baseline incomplete stock produce:
+
+```text
+SYMBOL
+ISIN
+
+INITIAL STATUS
+
+MISSING FIELDS
+
+FIELD                  PRIMARY      UPSTOX      SCREENER      NSE      FINAL
+
+sales_cagr_5y
+pat_cagr_5y
+roce_5y
+cfo_pat_5y
+debt_equity
+current_ev_ebitda
+ev_ebitda_3y_median
+
+FINAL STATUS
+
+FINAL REASON
+
+SOURCE USED
+
+SOURCE PERIOD
+
+PIT CERTIFIED = YES/NO
+```
+
+For every recovered field include the actual recovered value.
+
+---
+
+# 32. REQUIRED "BEFORE VS AFTER" PROOF
+
+This is mandatory.
+
+After implementation, do NOT merely say:
+
+```text
+fallback implemented
+```
+
+or:
+
+```text
+tests passed
+```
+
+Run the Quality Compounder again and compare specifically against the original 4-Oct baseline.
+
+Create:
+
+```text
+QUALITY_COMPOUNDER_46_STOCK_REMEDIATION_REPORT
+```
+
+with:
+
+```text
+Baseline incomplete stocks = 46
+Post-remediation incomplete stocks = ?
+Recovered stocks = ?
+Still incomplete = ?
+Newly incomplete = ?
+```
+
+The report must include every baseline stock.
+
+Example:
+
+```text
+Symbol      Before                After                 Improvement
+ADOR        sales/pat missing     recovered             YES
+ARIS        current EV missing    recovered             YES
+MARSONS     growth + EV missing   partial / remaining   ...
+MAHLIFE     PAT + EV missing      ...
+FEDFINA     ROCE + growth missing ...
+```
+
+---
+
+# 33. REQUIRED FIELD-LEVEL RECOVERY STATISTICS
+
+Produce:
+
+```text
+Field                      Missing Before    Recovered    Remaining
+ROCE_5Y
+SALES_CAGR_5Y
+PAT_CAGR_5Y
+CFO_PAT_5Y
+DEBT_EQUITY
+CURRENT_EV_EBITDA
+EV_EBITDA_3Y_MEDIAN
+```
+
+Also produce provider-level statistics:
+
+```text
+Provider              Attempts     Success    Failure
+Existing PIT
+Existing Filing
+Upstox
+Screener
+NSE/XBRL
+```
+
+And reason-level statistics:
+
+```text
+PARSER_FAILURE
+MAPPING_FAILURE
+INSUFFICIENT_HISTORY
+PROVIDER_FAILURE
+CALCULATION_FAILURE
+PIT_CONFLICT
+STRUCTURAL_INELIGIBLE
+GENUINELY_UNAVAILABLE
+```
+
+---
+
+# 34. REQUIRED PROOF THAT THE CURRENT 46 ACTUALLY IMPROVED
+
+The acceptance test is NOT:
+
+```text application starts
+```
+
+The acceptance test is:
+
+```text baseline 46-stock cohort
+        ↓
+run new recovery
+        ↓
+compare every stock
+        ↓
+prove field-level improvement
+```
+
+For example, if 46 were incomplete:
+
+```text Before:
+46 incomplete
+
+After:
+18 incomplete
+28 recovered
+```
+
+the proof must show exactly which 28 recovered and from which provider.
+
+If the result is:
+
+```text Before = 46
+After = 45
+```
+
+do not claim "fixed".
+
+Explain why only one was recovered.
+
+If:
+
+```text After = 20
+```
+
+show the exact 26 unresolved reasons.
+
+---
+
+# 35. NO SILENT NEW FAILURES
+
+After remediation calculate:
+
+```text baseline_symbols ∩ new_failures
+```
+
+and:
+
+```text newly_incomplete_symbols - baseline_incomplete_symbols
+```
+
+The second set must be reported explicitly.
+
+We must never fix 20 old stocks while introducing 15 new missing-data failures elsewhere.
+
+---
+
+# 36. REQUIRED PRODUCTION ACCEPTANCE CRITERIA
+
+The implementation is accepted only when ALL are satisfied:
+
+### A. Correctness
+
+```text VERIFIED with NULL field = 0
+```
+
+### B. Wrong-window calculation
+
+```text 3Y calculation written into 5Y field = 0
+```
+
+### C. Unknown terminal reasons
+
+```text HISTORY_STATUS_UNKNOWN = 0
+```
+
+### D. Unexplained missing
+
+```text UNEXPLAINED_MISSING = 0
+```
+
+### E. Baseline cohort reconciliation
+
+All original 46 stocks have a before/after record.
+
+### F. Recovery evidence
+
+Every recovered value has:
+
+```text source
+period
+value
+validation
+provenance
+```
+
+### G. PIT protection
+
+No current-only Upstox/Screener value is silently inserted into historical PIT.
+
+### H. Scanner architecture
+
+No network recovery occurs inside final Quality decision logic.
+
+### I. No business-rule weakening
+
+Quality thresholds remain unchanged.
+
+### J. No false success
+
+Every `VERIFIED` record contains the actual requested values.
+
+---
+
+# 37. REQUIRED FINAL PRODUCTION LOGGING
+
+At the end of the Quality scan print:
+
+```text
+=============================================================
+QUALITY COMPOUNDER DATA RECOVERY SUMMARY
+=============================================================
+
+Universe                         : 886
+
+Baseline incomplete              : 46
+Recovery attempted               : <N>
+Fully recovered                  : <N>
+Partially recovered              : <N>
+Still incomplete                 : <N>
+Newly incomplete                 : <N>
+
+Current EV/EBITDA:
+  Before                         : 811/886
+  After                          : <N>/886
+
+3Y EV/EBITDA median:
+  Before                         : 879/886
+  After                          : <N>/886
+
+Quality metrics recovered        : <N>
+Valuation metrics recovered      : <N>
+Price failures                   : <N>
+
+Upstox recoveries                : <N>
+Screener recoveries              : <N>
+NSE/XBRL recoveries              : <N>
+
+Parser failures                  : <N>
+Calculation failures             : <N>
+Insufficient history             : <N>
+Provider failures                : <N>
+PIT conflicts                    : <N>
+
+HISTORY_STATUS_UNKNOWN           : 0
+UNEXPLAINED_MISSING              : 0
+FALSE_VERIFIED                   : 0
+WRONG_CAGR_WINDOW                : 0
+
+=============================================================
+```
+
+---
+
+# 38. REQUIRED ARTIFACTS
+
+Generate and save:
+
+```text
+quality_compounder_recovery_audit.csv
+quality_compounder_recovery_audit.parquet
+quality_compounder_46_before_after.csv
+quality_compounder_provider_matrix.csv
+quality_compounder_unresolved_data.csv
+quality_compounder_provenance.json
+```
+
+The 46-stock before/after artifact is mandatory.
+
+---
+
+# 39. FINAL ARCHITECTURE
+
+The final architecture must look like this:
+
+```text
+                         MASTER UNIVERSE
+                               │
+                               ▼
+                    EXISTING CERTIFIED PIT
+                               │
+                     missing/incomplete?
+                               │
+                               ▼
+                 FUNDAMENTAL RECOVERY ENGINE
+                               │
+        ┌──────────────────────┼────────────────────────┐
+        │                      │                        │
+        ▼                      ▼                        ▼
+ Existing Providers      Upstox Fundamentals       Screener
+        │                      │                        │
+        │              ┌───────┼────────┐               │
+        │              │       │        │               │
+        │              ▼       ▼        ▼               │
+        │           Key Ratios   IS   Cash Flow         │
+        │              │       │        │               │
+        └──────────────┴───────┴────────┴───────────────┘
+                               │
+                         still missing?
+                               │
+                               ▼
+                         NSE / XBRL
+                               │
+                               ▼
+                   Parse + normalize + map
+                               │
+                               ▼
+                    Metric Calculation Engine
+                               │
+                               ▼
+                       Validation Engine
+                               │
+                               ▼
+                      PIT Provenance Layer
+                               │
+                               ▼
+                    Canonical PIT Publisher
+                               │
+                         certified?
+                         /       \
+                       YES       NO
+                        │         │
+                        ▼         ▼
+              QUALITY SCANNER   BLOCK
+                        │
+                        ▼
+                   FINAL DECISION
+                        │
+                        ▼
+                 PRE-BUY INTEGRITY GATE
+                        │
+                  ┌─────┴─────┐
+                  ▼           ▼
+                SAVE        SUPPRESS
+```
+
+---
+
+# 40. MOST IMPORTANT PRINCIPLE
+
+The purpose of this remediation is NOT:
+
+```text
+make 46 disappear
+```
+
+The purpose is:
+
+```text
+determine whether each of the 46 is genuinely unavailable
+or was blocked because our data pipeline failed.
+```
+
+If Screener or Upstox can legitimately provide the value:
+
+```text recover it
+```
+
+If NSE/XBRL can prove the value:
+
+```text recover + certify it
+```
+
+If the source returned data but our parser failed:
+
+```text FIX THE PARSER
+```
+
+If the provider has data but our field mapping failed:
+
+```text FIX THE MAPPING
+```
+
+If the calculation uses the wrong historical window:
+
+```text FIX THE CALCULATION
+```
+
+If the field genuinely cannot be reconstructed:
+
+```text BLOCK IT
+```
+
+But every blocked case must have a precise reason.
+
+---
+
+# 41. FINAL DEFINITION OF SUCCESS
+
+Do not declare Issue #46 fixed merely because the scanner completes.
+
+Issue #46 is materially remediated only when the post-implementation evidence demonstrates:
+
+```text original 46-stock cohort
+        ↓
+each stock individually audited
+        ↓
+recoverable values recovered
+        ↓
+provider/source identified
+        ↓
+correct calculation
+        ↓
+PIT/provenance validation
+        ↓
+canonical PIT updated
+        ↓
+Quality scanner re-run
+        ↓
+before/after improvement demonstrated
+```
+
+The final deliverable MUST contain an explicit statement of:
+
+```text
+46 baseline stocks
+X recovered
+Y partially recovered
+Z genuinely unresolved
+A parser/mapping defects fixed
+B calculation defects fixed
+C Upstox recoveries
+D Screener recoveries
+E NSE/XBRL recoveries
+Final incomplete count
+```
+
+and the complete per-stock evidence supporting those numbers.
+
+**Do not report "fixed" without this proof.**Why I would use this architecture
+The biggest immediate win is not Screener by itself. It is fixing the recovery engine so that provider data actually becomes valid canonical data.
+The current logs prove all of these are happening simultaneously:
+False verification: UTLSOLAR and ADOR are marked verified while required fields remain None. Pasted text
+NSE parsing/mapping issue: NSE returns HTTP 200 and rows, but the system says financial data is insufficient. Pasted text
+Potential wrong-window calculation: BORORENEW's logged CAGR calculation is 3.00 years while the target field is *_5y. Pasted text
+Current EV/EBITDA is a major recoverable gap: only 811/886 are complete, while 3Y median is already 879/886. Pasted text
+The final 46 must be the explicit remediation cohort: 29 quality failures, 19 valuation failures, 1 price failure with overlaps, plus 24 HISTORY_STATUS_UNKNOWN. Pasted text
+And the external-source evidence is strong: Upstox officially exposes current EV/EBITDA, ROCE, ROE and P/E, plus historical income-statement and cash-flow APIs. [Upstox - Online Stock and Share Trading](https://upstox.com/developer/api-documentation/get-key-ratios/?utm_source=chatgpt.com) Screener officially advertises 10–15 years of financial data and Excel export, and its company pages expose P&L, borrowings, CFO and ROCE. [Screener](https://www.screener.in/features/?utm_source=chatgpt.com) NSE's filing interface exposes XBRL plus broadcast/revision timestamps and revision remarks, making it the right final PIT verification layer. [NSE India](https://www.nseindia.com/companies-listing/corporate-integrated-filing?utm_source=chatgpt.com)
+The most important instruction in the prompt is therefore the final one: make the developer prove, stock-by-stock, that the original 46 improved after implementation. That prevents another situation where the code claims the problem was fixed while PROD still shows the same underlying data failures.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-10-04T09:04:37+05:30.
+
+The user's current state is as follows:
+Active Document: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/admin_dashboard.html (LANGUAGE_HTML)
+Cursor is on line: 1
+Other open documents:
+- /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/admin_dashboard.html (LANGUAGE_HTML)
+</ADDITIONAL_METADATA>

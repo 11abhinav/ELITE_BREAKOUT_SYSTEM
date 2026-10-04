@@ -663,6 +663,19 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_scanner ON alerts(status, scanner, alert_time DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_active_feed ON alerts(alert_time DESC) WHERE COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT' AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date_time_desc ON alerts(alert_date DESC, alert_time DESC)")
+                # [RULE 67 CHANGE-RATIONALE: Add targeted performance indexes and backfill shares_bought / capital_allocated for unallocated alerts]
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_open_summary ON alerts(alert_time DESC, symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_perf_lookup ON alerts(scanner, status, alert_date DESC)")
+                try:
+                    cur.execute("""
+                        UPDATE alerts 
+                        SET shares_bought = GREATEST(1, FLOOR((CASE WHEN COALESCE(score, 80) >= 90 THEN 50000.0 WHEN COALESCE(score, 80) >= 75 THEN 25000.0 ELSE 10000.0 END) / entry_price)),
+                            capital_allocated = GREATEST(1, FLOOR((CASE WHEN COALESCE(score, 80) >= 90 THEN 50000.0 WHEN COALESCE(score, 80) >= 75 THEN 25000.0 ELSE 10000.0 END) / entry_price)) * entry_price,
+                            remaining_shares = COALESCE(NULLIF(remaining_shares, 0), GREATEST(1, FLOOR((CASE WHEN COALESCE(score, 80) >= 90 THEN 50000.0 WHEN COALESCE(score, 80) >= 75 THEN 25000.0 ELSE 10000.0 END) / entry_price)))
+                        WHERE (shares_bought IS NULL OR shares_bought = 0) AND entry_price > 0;
+                    """)
+                except Exception:
+                    pass
 
 
                 # 4.5. scanner_evaluation_log table
@@ -2376,10 +2389,10 @@ def is_symbol_in_failed_reversal_cooldown(symbol: str, cooldown_days: int = 30) 
         with get_connection() as conn:
             with conn.cursor() as cur:
                 # Most recent REVERSAL alert for this symbol (any status)
+                # [RULE 67 CHANGE-RATIONALE: Use a.exit_reason directly on alerts table to eliminate unwanted join with alert_outcomes for high-throughput cooldown checks]
                 cur.execute("""
-                    SELECT a.status, a.alert_date, ao.exit_reason
+                    SELECT a.status, a.alert_date, a.exit_reason
                     FROM alerts a
-                    LEFT JOIN alert_outcomes ao ON a.id = ao.alert_id
                     WHERE a.symbol = %s AND a.scanner = 'REVERSAL'
                     ORDER BY a.alert_date DESC, a.alert_time DESC
                     LIMIT 1
@@ -2460,12 +2473,12 @@ def get_all_failed_reversal_cooldown_symbols(cooldown_days: int = 40) -> set:
 
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # [RULE 67 CHANGE-RATIONALE: Use a.exit_reason directly from alerts to avoid unnecessary join]
                 cur.execute("""
                     WITH LatestAlerts AS (
-                        SELECT a.symbol, a.status, a.pnl_pct, a.alert_date, ao.exit_reason,
+                        SELECT a.symbol, a.status, a.pnl_pct, a.alert_date, a.exit_reason,
                                ROW_NUMBER() OVER (PARTITION BY a.symbol ORDER BY a.alert_date DESC, a.alert_time DESC) as rn
                         FROM alerts a
-                        LEFT JOIN alert_outcomes ao ON a.id = ao.alert_id
                         WHERE a.scanner = 'REVERSAL'
                     )
                     SELECT symbol, alert_date, exit_reason
@@ -2913,9 +2926,10 @@ def save_alert_if_new(
     capital_allocated = kwargs.get('capital_allocated')
     shares_bought = kwargs.get('shares_bought')
 
-    if capital_allocated is None or shares_bought is None:
-        if entry_price and stop_loss:
-            capital_allocated, shares_bought = calculate_trade_allocation(entry_price, stop_loss, score or 80)
+    # [RULE 67 CHANGE-RATIONALE: Calculate capital and shares based on confidence bucket for any positive entry_price, even if stop_loss is None (e.g. fundamental / wealth / pending alerts)]
+    if capital_allocated is None or shares_bought is None or float(capital_allocated or 0) <= 0 or int(shares_bought or 0) <= 0:
+        if entry_price and float(entry_price) > 0:
+            capital_allocated, shares_bought = calculate_trade_allocation(entry_price, stop_loss or 0.0, score or 80)
         else:
             capital_allocated, shares_bought = 0.0, 0
 
@@ -12180,6 +12194,11 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
     ctx_str = json.dumps(sanitized_ctx, default=str)
     entry_px = candidate.get("entry_price") or candidate.get("current_price")
 
+    # [RULE 67 CHANGE-RATIONALE: Calculate capital and shares based on confidence bucket for wealth / quality buy alerts]
+    from portfolio_engine import calculate_trade_allocation
+    raw_score = candidate.get("ranking_score") or candidate.get("score") or 90
+    cap_alloc, shares_bgt = calculate_trade_allocation(entry_px or 0.0, 0.0, raw_score)
+
     with get_connection() as conn:
         if isinstance(conn, DummyConnection):
             logger.info(f"DummyConnection active: simulated persistence of {scanner_name} candidate alert for {sym}")
@@ -12204,6 +12223,9 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         execution_state = 'OPEN',
                         entry_mode = 'CMP',
                         actual_entry_price = COALESCE(actual_entry_price, %s),
+                        capital_allocated = CASE WHEN capital_allocated IS NULL OR capital_allocated = 0 THEN %s ELSE capital_allocated END,
+                        shares_bought = CASE WHEN shares_bought IS NULL OR shares_bought = 0 THEN %s ELSE shares_bought END,
+                        remaining_shares = CASE WHEN remaining_shares IS NULL OR remaining_shares = 0 THEN %s ELSE remaining_shares END,
                         updated_at = NOW()
                     WHERE id = %s
                 """, (
@@ -12213,6 +12235,9 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                     candidate.get("watchlist_state", "GREEN"),
                     ctx_str,
                     entry_px,
+                    cap_alloc,
+                    shares_bgt,
+                    shares_bgt,
                     alert_id
                 ))
                 conn.commit()
@@ -12226,9 +12251,10 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         rejection_reason, quality_gate_status, value_gate_status, tier,
                         ranking_score, signal_date, next_trading_day, reference_entry_open,
                         governance_status, context, signals, score,
-                        execution_state, entry_mode, actual_entry_price
+                        execution_state, entry_mode, actual_entry_price,
+                        capital_allocated, shares_bought, remaining_shares
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
                     SET current_price = EXCLUDED.current_price,
                         ranking_score = EXCLUDED.ranking_score,
@@ -12238,6 +12264,9 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         execution_state = 'OPEN',
                         entry_mode = 'CMP',
                         actual_entry_price = COALESCE(alerts.actual_entry_price, EXCLUDED.actual_entry_price),
+                        capital_allocated = COALESCE(NULLIF(alerts.capital_allocated, 0), EXCLUDED.capital_allocated),
+                        shares_bought = COALESCE(NULLIF(alerts.shares_bought, 0), EXCLUDED.shares_bought),
+                        remaining_shares = COALESCE(NULLIF(alerts.remaining_shares, 0), EXCLUDED.remaining_shares),
                         updated_at = NOW()
                 """, (
                     sym,
@@ -12265,7 +12294,10 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                     int(candidate.get("ranking_score", 90)),
                     "OPEN",
                     "CMP",
-                    entry_px
+                    entry_px,
+                    cap_alloc,
+                    shares_bgt,
+                    shares_bgt
                 ))
                 conn.commit()
                 return True, "INSERTED_NEW_ALERT"

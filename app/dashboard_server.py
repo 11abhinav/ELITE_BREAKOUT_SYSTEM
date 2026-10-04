@@ -114,6 +114,18 @@ limiter = Limiter(
     storage_uri="memory://"
 )
 
+# [RULE 67 CHANGE-RATIONALE: Measure API response times and expose via X-Response-Time-Ms header for admin and user monitoring]
+@app.before_request
+def record_request_start_time():
+    g._request_start_time = time.perf_counter()
+
+@app.after_request
+def add_response_time_header(response):
+    if hasattr(g, '_request_start_time'):
+        duration_ms = (time.perf_counter() - g._request_start_time) * 1000.0
+        response.headers['X-Response-Time-Ms'] = f"{duration_ms:.2f}"
+    return response
+
 # [VERSION: DASHBOARD_PERF_FIX_v1.0] Gzip compression for all JSON/HTML responses.
 # The 260KB admin dashboard HTML compresses to ~30KB. 10MB performance_data.json → ~500KB.
 # Uses Python built-in gzip — no external dependency needed.
@@ -2405,8 +2417,165 @@ def api_admin_db_tables_summary():
         _TABLES_SUMMARY_CACHE["payload"] = payload
         return Response(payload, mimetype="application/json")
     except Exception as e:
-        logger.debug(f"Failed to fetch database tables summary: {e}")
-        return jsonify({"status": "ok", "total_tables": 0, "total_rows": 0, "tables": []})
+        logger.error(f"[DASHBOARD_SERVER] Error getting tables summary: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+@app.route("/api/admin/data_availability/counts")
+@admin_required
+def api_admin_data_availability_counts():
+    """
+    [MANDATORY GOVERNANCE RULE: SCREENER-ONLY DATA DETECTION & DIAGNOSTIC COUNTS]
+    Separately exposes:
+      - Verified Data Missing
+      - Provider Discrepancies
+      - FYERS-Only Data Found
+      - Screener-Only Data Found
+      - Genuinely Unavailable
+      - Insufficient Historical Depth
+      - Stale PIT
+      - Unprocessed Filing
+      - Parser/Mapping Failure
+      - Calculation Failure
+      - Structural Ineligible
+    """
+    counts = {
+        "verified_data_missing": 0,
+        "provider_discrepancies": 0,
+        "fyers_only_data_found": 0,
+        "screener_only_data_found": 0,
+        "genuinely_unavailable": 0,
+        "insufficient_historical_depth": 0,
+        "stale_pit": 0,
+        "unprocessed_filing": 0,
+        "parser_mapping_failure": 0,
+        "calculation_failure": 0,
+        "structural_ineligible": 0,
+        "total_unresolved_fields": 0,
+        "affected_symbols_count": 0,
+        "as_of_date": datetime.now(IST).strftime("%Y-%m-%d"),
+    }
+    symbols_seen = set()
+
+    # 1. Try DB first
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT classification, symbol, COUNT(*)
+                    FROM data_availability_audit
+                    WHERE audit_date = (SELECT MAX(audit_date) FROM data_availability_audit)
+                    GROUP BY classification, symbol
+                """)
+                rows = cur.fetchall()
+                for cls_name, sym, cnt in rows:
+                    symbols_seen.add(sym)
+                    counts["total_unresolved_fields"] += cnt
+                    c_lower = (cls_name or "").lower()
+                    if "discrepancy" in c_lower or "exists_elsewhere" in c_lower:
+                        counts["provider_discrepancies"] += cnt
+                    elif "screener_only" in c_lower:
+                        counts["screener_only_data_found"] += cnt
+                    elif "fyers_only" in c_lower:
+                        counts["fyers_only_data_found"] += cnt
+                    elif "insufficient_historical" in c_lower or "short_history" in c_lower:
+                        counts["insufficient_historical_depth"] += cnt
+                    elif "stale_pit" in c_lower:
+                        counts["stale_pit"] += cnt
+                    elif "unprocessed" in c_lower:
+                        counts["unprocessed_filing"] += cnt
+                    elif "parser" in c_lower or "mapping" in c_lower:
+                        counts["parser_mapping_failure"] += cnt
+                    elif "calculation" in c_lower:
+                        counts["calculation_failure"] += cnt
+                    elif "structural" in c_lower:
+                        counts["structural_ineligible"] += cnt
+                    elif "genuine" in c_lower or "unavailable_verified" in c_lower:
+                        counts["genuinely_unavailable"] += cnt
+                    else:
+                        counts["verified_data_missing"] += cnt
+        counts["affected_symbols_count"] = len(symbols_seen)
+        return jsonify({"status": "ok", "source": "database", "counts": counts})
+    except Exception as dbe:
+        logger.debug(f"[DATA_AVAILABILITY_COUNTS] DB query fallback: {dbe}")
+
+    # 2. Fallback to latest JSON report
+    report_path = os.path.join(config.DATA_DIR, "reports", "data_availability_audit_latest.json")
+    if os.path.exists(report_path):
+        try:
+            with open(report_path, "r", encoding="utf-8") as f:
+                rep_data = json.load(f)
+            records = rep_data.get("records", [])
+            for r in records:
+                sym = r.get("symbol")
+                if sym: symbols_seen.add(sym)
+                counts["total_unresolved_fields"] += 1
+                cls_name = (r.get("classification") or "").lower()
+                if "discrepancy" in cls_name or "exists_elsewhere" in cls_name:
+                    counts["provider_discrepancies"] += 1
+                elif "screener_only" in cls_name:
+                    counts["screener_only_data_found"] += 1
+                elif "fyers_only" in cls_name:
+                    counts["fyers_only_data_found"] += 1
+                elif "insufficient_historical" in cls_name:
+                    counts["insufficient_historical_depth"] += 1
+                elif "stale_pit" in cls_name:
+                    counts["stale_pit"] += 1
+                elif "unprocessed" in cls_name:
+                    counts["unprocessed_filing"] += 1
+                elif "parser" in cls_name or "mapping" in cls_name:
+                    counts["parser_mapping_failure"] += 1
+                elif "calculation" in cls_name:
+                    counts["calculation_failure"] += 1
+                elif "structural" in cls_name:
+                    counts["structural_ineligible"] += 1
+                elif "genuine" in cls_name or "unavailable_verified" in cls_name:
+                    counts["genuinely_unavailable"] += 1
+                else:
+                    counts["verified_data_missing"] += 1
+            counts["affected_symbols_count"] = len(symbols_seen)
+            return jsonify({"status": "ok", "source": "report_file", "counts": counts})
+        except Exception as fe:
+            logger.debug(f"[DATA_AVAILABILITY_COUNTS] Report read error: {fe}")
+
+    return jsonify({"status": "ok", "source": "empty", "counts": counts})
+
+
+@app.route("/api/admin/data_availability/audits")
+@admin_required
+def api_admin_data_availability_audits():
+    """Returns detailed records of recent availability audits."""
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT symbol, isin, scanner, field, required_for_gate,
+                           upstox_status, nse_status, exchange_filing_status, pit_status,
+                           local_cache_status, fyers_status, screener_status, classification,
+                           severity, upstox_key_ratios, admin_action,
+                           production_value_written, buy_allowed, admin_alert_generated, checked_at
+                    FROM data_availability_audit
+                    WHERE audit_date = (SELECT MAX(audit_date) FROM data_availability_audit)
+                    ORDER BY severity DESC, symbol, field
+                """)
+                cols = [desc[0] for desc in cur.description]
+                rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                return jsonify({"status": "ok", "total": len(rows), "records": rows})
+    except Exception as e:
+        logger.debug(f"[DATA_AVAILABILITY_AUDITS] DB error: {e}")
+
+    report_path = os.path.join(config.DATA_DIR, "reports", "data_availability_audit_latest.json")
+    if os.path.exists(report_path):
+        try:
+            with open(report_path, "r", encoding="utf-8") as f:
+                rep_data = json.load(f)
+            return jsonify({"status": "ok", "total": len(rep_data.get("records", [])), "records": rep_data.get("records", [])})
+        except Exception:
+            pass
+
+    return jsonify({"status": "ok", "total": 0, "records": []})
+
 
 
 @app.route("/admin/export/table/<table_name>")

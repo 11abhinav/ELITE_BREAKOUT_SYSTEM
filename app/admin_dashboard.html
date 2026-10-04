@@ -2494,6 +2494,11 @@ function changeAdminPage(type, delta) {
         <!-- END NOTIFICATION BELL -->
 
 
+        <!-- API LATENCY PILL -->
+        <div id="api-latency-pill" title="Live API response time" style="display:none; align-items:center; gap:4px; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid rgba(0,212,161,0.3); background:rgba(0,212,161,0.1); color:#00d4a1; cursor:default; user-select:none;">
+          ⚡ <span id="api-latency-val" style="font-family:var(--font-mono); font-weight:700;">--ms</span>
+        </div>
+
         <button onclick="window.location.href='/user'" class="refresh-btn" style="color: #00d4a1; font-weight: 700; border-color: rgba(0,212,161,0.3); background: rgba(0,212,161,0.1);">
           👤 User View ↗
         </button>
@@ -2773,6 +2778,7 @@ function changeAdminPage(type, delta) {
                 <th data-col="symbol" style="text-align:left;">Symbol</th>
                 <th data-col="entry_date" style="text-align:left;">Date &amp; Time</th>
                 <th data-col="scanner" style="text-align:left;">Scanner</th>
+                <th data-col="scanner_count" style="text-align:center; cursor:pointer;" title="Number of scanners with active open alerts">Count</th>
                 <th data-col="status" class="sort-asc" style="text-align:left;">Status</th>
                 <th data-col="entry_price" style="cursor:pointer; text-align:right;">Entry ₹</th>
                 <th data-col="current_price" style="cursor:pointer; text-align:right;">CMP ₹</th>
@@ -3469,6 +3475,47 @@ function changeAdminPage(type, delta) {
   </div>
 
   <script>
+    // ── [RULE 67 CHANGE-RATIONALE: Real-time API Latency Pill with X-Response-Time-Ms tracking] ──
+    function updateLatencyBadge(ms) {
+      const pill = document.getElementById('api-latency-pill');
+      const val = document.getElementById('api-latency-val');
+      if (pill && val && ms != null && !isNaN(ms)) {
+        val.textContent = `${Math.round(ms)}ms`;
+        pill.style.display = 'inline-flex';
+        if (ms < 150) {
+          pill.style.borderColor = 'rgba(0, 212, 161, 0.4)';
+          pill.style.color = '#00d4a1';
+          pill.style.background = 'rgba(0, 212, 161, 0.1)';
+        } else if (ms < 500) {
+          pill.style.borderColor = 'rgba(255, 170, 64, 0.4)';
+          pill.style.color = '#ffaa40';
+          pill.style.background = 'rgba(255, 170, 64, 0.1)';
+        } else {
+          pill.style.borderColor = 'rgba(255, 77, 109, 0.4)';
+          pill.style.color = '#ff4d6d';
+          pill.style.background = 'rgba(255, 77, 109, 0.1)';
+        }
+      }
+    }
+
+    if (!window._apiLatencyFetchWrapped) {
+      window._apiLatencyFetchWrapped = true;
+      const _origFetch = window.fetch;
+      window.fetch = async function(...args) {
+        const t0 = performance.now();
+        try {
+          const res = await _origFetch.apply(this, args);
+          const serverMs = res.headers ? res.headers.get('X-Response-Time-Ms') : null;
+          const dur = serverMs ? parseFloat(serverMs) : (performance.now() - t0);
+          updateLatencyBadge(dur);
+          return res;
+        } catch(err) {
+          updateLatencyBadge(performance.now() - t0);
+          throw err;
+        }
+      };
+    }
+
     // ── [VERSION: MULTI_TAB_UI_v2.0] ACTIVE SCREEN TAB NAVIGATION & LAZY FETCHING ──
     let activeAdminTab = 'signals-trades';
 
@@ -4981,26 +5028,18 @@ function getEarningsBadgeHtml(item) {
         const cleanSym = (t.symbol || '').replace('.NS', '').replace('.BO', '').trim();
         const confluence = getTradeConfluenceInfo(t);
 
-        let confluenceBadgeHtml = '';
-        if (confluence.hasOtherOpenAlerts) {
-          const countLabel = confluence.totalOpenScanners > 1 
-            ? `${confluence.totalOpenScanners} Scanners Open` 
-            : `${confluence.otherOpenAlerts.length + 1} Open Alerts`;
-          const tipLines = [`${confluence.totalOpenScanners} Scanners have open alerts on ${cleanSym}:`];
-          if (t.scanner) {
-            tipLines.push(`• Current: ${t.scanner} @ ${fmt(t.actual_entry_price || t.entry_price)}`);
-          }
-          confluence.otherOpenAlerts.forEach(oa => {
-            tipLines.push(`• ${oa.scanner}: ${fmtAlertTime(oa.alert_time || oa.alert_date)} @ ${fmt(oa.entry_price)}`);
-          });
-          const tipText = tipLines.join('\n').replace(/"/g, '&quot;');
-          
-          confluenceBadgeHtml = `
-            <span class="badge badge-confluence" title="${tipText}" onclick="event.stopPropagation(); toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id || 'null'});">
-              <span style="font-size:10px;">⚡</span> ${countLabel}
-            </span>
-          `;
+        // [RULE 67 CHANGE-RATIONALE]: Dedicated Count column replaces inline '2 Scanners Open' badge per user requirement.
+        const countVal = confluence.totalOpenScanners || 1;
+        const tipLines = [`${countVal} Scanners have open alerts on ${cleanSym}:`];
+        if (t.scanner) {
+          tipLines.push(`• Current: ${t.scanner} @ ${fmt(t.actual_entry_price || t.entry_price)}`);
         }
+        (confluence.otherOpenAlerts || []).forEach(oa => {
+          tipLines.push(`• ${oa.scanner}: ${fmtAlertTime(oa.alert_time || oa.alert_date)} @ ${fmt(oa.entry_price)}`);
+        });
+        const tipText = confluence.hasOtherOpenAlerts
+          ? tipLines.join('\n').replace(/"/g, '&quot;')
+          : (t.scanner ? `1 scanner open: ${t.scanner}` : '1 scanner open');
 
         // [RULE 67 CHANGE-RATIONALE]: Row highlight per user instruction:
         // Only profit trades in green, and SL trades in red; neutral / breakeven (0.00%) remain unhighlighted.
@@ -5042,8 +5081,15 @@ function getEarningsBadgeHtml(item) {
         <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
           <span class="badge badge-scanner">${t.scanner || '—'}</span>
           ${t.signals && t.signals.includes('GEM') ? `<span style="display:inline-flex; align-items:center; gap:2px; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:800; background:rgba(0,212,161,0.18); color:#00d4a1; border:1px solid rgba(0,212,161,0.5); box-shadow:0 0 6px rgba(0,212,161,0.2);">💎 GEM</span>` : ''}
-          ${confluenceBadgeHtml}
         </div>
+      </td>
+      <td style="text-align:center; vertical-align:middle;">
+        <span class="badge ${countVal > 1 ? 'badge-confluence' : 'badge-neutral'}" 
+              title="${tipText}" 
+              style="font-weight:800; font-size:11px; padding:2px 8px; min-width:22px; display:inline-block; ${confluence.hasOtherOpenAlerts ? 'cursor:pointer;' : ''}"
+              ${confluence.hasOtherOpenAlerts ? `onclick="event.stopPropagation(); toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id || 'null'});"` : ''}>
+          ${countVal}
+        </span>
       </td>
       <td>${badgeHtml(t.status, t)}</td>
       <td style="text-align:right; font-weight:800; font-size:12px; color:var(--text);">
@@ -5068,7 +5114,7 @@ function getEarningsBadgeHtml(item) {
       <td class="col-opt" style="color:var(--muted); text-align:center;">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
     </tr>
     <tr class="detail-row">
-      <td colspan="15">
+      <td colspan="16">
         <div class="detail-panel ${isOpen ? 'open' : 'closed'}" id="dp-${id}">
           ${confluence.hasOtherOpenAlerts ? `
           <div class="detail-item" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(255, 138, 0, 0.12), rgba(229, 46, 113, 0.08)); border: 1px solid rgba(255, 138, 0, 0.45); padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; box-shadow: inset 0 0 12px rgba(255, 138, 0, 0.08);">
@@ -6058,6 +6104,14 @@ function getEarningsBadgeHtml(item) {
         if (sortSel === 'SCORE_DESC') return (b.score || 0) - (a.score || 0);
         if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
         if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
+        if (sortCol === 'scanner_count') {
+          const cA = (getTradeConfluenceInfo(a).totalOpenScanners || 1);
+          const cB = (getTradeConfluenceInfo(b).totalOpenScanners || 1);
+          if (cA !== cB) return sortDir * (cA - cB);
+          const dA = a.alert_time || a.entry_date || '';
+          const dB = b.alert_time || b.entry_date || '';
+          return dB.localeCompare(dA);
+        }
         if (sortCol === 'status') {
           const p = { 'PENDING': -1, 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
           const sA = (a.execution_state === 'PENDING_ENTRY') ? 'PENDING' : a.status;
@@ -6102,7 +6156,7 @@ function getEarningsBadgeHtml(item) {
       const body = document.getElementById('tradeBody');
       const pInfo = document.getElementById('tradePaginationInfo');
       if (!filtered.length) {
-        body.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
+        body.innerHTML = `<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
         if (pInfo) pInfo.innerText = '';
         return;
       }
@@ -6152,7 +6206,7 @@ function getEarningsBadgeHtml(item) {
             
             const summaryHtml = `
             <tr style="background: var(--card2); border-top: 2px solid var(--border);">
-                <td colspan="14" style="padding: 20px 16px; text-align: center;">
+                <td colspan="15" style="padding: 20px 16px; text-align: center;">
                     <div style="display: inline-flex; gap: 48px; font-size: 13px;">
                         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
                             <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Best Trade</span>

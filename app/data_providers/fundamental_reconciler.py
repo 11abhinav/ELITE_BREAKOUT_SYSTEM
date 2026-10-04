@@ -34,10 +34,10 @@ class FundamentalReconciler:
             metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
             return metrics
             
+        # [RULE 67 CHANGE-RATIONALE: If single source available, derive metrics from available records rather than returning empty metrics with VERIFIED_SINGLE_SOURCE]
         if not nse_records or not upstox_records:
-            metrics.overall_status = FundamentalStatus.VERIFIED_SINGLE_SOURCE
-            # Note: Production BUY path only allows VERIFIED, so this gets blocked downstream
-            return metrics
+            source_recs = nse_records if nse_records else upstox_records
+            return self._calculate_from_records(symbol, source_recs, is_dual=False)
             
         def _get_key(rec: RawFinancialRecord) -> str:
             return f"{rec.symbol}|{rec.period_end_date}|{rec.period_type}|{rec.consolidation.value if hasattr(rec.consolidation, 'value') else rec.consolidation}|{rec.unit}|{rec.currency}"
@@ -81,16 +81,29 @@ class FundamentalReconciler:
                 metrics.overall_status = FundamentalStatus.DATA_CONFLICT
                 return metrics
                 
-        # Derived Metric Calculation (Deterministic Canonical)
-        annual_nse = [r for r in nse_records if r.period_type == "ANNUAL"]
-        if not annual_nse:
-            annual_nse = nse_records
-        annual_nse.sort(key=lambda r: r.period_end_date)
-        latest_ann = annual_nse[-1]
+        return self._calculate_from_records(symbol, nse_records, is_dual=True)
+
+    def _calculate_from_records(self, symbol: str, records: List[RawFinancialRecord], is_dual: bool = False) -> ReconciledCanonicalMetrics:
+        """
+        Deterministic canonical calculation of ROCE 5Y, D/E, 5Y CAGR, CFO/PAT 5Y.
+        Enforces Section 4 & 21 invariants:
+          - WRONG_CAGR_WINDOW = 0: Never writes 3Y CAGR into 5Y fields.
+          - STRICT VERIFICATION: VERIFIED requires all fields non-null, else PARTIAL_RECOVERY.
+        """
+        metrics = ReconciledCanonicalMetrics(symbol=symbol)
+        annual_records = [r for r in records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"]
+        if not annual_records:
+            annual_records = records
+        annual_records.sort(key=lambda r: r.period_end_date)
+        if not annual_records:
+            metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
+            return metrics
+
+        latest_ann = annual_records[-1]
 
         # 1. 5Y ROCE Average
         roce_vals = []
-        for r in annual_nse[-5:]:
+        for r in annual_records[-5:]:
             if r.ebit is not None and r.capital_employed is not None and r.capital_employed > 0:
                 roce_vals.append((r.ebit / r.capital_employed) * 100.0)
         if roce_vals:
@@ -108,32 +121,49 @@ class FundamentalReconciler:
         else:
             metrics.debt_to_equity = None
 
-        # 3. Multi-year CAGR (Sales & PAT)
-        if len(annual_nse) >= 2:
+        # 3. 5Y CAGR (Sales & PAT) — STRICT 5Y REQUIREMENT (6+ annual observations needed)
+        # [RULE 67 CHANGE-RATIONALE: Prevent writing 3Y CAGR into 5Y fields (Finding #3). Require target_years=5.]
+        if len(annual_records) >= 6:
             ann_dicts = [
                 {"period_end_date": r.period_end_date, "revenue": r.revenue, "net_profit": r.net_profit}
-                for r in annual_nse
+                for r in annual_records
             ]
             try:
                 try:
                     from app.financial_data_integrity import compute_cagr_pit
                 except ImportError:
                     from financial_data_integrity import compute_cagr_pit
-                k_cagr = min(5, len(annual_nse) - 1)
-                c_rev = compute_cagr_pit(ann_dicts, metric="revenue", symbol=symbol, target_years=k_cagr)
-                c_pat = compute_cagr_pit(ann_dicts, metric="net_profit", symbol=symbol, target_years=k_cagr)
-                metrics.sales_cagr_5y = c_rev.cagr if c_rev.ok else (-999.0 if (c_rev.reason and "NON_POSITIVE" in str(c_rev.reason)) else None)
-                metrics.pat_cagr_5y = c_pat.cagr if c_pat.ok else (-999.0 if (c_pat.reason and "NON_POSITIVE" in str(c_pat.reason)) else None)
+                c_rev = compute_cagr_pit(ann_dicts, metric="revenue", symbol=symbol, target_years=5)
+                c_pat = compute_cagr_pit(ann_dicts, metric="net_profit", symbol=symbol, target_years=5)
+                metrics.sales_cagr_5y = c_rev.cagr if c_rev.ok else (-999.0 if (c_rev.reason and any(x in str(c_rev.reason) for x in ("NON_POSITIVE", "NEGATIVE", "BASE_NON_POSITIVE"))) else None)
+                metrics.pat_cagr_5y = c_pat.cagr if c_pat.ok else (-999.0 if (c_pat.reason and any(x in str(c_pat.reason) for x in ("NON_POSITIVE", "NEGATIVE", "BASE_NON_POSITIVE"))) else None)
             except Exception as _ce:
                 logger.debug(f"[RECONCILER] CAGR calculation exception for {symbol}: {_ce}")
+        else:
+            # Insufficient annual observations for 5Y CAGR: leave as None. Do NOT substitute 3Y.
+            metrics.sales_cagr_5y = None
+            metrics.pat_cagr_5y = None
 
         # 4. CFO / PAT 5Y ratio
-        cfo_vals = [r.operating_cash_flow for r in annual_nse[-5:] if r.operating_cash_flow is not None]
-        pat_vals = [r.net_profit for r in annual_nse[-5:] if r.net_profit is not None]
+        cfo_vals = [r.operating_cash_flow for r in annual_records[-5:] if r.operating_cash_flow is not None]
+        pat_vals = [r.net_profit for r in annual_records[-5:] if r.net_profit is not None]
         if cfo_vals and pat_vals and sum(pat_vals) > 0:
             metrics.cfo_pat_5y = round(sum(cfo_vals) / sum(pat_vals), 2)
         elif pat_vals and sum(pat_vals) <= 0:
             metrics.cfo_pat_5y = -999.0
+        else:
+            metrics.cfo_pat_5y = None
 
-        metrics.overall_status = FundamentalStatus.VERIFIED
+        # [RULE 67 CHANGE-RATIONALE: Section 21 Strict Verification. VERIFIED only when all fields are populated and valid.]
+        core_fields = [metrics.roce_5y, metrics.sales_cagr_5y, metrics.pat_cagr_5y, metrics.cfo_pat_5y, metrics.debt_to_equity]
+        populated_count = sum(1 for v in core_fields if v is not None)
+
+        if populated_count == len(core_fields):
+            metrics.overall_status = FundamentalStatus.VERIFIED if is_dual else FundamentalStatus.VERIFIED_SINGLE_SOURCE
+        elif populated_count > 0:
+            metrics.overall_status = FundamentalStatus.PARTIAL_RECOVERY
+        else:
+            metrics.overall_status = FundamentalStatus.INSUFFICIENT_HISTORY if len(annual_records) < 5 else FundamentalStatus.DATA_INSUFFICIENT
+
         return metrics
+

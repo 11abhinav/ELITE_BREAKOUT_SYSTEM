@@ -53,6 +53,8 @@ data/*
 !data/pit_raw_filings_deep/**
 !data/pit_raw_nse_quarterly/
 !data/pit_raw_nse_quarterly/**
+!data/reference_availability/
+!data/reference_availability/**
 !reports/full_scanner_evidence/**/*.parquet
 *.feather
 *.pkl

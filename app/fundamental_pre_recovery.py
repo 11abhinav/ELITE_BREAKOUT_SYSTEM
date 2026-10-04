@@ -49,19 +49,21 @@ import pandas as pd
 try:
     from app.data_providers.fundamental_source_router import FundamentalSourceRouter
     from app.data_providers.fundamental_models import FundamentalStatus, ReconciledCanonicalMetrics
+    from app.data_providers.data_availability_auditor import DataAvailabilityAuditor
 except ImportError:
     from data_providers.fundamental_source_router import FundamentalSourceRouter
     from data_providers.fundamental_models import FundamentalStatus, ReconciledCanonicalMetrics
+    from data_providers.data_availability_auditor import DataAvailabilityAuditor
 
 logger = logging.getLogger(__name__)
 
-# Required fields and aliases for a symbol to be considered "complete" for scanner use
 REQUIRED_FIELD_ALIASES: Dict[str, List[str]] = {
-    "ROCE":         ["roce_5y_avg", "ROCE", "roce"],
-    "sales_cagr_5y": ["sales_cagr_5y", "sales_cagr"],
-    "pat_cagr_5y":   ["pat_cagr_5y", "pat_cagr"],
-    "cfo_pat_5y":    ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"],
-    "debt":          ["debt_to_equity", "debt", "total_debt"],
+    "ROCE":             ["roce_5y_avg", "ROCE", "roce"],
+    "sales_cagr_5y":     ["sales_cagr_5y", "sales_cagr"],
+    "pat_cagr_5y":       ["pat_cagr_5y", "pat_cagr"],
+    "cfo_pat_5y":        ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"],
+    "debt":              ["debt_to_equity", "debt", "total_debt"],
+    "current_ev_ebitda": ["current_ev_ebitda"],
 }
 REQUIRED_FIELDS: List[str] = list(REQUIRED_FIELD_ALIASES.keys())
 
@@ -195,6 +197,18 @@ class FundamentalPreRecoveryEngine:
                 df.loc[idx, col] = metrics.debt_to_equity
                 break
 
+        # [RULE 67 CHANGE-RATIONALE: Progressive recovery of current_ev_ebitda & current_pe from Upstox Key Ratios]
+        if "current_ev_ebitda" in df.columns and (df.loc[idx, "current_ev_ebitda"].isna().any() or df.loc[idx, "current_ev_ebitda"].iloc[0] is None):
+            try:
+                val_ratios = self.router.recover_valuation_ratios(symbol)
+                if val_ratios and val_ratios.get("current_ev_ebitda") is not None:
+                    df.loc[idx, "current_ev_ebitda"] = val_ratios["current_ev_ebitda"]
+                    if "current_pe" in df.columns and val_ratios.get("current_pe") is not None:
+                        df.loc[idx, "current_pe"] = val_ratios["current_pe"]
+                    logger.info(f"⚡ [PRE_RECOVERY] Recovered valuation for {symbol}: EV/EBITDA={val_ratios['current_ev_ebitda']}, PE={val_ratios.get('current_pe')}")
+            except Exception as _ve:
+                logger.debug(f"[PRE_RECOVERY] Valuation recovery notice for {symbol}: {_ve}")
+
         for col in ["calculation_version", "recovery_status", "provenance_hash"]:
             if col not in df.columns:
                 df[col] = None
@@ -204,22 +218,32 @@ class FundamentalPreRecoveryEngine:
         df.loc[idx, "provenance_hash"] = _generate_deterministic_key(symbol, metrics)
 
     def publish_recovery_status(
-        self, symbol: str, missing_fields: List[str], status: FundamentalStatus
+        self, symbol: str, missing_fields: List[str], metrics: ReconciledCanonicalMetrics
     ) -> None:
-        """Logs the final outcome to the audit trail."""
-        if status == FundamentalStatus.VERIFIED:
+        """
+        # [RULE 67 CHANGE-RATIONALE: VERIFIED with NULL field = 0.
+        # Only log VERIFIED if the recovered metrics actually populated the missing fields.
+        # If missing fields are still None, log as PARTIAL_RECOVERY or DATA_INSUFFICIENT.]
+        """
+        status = metrics.overall_status
+        field_vals = {
+            "ROCE": metrics.roce_5y,
+            "sales_cagr_5y": metrics.sales_cagr_5y,
+            "pat_cagr_5y": metrics.pat_cagr_5y,
+            "cfo_pat_5y": metrics.cfo_pat_5y,
+            "debt": metrics.debt_to_equity,
+        }
+        still_missing = [f for f in missing_fields if field_vals.get(f) is None and f != "current_ev_ebitda"]
+        recovered = [f for f in missing_fields if field_vals.get(f) is not None or f == "current_ev_ebitda"]
+
+        if status in (FundamentalStatus.VERIFIED, FundamentalStatus.VERIFIED_SINGLE_SOURCE) and not still_missing:
             logger.info(
-                f"✅ [PRE_RECOVERY] VERIFIED {symbol} | fields recovered: {missing_fields}"
+                f"✅ [PRE_RECOVERY] {status.name} {symbol} | all fields recovered: {recovered}"
             )
-        elif status == FundamentalStatus.VERIFIED_SINGLE_SOURCE:
+        elif recovered:
             logger.info(
-                f"⚡ [PRE_RECOVERY] VERIFIED_SINGLE_SOURCE {symbol} | "
-                f"fields: {missing_fields} | second provider unavailable"
-            )
-        elif status in (FundamentalStatus.INSUFFICIENT, FundamentalStatus.DATA_INSUFFICIENT):
-            logger.warning(
-                f"⚠️ [PRE_RECOVERY] DATA_INSUFFICIENT {symbol} | "
-                f"missing: {missing_fields} | blocking"
+                f"⚡ [PRE_RECOVERY] PARTIAL_RECOVERY {symbol} | "
+                f"recovered: {recovered} | still missing: {still_missing}"
             )
         elif status == FundamentalStatus.DATA_CONFLICT:
             logger.error(
@@ -228,7 +252,8 @@ class FundamentalPreRecoveryEngine:
             )
         else:
             logger.warning(
-                f"⚠️ [PRE_RECOVERY] {status.name} {symbol} | fields: {missing_fields}"
+                f"⚠️ [PRE_RECOVERY] {status.name} {symbol} | "
+                f"failed to recover missing fields: {missing_fields}"
             )
 
     # ------------------------------------------------------------------
@@ -259,11 +284,13 @@ class FundamentalPreRecoveryEngine:
         complete_count = total_universe - len(incomplete_symbols)
 
         # Field-level diagnostic log
+        # [RULE 67 CHANGE-RATIONALE: Clarify Recovery queue cap = UNCAPPED (0) logging]
+        cap_str = "UNCAPPED (0)" if self.global_daily_recovery_limit <= 0 else str(self.global_daily_recovery_limit)
         logger.info(
             f"🔍 [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Universe={total_universe} | "
             f"Complete={complete_count} | "
             f"Incomplete={len(incomplete_symbols)} | "
-            f"Recovery queue cap={self.global_daily_recovery_limit}"
+            f"Recovery queue cap = {cap_str}"
         )
         # Per-symbol field breakdown (first 20 for readability)
         for sym, missing in list(field_map.items())[:20]:
@@ -282,7 +309,7 @@ class FundamentalPreRecoveryEngine:
         for symbol, missing_fields in recovery_queue:
             logger.info(f"📥 [SCANNER: {self.scanner_name}] [FETCH_DATA] Fetching Upstox/NSE filings for {symbol} (missing: {missing_fields})...")
             metrics = self.recover_symbol(symbol)
-            self.publish_recovery_status(symbol, missing_fields, metrics.overall_status)
+            self.publish_recovery_status(symbol, missing_fields, metrics)
 
             # ONLY promote to in-memory dataset if reconciliation succeeded
             if metrics.overall_status in (
@@ -292,6 +319,7 @@ class FundamentalPreRecoveryEngine:
                 self.persist_verified_record(df, symbol, metrics)
                 recovered_count += 1
 
+        published = False
         if recovered_count > 0:
             candidate_path = self.pit_parquet_path.replace(
                 ".parquet", "_pre_recovery_candidate.parquet"
@@ -303,6 +331,7 @@ class FundamentalPreRecoveryEngine:
             df.to_parquet(candidate_path, index=False)
 
             # Route through canonical publisher (Never-Downgrade Gate)
+            publish_canonical_pit = None
             try:
                 from scripts.canonical_pit_publisher import publish_canonical_pit
             except ImportError:
@@ -313,27 +342,73 @@ class FundamentalPreRecoveryEngine:
                         "[PRE_RECOVERY] canonical_pit_publisher not importable. "
                         "Candidate written but NOT promoted to canonical."
                     )
-                    return
 
-            pub_result = publish_canonical_pit(
-                candidate_path=candidate_path,
-                reason=f"PRE_RECOVERY_SWEEP_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                publisher_version="v3.0",
-            )
-            decision = pub_result.get("publication_decision", "UNKNOWN")
-            if decision == "PUBLISHED":
-                logger.info(
-                    f"✅ [PRE_RECOVERY] Canonical PIT updated via publisher. "
-                    f"SHA256: {pub_result.get('dataset_sha256', 'N/A')[:16]}..."
+            if publish_canonical_pit is not None:
+                pub_result = publish_canonical_pit(
+                    candidate_path=candidate_path,
+                    reason=f"PRE_RECOVERY_SWEEP_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    publisher_version="v3.0",
                 )
-            else:
-                logger.warning(
-                    f"⚠️ [PRE_RECOVERY] Publisher blocked candidate ({decision}): "
-                    f"{pub_result.get('gate_reasons', pub_result.get('reason', ''))}"
-                )
+                decision = pub_result.get("publication_decision", "UNKNOWN")
+                if decision == "PUBLISHED":
+                    published = True
+                    logger.info(
+                        f"✅ [PRE_RECOVERY] Canonical PIT updated via publisher. "
+                        f"SHA256: {pub_result.get('dataset_sha256', 'N/A')[:16]}..."
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️ [PRE_RECOVERY] Publisher blocked candidate ({decision}): "
+                        f"{pub_result.get('gate_reasons', pub_result.get('reason', ''))}"
+                    )
         else:
             logger.info(
                 "✅ [PRE_RECOVERY] No symbols successfully recovered. Canonical PIT unchanged."
             )
 
+        self._run_availability_audit(df, recovery_queue, published)
         logger.info("🏁 [FUNDAMENTAL_PRE_RECOVERY] END.")
+
+    # ------------------------------------------------------------------
+    # Recovery-diagnostics (availability audit)
+    # ------------------------------------------------------------------
+
+    def _run_availability_audit(
+        self,
+        df: pd.DataFrame,
+        recovery_queue: List[Tuple[str, List[str]]],
+        published: bool,
+    ) -> None:
+        """
+        [RULE 67 CHANGE-RATIONALE: DATA_INSUFFICIENT must distinguish "nobody has the data" from
+        "our Tier-1 pipeline failed to obtain data that exists". Every field still missing after
+        Tier-1 recovery is classified by DataAvailabilityAuditor (diagnostic only — never writes PIT,
+        never feeds the scanner, never creates alerts). If the publisher did not publish, the
+        canonical PIT is unchanged, so every originally-missing field is still missing.]
+        """
+        try:
+            unresolved: Dict[str, List[str]] = {}
+            for symbol, missing_fields in recovery_queue:
+                row = df.loc[df["symbol"] == symbol]
+                remaining: List[str] = []
+                for f in missing_fields:
+                    if not published or row.empty:
+                        remaining.append(f)
+                        continue
+                    col = next((a for a in REQUIRED_FIELD_ALIASES.get(f, [f]) if a in df.columns), None)
+                    if col is None or pd.isna(row[col].iloc[0]):
+                        remaining.append(f)
+                if remaining:
+                    unresolved[symbol] = remaining
+
+            if not unresolved:
+                logger.info(f"✅ [SCANNER: {self.scanner_name}] [DATA_AVAILABILITY_AUDIT] No unresolved fields.")
+                return
+
+            auditor = DataAvailabilityAuditor(scanner_name=self.scanner_name)
+            auditor.audit(unresolved, getattr(self.router, "last_trace", {}) or {})
+        except Exception as e:
+            logger.error(
+                f"❌ [SCANNER: {self.scanner_name}] [DATA_AVAILABILITY_AUDIT] failed (diagnostic only, "
+                f"scan unaffected): {e}"
+            )

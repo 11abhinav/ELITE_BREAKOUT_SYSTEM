@@ -134,3 +134,60 @@ Earnings concalls and investor presentations fetched via NSE/BSE corporate annou
 - **Trigger:** Activates automatically if all Gemini keys/models are exhausted, 404, or blacklisted.
 - **Contract:** Strict `json_object` output containing `management_confidence` (1-10), forward guidance deltas, margin trajectory, capex plans, working capital, and key risks.
 
+---
+
+## 7. Fundamental Data & Valuation Source Hierarchy
+
+The system enforces a strict 3-tier data source hierarchy for all fundamental, balance-sheet, and valuation calculations:
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│ TIER 1 — PRODUCTION-AUTHORITATIVE                                      │
+│ • Upstox Fundamentals API (Annual P&L, Balance Sheet, Cash Flow)       │
+│ • Upstox Key Ratios API (EV/EBITDA, P/E, Debt/Equity, Market Cap)      │
+│ • NSE XBRL Corporate Filings API (Financial Results JSON)              │
+│ • Exchange Filings & Certified Local PIT Filings Cache                 │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ TIER 2 — INDEPENDENT DIAGNOSTIC & APPROVED BROKER SOURCE               │
+│ • FYERS API v3 (https://myapi.fyers.in/docsv3)                         │
+│ • Official Quotes API (/api/v3/quotes)                                 │
+│ • Approved Broker Source: If Upstox and NSE do not have data, FYERS is │
+│   an approved source and can be used in recovery with source audit     │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ TIER 3 — FORENSIC REFERENCE ONLY (STRICTLY NON-PRODUCTION)             │
+│ • Screener.in                                                          │
+│ • Strictly offline diagnostic oracle                                   │
+│ • PROHIBITED: canonical_pit_write, production_metric_write, buy_allowed │
+│ • Role: Detects upstream recovery gaps and triggers admin defects      │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8. Quality Data Availability & Recovery Diagnostics (`app/data_providers/data_availability_auditor.py`)
+
+When Tier-1 primary recovery fails to resolve a required Quality/Valuation metric, the `DataAvailabilityAuditor` inspects independent reference sources (FYERS and Screener) to classify the failure before the scanner runs.
+
+### Three Mandatory Governance Conditions:
+1. **DATA PROVIDER DISCREPANCY (`PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE`)**:
+   - `Upstox = Missing`, `NSE = Missing`, `FYERS = Available`, `Screener = Available`
+   - High-severity admin defect raised: Investigation required for upstream parser, mapping, or API integration.
+2. **SCREENER-ONLY DATA FOUND (`SCREENER_ONLY_DATA_SOURCE`)**:
+   - `Upstox = Missing`, `NSE = Missing`, `PIT = Missing`, `FYERS = Missing/Unavailable`, `Screener = Available`
+   - Indicates data appears to exist in public filings, but our verified production pipeline could not obtain and certify it.
+   - Enforced: `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, `buy_decision = BLOCKED`.
+3. **GENUINELY UNAVAILABLE (`DATA_UNAVAILABLE_VERIFIED`)**:
+   - `Upstox = Missing`, `NSE = Missing`, `PIT = Missing`, `FYERS = Missing`, `Screener = Missing`
+   - Confirmed hard data block across all independent providers.
+
+### Admin Dashboard Endpoints:
+- `GET /api/admin/data_availability/counts`: Real-time counts across all 11 diagnostic categories.
+- `GET /api/admin/data_availability/audits`: Stock-by-stock audit records with 17 required provenance fields.
+
+

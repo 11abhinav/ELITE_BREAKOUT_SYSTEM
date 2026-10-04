@@ -1,11 +1,18 @@
 """
 screener_fetcher.py
 ===================
-Direct scraper and persistent DB cache for Screener.in financial fundamentals.
-Serves as the primary high-precision replacement for Yahoo Finance on Indian Equities (NSE/BSE).
+Forensic and diagnostic reference tool for inspecting financial metrics.
+[RULE 67 / GOVERNANCE MANDATE]:
+  - SCREENER ROLE = FORENSIC_REFERENCE_ONLY
+  - PRODUCTION_CERTIFICATION = PROHIBITED
+  - PIT_WRITE = PROHIBITED
+  - BUY_DECISION_INPUT = PROHIBITED
+  - RECOVERY_SOURCE = PROHIBITED
+  - CROSS_VALIDATION & RECOVERY-DISCOVERY ORACLE = ALLOWED
 
-Caches data in local file `data/screener_fundamentals_cache.json` and Postgres DB `screener_cache`
-with a 30-day TTL to eliminate repetitive network requests across scan runs.
+Operates strictly as an offline diagnostic oracle to identify whether missing 
+financial statement periods or metrics exist publicly, directing upstream 
+investigation to official Upstox API and NSE/BSE XBRL filings.
 """
 
 import os

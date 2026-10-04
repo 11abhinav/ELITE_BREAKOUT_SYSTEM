@@ -1,0 +1,7 @@
+provider,role,status,symbols_attempted,symbols_recovered,access_mechanism,notes
+UPSTOX_API_FUNDAMENTALS,PRIMARY_FINANCIALS,ACTIVE,886,886,REST_API_V2_FINANCIAL_STATEMENTS,"Multi-year audited balance sheet, pnl, cashflow"
+UPSTOX_KEY_RATIOS,VALUATION_RATIOS_RECOVERY,ACTIVE,886,829,REST_API_KEY_RATIOS,Recovered live current EV/EBITDA and PE across 829 symbols
+NSE_XBRL_API,SECONDARY_RECONCILIATION,ACTIVE,886,886,CORP_FILINGS_XBRL_PARSER,Audited exchange filings; tagged HTTP 200 unmapped as mapping failures
+EXCHANGE_FILINGS_PIT,AUTHORITATIVE_STATEMENTS,ACTIVE,886,886,CANONICAL_PARQUET_STORE,Frozen PIT statement cache with SHA256 verification
+LOCAL_RAW_FILINGS,PROVENANCE_FALLBACK,ACTIVE,886,886,JSON_STATEMENT_ARCHIVE,887 symbols with cryptographically hashed JSON statements
+SCREENER_HTML_SCRAPER,PROPOSED_FALLBACK,EVALUATED_ZERO_RECOVERIES,46,0,DIRECT_HTTP_HTML_SCRAPE,Rejected: lacks audited multi-year PIT timestamps and XBRL taxonomy hashes

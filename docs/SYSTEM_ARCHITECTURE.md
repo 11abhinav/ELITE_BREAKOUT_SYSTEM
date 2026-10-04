@@ -1031,6 +1031,73 @@ Step 6: Self-test Validation
 | `PEG Ratio` | float | Yes | TradingView screener |
 | `Promoter_Pledge` | float | Yes | BSE/NSE corporate API |
 
+## 8.4 Point-in-Time (PIT) Fundamental Engine & Quality Data Availability Auditor (`app/data_providers/data_availability_auditor.py`)
+
+### 8.4.1 Architectural Decoupling: Recovery vs Diagnostic Auditor vs Quantitative Scanner
+To maintain strict point-in-time integrity without compromising production safety or masking upstream data ingestion bugs:
+1. **Primary Recovery Engine** (`fundamental_pre_recovery.py` & `fundamental_source_router.py`):
+   - Responsible for fetching authoritative data from Tier 1 (Upstox API, NSE XBRL filings, local verified Parquet cache) and Tier 2 (FYERS API v3 approved broker feed).
+   - Stages recovered records in canonical PIT Parquet tables under the Never-Downgrade Gate.
+2. **Quality Data Availability Auditor** (`data_availability_auditor.py`):
+   - Sits *between* the recovery engine and the scanner.
+   - Evaluates missing fields across authoritative feeds, approved broker feeds (Fyers), and forensic oracles (Screener.in).
+   - Generates actionable diagnostics without modifying production metrics or granting alert permissions.
+3. **Quantitative Quality Scanner** (`live_fundamental_scanner.py`):
+   - Evaluates only certified canonical PIT data.
+   - Operates strictly fail-closed: if data is unavailable or uncertified, candidate selection is blocked (`DATA_UNAVAILABLE`).
+
+### 8.4.2 Strict 3-Tier Data Source Hierarchy
+- **Tier 1 — Authoritative / Production-Certified**:
+  - Upstox Fundamentals API & Key Ratios
+  - NSE XBRL filings & Exchange PIT filing store
+  - Certified local raw filing Parquet/JSON cache
+- **Tier 2 — Independent Approved Diagnostic & Broker Recovery Source**:
+  - **FYERS API v3** (`https://myapi.fyers.in/docsv3`): Officially approved broker source. When Upstox or NSE do not have required market quotes, depth, or ratios, FYERS is certified for recovery.
+- **Tier 3 — Forensic Diagnostic & Discovery Oracle Only**:
+  - **Screener.in**: Strictly `FORENSIC_REFERENCE_ONLY`. Prohibited from writing to canonical PIT, prohibited from modifying scanner inputs, and prohibited from triggering BUY alerts.
+
+### 8.4.3 Screener-Only Governance & Invariant Rules
+When:
+```text
+UPSTOX = NOT_AVAILABLE
+NSE_XBRL = NOT_AVAILABLE
+EXCHANGE_FILINGS = NOT_AVAILABLE
+LOCAL_PIT = NOT_AVAILABLE
+FYERS = NOT_AVAILABLE
+SCREENER = DATA_PRESENT
+```
+The system classifies the field as:
+```text
+SCREENER_ONLY_DATA_SOURCE
+```
+And enforces the hard invariants:
+- `canonical_pit_write = FALSE`
+- `production_metric_write = FALSE`
+- `buy_decision = BLOCKED`
+- Emits dedicated stock-level administrator diagnostic notification:
+  `"DATA SOURCE NOTICE: {symbol} - {field} found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review."`
+
+### 8.4.4 Granular 11 Diagnostic Categories & APIs
+Exposed via `GET /api/admin/data_availability/counts` and `GET /api/admin/data_availability/audits`:
+1. `verified_data_missing`
+2. `provider_discrepancies`
+3. `fyers_only_data_found`
+4. `screener_only_data_found`
+5. `genuinely_unavailable`
+6. `insufficient_historical_depth`
+7. `stale_pit`
+8. `unprocessed_filing`
+9. `parser_mapping_failure`
+10. `calculation_failure`
+11. `structural_ineligible`
+
+### 8.4.5 Pre-BUY Gate Telemetry Standardized Metrics
+To prevent operational confusion between strategy candidates produced and alerts saved:
+- `Strategy Candidates Produced`: Candidates meeting fundamental/technical strategy criteria.
+- `Pre-BUY Eligible`: Candidates clearing filing freshness and snapshot integrity checks.
+- `Pre-BUY Blocked`: Candidates held due to exchange update pending / stale filing fences.
+- `Production BUY Alerts Saved`: Candidates committed to DB outbox and Parquet.
+
 ---
 
 # 9. DATA ACQUISITION, PROVIDER ROUTING, SYMBOL RESOLUTION ENGINE & RESILIENCY TOPOLOGY

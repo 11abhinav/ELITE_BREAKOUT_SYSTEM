@@ -355,3 +355,58 @@ Postgres / SQLite database and filesystem Parquet files belong to different pers
 * Absolute Invariant:
   - Never allow: `DB BUY present + Parquet BUY absent indefinitely`
   - Never allow: `Parquet BUY present + DB BUY absent indefinitely`
+
+---
+
+## MANDATORY SCREENER.IN FORENSIC & DIAGNOSTIC DISCOVERY PROTOCOL
+
+### 1. Classification & Status
+* **SCREENER ROLE** = `FORENSIC_REFERENCE_ONLY`
+* **PRODUCTION_CERTIFICATION** = `PROHIBITED`
+* **PIT_WRITE** = `PROHIBITED`
+* **BUY_DECISION_INPUT** = `PROHIBITED`
+* **RECOVERY_SOURCE** = `PROHIBITED`
+* **CROSS_VALIDATION & DISCOVERY ORACLE** = `ALLOWED`
+
+### 2. Operational Separation & Boundaries
+Screener.in data operates strictly as an **offline diagnostic and forensic discovery oracle** to discover whether data potentially exists on public company filings:
+* **PERMITTED USE CASES**:
+  - Detect potentially recoverable missing fields across unresolved or incomplete stocks.
+  - Cross-check whether a metric (e.g. Sales CAGR, ROCE, D/E, EV/EBITDA) appears to exist in official public disclosures.
+  - Identify candidate annual periods and financial statement series for targeted upstream investigation.
+  - Prioritize upstream NSE XBRL / Upstox API recovery sweeps and parser bug fixes.
+* **PROHIBITED USE CASES**:
+  - MUST NEVER populate canonical PIT Parquet tables or SQLite/Postgres caches.
+  - MUST NEVER populate production scanner inputs or scoring features.
+  - MUST NEVER populate historical backtests or regime certification datasets.
+  - MUST NEVER create, evaluate, rank, or modify production BUY alerts.
+  - MUST NEVER satisfy any scanner completeness gate or replace Upstox/NSE/BSE native feeds.
+  - MUST NEVER be cited as authoritative data provenance.
+* **AUTOMATION & TERMS OF SERVICE COMPLIANCE**:
+  - Automated ingestion of Screener is strictly restricted to explicitly licensed and authorized access mechanisms.
+  - Unsanctioned web scraping or mirroring of undocumented/private endpoints for automated production decisioning is prohibited.
+
+### 3. Upstream Recovery Flow
+```text
+QUALITY DATA AUDIT
+       │
+       ▼
+Missing / Incomplete Field
+       │
+       ├─────────────────────────────────┐
+       ▼                                 ▼
+Production Source Check           Screener Forensic Oracle
+(Upstox API / NSE XBRL)           ("Does data appear to exist publicly?")
+       │                                 │
+       │                                 ▼
+       │                          YES: Potential Upstream Gap
+       │                                 │
+       └────────────────┬────────────────┘
+                        ▼
+             Go Back Upstream (NSE / Upstox)
+                        ▼
+             Fix Parser / Mapping / Fetch
+                        ▼
+             Certified Exchange / Upstox PIT
+```
+

@@ -1,0 +1,135 @@
+[
+  {
+    "symbol": "ADOR",
+    "http_status": 200,
+    "screener_5y_sales_growth": "21%",
+    "screener_5y_pat_growth": "40%",
+    "screener_roce": "22.8%"
+  },
+  {
+    "symbol": "BASF",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "14.5%"
+  },
+  {
+    "symbol": "BORORENEW",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "25.3%"
+  },
+  {
+    "symbol": "DOLPHIN",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "14.9%"
+  },
+  {
+    "symbol": "FRONTSP",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "%"
+  },
+  {
+    "symbol": "GABRIEL",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "25.6%"
+  },
+  {
+    "symbol": "GLOBUSSPR",
+    "http_status": 200,
+    "screener_5y_sales_growth": "17%",
+    "screener_5y_pat_growth": "-8%",
+    "screener_roce": "11.2%"
+  },
+  {
+    "symbol": "GOCLCORP",
+    "http_status": 200,
+    "screener_5y_sales_growth": "-53%",
+    "screener_5y_pat_growth": "76%",
+    "screener_roce": "6.98%"
+  },
+  {
+    "symbol": "GUJGASLTD",
+    "http_status": 404,
+    "screener_5y_sales_growth": "N/A",
+    "screener_5y_pat_growth": "N/A",
+    "screener_roce": "N/A"
+  },
+  {
+    "symbol": "HATSUN",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "12.9%"
+  },
+  {
+    "symbol": "KRSNAA",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "12.7%"
+  },
+  {
+    "symbol": "MAHLIFE",
+    "http_status": 200,
+    "screener_5y_sales_growth": "48%",
+    "screener_5y_pat_growth": "42%",
+    "screener_roce": "7.64%"
+  },
+  {
+    "symbol": "MARSONS",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "24.4%"
+  },
+  {
+    "symbol": "PFIZER",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "27.2%"
+  },
+  {
+    "symbol": "QPOWER",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "31.7%"
+  },
+  {
+    "symbol": "SANDUMA",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "24.2%"
+  },
+  {
+    "symbol": "SANGHVIMOV",
+    "http_status": 200,
+    "screener_5y_sales_growth": "37%",
+    "screener_5y_pat_growth": "57%",
+    "screener_roce": "15.6%"
+  },
+  {
+    "symbol": "SPARC",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "164%"
+  },
+  {
+    "symbol": "STYRENIX",
+    "http_status": 200,
+    "screener_5y_sales_growth": "%",
+    "screener_5y_pat_growth": "%",
+    "screener_roce": "13.8%"
+  }
+]

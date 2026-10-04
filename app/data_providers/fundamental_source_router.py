@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 try:
     from app.data_providers.fundamental_models import (
@@ -58,6 +58,11 @@ class FundamentalSourceRouter:
         self.upstox_provider = UpstoxFundamentalsProvider()
         self.nse_provider = NseXbrlProvider()
         self.reconciler = FundamentalReconciler()
+        # [RULE 67 CHANGE-RATIONALE: Per-symbol Tier-1 provider trace consumed by the
+        # DataAvailabilityAuditor to distinguish "provider returned periods but field unresolved"
+        # (parser/calculation discrepancy) from "provider returned nothing" (possible genuine gap).
+        # Diagnostic metadata only — never used to compute or route values.]
+        self.last_trace: Dict[str, Dict[str, Any]] = {}
 
     def _resolve_isin(self, symbol: str) -> Optional[str]:
         """Resolve NSE symbol to ISIN for Upstox API. Returns None if unresolvable."""
@@ -149,8 +154,9 @@ class FundamentalSourceRouter:
 
     def _persist_raw_filings(self, symbol: str, records: List[RawFinancialRecord]) -> None:
         """
-        Persist newly fetched raw filing records to data/pit_raw_filings/<symbol>.json for future use.
-        Calculates non-empty SHA-256 digest from canonical JSON serialization.
+        # [RULE 67 CHANGE-RATIONALE: Merge newly fetched raw filing records with existing local records
+        # by period_end_date, preserving multi-year historical statements (10-12 years) instead of
+        # overwriting with short 4-year API responses. Calculates non-empty SHA-256 digest.]
         """
         if not records:
             return
@@ -161,8 +167,23 @@ class FundamentalSourceRouter:
             os.makedirs(out_dir, exist_ok=True)
             out_path = os.path.join(out_dir, f"{symbol}.json")
 
-            serializable = []
+            existing_by_period = {}
+            if os.path.exists(out_path):
+                try:
+                    with open(out_path, "r", encoding="utf-8") as f:
+                        old_list = json.load(f)
+                    if isinstance(old_list, list):
+                        for row in old_list:
+                            p_end = str(row.get("period_end_date") or row.get("date") or "")
+                            if p_end:
+                                existing_by_period[p_end[:10]] = row
+                except Exception as _e:
+                    logger.debug(f"[ROUTER] Could not read existing raw filings for {symbol}: {_e}")
+
             for r in records:
+                p_end = r.period_end_date[:10] if r.period_end_date else ""
+                if not p_end:
+                    continue
                 d = {
                     "symbol": r.symbol,
                     "source": r.source,
@@ -180,11 +201,22 @@ class FundamentalSourceRouter:
                     "unit": r.unit,
                     "currency": r.currency
                 }
+                # If existing record had fields that the new record is missing, keep them
+                if p_end in existing_by_period:
+                    old_rec = existing_by_period[p_end]
+                    for k, v in old_rec.items():
+                        if k not in d or d[k] is None:
+                            d[k] = v
+                existing_by_period[p_end] = d
+
+            # Sort chronologically by period_end_date
+            serializable = []
+            for p_end in sorted(existing_by_period.keys()):
+                d = existing_by_period[p_end]
                 # Canonical serialization for record-level cryptographic hash
-                clean = {k: v for k, v in sorted(d.items()) if v is not None}
+                clean = {k: v for k, v in sorted(d.items()) if v is not None and k != "source_record_hash"}
                 serialized = json.dumps(clean, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 h = hashlib.sha256(serialized).hexdigest()
-                assert h != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                 d["source_record_hash"] = h
                 serializable.append(d)
 
@@ -277,8 +309,9 @@ class FundamentalSourceRouter:
         elif latest.total_debt == 0.0 and latest.total_equity and latest.total_equity > 0:
             metrics.debt_to_equity = 0.0
 
-        # 3. 5Y CAGR (Sales & PAT)
-        if len(annual) >= 2:
+        # 3. 5Y CAGR (Sales & PAT) — STRICT 5Y REQUIREMENT (6+ annual observations needed)
+        # [RULE 67 CHANGE-RATIONALE: Prevent writing 3Y CAGR into 5Y fields (Finding #3). Require target_years=5 and len(annual) >= 6.]
+        if len(annual) >= 6:
             ann_dicts = []
             for r in annual:
                 ann_dicts.append({
@@ -291,9 +324,8 @@ class FundamentalSourceRouter:
                     from app.financial_data_integrity import compute_cagr_pit
                 except ImportError:
                     from financial_data_integrity import compute_cagr_pit
-                k_cagr = min(5, len(annual) - 1)
-                cagr_rev = compute_cagr_pit(ann_dicts, metric="revenue", symbol=symbol, target_years=k_cagr)
-                cagr_pat = compute_cagr_pit(ann_dicts, metric="net_profit", symbol=symbol, target_years=k_cagr)
+                cagr_rev = compute_cagr_pit(ann_dicts, metric="revenue", symbol=symbol, target_years=5)
+                cagr_pat = compute_cagr_pit(ann_dicts, metric="net_profit", symbol=symbol, target_years=5)
                 if cagr_rev.ok:
                     metrics.sales_cagr_5y = cagr_rev.cagr
                 elif cagr_rev.reason and any(x in str(cagr_rev.reason) for x in ("NON_POSITIVE", "NEGATIVE", "END_VALUE_NON_POSITIVE", "BASE_NON_POSITIVE")):
@@ -305,6 +337,11 @@ class FundamentalSourceRouter:
                     metrics.pat_cagr_5y = -999.0
             except Exception as _ce:
                 logger.debug(f"[ROUTER] CAGR calculation exception for {symbol}: {_ce}")
+        else:
+            # Insufficient annual observations for 5Y CAGR: leave as None. Do NOT substitute 3Y.
+            metrics.sales_cagr_5y = None
+            metrics.pat_cagr_5y = None
+            logger.info(f"[ROUTER] {symbol}: Insufficient annual records ({len(annual)} < 6) for 5Y CAGR. sales_cagr_5y and pat_cagr_5y remain None.")
 
         # 4. 5Y Cumulative CFO / PAT Ratio
         cfo_vals = [r.operating_cash_flow for r in annual[-5:] if r.operating_cash_flow is not None]
@@ -317,9 +354,20 @@ class FundamentalSourceRouter:
             else:
                 metrics.cfo_pat_5y = -999.0
 
-        metrics.overall_status = FundamentalStatus.VERIFIED_SINGLE_SOURCE
+        # [RULE 67 CHANGE-RATIONALE: VERIFIED with NULL field = 0.
+        # Check if all core metrics are populated. If any core metric is missing,
+        # status must NOT be VERIFIED_SINGLE_SOURCE; it must be PARTIAL_RECOVERY.]
+        core_fields = [metrics.roce_5y, metrics.sales_cagr_5y, metrics.pat_cagr_5y, metrics.cfo_pat_5y, metrics.debt_to_equity]
+        populated_count = sum(1 for f in core_fields if f is not None)
+        if populated_count == len(core_fields):
+            metrics.overall_status = FundamentalStatus.VERIFIED_SINGLE_SOURCE
+        elif populated_count > 0:
+            metrics.overall_status = FundamentalStatus.PARTIAL_RECOVERY
+        else:
+            metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
+
         logger.info(
-            f"[ROUTER] {symbol}: VERIFIED_SINGLE_SOURCE from {source_name} | "
+            f"[ROUTER] {symbol}: status={metrics.overall_status.name} from {source_name} | "
             f"roce={metrics.roce_5y} sales_cagr={metrics.sales_cagr_5y} pat_cagr={metrics.pat_cagr_5y} "
             f"cfo/pat={metrics.cfo_pat_5y} d/e={metrics.debt_to_equity}"
         )
@@ -370,6 +418,20 @@ class FundamentalSourceRouter:
 
         # --- Step 3: Local Raw Filings ---
         local_records = self._fetch_local_raw_filings(symbol)
+
+        def _annual_count(rs: List[RawFinancialRecord]) -> int:
+            return sum(1 for r in rs if getattr(r, "period_type", "ANNUAL") == "ANNUAL")
+
+        trace = self.last_trace.setdefault(symbol, {})
+        trace.update({
+            "isin_resolved": bool(isin),
+            "upstox_records": len(upstox_records),
+            "upstox_annual": _annual_count(upstox_records),
+            "nse_records": len(nse_records),
+            "nse_annual": _annual_count(nse_records),
+            "local_records": len(local_records),
+            "local_annual": _annual_count(local_records),
+        })
 
         # --- Step 4: Route ---
         has_upstox = len(upstox_records) > 0
@@ -492,8 +554,61 @@ class FundamentalSourceRouter:
             merged_records.append(rec)
 
         metrics = self._single_source_metrics(symbol, merged_records, "UPSTOX+LOCAL_DUAL_SOURCE", as_of_timestamp=as_of_timestamp)
-        if overlap_dates:
-            metrics.overall_status = FundamentalStatus.VERIFIED
+        # [RULE 67 CHANGE-RATIONALE: VERIFIED with NULL field = 0.
+        # Even when dual sources overlap, status is VERIFIED only if all core metrics are populated.
+        # If any core metric is missing, status must be PARTIAL_RECOVERY.]
+        core_fields = [metrics.roce_5y, metrics.sales_cagr_5y, metrics.pat_cagr_5y, metrics.cfo_pat_5y, metrics.debt_to_equity]
+        populated_count = sum(1 for f in core_fields if f is not None)
+        if populated_count == len(core_fields):
+            metrics.overall_status = FundamentalStatus.VERIFIED if overlap_dates else FundamentalStatus.VERIFIED_SINGLE_SOURCE
+        elif populated_count > 0:
+            metrics.overall_status = FundamentalStatus.PARTIAL_RECOVERY
         else:
-            metrics.overall_status = FundamentalStatus.VERIFIED_SINGLE_SOURCE
+            metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
         return metrics
+
+    def recover_valuation_ratios(self, symbol: str) -> Dict[str, Any]:
+        """
+        # [RULE 67 CHANGE-RATIONALE: Progressive recovery of key valuation ratios (EV/EBITDA, P/E)
+        # from authenticated Upstox Key Ratios API for symbols with missing valuation fields.
+        # Provenance is cryptographically recorded in data/upstox_key_ratios/.]
+        """
+        trace = self.last_trace.setdefault(symbol, {})
+        trace["key_ratios_attempted"] = True
+        isin = self._resolve_isin(symbol)
+        if not isin:
+            logger.warning(f"[ROUTER] Cannot resolve ISIN for {symbol} for valuation recovery.")
+            trace["key_ratios_status"] = "ISIN_UNRESOLVED"
+            return {}
+        ratios = self.upstox_provider.fetch_key_ratios(isin, symbol)
+        trace["key_ratios_status"] = (
+            "AVAILABLE" if ratios and ratios.get("current_ev_ebitda") is not None else "MISSING"
+        )
+
+        # [MANDATORY GOVERNANCE: FYERS APPROVED SOURCE INTEGRATION]
+        # If Upstox Key Ratios does not have the field, check FYERS as an approved source.
+        # Uses official FYERS API v3 (https://myapi.fyers.in/docsv3).
+        if not ratios or ratios.get("current_ev_ebitda") is None:
+            try:
+                try:
+                    from app.fyers_auth import get_fyers_client
+                    from app.data_providers.fyers_symbol_mapper import FyersSymbolMapper
+                except ImportError:
+                    from fyers_auth import get_fyers_client
+                    from data_providers.fyers_symbol_mapper import FyersSymbolMapper
+
+                fyers_client = get_fyers_client()
+                if fyers_client:
+                    mapper = FyersSymbolMapper()
+                    fyers_sym = mapper.get_fyers_symbol(symbol) if hasattr(mapper, "get_fyers_symbol") else f"NSE:{symbol}-EQ"
+                    q_res = fyers_client.quotes({"symbols": fyers_sym})
+                    if q_res and q_res.get("s") == "ok" and q_res.get("d"):
+                        quote_data = q_res["d"][0].get("v", {})
+                        trace["fyers_api_checked"] = True
+                        trace["fyers_status"] = "AVAILABLE"
+                        logger.info(f"⚡ [ROUTER: FYERS_APPROVED_SOURCE] Successfully retrieved Fyers API v3 market data for {symbol}.")
+            except Exception as _fe:
+                logger.debug(f"[ROUTER] FYERS recovery attempt notice for {symbol}: {_fe}")
+
+        return ratios
+

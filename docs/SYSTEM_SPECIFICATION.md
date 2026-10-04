@@ -360,5 +360,25 @@
   - **Sub-Millisecond 0ms Client-Side Autocomplete Engine**: Pre-loads all 2,389+ official NSE equities from `/api/v1/symbols/master_list` into browser RAM on page load (`window.MASTER_SYMBOLS_CLIENT_ARRAY`), performing instant client-side autocomplete searches in `<0.1ms` without network keystroke lag.
   - **Personal Monitored Watchlist**: Save non-qualifying or monitored stocks with `[ ⭐️ Add to Watchlist ]` into database table `user_watchlists`. Features a `[ 🔄 Re-Scan ]` button on dashboard tables for instant re-evaluation.
 
+  ## 4.5 Quality Data Availability Auditor & Screener-Only Governance (`app/data_providers/data_availability_auditor.py`)
+  Architectural separation between Quality/Valuation quantitative scanners and upstream data availability/recovery diagnostics:
+  - **Strict 3-Tier Data Source Hierarchy**:
+    - **Tier 1 (Authoritative / Certified Production Sources)**: Upstox Fundamentals API, Upstox Key Ratios, NSE XBRL filings, Exchange filings / PIT filing store, Certified local Parquet/JSON filing cache.
+    - **Tier 2 (Independent Approved Diagnostic & Broker Recovery Source)**: FYERS API v3 (`https://myapi.fyers.in/docsv3`). Fyers is an explicitly approved broker source for market data, depth, quotes, and valuation metrics when Upstox / NSE do not provide the data.
+    - **Tier 3 (Forensic Diagnostic & Discovery Oracle Only)**: Screener.in. Operates strictly as a forensic oracle (`FORENSIC_REFERENCE_ONLY`). Prohibited from writing to canonical PIT, computing production scoring, or triggering BUY alerts.
+  - **Core Availability Classifications**:
+    - `PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE`: Primary recovery on Upstox/NSE failed, but data was found in an approved secondary broker feed (e.g. Fyers API v3). Triggers provider discrepancy alerts and recovery action without blocking production if certified.
+    - `SCREENER_ONLY_DATA_SOURCE`: Triggered when Upstox, NSE XBRL, Exchange filings, Local PIT, and FYERS are all missing/unavailable, but Screener forensic reference indicates data exists publicly. Generates stock-level administrator diagnostic notification, logs upstream parser gap, and strictly enforces `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, and `buy_decision = BLOCKED`.
+    - `DATA_UNAVAILABLE_VERIFIED`: Verified missing across all authoritative, approved broker, and forensic reference sources. Confirms genuine public unavailability.
+  - **Granular 11 Diagnostic Categories & Admin Dashboard APIs**:
+    - Endpoints: `GET /api/admin/data_availability/counts` and `GET /api/admin/data_availability/audits`.
+    - 11 Categories: `verified_data_missing`, `provider_discrepancies`, `fyers_only_data_found`, `screener_only_data_found`, `genuinely_unavailable`, `insufficient_historical_depth`, `stale_pit`, `unprocessed_filing`, `parser_mapping_failure`, `calculation_failure`, `structural_ineligible`.
+  - **Pre-BUY Gate Telemetry Standardized Metrics**:
+    - `Strategy Candidates Produced`: Count of stocks passing all fundamental / technical rules in the scanner.
+    - `Pre-BUY Eligible`: Count of stocks successfully clearing the Source Freshness Fence and Snapshot SHA verification.
+    - `Pre-BUY Blocked`: Count of stocks held at the gate due to pending filing updates or exchange staleness (e.g., `UPDATE_PENDING`).
+    - `Production BUY Alerts Saved`: Final count of alerts authoritatively committed to the PostgreSQL transactional outbox and materialized to Parquet.
+
   ---
   *End of System Specification & User/Admin Guide — `docs/SYSTEM_SPECIFICATION.md`*
+

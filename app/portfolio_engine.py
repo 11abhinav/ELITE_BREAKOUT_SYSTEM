@@ -57,11 +57,9 @@ def calculate_score_bucket_allocation(entry_price: float, score) -> Tuple[float,
     if entry_price <= 0:
         return 0.0, 0
 
+    # [RULE 67 CHANGE-RATIONALE: Ensure shares_bought is at least 1 for valid entry_price so tracking works for all price tiers]
     bucket = get_score_bucket(score_val)
-    shares = floor(bucket / entry_price)
-
-    if shares <= 0:
-        return 0.0, 0
+    shares = max(1, floor(bucket / entry_price))
 
     capital = float(shares * entry_price)
     logger.info(

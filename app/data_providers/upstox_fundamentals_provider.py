@@ -485,3 +485,108 @@ class UpstoxFundamentalsProvider:
             f"(api_calls={self.api_call_count}, retries={self.retry_count})"
         )
         return usable
+
+    # [RULE 67 CHANGE-RATIONALE: Official Upstox Key Ratios endpoint recovery for current_ev_ebitda, current PE, ROCE]
+    def fetch_key_ratios(self, isin: str, symbol: str = "") -> Dict[str, Any]:
+        """
+        Fetches official Key Ratios from Upstox Company Fundamentals API:
+          GET /fundamentals/{isin}/key-ratios
+        Exposes current valuation and operating ratios:
+          EV/EBITDA, P/E, P/B, ROE, ROCE, ROA, Quick Ratio.
+        Enforces:
+          - Real Upstox market data only (no synthetic data)
+          - Captures cryptographic source provenance hash
+          - Caches locally in data/upstox_key_ratios/{isin}.json for auditability
+        """
+        if not self.token:
+            logger.warning(f"[UPSTOX] {symbol or isin}: UPSTOX_ACCESS_TOKEN not set. Cannot fetch key ratios.")
+            return {}
+
+        url = f"{self.base_url}/{isin}/key-ratios"
+        data_resp = self._get(url)
+        if not data_resp:
+            logger.warning(f"[UPSTOX] {symbol or isin}: No key-ratios returned from {url}.")
+            return {}
+
+        import hashlib, json
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            ist_tz = ZoneInfo("Asia/Kolkata")
+        except Exception:
+            ist_tz = None
+
+        raw_serialized = json.dumps(data_resp, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        prov_hash = hashlib.sha256(raw_serialized).hexdigest()
+
+        items = data_resp.get("data", []) if isinstance(data_resp, dict) else []
+        retrieved_ts = datetime.now(ist_tz).isoformat() if ist_tz else datetime.utcnow().isoformat()
+        ratios = {
+            "symbol": symbol,
+            "isin": isin,
+            "source": "UPSTOX_API",
+            "endpoint": f"/v2/fundamentals/{isin}/key-ratios",
+            "retrieved_at": retrieved_ts,
+            "source_hash": prov_hash,
+            "current_ev_ebitda": None,
+            "current_pe": None,
+            "current_pb": None,
+            "current_roce": None,
+            "current_roe": None,
+            "current_roa": None,
+            "quick_ratio": None,
+        }
+
+        def _clean_ratio_val(val_str: Optional[str]) -> Optional[float]:
+            if val_str is None:
+                return None
+            s = str(val_str).replace("%", "").replace(",", "").strip()
+            try:
+                return float(s)
+            except (ValueError, TypeError):
+                return None
+
+        for it in items:
+            name = str(it.get("name", "")).strip().upper()
+            c_val = it.get("company_value")
+            num_val = _clean_ratio_val(c_val)
+            if num_val is None:
+                continue
+
+            if "EV/EBITDA" in name:
+                ratios["current_ev_ebitda"] = round(num_val, 2)
+            elif name in ("P/E", "PE"):
+                ratios["current_pe"] = round(num_val, 2)
+            elif name in ("P/B", "PB"):
+                ratios["current_pb"] = round(num_val, 2)
+            elif name == "ROCE":
+                ratios["current_roce"] = round(num_val, 2)
+            elif name == "ROE":
+                ratios["current_roe"] = round(num_val, 2)
+            elif name == "ROA":
+                ratios["current_roa"] = round(num_val, 2)
+            elif "QUICK" in name:
+                ratios["quick_ratio"] = round(num_val, 2)
+
+        # Cache locally for provenance audit
+        try:
+            base_d = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            cache_dir = os.path.join(base_d, "data", "upstox_key_ratios")
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_file = os.path.join(cache_dir, f"{isin}.json")
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(ratios, f, indent=2)
+            if symbol:
+                sym_file = os.path.join(cache_dir, f"{symbol}.json")
+                with open(sym_file, "w", encoding="utf-8") as f:
+                    json.dump(ratios, f, indent=2)
+        except Exception as _ce:
+            logger.debug(f"[UPSTOX] Key ratios cache write notice: {_ce}")
+
+        logger.info(
+            f"[UPSTOX] {symbol or isin}: Key ratios parsed | "
+            f"EV/EBITDA={ratios['current_ev_ebitda']} | PE={ratios['current_pe']} | "
+            f"ROCE={ratios['current_roce']} | ROE={ratios['current_roe']}"
+        )
+        return ratios
+
