@@ -513,7 +513,16 @@ To avoid Cloudflare WAF IP blocks on datacenter VPS hosting, all high-frequency 
 - **Endpoints**:
   - `POST /api/v3/history`: Historical daily/intraday candles.
   - `GET /api/v3/quotes`: Full quotes with 5-level market depth.
-- **Provenance Boundary**: FYERS API v3 provides market quotes (`lp`, `volume`, `depth`), but does NOT expose a public documented REST fundamentals endpoint for annual balance sheets.
+- **Capability & Provenance Boundary**:
+  ```text
+  FYERS PUBLIC API V3
+  ├── Market Quotes (/api/v3/quotes) → machine-readable diagnostic source
+  └── Public REST Fundamentals → NOT AVAILABLE / DOCUMENTED
+  FYERS WEB/PLATFORM FUNDAMENTALS
+  └── EV/EBITDA, ROCE, ROE, etc. → reference evidence only unless an explicitly authorized machine-readable interface exists
+  ```
+  - Approved diagnostic broker source strictly for the capabilities exposed by its public API v3 (`/data/quotes`, `lp`, volume, depth, OHLC).
+  - Public REST fundamentals / key-ratios are NOT AVAILABLE / DOCUMENTED. Web/platform fundamentals (EV/EBITDA, ROCE, ROE) serve as reference evidence only unless an explicitly authorized machine-readable interface exists.
 
 ## 9.3 Yahoo Finance Gateway (`app/safe_yf_call.py`)
 - Strictly restricted to **Earnings Calendar Dates** and isolated secondary cross-checks.
@@ -533,12 +542,14 @@ Implemented in `app/data_providers/data_availability_auditor.py` and `app/fundam
 
 ## 10.1 Strict 3-Tier Authority Hierarchy
 - **Tier 1 — Production-Authoritative**: Upstox Fundamentals API, Upstox Key Ratios, NSE Corporate Filings XBRL, Certified PIT cache.
-- **Tier 2 — Independent Diagnostic & Approved Broker Source**: FYERS API v3. Approved broker fallback for market data; diagnostic check for data presence.
+- **Tier 2 — Approved Diagnostic Broker Source**: FYERS API v3. Approved diagnostic broker source strictly for public API v3 capabilities (market quotes, LTP, volume, depth). Public REST fundamentals / key-ratios are not available / documented.
 - **Tier 3 — Forensic Reference Only**: Screener.in. Strictly an offline diagnostic oracle (`canonical_pit_write = FALSE`, `buy_allowed = FALSE`).
 
 ## 10.2 Four Mandatory Governance Diagnostic Conditions
 1. `PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE`: Primary recovery on Upstox/NSE failed, but data was found in an approved broker feed (FYERS).
-2. `SCREENER_ONLY_DATA_SOURCE`: Missing across all production sources and FYERS, but present on Screener. Dispatches discrete stock-level notices to the Admin Dashboard Bell Icon (`global_notifications`).
+2. `SCREENER_ONLY_DATA_SOURCE`: Missing across all production sources and FYERS, but present on Screener.
+   - **Semantic Classification Meaning**: *"Only verified/accessible reference source found"*. Specifically, among programmatically verifiable sources in our audit layer, only Screener currently exposes this reference information. It highlights an upstream ingestion gap in our primary pipeline, but does NOT assert that the data is absent from other non-public screens or web platform UI views.
+   - Dispatches discrete stock-level notices to the Admin Dashboard Bell Icon (`global_notifications`).
 3. `PARSER_OR_FIELD_MAPPING_FAILURE`: Provider returned HTTP 200 with raw records, but 0 usable fields could be extracted. Flags upstream parser/taxonomy bug.
 4. `DATA_UNAVAILABLE_VERIFIED`: Confirmed missing across all primary, secondary, and forensic providers.
 

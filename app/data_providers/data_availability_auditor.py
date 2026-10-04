@@ -10,16 +10,23 @@ Source Hierarchy:
     - NSE/XBRL
     - Exchange filings / PIT filing store
     - Local verified raw filing cache
-  Tier 2 — Independent Diagnostic / Approved Broker Source:
-    - FYERS (where an authorized machine-readable or approved access path exists)
+  Tier 2 — Approved Diagnostic Broker Source:
+    - FYERS: Approved diagnostic broker source for the capabilities exposed by its public API v3
+      (market quotes /data/quotes, LTP, volume, depth). Public REST fundamentals / key-ratios
+      are NOT AVAILABLE / DOCUMENTED. Web/platform fundamentals (EV/EBITDA, ROCE, ROE) serve as
+      reference evidence only unless an explicitly authorized machine-readable interface exists.
   Tier 3 — Forensic / Reference-Only:
     - Screener.in (FORENSIC_REFERENCE_ONLY, strictly offline discovery, never write to PIT, never BUY)
 
 Core Classifications (Mandatory Governance Rule):
   1. PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE (DATA PROVIDER DISCREPANCY)
      Upstox = Missing, NSE = Missing, FYERS = Available, Screener = Available
-  2. SCREENER_ONLY_DATA_SOURCE
-     Upstox = Missing, NSE = Missing, PIT = Missing, FYERS = Missing/Unavailable, Screener = Available
+  2. SCREENER_ONLY_DATA_SOURCE (ONLY VERIFIED/ACCESSIBLE REFERENCE SOURCE FOUND)
+     Upstox = Missing, NSE = Missing, PIT = Missing, FYERS = Missing/Unavailable, Screener = Available.
+     Semantic Meaning: Among the sources we are authorized and able to verify programmatically in our
+     audit layer, only Screener currently exposes this reference information. It highlights a potential
+     upstream data ingestion gap in our primary pipeline, but does NOT assert that the data is absent
+     from other non-public screens or web platform UI views.
   3. DATA_UNAVAILABLE_VERIFIED (GENUINELY UNAVAILABLE)
      Upstox = Missing, NSE = Missing, PIT = Missing, FYERS = Missing, Screener = Missing
   4. FYERS_ONLY_DATA_SOURCE

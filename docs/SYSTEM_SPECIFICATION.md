@@ -310,12 +310,20 @@ Architectural separation between quantitative strategy scanners and upstream dat
   - Upstox Key Ratios API (EV/EBITDA, P/E, Debt/Equity)
   - NSE Corporate Integrated Filing XBRL
   - Cryptographically audited local PIT filing cache (`data/pit_raw_filings/`)
-- **Tier 2 — Independent Diagnostic & Approved Broker Source**:
+- **Tier 2 — Approved Diagnostic Broker Source**:
   - **FYERS API v3** ([myapi.fyers.in/docsv3](https://myapi.fyers.in/docsv3))
-  - FYERS Quotes API v3 provides real-time market quotes (`lp`, `volume`, `depth`), but does NOT expose a public documented REST fundamentals / key-ratios endpoint for annual balance sheets.
-  - For fundamental ratios, FYERS API v3 is classified as `UNSUPPORTED_IN_PUBLIC_REST_API_V3` / `NOT_AVAILABLE`. Tier 2 diagnostic evidence for fundamental ratios requires an authorized machine-readable interface or verified operator attestation.
+  - **Capability Boundary**:
+    ```text
+    FYERS PUBLIC API V3
+    ├── Market Quotes (/api/v3/quotes) → machine-readable diagnostic source
+    └── Public REST Fundamentals → NOT AVAILABLE / DOCUMENTED
+    FYERS WEB/PLATFORM FUNDAMENTALS
+    └── EV/EBITDA, ROCE, ROE, etc. → reference evidence only unless an explicitly authorized machine-readable interface exists
+    ```
+  - Approved diagnostic broker source strictly for the capabilities exposed by its public API v3 (`/data/quotes`, `lp`, volume, depth, OHLC). Public REST fundamentals / key-ratios are NOT AVAILABLE / DOCUMENTED.
+  - Web/platform fundamentals (EV/EBITDA, ROCE, ROE) serve as reference evidence only unless an explicitly authorized machine-readable interface exists.
 - **Tier 3 — Forensic Reference Only**:
-  - **Screener.in**: Strictly an offline diagnostic oracle.
+  - **Screener.in**: Strictly an offline diagnostic oracle (`FORENSIC_REFERENCE_ONLY`).
   - Mandatory invariant: `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, `buy_decision = BLOCKED`.
 
 ## 5.2 Mandatory Governance Diagnostic Conditions
@@ -324,6 +332,7 @@ Architectural separation between quantitative strategy scanners and upstream dat
    - High-severity defect: Primary pipeline failed to acquire data that exists in an approved secondary source.
 2. **SCREENER-ONLY DATA FOUND (`SCREENER_ONLY_DATA_SOURCE`)**:
    - Upstox = Missing, NSE = Missing, PIT = Missing, FYERS = Missing/Unavailable, Screener = Available.
+   - **Semantic Classification Meaning**: *"Only verified/accessible reference source found"*. Specifically, among the sources we are authorized and able to verify programmatically in our audit layer, only Screener currently exposes this reference information. It highlights an upstream data ingestion gap in our primary pipeline, but does NOT assert that the data is absent from other non-public screens or web platform UI views.
    - Emits **discrete per-stock per-field** notification directly to `global_notifications` for the Admin Bell Icon (`#notif-badge`, `#notif-list`).
    - Format:
      ```text
