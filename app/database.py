@@ -637,6 +637,7 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS signal_date DATE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS next_trading_day DATE")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS governance_status VARCHAR(50) DEFAULT 'GOVERNANCE_PENDING'")
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS alerts_dedup_idx ON alerts (symbol, breakout_type, scanner, alert_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_record_type ON alerts(record_type, scanner, alert_date DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_v2_lookup ON alerts(scanner, record_type, symbol, alert_date DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_source_trading_date ON alerts(symbol, scanner, source_trading_date)")
@@ -3034,9 +3035,9 @@ def save_alert_if_new(
             eff_canonical_upper, eff_scanner_upper,
             eff_canonical_upper, eff_breakout_upper,
             alert_fingerprint,
-            effective_alert_date,
-            source_trading_date,
-            source_trading_date
+            str(effective_alert_date),
+            str(source_trading_date),
+            str(source_trading_date)
         ))
         prior_same_date_alert = cur.fetchone()
 

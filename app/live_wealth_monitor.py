@@ -1457,10 +1457,13 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                     exits_count += 1
                     exit_reason_str = " | ".join(exit_reasons)
                     next_open_price = close_t
+                    # [GOVERNANCE INVARIANT]: WEALTH_EXIT_V2 is SHADOW / RESEARCH ONLY.
+                    # It records research telemetry (SHADOW_EXIT_WARNING), but CANNOT mutate live position status to CLOSED.
+                    # WEALTH_EXIT_V1 remains the sole live exit authority.
                     save_v2_exit_event(
                         symbol=sym,
-                        event_type="FINAL_EXIT",
-                        new_watchlist_state="RED",
+                        event_type="SHADOW_EXIT_WARNING",
+                        new_watchlist_state="ORANGE",
                         exit_reason=exit_reason_str,
                         exit_price=close_t,
                         reference_exit_open=next_open_price,
@@ -1469,10 +1472,11 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                             "close_t_prev": close_t_prev,
                             "sma200_t": sma200_t,
                             "sma200_t_prev": sma200_t_prev,
-                            "exit_reasons": exit_reasons
+                            "exit_reasons": exit_reasons,
+                            "v2_shadow_only": True
                         }
                     )
-                    logger.info(f"🔴 [V2 18:30 CONFIRMED EXIT] {sym} exited ({exit_reason_str}) @ ₹{close_t:.2f}")
+                    logger.info(f"📙 [V2 SHADOW TELEMETRY] {sym} shadow exit detected ({exit_reason_str}) @ ₹{close_t:.2f} — position remains OPEN (V1 live authority required for close)")
 
         except Exception as e:
             logger.error(f"Error evaluating V2 exit for {sym}: {e}")

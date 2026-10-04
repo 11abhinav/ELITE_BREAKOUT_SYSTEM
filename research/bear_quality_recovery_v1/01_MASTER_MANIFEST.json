@@ -3,7 +3,7 @@
   "governance_state": "BLUEPRINT_FROZEN_FOR_RESEARCH",
   "predecessor": "VALUE_BUY_GEM / FUNDAMENTAL_RE_RATING_V1 / CONTROL_P (Decommissioned)",
   "execution_mode": "ONE_SHOT_PREREGISTERED_TOURNAMENT",
-  "timestamp": "2026-09-28T12:13:53.708670",
+  "timestamp": "2026-10-04T23:10:34.885214",
   "regime_scope": "BEAR_ONLY (Nifty 500 = BEAR)",
   "friction": {
     "entry_bps": 7.5,
@@ -61,5 +61,5 @@
     "max_sector_pnl_pct": 40.0,
     "max_bear_episode_pnl_pct": 60.0
   },
-  "dataset_hash_sha256": "48de4357623d0939c5bc57cd1b64a990030718db23c89bef18cd5be8f75736a1"
+  "dataset_hash_sha256": "f2dc1ca857a9c5810155396143cff8e46daa19ba67e8306eb09991d0f8ab32e3"
 }

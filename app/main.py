@@ -824,17 +824,19 @@ def ensure_watchlist_exists_for_scanners():
 
 def run_all_seven_scanners_non_market_boot():
     """
-    Executes a single catch-up pass of ALL PRIMARY SCANNERS sequentially in the exact sequence
-    as displayed on the System Health dashboard card grid when the server restarts during non-market hours.
-    Sequence (matches Health Card Grid):
-      1. DAILY_BUILDER (Watchlist Builder)
-      2. TECHNICAL (Technical Scanner)
-      3. Wealth Engine (Wealth Engine)
+    Executes a catch-up pass of ALL PRIMARY SCANNERS sequentially when the server restarts.
+    
+    INVARIANT:
+      BOOT CATCH-UP = NORMAL SCHEDULED SCAN + different trigger metadata (NON_MARKET_BOOT), nothing else.
+      - Uses exact same data acquisition & ScannerDataGateway missing-data recovery sweep.
+      - Enforces exact same PIT and data-integrity gates.
+      - Evaluates exact same strategy predicates across all universe stocks.
+      - Enforces exact same alert generation & same-day alert deduplication (zero duplicate alerts if already generated today).
     """
     def _run_batch():
         logger.info("======================================================================")
         logger.info("🌙 [NON-MARKET HOURS BOOT] Server restarted outside market hours.")
-        logger.info("🚀 Triggering 1-pass catchup execution for ALL PRIMARY SCANNERS in Health Dashboard sequence...")
+        logger.info("🚀 Triggering catchup pass for ALL PRIMARY SCANNERS (Exact same pipeline as scheduled run)...")
         logger.info("======================================================================")
         
         try:
@@ -843,10 +845,6 @@ def run_all_seven_scanners_non_market_boot():
         except Exception as e:
             logger.warning(f"⚠️ [NON-MARKET BOOT] Cleanup warning: {e}")
 
-        # [RULE 67 CHANGE-RATIONALE]:
-        # Sequence DAILY_BUILDER first so the daily watchlist is built/refreshed
-        # before downstream technical and fundamental engines execute.
-        # Decommissioned scanners (ACCUMULATION, EOD, REVERSAL, PULLBACK, MULTIBAGGER) are permanently purged.
         all_scanners = [
             ("DAILY_BUILDER", _trigger_daily_builder),
             ("TECHNICAL", _trigger_technical),
@@ -862,13 +860,10 @@ def run_all_seven_scanners_non_market_boot():
             if not is_scanner_stopped(name):
                 upsert_scanner_health(name, status=f"QUEUED-{idx}", error_msg=f"Waiting in non-market boot queue (position {idx} of {len(all_scanners)})...")
 
-        # 2. Ensure watchlist file exists for scanners (no infinite sleep lock!)
+        # 2. Ensure watchlist file exists for scanners
         ensure_watchlist_exists_for_scanners()
 
-        # 3. Execute all primary scanners sequentially one-by-one
-        # [VERSION: BOOT_SEQUENCE_FIX_v1.0] [RULE 67 CHANGE-RATIONALE]
-        # Wrap sequence execution in try/finally to clear stale QUEUED statuses on boot batch completion.
-        # Inside the exception block, explicitly upsert health status as DOWN so exceptions do not result in stale QUEUED states.
+        # 3. Execute all primary scanners sequentially one-by-one using exact normal production contract
         try:
             for idx, (name, fn) in enumerate(all_scanners, 1):
                 if is_scanner_stopped(name):
@@ -878,11 +873,9 @@ def run_all_seven_scanners_non_market_boot():
                 logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
                 start_t = time.time()
                 try:
-                    import inspect
-                    sig = inspect.signature(fn)
-                    if "trigger_type" in sig.parameters:
+                    try:
                         fn(trigger_type="NON_MARKET_BOOT", scheduler_name="NON_MARKET_BOOT")
-                    else:
+                    except TypeError:
                         fn()
                     dur = round(time.time() - start_t, 1)
                     logger.info(f"✅ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} completed in {format_duration(dur)}.")
@@ -904,9 +897,6 @@ def run_all_seven_scanners_non_market_boot():
                 time.sleep(3)
         finally:
             try:
-                # [VERSION: BOOT_CLEANUP_CONCURRENCY_v1.0] [RULE 67 CHANGE-RATIONALE]
-                # Only reset QUEUED status to IDLE for scanners that were part of this boot sequence.
-                # Unrelated concurrent queued scanners MUST remain untouched.
                 scanner_names = [name for name, _ in all_scanners]
                 from database import get_connection
                 with get_connection() as conn:
@@ -926,12 +916,13 @@ def run_all_seven_scanners_non_market_boot():
                 logger.warning(f"⚠️ Failed to clean up QUEUED statuses after boot sequence: {cleanup_err}")
 
         logger.info("======================================================================")
-        logger.info(f"✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all {len(all_scanners)} scanners.")
+        logger.info(f"✅ [NON-MARKET HOURS BOOT] Completed catch-up pass of all {len(all_scanners)} scanners.")
         logger.info("======================================================================")
 
     import threading
     t = threading.Thread(target=_run_batch, name="NonMarketBootBatch", daemon=True)
     t.start()
+
 
 
 # =====================================================================================
@@ -1436,10 +1427,10 @@ def run_system_scheduler():
     is_market_hours_boot = is_within_custom_hours(dt_time(9, 0), dt_time(15, 45), now_boot)
 
     if is_market_hours_boot:
-        logger.info("⏰ Startup / Deployment during MARKET HOURS (9:00 AM - 3:45 PM IST) — Skipping initial boot scans.")
+        logger.info("⏰ Startup / Deployment during MARKET HOURS (9:00 AM - 3:45 PM IST) — Standing by for intraday scheduler windows.")
         verify_scans()
     else:
-        logger.info("🌙 Startup during NON-MARKET HOURS — Executing single catch-up pass of ALL SEVEN SCANNERS...")
+        logger.info("🌙 Startup during NON-MARKET HOURS — Triggering 1-pass catchup execution for ALL SCANNERS...")
         verify_scans()
         run_all_seven_scanners_non_market_boot()
         try:
@@ -1465,12 +1456,13 @@ def run_system_scheduler():
     evening_scanners_ran = True if not is_market_boot else False
     evening_batch_deadline_logged = False
     warmup_ran = False
-    last_technical_date = now_boot.date() if not is_market_boot else None
-    last_wealth_daily_date = now_boot.date() if not is_market_boot else None
-    last_quality_recovery_date = now_boot.date() if not is_market_boot else None
-    last_filing_poll_morning = None
-    last_filing_poll_postclose = None
-    last_filing_poll_night = None
+    # Set last execution dates to today's date ONLY if the scheduled window has already passed today
+    last_technical_date = now_boot.date() if (now_boot.hour > 18 or (now_boot.hour == 18 and now_boot.minute >= 15)) else None
+    last_wealth_daily_date = now_boot.date() if now_boot.hour >= 17 else None
+    last_quality_recovery_date = now_boot.date() if (now_boot.hour > 17 or (now_boot.hour == 17 and now_boot.minute >= 15)) else None
+    last_filing_poll_morning = now_boot.date() if now_boot.hour >= 8 else None
+    last_filing_poll_postclose = now_boot.date() if (now_boot.hour > 16 or (now_boot.hour == 16 and now_boot.minute >= 30)) else None
+    last_filing_poll_night = now_boot.date() if now_boot.hour >= 21 else None
     
     try:
         from stock_analyzer import refresh_master_symbols_universe
@@ -2448,17 +2440,12 @@ if __name__ == "__main__":
         except Exception as e:
             logger.warning(f"⚠️ ApplicationContext init warning: {e}")
 
-        # NON-MARKET HOURS CATCH-UP is handled entirely by the SystemScheduler thread
-        # to prevent concurrent executions.
-        # SystemScheduler is started automatically by the Watchdog via RESTARTABLE_THREADS.
-        pass
+    # Execute boot sequence synchronously BEFORE starting Watchdog/Scheduler threads
+    _bg_boot_sequence()
 
-    # WATCHDOG THREAD — Start Watchdog FIRST so scanners and scheduler start immediately on boot
+    # WATCHDOG THREAD — Start Watchdog AFTER boot sequence is 100% complete
     watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
     watchdog_thread.start()
-
-    # BACKGROUND BOOT SEQUENCE (diagnostics, symbol router, position resets)
-    threading.Thread(target=_bg_boot_sequence, name="BootSequence", daemon=True).start()
 
     # Block main thread to keep container alive
     while True:
