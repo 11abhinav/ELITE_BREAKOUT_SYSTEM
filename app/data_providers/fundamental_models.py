@@ -77,7 +77,20 @@ class RawFinancialRecord:
     validation_status: str = "VALID"
     unit: Optional[str] = None
     currency: Optional[str] = None
+    period_start_date: Optional[str] = None
+    duration_days: Optional[int] = None
+    fiscal_year: Optional[str] = None
+    source_document_hash: Optional[str] = None
+    filing_id: Optional[str] = None
+    revision_indicator: Optional[str] = None
+    raw_fact_details: Dict[str, Any] = field(default_factory=dict)
     
+    @property
+    def statement_basis(self) -> str:
+        if hasattr(self.consolidation, "value"):
+            return self.consolidation.value
+        return str(self.consolidation)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "revenue": self.revenue,

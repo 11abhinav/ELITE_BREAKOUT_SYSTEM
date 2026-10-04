@@ -126,12 +126,16 @@ class FundamentalReconciler:
         else:
             metrics.debt_to_equity = None
 
-        # 3. 5Y CAGR (Sales & PAT) — STRICT 5Y REQUIREMENT (6+ annual observations needed)
-        # [RULE 67 CHANGE-RATIONALE: Prevent writing 3Y CAGR into 5Y fields (Finding #3). Require target_years=5.]
-        if len(annual_records) >= 6:
+        # 3. 5Y CAGR (Sales & PAT) — STRICT 5Y REQUIREMENT (6+ continuous annual observations needed)
+        # [RULE 67 CHANGE-RATIONALE: Prevent writing 3Y CAGR into 5Y fields. Enforce same statement basis & gapless FYs.]
+        from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+        is_cont, gap_err, window_recs = NseXbrlProvider.validate_continuous_annual_series(
+            annual_records, target_years=5
+        )
+        if is_cont and len(window_recs) >= 6:
             ann_dicts = [
                 {"period_end_date": r.period_end_date, "revenue": r.revenue, "net_profit": r.net_profit}
-                for r in annual_records
+                for r in window_recs
             ]
             try:
                 try:
@@ -145,7 +149,9 @@ class FundamentalReconciler:
             except Exception as _ce:
                 logger.debug(f"[RECONCILER] CAGR calculation exception for {symbol}: {_ce}")
         else:
-            # Insufficient annual observations for 5Y CAGR: leave as None. Do NOT substitute 3Y.
+            if gap_err:
+                logger.warning(f"[{symbol}] 5Y CAGR blocked by annual series validation: {gap_err}")
+            # Insufficient or discontinuous annual observations for 5Y CAGR: leave as None. Do NOT substitute 3Y.
             metrics.sales_cagr_5y = None
             metrics.pat_cagr_5y = None
 
