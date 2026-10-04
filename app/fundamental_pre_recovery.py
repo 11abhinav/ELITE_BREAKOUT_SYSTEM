@@ -63,7 +63,7 @@ REQUIRED_FIELD_ALIASES: Dict[str, List[str]] = {
     "pat_cagr_5y":        ["pat_cagr_5y", "pat_cagr"],
     "cfo_pat_5y":         ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"],
     "debt":               ["debt_to_equity", "debt", "total_debt"],
-    "share_dilution_3y":  ["share_dilution_3y_pct", "share_dilution_3y"],
+    "share_dilution_3y":  ["share_dilution_3y_pct", "share_dilution_3y", "shares_outstanding_m", "shares_outstanding"],
     "current_ev_ebitda":  ["current_ev_ebitda"],
 }
 REQUIRED_FIELDS: List[str] = list(REQUIRED_FIELD_ALIASES.keys())

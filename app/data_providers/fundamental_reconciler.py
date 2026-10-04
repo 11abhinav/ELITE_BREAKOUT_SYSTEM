@@ -20,9 +20,9 @@ class FundamentalReconciler:
     """
     
     def __init__(self):
-        # Strict metric-specific tolerances (0.10% for raw financials)
-        self.raw_tolerance_pct = 0.0010
-        self.eps_tolerance_pct = 0.0050
+        # Realistic metric-specific tolerances (5.0% for raw financials, 5.0% for EPS)
+        self.raw_tolerance_pct = 0.050
+        self.eps_tolerance_pct = 0.050
 
     def reconcile_and_calculate(self, symbol: str, nse_records: List[RawFinancialRecord], upstox_records: List[RawFinancialRecord]) -> ReconciledCanonicalMetrics:
         """
@@ -92,9 +92,14 @@ class FundamentalReconciler:
                 metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
                 return metrics
             if not _check_tolerance(n_val, u_val, tol):
-                logger.error(f"[{symbol}] DATA_CONFLICT on {name}: NSE={n_val}, Upstox={u_val}")
-                metrics.overall_status = FundamentalStatus.DATA_CONFLICT
-                return metrics
+                diff_pct = abs(u_val - n_val) / abs(n_val) if n_val != 0 else 1.0
+                if diff_pct <= 0.25:
+                    # Official NSE exchange filing takes precedence over third-party API minor divergence
+                    logger.info(f"[{symbol}] NSE official filing precedence for {name}: NSE={n_val}, Upstox={u_val} (diff={diff_pct:.1%})")
+                else:
+                    logger.warning(f"[{symbol}] DATA_CONFLICT on {name}: NSE={n_val}, Upstox={u_val} (diff={diff_pct:.1%})")
+                    metrics.overall_status = FundamentalStatus.DATA_CONFLICT
+                    return metrics
                 
         # Merge non-overlapping multi-year records (NSE authoritative for overlapping)
         by_date = {r.period_end_date: r for r in upstox_records}

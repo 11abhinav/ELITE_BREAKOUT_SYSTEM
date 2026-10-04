@@ -692,7 +692,7 @@ def compute_cagr(
     gaps_in_window = detect_annual_fiscal_gaps(lookback_rows)
 
     if gaps_in_window:
-        logger.error(
+        logger.warning(
             f"[CAGR_GAP] {symbol}: metric={metric} — filing gap in {target_years}Y "
             f"window: {gaps_in_window}. BLOCKING CAGR."
         )
@@ -714,7 +714,7 @@ def compute_cagr(
     window_integrity = "CLEAN"
 
     if elapsed_years > block_limit:
-        logger.error(
+        logger.warning(
             f"[CAGR_WINDOW] {symbol}: metric={metric} — elapsed window "
             f"{elapsed_years:.2f}Y exceeds block limit {block_limit}Y. BLOCKING."
         )

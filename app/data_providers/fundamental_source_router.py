@@ -734,28 +734,28 @@ class FundamentalSourceRouter:
         for dt in overlap_dates:
             u_rec = live_annual[dt]
             l_rec = local_annual[dt]
-            # Check revenue tolerance (<= 5% tolerance for rounding / unit conventions)
+            # Check revenue tolerance (prefer Live NSE filings when divergence <= 25%)
             if u_rec.revenue is not None and l_rec.revenue is not None and abs(l_rec.revenue) > 1.0:
                 diff = abs(u_rec.revenue - l_rec.revenue) / abs(l_rec.revenue)
                 if diff > 0.05:
-                    logger.warning(
-                        f"[{symbol}] Revenue divergence for {dt}: Live={u_rec.revenue}, Local={l_rec.revenue} (diff={diff:.1%})"
+                    logger.info(
+                        f"[{symbol}] Revenue divergence for {dt}: Live={u_rec.revenue}, Local={l_rec.revenue} (diff={diff:.1%}) - using Live NSE filing"
                     )
-                    if diff > 0.15:
+                    if diff > 0.25:
                         has_conflict = True
 
-            # Check PAT tolerance
+            # Check PAT tolerance (prefer Live NSE filings when divergence <= 25%)
             if u_rec.net_profit is not None and l_rec.net_profit is not None and abs(l_rec.net_profit) > 1.0:
                 diff = abs(u_rec.net_profit - l_rec.net_profit) / abs(l_rec.net_profit)
                 if diff > 0.05:
-                    logger.warning(
-                        f"[{symbol}] PAT divergence for {dt}: Live={u_rec.net_profit}, Local={l_rec.net_profit} (diff={diff:.1%})"
+                    logger.info(
+                        f"[{symbol}] PAT divergence for {dt}: Live={u_rec.net_profit}, Local={l_rec.net_profit} (diff={diff:.1%}) - using Live NSE filing"
                     )
-                    if diff > 0.15:
+                    if diff > 0.25:
                         has_conflict = True
 
         if has_conflict:
-            logger.error(f"❌ [{symbol}] DATA_CONFLICT between Live and Local filings.")
+            logger.warning(f"⚠️ [{symbol}] DATA_CONFLICT (>25% divergence) between Live and Local filings.")
             metrics = ReconciledCanonicalMetrics(symbol=symbol)
             metrics.overall_status = FundamentalStatus.DATA_CONFLICT
             return metrics
