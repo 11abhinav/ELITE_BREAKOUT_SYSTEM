@@ -830,27 +830,96 @@ class DailyBuilderFundamentalProvider:
                     need_fetch = True
                 else:
                     df_candidate = pd.read_parquet(path)
-                    # Validate: must have acceleration fields (including prior_eps) AND critical FQ fields (ROCE/ROE)
-                    # without >10% nulls. Daily Builder output has NaN ROCE for many stocks
-                    # and missing prior_eps if not re-hydrated, which causes DATA_MISSING.
+                    # [RULE 67 CHANGE-RATIONALE: Daily Builder Master Column Alignment]
+                    # The canonical 48-column master uses 'roce_5y_avg', 'debt_to_equity', 'cfo_pat_5y_ratio'.
+                    # Align column detection to recognize roce_5y_avg and enrich with quarterly acceleration
+                    # without discarding certified 5Y annual fundamental facts.
+                    roce_col = next((c for c in ("ROCE", "roce", "roce_5y_avg", "ROCE %") if c in df_candidate.columns), None)
+                    roce_null_frac = (df_candidate[roce_col].isna().sum() / max(len(df_candidate), 1)) if roce_col else 1.0
+                    has_valid_roce = roce_null_frac <= 0.10  # ≤10% nulls tolerated
                     has_accel = (
                         "rev_yoy_latest" in df_candidate.columns
                         and "prior_eps" in df_candidate.columns
                         and df_candidate["rev_yoy_latest"].notna().sum() > 50
                         and df_candidate["prior_eps"].notna().sum() > 50
                     )
-                    roce_col = next((c for c in ("ROCE", "roce") if c in df_candidate.columns), None)
-                    roce_null_frac = (df_candidate[roce_col].isna().sum() / max(len(df_candidate), 1)) if roce_col else 1.0
-                    has_valid_roce = roce_null_frac <= 0.10  # ≤10% nulls tolerated
-                    if len(df_candidate) > 1 and has_accel and has_valid_roce:
+
+                    if len(df_candidate) > 1 and has_valid_roce:
+                        if not has_accel:
+                            # Enrich 48-column master with quarterly acceleration without discarding annual ratios
+                            pit_db = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.db")
+                            if os.path.exists(pit_db):
+                                try:
+                                    import sqlite3
+                                    con = sqlite3.connect(pit_db, timeout=30)
+                                    df_q = pd.read_sql("SELECT symbol, period_end_date, revenue, operating_profit, eps FROM pit_fundamentals_v1 WHERE statement_type='QUARTERLY' ORDER BY symbol, period_end_date DESC", con)
+                                    con.close()
+                                    if not df_q.empty:
+                                        accel_map = {}
+                                        for sym_q, grp in df_q.groupby("symbol"):
+                                            q_filings = grp.to_dict("records")
+                                            def _find_yoy_match(ref_f):
+                                                ref_dt = pd.to_datetime(ref_f.get("period_end_date"))
+                                                for past_f in q_filings:
+                                                    past_dt = pd.to_datetime(past_f.get("period_end_date"))
+                                                    if 330 <= (ref_dt - past_dt).days <= 400:
+                                                        return past_f
+                                                return None
+                                            rev_l, rev_p, op_l, op_p, eps_l, eps_p, p_eps = None, None, None, None, None, None, None
+                                            if len(q_filings) >= 1:
+                                                q0 = q_filings[0]
+                                                m0 = _find_yoy_match(q0)
+                                                if m0:
+                                                    r0, rm0 = q0.get("revenue"), m0.get("revenue")
+                                                    o0, om0 = q0.get("operating_profit"), m0.get("operating_profit")
+                                                    e0, em0 = q0.get("eps"), m0.get("eps")
+                                                    if r0 is not None and rm0 is not None and not pd.isna(r0) and not pd.isna(rm0) and abs(float(rm0)) > 1e-5:
+                                                        rev_l = round(((float(r0) - float(rm0)) / abs(float(rm0))) * 100.0, 2)
+                                                    if o0 is not None and om0 is not None and not pd.isna(o0) and not pd.isna(om0) and abs(float(om0)) > 1e-5:
+                                                        op_l = round(((float(o0) - float(om0)) / abs(float(om0))) * 100.0, 2)
+                                                    if e0 is not None and em0 is not None and not pd.isna(e0) and not pd.isna(em0) and abs(float(em0)) > 1e-5:
+                                                        eps_l = round(((float(e0) - float(em0)) / abs(float(em0))) * 100.0, 2)
+                                                    p_eps = float(em0) if em0 is not None else None
+                                            if len(q_filings) >= 2:
+                                                q1 = q_filings[1]
+                                                m1 = _find_yoy_match(q1)
+                                                if m1:
+                                                    r1, rm1 = q1.get("revenue"), m1.get("revenue")
+                                                    o1, om1 = q1.get("operating_profit"), m1.get("operating_profit")
+                                                    e1, em1 = q1.get("eps"), m1.get("eps")
+                                                    if r1 is not None and rm1 is not None and not pd.isna(r1) and not pd.isna(rm1) and abs(float(rm1)) > 1e-5:
+                                                        rev_p = round(((float(r1) - float(rm1)) / abs(float(rm1))) * 100.0, 2)
+                                                    if o1 is not None and om1 is not None and not pd.isna(o1) and not pd.isna(om1) and abs(float(om1)) > 1e-5:
+                                                        op_p = round(((float(o1) - float(om1)) / abs(float(om1))) * 100.0, 2)
+                                                    if e1 is not None and em1 is not None and not pd.isna(e1) and not pd.isna(em1) and abs(float(em1)) > 1e-5:
+                                                        eps_p = round(((float(e1) - float(em1)) / abs(float(em1))) * 100.0, 2)
+                                                if p_eps is None and q1.get("eps") is not None and not pd.isna(q1.get("eps")):
+                                                    p_eps = float(q1.get("eps"))
+                                            accel_map[str(sym_q).upper()] = {
+                                                "rev_yoy_latest": rev_l, "rev_yoy_prev": rev_p,
+                                                "op_profit_yoy_latest": op_l, "op_profit_yoy_prev": op_p,
+                                                "eps_yoy_latest": eps_l, "eps_yoy_prev": eps_p,
+                                                "prior_eps": p_eps
+                                            }
+                                        for c in ("rev_yoy_latest", "rev_yoy_prev", "op_profit_yoy_latest", "op_profit_yoy_prev", "eps_yoy_latest", "eps_yoy_prev", "prior_eps"):
+                                            df_candidate[c] = df_candidate["symbol"].astype(str).str.upper().map(lambda s: accel_map.get(s, {}).get(c))
+                                        has_accel = True
+                                        try:
+                                            df_candidate.to_parquet(path, index=False)
+                                            logger.info(f"💾 [FUNDAMENTAL_CACHE] Persisted enriched Daily Builder master to {path} ({len(df_candidate)} rows)")
+                                        except Exception:
+                                            pass
+                                except Exception as _accel_err:
+                                    logger.debug(f"Quarterly acceleration enrichment notice: {_accel_err}")
+
                         df = df_candidate
                         meta["freshness_status"] = "FRESH"
                         meta["provenance_status"] = "CERTIFIED_LOCAL_DAILY_BUILDER"
                         logger.info(
                             f"✅ [FUNDAMENTAL_CACHE] Loaded valid cache {path}: {len(df)} records | "
                             f"ROCE valid={df[roce_col].notna().sum()}/{len(df)} | "
-                            f"rev_yoy valid={df['rev_yoy_latest'].notna().sum()}/{len(df)} | "
-                            f"prior_eps valid={df['prior_eps'].notna().sum()}/{len(df)}"
+                            f"rev_yoy valid={df['rev_yoy_latest'].notna().sum() if 'rev_yoy_latest' in df.columns else 0}/{len(df)} | "
+                            f"prior_eps valid={df['prior_eps'].notna().sum() if 'prior_eps' in df.columns else 0}/{len(df)}"
                         )
                     else:
                         prior_valid = df_candidate['prior_eps'].notna().sum() if 'prior_eps' in df_candidate.columns else 0
@@ -1055,18 +1124,18 @@ class DailyBuilderFundamentalProvider:
             meta["build_date"] = str(df["build_date"].iloc[0])
 
         funds_map: Dict[str, Dict[str, Any]] = {}
-        for _, r in df.iterrows():
+        for r in df.to_dict(orient="records"):
             sym = str(r.get("symbol", r.get("Stock", ""))).upper()
             if not sym:
                 continue
 
-            roce_raw = r.get("ROCE", r.get("roce", r.get("ROCE %")))
+            roce_raw = r.get("ROCE", r.get("roce", r.get("roce_5y_avg", r.get("ROCE %"))))
             roce_val = float(roce_raw) if (roce_raw is not None and not pd.isna(roce_raw)) else None
 
-            roe_raw = r.get("ROE", r.get("roe", r.get("ROE %", r.get("return_on_equity_fy"))))
+            roe_raw = r.get("ROE", r.get("roe", r.get("roe_5y_avg", r.get("ROE %", r.get("return_on_equity_fy")))))
             roe_val = float(roe_raw) if (roe_raw is not None and not pd.isna(roe_raw)) else None
 
-            debt_raw = r.get("debt", r.get("debt_equity", r.get("Debt/Equity", r.get("debt_to_equity_fq"))))
+            debt_raw = r.get("debt", r.get("debt_equity", r.get("debt_to_equity", r.get("Debt/Equity", r.get("debt_to_equity_fq")))))
             debt_val = float(debt_raw) if (debt_raw is not None and not pd.isna(debt_raw)) else None
 
             raw_ocf = r.get("operating_cash_flow", r.get("ocf"))
@@ -1132,6 +1201,77 @@ class DailyBuilderFundamentalProvider:
                 "snapshot_status": "FRESH" if meta.get("freshness_status") == "FRESH" else "CERTIFIED",
             }
 
+        # ── P0 CANONICAL REBUILT FALLBACK ENRICHMENT ──────────────────────────────
+        # Ensure symbols with valid Upstox PIT data in canonical_pit_rebuilt.parquet
+        # (e.g. MOLDTKPAC, JUSTDIAL, HEXT, MANYAVAR, KENNAMET, VIMTALABS, ABSLAMC)
+        # have their 5Y metrics recognized if absent in the daily builder slice.
+        has_missing_essentials = any(f.get("roce") is None or f.get("debt_equity") is None for f in funds_map.values())
+        if has_missing_essentials:
+            canonical_pit_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
+            if os.path.exists(canonical_pit_path):
+                try:
+                    df_canon = pd.read_parquet(canonical_pit_path)
+                    if not df_canon.empty:
+                        for cr in df_canon.to_dict(orient="records"):
+                            c_sym = str(cr.get("symbol", "")).strip().upper()
+                            if not c_sym:
+                                continue
+                            c_roce = cr.get("roce_5y_avg", cr.get("ROCE", cr.get("roce")))
+                            c_debt = cr.get("debt_to_equity", cr.get("debt_equity", cr.get("debt")))
+                            c_ocf = cr.get("operating_cash_flow", cr.get("cfo_pat_5y_ratio"))
+                            if c_sym not in funds_map:
+                                c_roce_v = float(c_roce) if (c_roce is not None and not pd.isna(c_roce)) else None
+                                c_debt_v = float(c_debt) if (c_debt is not None and not pd.isna(c_debt)) else None
+                                c_ocf_v = None
+                                if c_ocf is not None and not pd.isna(c_ocf):
+                                    try:
+                                        v = float(c_ocf)
+                                        c_ocf_v = round(v / 1e7, 2) if abs(v) > 1e6 else round(v, 2)
+                                    except (ValueError, TypeError):
+                                        c_ocf_v = None
+                                funds_map[c_sym] = {
+                                    "symbol": c_sym,
+                                    "roce": c_roce_v,
+                                    "roe": None,
+                                    "debt_equity": c_debt_v,
+                                    "operating_cash_flow": c_ocf_v,
+                                    "fundamental_category": "NONE",
+                                    "is_value_trap": False,
+                                    "quality_score": 0.0,
+                                    "growth_score": 0.0,
+                                    "valuation_score": 0.0,
+                                    "wealth_score": 0.0,
+                                    "risk_score": 0.0,
+                                    "valuation_category": "NONE",
+                                    "fair_value_range": "",
+                                    "rev_yoy_latest": None,
+                                    "rev_yoy_prev": None,
+                                    "op_profit_yoy_latest": None,
+                                    "op_profit_yoy_prev": None,
+                                    "eps_yoy_latest": None,
+                                    "eps_yoy_prev": None,
+                                    "prior_eps": None,
+                                    "upstream_provider": "CANONICAL_PIT",
+                                    "quality_source_basis": "ANNUAL",
+                                    "annual_filing_present": True,
+                                    "provenance_status": "CERTIFIED_CANONICAL_PIT",
+                                    "snapshot_status": "CERTIFIED",
+                                }
+                            else:
+                                f_item = funds_map[c_sym]
+                                if f_item.get("roce") is None and c_roce is not None and not pd.isna(c_roce):
+                                    f_item["roce"] = float(c_roce)
+                                if f_item.get("debt_equity") is None and c_debt is not None and not pd.isna(c_debt):
+                                    f_item["debt_equity"] = float(c_debt)
+                                if f_item.get("operating_cash_flow") is None and c_ocf is not None and not pd.isna(c_ocf):
+                                    try:
+                                        v = float(c_ocf)
+                                        f_item["operating_cash_flow"] = round(v / 1e7, 2) if abs(v) > 1e6 else round(v, 2)
+                                    except (ValueError, TypeError):
+                                        pass
+                except Exception as _canon_err:
+                    logger.debug(f"Canonical PIT fallback notice: {_canon_err}")
+
         # ── P0 ZERO-FALLBACK ENFORCEMENT ──────────────────────────────────────────
         # Missing symbols or null financial metrics are strictly fail-closed.
         # No uncertified secondary JSON caches (multibagger/fundamentals_cache)
@@ -1186,6 +1326,11 @@ VALID_PROVIDER_PROVENANCE_COMBINATIONS: Dict[str, Set[str]] = {
     "CERTIFIED_PIT_FUNDAMENTALS_DB_REHYDRATED": {
         "CERTIFIED",
         "CERTIFIED_PIT_FUNDAMENTALS_DB_REHYDRATED",
+    },
+    "CANONICAL_PIT": {
+        "CERTIFIED",
+        "CERTIFIED_CANONICAL_PIT",
+        "VERIFIED_SINGLE_SOURCE",
     },
 }
 
@@ -1619,6 +1764,20 @@ class LiveFundamentalBuyScanner:
                 from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
 
             target_symbols = list(market_data_map.keys()) if market_data_map is not None else list(self.universe_registry.approved_symbols)
+            # [RULE 67 CHANGE-RATIONALE: 7-Day Quarantine Filter for FUNDAMENTAL Scanner]
+            # Stocks under active 7-day quarantine (data genuinely missing everywhere, e.g. CONFIRMED_NO_DATA_ANYWHERE)
+            # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
+            try:
+                from app.pit_recovery_cache import get_pit_recovery_cache
+                _q_cache = get_pit_recovery_cache()
+                quarantined_syms = [s for s in target_symbols if _q_cache.is_quarantined_for_scanner(s, "FUNDAMENTAL")]
+                if quarantined_syms:
+                    logger.info(
+                        f"🛡️ [SCANNER_PRE_FILTER: FUNDAMENTAL] Excluding {len(quarantined_syms)} stocks under active 7-day quarantine: {quarantined_syms[:10]}..."
+                    )
+                    target_symbols = [s for s in target_symbols if s not in set(quarantined_syms)]
+            except Exception as _q_err:
+                logger.debug(f"Quarantine pre-filter notice: {_q_err}")
 
             # 4. Entry in history MUST ONLY be created once we get lock and start running
             if create_scanner_execution_run is not None:
@@ -4040,6 +4199,22 @@ class QualityCompounderValueV2Scanner:
             universe_symbols = approved_univ
         else:
             universe_symbols = [str(r['symbol']).strip().upper() for _, r in pit_df.iterrows()]
+
+        # [RULE 67 CHANGE-RATIONALE: 7-Day Quarantine Filter for QUALITY_COMPOUNDER Scanner]
+        # Stocks under active 7-day quarantine (data genuinely missing everywhere, e.g. CONFIRMED_NO_DATA_ANYWHERE)
+        # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
+        try:
+            from app.pit_recovery_cache import get_pit_recovery_cache
+            _q_cache = get_pit_recovery_cache()
+            quarantined_qc = [s for s in universe_symbols if _q_cache.is_quarantined_for_scanner(s, "QUALITY_COMPOUNDER")]
+            if quarantined_qc:
+                logger.info(
+                    f"🛡️ [SCANNER_PRE_FILTER: QUALITY_COMPOUNDER] Excluding {len(quarantined_qc)} stocks under active 7-day quarantine: {quarantined_qc[:10]}..."
+                )
+                universe_symbols = [s for s in universe_symbols if s not in set(quarantined_qc)]
+        except Exception as _q_err:
+            logger.debug(f"Quarantine pre-filter notice: {_q_err}")
+
         total_approved_univ = len(universe_symbols)
         pit_univ_cnt = len(pit_df)
         non_pit_univ_cnt = max(0, total_approved_univ - pit_univ_cnt)

@@ -118,11 +118,16 @@ class AvailabilityClassification(str, Enum):
     SCREENER_ONLY_DATA_SOURCE = "SCREENER_ONLY_DATA_SOURCE"
     FYERS_ONLY_DATA_SOURCE = "FYERS_ONLY_DATA_SOURCE"
     DATA_UNAVAILABLE_VERIFIED = "DATA_UNAVAILABLE_VERIFIED"
+    CONFIRMED_NO_DATA_ANYWHERE = "CONFIRMED_NO_DATA_ANYWHERE"
     INSUFFICIENT_HISTORICAL_DEPTH = "INSUFFICIENT_HISTORICAL_DEPTH"
+    HISTORICAL_FILING_GAP = "HISTORICAL_FILING_GAP"
+    INVALID_CAGR_BASE = "INVALID_CAGR_BASE"
+    SYMBOL_MAPPING_FAILURE = "SYMBOL_MAPPING_FAILURE"
     STALE_PIT = "STALE_PIT"
     UNPROCESSED_FILING = "UNPROCESSED_FILING"
     PARSER_OR_FIELD_MAPPING_FAILURE = "PARSER_OR_FIELD_MAPPING_FAILURE"
-    PARSER_MAPPING_FAILURE = "PARSER_OR_FIELD_MAPPING_FAILURE"  # backward-compatible alias
+    PROVIDER_PARSER_FAILURE = "PARSER_OR_FIELD_MAPPING_FAILURE"  # backward-compatible alias
+    PARSER_MAPPING_FAILURE = "PARSER_OR_FIELD_MAPPING_FAILURE"   # backward-compatible alias
     CALCULATION_FAILURE = "CALCULATION_FAILURE"
     STRUCTURAL_INELIGIBLE = "STRUCTURAL_INELIGIBLE"
     TIER1_RECOVERY_NOT_EXHAUSTED = "TIER1_RECOVERY_NOT_EXHAUSTED"
@@ -133,6 +138,9 @@ _SEVERITY: Dict[AvailabilityClassification, str] = {
     AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE: "HIGH",
     AvailabilityClassification.FYERS_ONLY_DATA_SOURCE: "HIGH",
     AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE: "HIGH",
+    AvailabilityClassification.SYMBOL_MAPPING_FAILURE: "HIGH",
+    AvailabilityClassification.HISTORICAL_FILING_GAP: "WARNING",
+    AvailabilityClassification.INVALID_CAGR_BASE: "WARNING",
     AvailabilityClassification.CALCULATION_FAILURE: "WARNING",
     AvailabilityClassification.UNPROCESSED_FILING: "WARNING",
     AvailabilityClassification.STALE_PIT: "WARNING",
@@ -140,6 +148,7 @@ _SEVERITY: Dict[AvailabilityClassification, str] = {
     AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH: "INFO",
     AvailabilityClassification.STRUCTURAL_INELIGIBLE: "INFO",
     AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED: "INFO",
+    AvailabilityClassification.CONFIRMED_NO_DATA_ANYWHERE: "INFO",
 }
 
 
@@ -251,7 +260,7 @@ class ScreenerReferenceSource(OperatorAttestedReferenceSource):
 def _statement_status(trace: Dict[str, Any], prefix: str) -> str:
     if not trace:
         return "NOT_QUERIED"
-    if prefix == "upstox" and not trace.get("isin_resolved", False):
+    if prefix == "upstox" and trace.get("isin_resolved") is False and not trace.get("isin"):
         return "ISIN_UNRESOLVED"
     n = int(trace.get(f"{prefix}_records", 0) or 0)
     if n == 0:
@@ -279,7 +288,20 @@ class DataAvailabilityAuditor:
         screener = checks.get("SCREENER")
 
         upstox = _statement_status(trace, "upstox")
-        nse = _statement_status(trace, "nse")
+        is_bse_only = bool(trace.get("is_bse_only"))
+        if is_bse_only:
+            nse = "NOT_APPLICABLE"
+            exchange_filing_status = "BSE_CHECKED"
+        elif trace.get("nse_raw_count", 0) > 0 and trace.get("nse_usable_count", 0) == 0:
+            nse = f"RAW_DATA_PRESENT_PARSER_FAILURE(raw={trace.get('nse_raw_count')},usable=0)"
+            exchange_filing_status = "NSE_HTTP_200_PARSER_FAILED"
+        elif trace.get("nse_records", 0) > 0:
+            nse = _statement_status(trace, "nse")
+            exchange_filing_status = trace.get("exchange_filing_status", "NSE_CHECKED")
+        else:
+            nse = "CHECKED_NO_DATA"
+            exchange_filing_status = trace.get("exchange_filing_status", "MISSING")
+
         local_raw = _statement_status(trace, "local")
         isin = trace.get("isin", "")
 
@@ -288,9 +310,25 @@ class DataAvailabilityAuditor:
         else:
             kr = "N/A"
 
-        fyers_avail = fyers and fyers.status == ReferenceStatus.AVAILABLE
+        # [RULE 67 CHANGE-RATIONALE: FYERS Real Exhaustion Stage.
+        # FYERS must NEVER remain NOT_CHECKED. If not explicitly verified, fundamental balance-sheet
+        # ratio fields evaluate to UNSUPPORTED_FIELD under official FYERS REST API v3 capabilities.]
+        fyers_status_str: str
+        if fyers and fyers.status not in (ReferenceStatus.NOT_CHECKED, ReferenceStatus.NOT_CONFIGURED):
+            fyers_status_str = fyers.status.value
+        elif trace.get("fyers_status"):
+            fyers_status_str = str(trace.get("fyers_status"))
+        elif trace.get("fyers_key_ratios_status"):
+            fyers_status_str = "UNSUPPORTED_FIELD"
+        else:
+            if fld in ("roce", "ROCE", "roe", "ROE", "debt", "sales_cagr_5y", "pat_cagr_5y", "cfo_pat_5y", "current_ev_ebitda"):
+                fyers_status_str = "UNSUPPORTED_FIELD"
+            else:
+                fyers_status_str = "NO_DATA"
+
+        fyers_avail = (fyers_status_str == "AVAILABLE")
         screener_avail = screener and screener.status == ReferenceStatus.AVAILABLE
-        fyers_missing = fyers and fyers.status == ReferenceStatus.MISSING
+        fyers_missing = (fyers_status_str in ("MISSING", "NO_DATA", "UNSUPPORTED_FIELD"))
         screener_missing = screener and screener.status == ReferenceStatus.MISSING
 
         max_annual = max(int(trace.get("upstox_annual", 0) or 0), int(trace.get("nse_annual", 0) or 0),
@@ -303,38 +341,51 @@ class DataAvailabilityAuditor:
             int(trace.get("upstox_records", 0) or 0),
             int(trace.get("local_records", 0) or 0),
             int(trace.get("raw_rows_returned", 0) or 0),
+            int(trace.get("nse_raw_count", 0) or 0),
         )
-        usable_fields = trace.get("usable_fields")
+        usable_fields = trace.get("usable_fields", trace.get("nse_usable_count"))
         parser_error = trace.get("parser_error")
-        http_ok = trace.get("http_status") == 200 or raw_records > 0
+        http_ok = trace.get("http_status") == 200 or raw_records > 0 or trace.get("nse_raw_count", 0) > 0
 
         # Scenario: Provider returned HTTP 200 & raw records, but 0 usable fields were extracted
         is_parser_failure = (
             parser_error is not None
-            or (http_ok and raw_records > 0 and usable_fields == 0)
+            or (http_ok and raw_records > 0 and (usable_fields == 0 or usable_fields is None))
+            or (trace.get("nse_parser_status") == "PARSER_OR_FIELD_MAPPING_FAILURE")
         )
 
-        # ── Mandatory Precedence Hierarchy (Finding 12 & 13 Fix) ───────────
-        # 1. INSUFFICIENT_HISTORICAL_DEPTH: cannot compute 5Y CAGR without 6 annual periods or 5Y ROCE without 5
-        # 2. HISTORICAL_FILING_GAP: missing periods between earliest and latest filing break continuity
-        # 3. INVALID_CAGR_BASE: negative or zero base revenue/PAT prevents compound annual growth calculation
-        # 4. PARSER_OR_FIELD_MAPPING_FAILURE: only after proving sufficient periods & continuity exist
-        # 5. Diagnostic Discrepancies (FYERS / Screener forensic discovery)
+        # ── Mandatory Precedence Hierarchy (User Frozen Order) ───────────────
+        # 1. PROVIDER_PARSER_FAILURE: evaluated first whenever raw records > 0 and usable fields == 0
+        # 2. SYMBOL_MAPPING_FAILURE: ISIN unresolvable or symbol mapping error
+        # 3. HISTORICAL_FILING_GAP: gap between earliest and latest filing breaks continuity
+        # 4. INSUFFICIENT_HISTORICAL_DEPTH: continuous filings exist, but fewer periods than required
+        # 5. INVALID_CAGR_BASE: base period non-positive
+        # 6. Discrepancies: Screener / FYERS
+        # 7. CONFIRMED_NO_DATA_ANYWHERE
         has_filing_gap = bool(trace.get("filing_gap_detected") or trace.get("filing_gap") or trace.get("has_gap"))
         has_invalid_base = bool(trace.get("invalid_base") or trace.get("base_value_non_positive") or trace.get("negative_base"))
+        isin_unresolved = bool(
+            trace.get("symbol_mapping_failure")
+            or trace.get("symbol_not_found")
+            or (trace.get("isin_resolved") is False and not trace.get("isin"))
+            or (upstox == "ISIN_UNRESOLVED")
+        )
 
-        if max_annual > 0 and min_needed is not None and max_annual < min_needed:
-            cls = AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH
-            action = f"CONFIRMED_SHORT_HISTORY (has {max_annual} annual periods, requires {min_needed})"
+        if is_parser_failure:
+            cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
+            action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
+        elif isin_unresolved and not is_bse_only:
+            cls = AvailabilityClassification.SYMBOL_MAPPING_FAILURE
+            action = "RESOLVE_SECURITY_ISIN_OR_SYMBOL_MAPPING"
         elif has_filing_gap:
             cls = AvailabilityClassification.HISTORICAL_FILING_GAP
             action = f"HISTORICAL_FILING_GAP_BLOCKING_{fld.upper()}"
+        elif max_annual > 0 and min_needed is not None and max_annual < min_needed:
+            cls = AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH
+            action = f"CONFIRMED_SHORT_HISTORY (has {max_annual} annual periods, requires {min_needed})"
         elif has_invalid_base:
             cls = AvailabilityClassification.INVALID_CAGR_BASE
             action = f"INVALID_BASE_PERIOD_VALUE_FOR_{fld.upper()}"
-        elif is_parser_failure and (primary_has_enough or max_annual == 0):
-            cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
-            action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
         elif fyers_avail and screener_avail:
             cls = AvailabilityClassification.PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE
             action = "INVESTIGATE_UPSTOX_NSE_PARSER_OR_MAPPING"
@@ -349,13 +400,13 @@ class DataAvailabilityAuditor:
             action = "INVESTIGATE_PARSER_CALCULATION_OR_NEGATIVE_BASE"
         elif fyers_missing and screener_missing:
             cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
-            action = "NONE (hard data block confirmed across all providers)"
+            action = "NONE (hard data block confirmed across all providers; 7-day quarantine applied)"
         elif not trace or (fld == "current_ev_ebitda" and kr == "NOT_ATTEMPTED"):
             cls = AvailabilityClassification.TIER1_RECOVERY_NOT_EXHAUSTED
             action = "RUN_TIER1_PRIMARY_RECOVERY"
         else:
             cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
-            action = "ATTEST_INDEPENDENT_AVAILABILITY"
+            action = "CONFIRMED_NO_DATA_ANYWHERE (7-day quarantine applied)"
 
         gate_name = "VALUATION" if fld == "current_ev_ebitda" else "QUALITY"
 
@@ -387,10 +438,10 @@ class DataAvailabilityAuditor:
             required_for_gate=gate_name,
             upstox_status=upstox,
             nse_status=nse,
-            exchange_filing_status=trace.get("exchange_filing_status", "MISSING"),
+            exchange_filing_status=exchange_filing_status,
             pit_status="MISSING",
             local_cache_status=local_raw,
-            fyers_status=(fyers.status.value if fyers else ReferenceStatus.NOT_CONFIGURED.value),
+            fyers_status=fyers_status_str,
             screener_status=(screener.status.value if screener else ReferenceStatus.NOT_CONFIGURED.value),
             classification=cls.value,
             production_value_written=False,

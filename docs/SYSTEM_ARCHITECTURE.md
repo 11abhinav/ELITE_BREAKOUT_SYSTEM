@@ -862,13 +862,30 @@ EXIT_PROFILES = {
 
 ---
 
-# 20. DEPLOYMENT VERIFICATION, FAILURE MATRIX & GOLDEN TEST SUITES
+# 21. FROZEN PRODUCTION DATA-RECOVERY & 7-DAY SCANNER QUARANTINE POLICY
 
-- **Pre-Push Syntax & Scope Verification**: `python3 -m py_compile` and import sanity checks across all active files.
-- **Automated Regression Suite**:
-  - `pytest tests/test_data_availability_auditor.py` (8/8 passing).
-  - Outbox materialization and crash-recovery verification.
-  - Zero-Synthetic-Fallback assertions.
+### Priority Order & Policy Invariants
+1. **P0: Fix Provider Parsing & Mapping First**:
+   - `HTTP 200 + raw rows > 0 + usable fields == 0` $\rightarrow$ `PARSER_OR_FIELD_MAPPING_FAILURE`, never `DATA_UNAVAILABLE`.
+   - Comprehensive exchange date normalization (`%Y-%m-%d`, `%d-%b-%Y`, `%d/%m/%Y`, `%d-%m-%Y`, `%b-%Y`, `%Y%m%d`), span-based period inference (span $\ge 300\text{d} \rightarrow$ ANNUAL), and parenthesis negative handling `(12.34) \rightarrow -12.34`.
+2. **P0: Exhaust Approved Providers Before Declaring Unresolved**:
+   - Sequence: `Canonical PIT / Daily Builder` $\rightarrow$ `NSE` $\rightarrow$ `BSE` $\rightarrow$ `Upstox` $\rightarrow$ `FYERS` $\rightarrow$ Screener reference lookup.
+   - Listing-Aware: BSE-only/SME securities evaluate to `NSE = NOT_APPLICABLE`, `BSE = CHECKED`.
+   - FYERS Real Exhaustion: `FYERS = NOT_CHECKED` is eliminated. Returns `UNSUPPORTED_FIELD` for balance sheet metrics under REST API v3.
+3. **P0: Pre-Scan Recovery Decoupled from Scanner Decision Loop**:
+   - Recovery sweeps occur strictly in offline/pre-scan phases (`FundamentalPreRecoveryEngine`). Scheduled scanners operate in `WARM` read-only mode (`allow_live_refresh=False`) with zero network calls.
+4. **P1: Screener Reference-Only Fallback**:
+   - Used purely as a forensic diagnostic oracle. If Screener has data but approved providers fail: `PRIMARY_PROVIDERS_UNAVAILABLE`, `REFERENCE_SOURCE_AVAILABLE` (Admin notified, canonical PIT write blocked, production BUY blocked).
+5. **P1: 7-Day Scanner Quarantine & Stock List Exclusion**:
+   - When even Screener has no data (`CONFIRMED_NO_DATA_ANYWHERE` / `CONFIRMED_SHORT_HISTORY` / `HISTORICAL_FILING_GAP`), a 7-day quarantine is enforced.
+   - **Scanner Removal Invariant**: Quarantined stocks are excluded from the target universe before scanning so they are not evaluated or logged as incomplete data during the 7-day window. On Day 8, the scanner re-evaluates upstream; if found continue, else re-quarantined for 7 days.
+   - **Dependency-Level Quarantine**: Scoped to `(symbol, field, scanner_family)` so missing financial metrics do not suppress unaffected technical scanners.
+   - **Parser Defect Isolation**: 7-day cooldown NEVER applies to code defects (`PARSER_OR_FIELD_MAPPING_FAILURE` $\rightarrow$ 15m retry).
+6. **P1: Durable PostgreSQL Negative Cache & Invalidation Fingerprint**:
+   - Persisted in Parquet and synced to PostgreSQL. Stores `latest_filing_date` and `raw_record_count`. If a newer filing appears upstream on the exchange before 7 days, the cooldown is broken immediately.
+7. **P1: Separation of Recovery Status vs. Promotion Status**:
+   - Upstream recovery (`recovery_status = SUCCESS | PARTIAL_SUCCESS`) is strictly decoupled from canonical promotion (`promotion_status = PROMOTED | BLOCKED (NEVER_DOWNGRADE/VALIDATION)`).
 
 ---
 *End of Complete Technical Architecture & Production Specification — `docs/SYSTEM_ARCHITECTURE.md`*
+

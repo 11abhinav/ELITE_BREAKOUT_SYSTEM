@@ -78,16 +78,52 @@ def _consolidation(row: dict) -> ConsolidationType:
     return ConsolidationType.CONSOLIDATED
 
 
-def _period_type(row: dict) -> str:
-    """Infer ANNUAL / QUARTERLY from period label in the NSE row."""
+def _parse_date_to_iso(val: Any) -> Optional[str]:
+    """Parse various exchange date representations to strict ISO YYYY-MM-DD."""
+    if not val:
+        return None
+    s = str(val).strip()
+    if len(s) == 10 and s[4] == "-" and s[7] == "-":
+        return s
+    from datetime import datetime
+    for fmt in (
+        "%Y-%m-%d", "%d-%b-%Y", "%d-%B-%Y", "%d/%m/%Y", "%d-%m-%Y",
+        "%d-%b-%y", "%b-%Y", "%B-%Y", "%Y%m%d", "%Y-%m-%dT%H:%M:%S"
+    ):
+        try:
+            return datetime.strptime(s.split("T")[0] if "T" in s else s, fmt).date().isoformat()
+        except Exception:
+            pass
+    return None
+
+
+def _period_type(row: dict, to_date_iso: Optional[str] = None, from_date_iso: Optional[str] = None) -> str:
+    """Infer ANNUAL / QUARTERLY from period label or date span in the NSE row."""
+    # 1. Date span inference if both dates are parseable
+    if to_date_iso and from_date_iso:
+        try:
+            from datetime import date
+            d1 = date.fromisoformat(from_date_iso)
+            d2 = date.fromisoformat(to_date_iso)
+            span = abs((d2 - d1).days)
+            if span >= 300:
+                return "ANNUAL"
+            if span <= 125:
+                return "QUARTERLY"
+        except Exception:
+            pass
+
+    # 2. String label inference
     period = (
         row.get("period")
         or row.get("periodType")
         or row.get("resultType")
+        or row.get("reFndPeriod")
+        or row.get("frequency")
         or ""
     )
     p = str(period).upper()
-    if any(x in p for x in ("ANNUAL", "YEARLY", "FY", "12 MONTH")):
+    if any(x in p for x in ("ANNUAL", "YEARLY", "FY", "12 MONTH", "AUDITED")):
         return "ANNUAL"
     if any(x in p for x in ("QUARTER", "QTR", "Q1", "Q2", "Q3", "Q4", "3 MONTH")):
         return "QUARTERLY"
@@ -98,8 +134,11 @@ def _safe_float(val) -> Optional[float]:
     if val is None:
         return None
     s = str(val).replace(",", "").strip()
-    if s in ("", "-", "N/A", "NA", "null"):
+    if s in ("", "-", "N/A", "NA", "null", "None", "--"):
         return None
+    # [RULE 67 CHANGE-RATIONALE: Support standard financial statement parenthesis negative numbers: (12.34) -> -12.34]
+    if s.startswith("(") and s.endswith(")"):
+        s = "-" + s[1:-1].strip()
     try:
         return float(s)
     except (TypeError, ValueError):
@@ -112,20 +151,50 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     Returns None only if period_end_date is missing (unidentifiable row).
     Returns a record even with partial data; the caller filters by usability.
     """
-    period_end = (
+    lower_row = {str(k).lower().strip(): v for k, v in row.items()}
+
+    period_end_raw = (
         row.get("toDate")
+        or row.get("to_date")
+        or row.get("todate")
+        or row.get("periodEnd")
+        or row.get("period_end")
         or row.get("period_end_date")
+        or row.get("quarterEnding")
+        or row.get("quarter_ending")
         or row.get("date")
+        or row.get("reFndToDate")
+        or row.get("reFndPeriodEnd")
+        or row.get("yearEnding")
+        or row.get("financialYear")
+        or lower_row.get("todate")
+        or lower_row.get("periodend")
+        or lower_row.get("quarterending")
+        or lower_row.get("refndtodate")
+        or lower_row.get("refndperiodend")
+        or lower_row.get("yearending")
+        or lower_row.get("date")
         or ""
     )
+    period_end = _parse_date_to_iso(period_end_raw)
+    if not period_end:
+        # Fallback to raw string if regex fails but non-empty
+        period_end = str(period_end_raw).strip() if period_end_raw else None
     if not period_end:
         return None
 
-    # [RULE 67 CHANGE-RATIONALE: Robust field mapping for NSE XBRL API.
-    # Include case-insensitive dictionary fallback to prevent mapping failures when NSE changes casing.]
-    lower_row = {str(k).lower().strip(): v for k, v in row.items()}
+    from_date_raw = (
+        row.get("fromDate")
+        or row.get("from_date")
+        or row.get("fromdate")
+        or row.get("reFndFromDate")
+        or lower_row.get("fromdate")
+        or lower_row.get("refndfromdate")
+    )
+    from_date_iso = _parse_date_to_iso(from_date_raw)
 
-    # NSE field name mapping (based on observed API response structure and NSE JSON schema)
+    # [RULE 67 CHANGE-RATIONALE: Exhaustive field name mapping covering official NSE XBRL API,
+    # corporate financial results endpoint variations, and case-insensitive lower dictionary keys.]
     revenue = _safe_float(
         row.get("reFndRevOps")
         or row.get("reFndTotIncm")
@@ -139,12 +208,15 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("sales")
         or row.get("turnover")
         or lower_row.get("refndrevops")
+        or lower_row.get("refndtotincm")
         or lower_row.get("revenuefromoperations")
         or lower_row.get("totalrevenue")
         or lower_row.get("totalincome")
         or lower_row.get("netsales")
         or lower_row.get("revenue")
         or lower_row.get("sales")
+        or lower_row.get("income")
+        or lower_row.get("turnover")
     )
     net_profit = _safe_float(
         row.get("reFndNetPftLoss")
@@ -159,9 +231,9 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or lower_row.get("netprofit")
         or lower_row.get("profitloss")
         or lower_row.get("pat")
+        or lower_row.get("netprofitforperiod")
     )
-    # EBIT: use operating_profit only when it is explicitly labelled as such,
-    # never as a silent proxy for EBIT
+    # EBIT: use operating_profit only when explicitly labelled or derived
     ebit = _safe_float(
         row.get("reFndPbit")
         or row.get("pbit")
@@ -213,13 +285,13 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("dilutedEps")
         or row.get("eps")
         or row.get("epsBasic")
+        or row.get("earningsPerShare")
         or lower_row.get("refndbsceps")
         or lower_row.get("basiceps")
         or lower_row.get("eps")
+        or lower_row.get("dilutedeps")
     )
 
-    # capital_employed: total_assets - current_liabilities if available,
-    # else equity + total_debt (rough alternative — flagged in derivation)
     total_assets = _safe_float(row.get("totalAssets") or row.get("assets") or lower_row.get("totalassets") or lower_row.get("assets"))
     curr_liab = _safe_float(
         row.get("currentLiabilities") or row.get("totalCurrentLiabilities") or lower_row.get("currentliabilities") or lower_row.get("totalcurrentliabilities")
@@ -244,7 +316,7 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         symbol=symbol,
         source="NSE_XBRL",
         period_end_date=str(period_end),
-        period_type=_period_type(row),
+        period_type=_period_type(row, to_date_iso=period_end, from_date_iso=from_date_iso),
         consolidation=_consolidation(row),
         revenue=revenue,
         net_profit=net_profit,
@@ -282,6 +354,8 @@ class NseXbrlProvider:
         self.nse_401_count:           int = 0
         self.nse_403_count:           int = 0
         self.last_status: Dict[str, str] = {}
+        self.last_raw_count: Dict[str, int] = {}
+        self.last_usable_count: Dict[str, int] = {}
 
     def _init_session(self) -> bool:
         """Establish NSE session cookie. Returns True on success."""
@@ -430,13 +504,17 @@ class NseXbrlProvider:
             f"refreshes={self.session_refresh_count}, retries={self.retry_count})"
         )
 
-        if records and not usable:
-            # [RULE 67 CHANGE-RATIONALE: HTTP 200 + rows returned != data unavailable.
-            # Explicitly classify as SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE.]
-            self.last_status[symbol] = "SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE"
+        self.last_raw_count[symbol] = len(raw)
+        self.last_usable_count[symbol] = len(usable)
+
+        if raw and not usable:
+            # [RULE 67 CHANGE-RATIONALE: HTTP 200 + raw rows returned > 0 with usable == 0.
+            # Explicitly classify as PARSER_OR_FIELD_MAPPING_FAILURE. Never DATA_UNAVAILABLE.]
+            self.last_status[symbol] = "PARSER_OR_FIELD_MAPPING_FAILURE"
             logger.warning(
-                f"[NSE] {symbol}: HTTP 200 + {len(records)} rows returned != data unavailable. "
-                f"Tagging as SOURCE_DATA_PRESENT_PARSE_OR_MAPPING_FAILURE."
+                f"[NSE] {symbol}: HTTP 200 + {len(raw)} raw rows returned != data unavailable "
+                f"({len(records)} parsed, {len(usable)} usable). "
+                f"Tagging as PARSER_OR_FIELD_MAPPING_FAILURE."
             )
         elif usable:
             self.last_status[symbol] = "PARSE_SUCCESS"

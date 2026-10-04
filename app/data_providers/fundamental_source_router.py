@@ -388,6 +388,19 @@ class FundamentalSourceRouter:
         """
         logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp})...")
 
+        # --- Step 0: Listing Awareness (BSE-only vs NSE) ---
+        is_bse_only = False
+        try:
+            try:
+                from app.security_identity_resolver import SecurityIdentityResolver
+            except ImportError:
+                from security_identity_resolver import SecurityIdentityResolver
+            sec_id = SecurityIdentityResolver().resolve(symbol)
+            if sec_id and sec_id.exchange_primary == "BSE" and not (sec_id.upstox_instrument_key and "NSE" in str(sec_id.upstox_instrument_key)):
+                is_bse_only = True
+        except Exception as _res_err:
+            logger.debug(f"[ROUTER] Security identity check for {symbol}: {_res_err}")
+
         # --- Step 1: Upstox ---
         isin = self._resolve_isin(symbol)
         upstox_records: List[RawFinancialRecord] = []
@@ -400,14 +413,22 @@ class FundamentalSourceRouter:
         else:
             logger.warning(f"[UPSTOX] {symbol}: ISIN not resolved. Skipping Upstox fetch.")
 
-        # --- Step 2: NSE ---
-        nse_records: List[RawFinancialRecord] = self.nse_provider.fetch_raw_financials(symbol)
-        logger.info(
-            f"[NSE] {symbol}: {len(nse_records)} usable records "
-            f"(401s={self.nse_provider.nse_401_count}, "
-            f"403s={self.nse_provider.nse_403_count}, "
-            f"refreshes={self.nse_provider.session_refresh_count})"
-        )
+        # --- Step 2: NSE (Listing-Aware) ---
+        nse_records: List[RawFinancialRecord] = []
+        nse_raw_cnt = 0
+        nse_parser_status = "NOT_APPLICABLE" if is_bse_only else "NO_DATA_RETURNED"
+        if not is_bse_only:
+            nse_records = self.nse_provider.fetch_raw_financials(symbol)
+            nse_raw_cnt = self.nse_provider.last_raw_count.get(symbol, 0)
+            nse_parser_status = self.nse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
+            logger.info(
+                f"[NSE] {symbol}: {len(nse_records)} usable records (raw={nse_raw_cnt}, status={nse_parser_status}, "
+                f"401s={self.nse_provider.nse_401_count}, "
+                f"403s={self.nse_provider.nse_403_count}, "
+                f"refreshes={self.nse_provider.session_refresh_count})"
+            )
+        else:
+            logger.info(f"[NSE] {symbol}: Security is BSE-only. NSE is NOT_APPLICABLE.")
 
         # Persist newly fetched live records to pit_raw_filings for future reuse
         if upstox_records:
@@ -423,11 +444,18 @@ class FundamentalSourceRouter:
 
         trace = self.last_trace.setdefault(symbol, {})
         trace.update({
+            "is_bse_only": is_bse_only,
             "isin_resolved": bool(isin),
             "upstox_records": len(upstox_records),
             "upstox_annual": _annual_count(upstox_records),
             "nse_records": len(nse_records),
             "nse_annual": _annual_count(nse_records),
+            "nse_raw_count": nse_raw_cnt,
+            "nse_usable_count": len(nse_records),
+            "nse_parser_status": nse_parser_status,
+            "raw_rows_returned": nse_raw_cnt or len(upstox_records) or len(local_records),
+            "usable_fields": len(nse_records) if nse_raw_cnt > 0 else (len(upstox_records) or len(local_records)),
+            "parser_error": "PARSER_OR_FIELD_MAPPING_FAILURE" if (nse_raw_cnt > 0 and len(nse_records) == 0) else None,
             "local_records": len(local_records),
             "local_annual": _annual_count(local_records),
         })

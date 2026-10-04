@@ -48,7 +48,12 @@ class FundamentalReconciler:
         common_keys = set(nse_dict.keys()).intersection(upstox_dict.keys())
 
         if not common_keys:
-            metrics.overall_status = FundamentalStatus.PERIOD_MISMATCH
+            nse_periods = {getattr(r, "period_end_date", "") for r in nse_records}
+            upx_periods = {getattr(r, "period_end_date", "") for r in upstox_records}
+            if nse_periods.intersection(upx_periods):
+                metrics.overall_status = FundamentalStatus.STATEMENT_MISMATCH
+            else:
+                metrics.overall_status = FundamentalStatus.PERIOD_MISMATCH
             return metrics
             
         # Get the latest record among common keys for comparison

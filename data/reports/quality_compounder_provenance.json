@@ -21,16 +21,7 @@
     "total_reconciled": 46,
     "baseline_46_unmatched": 0,
     "baseline_46_duplicates": 0,
-    "baseline_46_extra_symbols": 0,
-    "newly_incomplete_outside_baseline": 0
-  },
-  "structural_12_reconciliation": {
-    "baseline_structural_count": 12,
-    "retained_structural": 1,
-    "transitioned_to_evaluable_data_gap_fixed": 6,
-    "transitioned_to_data_failure_annual_gaps": 4,
-    "transitioned_to_stale": 1,
-    "total_reconciled": 12
+    "baseline_46_extra_symbols": 0
   },
   "screener_evaluation": {
     "attempts": 46,
@@ -38,5 +29,5 @@
     "rejected_recoveries": 46,
     "rejection_reason": "Lack of audited multi-year PIT timestamps and raw XBRL provenance"
   },
-  "generated_at": "2026-10-04T10:00:50.896299+05:30"
+  "generated_at": "2026-10-04T17:22:51.973025+05:30"
 }

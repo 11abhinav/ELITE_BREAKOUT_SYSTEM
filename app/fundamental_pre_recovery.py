@@ -104,6 +104,8 @@ class FundamentalPreRecoveryEngine:
         # 0 or negative means uncapped (processes every incomplete symbol in universe)
         self.global_daily_recovery_limit = int(os.getenv("PRE_RECOVERY_LIMIT", "0"))
 
+    _generate_deterministic_key = staticmethod(_generate_deterministic_key)
+
     # ------------------------------------------------------------------
     # Field-level incomplete detection
     # ------------------------------------------------------------------
@@ -178,23 +180,28 @@ class FundamentalPreRecoveryEngine:
 
         for col in ["roce_5y_avg", "ROCE", "roce"]:
             if col in df.columns:
-                df.loc[idx, col] = metrics.roce_5y
+                if metrics.roce_5y is not None:
+                    df.loc[idx, col] = metrics.roce_5y
                 break
         for col in ["sales_cagr_5y", "sales_cagr"]:
             if col in df.columns:
-                df.loc[idx, col] = metrics.sales_cagr_5y
+                if metrics.sales_cagr_5y is not None:
+                    df.loc[idx, col] = metrics.sales_cagr_5y
                 break
         for col in ["pat_cagr_5y", "pat_cagr"]:
             if col in df.columns:
-                df.loc[idx, col] = metrics.pat_cagr_5y
+                if metrics.pat_cagr_5y is not None:
+                    df.loc[idx, col] = metrics.pat_cagr_5y
                 break
         for col in ["cfo_pat_5y_ratio", "cfo_pat_5y", "cfo_pat"]:
             if col in df.columns:
-                df.loc[idx, col] = metrics.cfo_pat_5y
+                if metrics.cfo_pat_5y is not None:
+                    df.loc[idx, col] = metrics.cfo_pat_5y
                 break
         for col in ["debt_to_equity", "debt"]:
             if col in df.columns:
-                df.loc[idx, col] = metrics.debt_to_equity
+                if metrics.debt_to_equity is not None:
+                    df.loc[idx, col] = metrics.debt_to_equity
                 break
 
         # [RULE 67 CHANGE-RATIONALE: Progressive recovery of current_ev_ebitda & current_pe from Upstox Key Ratios]
@@ -304,12 +311,22 @@ class FundamentalPreRecoveryEngine:
             return
 
         logger.info(f"🚀 [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Starting data recovery for {len(recovery_queue)} symbols.")
-        recovered_count = 0
+        recovery_success_count = 0
+        promoted_count = 0
 
         for symbol, missing_fields in recovery_queue:
             logger.info(f"📥 [SCANNER: {self.scanner_name}] [FETCH_DATA] Fetching Upstox/NSE filings for {symbol} (missing: {missing_fields})...")
             metrics = self.recover_symbol(symbol)
             self.publish_recovery_status(symbol, missing_fields, metrics)
+
+            has_recovered = bool(metrics.recovered_fields) or metrics.overall_status in (
+                FundamentalStatus.VERIFIED,
+                FundamentalStatus.VERIFIED_SINGLE_SOURCE,
+                FundamentalStatus.PARTIAL_RECOVERY,
+                FundamentalStatus.DATA_RECOVERED,
+            )
+            if has_recovered:
+                recovery_success_count += 1
 
             # ONLY promote to in-memory dataset if reconciliation succeeded
             if metrics.overall_status in (
@@ -317,23 +334,27 @@ class FundamentalPreRecoveryEngine:
                 FundamentalStatus.VERIFIED_SINGLE_SOURCE,
             ):
                 self.persist_verified_record(df, symbol, metrics)
-                recovered_count += 1
+                promoted_count += 1
                 logger.info(f"✅ [PRE_RECOVERY] {symbol}: recovery_status=SUCCESS | promotion_status=PROMOTED | fields={list(metrics.recovered_fields.keys())}")
+            elif metrics.overall_status == FundamentalStatus.PARTIAL_RECOVERY or has_recovered:
+                logger.info(
+                    f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=PARTIAL_SUCCESS | promotion_status=BLOCKED | "
+                    f"promotion_reason=VALIDATION_INCOMPLETE | recovered_fields={list(metrics.recovered_fields.keys())}"
+                )
             else:
                 logger.info(
-                    f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=FETCH_COMPLETED | promotion_status=BLOCKED | "
-                    f"reason={metrics.rejection_reason or metrics.overall_status.value} | "
-                    f"unverified_fields={list(metrics.recovered_fields.keys())}"
+                    f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=UNAVAILABLE | promotion_status=BLOCKED | "
+                    f"reason={metrics.rejection_reason or metrics.overall_status.value}"
                 )
 
         published = False
-        if recovered_count > 0:
+        if promoted_count > 0:
             candidate_path = self.pit_parquet_path.replace(
                 ".parquet", "_pre_recovery_candidate.parquet"
             )
             logger.info(
                 f"💾 [PRE_RECOVERY] Writing staging candidate: "
-                f"{recovered_count} symbols recovered → {candidate_path}"
+                f"{promoted_count} symbols promoted → {candidate_path}"
             )
             df.to_parquet(candidate_path, index=False)
 
@@ -366,12 +387,19 @@ class FundamentalPreRecoveryEngine:
                 else:
                     logger.warning(
                         f"⚠️ [PRE_RECOVERY] Publisher blocked candidate ({decision}): "
-                        f"{pub_result.get('gate_reasons', pub_result.get('reason', ''))}"
+                        f"recovery_status=SUCCESS | promotion_status=BLOCKED | "
+                        f"promotion_reason=NEVER_DOWNGRADE/VALIDATION | gate_reasons={pub_result.get('gate_reasons', pub_result.get('reason', ''))}"
                     )
         else:
-            logger.info(
-                "✅ [PRE_RECOVERY] No symbols successfully recovered. Canonical PIT unchanged."
-            )
+            if recovery_success_count > 0:
+                logger.info(
+                    f"ℹ️ [PRE_RECOVERY] Upstream recovery succeeded for {recovery_success_count} symbols, but 0 promoted to candidate: "
+                    f"promotion_status=BLOCKED | promotion_reason=STRICT_VERIFICATION. Canonical PIT unchanged."
+                )
+            else:
+                logger.info(
+                    "✅ [PRE_RECOVERY] No symbols successfully recovered. Canonical PIT unchanged."
+                )
 
         self._run_availability_audit(df, recovery_queue, published)
         logger.info("🏁 [FUNDAMENTAL_PRE_RECOVERY] END.")
