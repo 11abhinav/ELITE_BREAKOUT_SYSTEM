@@ -1,389 +1,417 @@
-  # ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & USER/ADMIN GUIDE
+# ELITE BREAKOUT SYSTEM — SYSTEM SPECIFICATION & OPERATIONAL GUIDE
 
-  > **Document Class:** User & Admin Operational Manual
-  > **Status:** Canonical Master Guide for system functionality, trading rules, and dashboard operations.
-  > **Target File:** `docs/SYSTEM_SPECIFICATION.md`
-  > **Last Synchronized:** 2026-08-03 (v9.0 Master Sync — Earnings / Result Calendar Post-Market Engine, Priority-1 Today Re-Check, Timeframe-Aware Intraday Cache Staleness, Multibagger Watchlist Fallback, Vivid Emoji Banners & Lock Guarding)
-
-  ---
-
-  # 1. EXECUTIVE OVERVIEW & SYSTEM PURPOSE
-
-  The **Elite Breakout System** is an autonomous, quantitative trading platform engineered specifically for the Indian Equity Markets (NSE & BSE). The system systematically scans, ranks, filters, monitors, and manages high-probability momentum breakouts, mean-reversion oversold bounces, trend pullbacks, and long-term fundamental compounders.
-
-  ## Core Capabilities
-  - **6 Specialized Quantitative Scanning Engines**: EOD Breakout, Multi-Timeframe Intraday (Multi-TF), Reversal, Pullback Pipeline, Wealth Engine, and Multibagger Engine.
-  - **3 Real-Time Glassmorphic Dashboards**: User Dashboard, Admin Dashboard, and Performance Tracker Dashboard.
-  - **Dynamic Risk & Target Management**: Automated initial stop loss calculation, structural support placement, trailing stop loss management, multi-target profit booking (T1, T2, T3, T4), and exit alerting.
-  - **Omnichannel Notification Engine**: Real-time signal delivery via Telegram Channels, Web Push Notifications (VAPID), and In-App Portal Alerts.
-  - **Autonomous 24/7 Execution**: Self-healing scheduler operating around NSE trading hours (09:15 to 15:30 IST), post-market Earnings / Result Calendar window (15:30 to 18:00 IST), and evening post-market Bhavcopy publication windows.
+> **Document Class:** User & Admin Operational Manual
+> **Status:** Canonical Master Operational Guide for system functionality, strategy specifications, trading rules, and dashboard operations.
+> **Target File:** `docs/SYSTEM_SPECIFICATION.md`
+> **Last Synchronized:** 2026-10-04 (Master Consolidation — Active Production Scanners Only, Authoritative Outbox Pattern, Quality Data Availability Auditor, Broker Integrations, Corporate Action Event Framework)
 
 ---
 
-  # 2. SCANNER SUITE & STRATEGY SPECIFICATIONS
+# 1. EXECUTIVE OVERVIEW & SYSTEM PURPOSE
 
-  The system operates six distinct scanning engines, each targeting a specific market setup:
+The **Elite Breakout System** is an autonomous, quantitative trading platform engineered specifically for the Indian Equity Markets (NSE & BSE). The system systematically scans, ranks, filters, monitors, and manages high-probability momentum breakouts, long-term fundamental quality compounders, and multi-year structural leaders.
 
-  ## 2.1 EOD Breakout Scanner (`app/eod_scanner.py`)
-  - **Market Objective**: Captures daily momentum breakouts from tight consolidation bases after market close (post-18:00 IST).
-  - **Setup Pattern**: Stocks forming horizontal resistance or Bollinger Band squeezes that break out with strong price close (`Close > PRIOR_20D_HIGH`) and volume expansion.
-  - **Key Eligibility & Quality Gates**:
-    1. Price floor: `Close >= ₹100.0`
-    2. Data sufficiency: $\ge 50$ historical daily bars (to support IPOs and new listings)
-    3. Bullish candle: `Close > Open`, Body Ratio $\ge 45\%$, Close Position $\ge 65\%$ of candle range, Upper Wick $\le 35\%$
-    4. Volume surge: Volume Ratio $\ge 1.8\text{x}$ vs **20-day Median Volume** baseline (outlier-resistant baseline)
-    5. ATR expansion: Candle Range / 20-day ATR $\ge 0.9$ (`MIN_ATR_EXPANSION_RATIO = 0.9`)
-    6. Non-extended ATR gate: $(\text{Close} - \text{EMA}_{20}) / \text{ATR}_{20} \le 1.5$
-    7. Base tightness: Bollinger Band Width Percentile $\le 80\text{th percentile}$
-    8. Trend alignment: $\text{Close} > \text{SMA}_{50} > \text{SMA}_{200}$ (or reduced trend gate for 50-199 bar symbols) and $\text{Close} > \text{EMA}_{20}$
-    9. Scoring Modifiers: **+5 pts** clean 50D-high breakout bonus; **-5 pts** young listing penalty ($< 200$ bars)
-    10. Minimum Score: Composite Score $\ge 82$ out of 100+
-  - **Candidate Truncation**: Evaluates all watchlist candidates, accumulates setups across universe chunks, and persists ONLY the **Top 10 ranked candidates** by composite score.
+All legacy and decommissioned scanners (`EOD Breakout`, `Multi-TF Intraday`, `Reversal`, `Pullback Pipeline`, `Short Covering`, `5M Breakout`, `Momentum Ignition`, `Accumulation`) have been permanently decommissioned and purged following empirical temporal replication and regime robustness certification.
 
-  ## 2.2 Multi-Timeframe (Multi-TF) Scanner (`app/multi_tf_scanner.py`)
-  - **Market Objective**: Captures intraday momentum bursts where long-term trends align with short-term intraday triggers.
-  - **Schedule**: Candle-aligned 15-minute intervals (`:00`, `:15`, `:30`, `:45`) between 09:30 AM and 14:45 PM IST during market hours.
-  - **4-Stage Timeframe Cascade**:
-    1. **Phase A (1H Trend Filter)**: Evaluates 3-month Hourly data (~437 bars). Mandates $\text{EMA}_9 > \text{EMA}_{20} > \text{SMA}_{50}$, $\text{Close} > \text{EMA}_{200}$ (or reduced trend gate for 50-199 bar symbols), and $\text{ADX}_{14} \ge 18$.
-    2. **Phase B (30m Alignment)**: Validates 30-minute trend slope and volume expansion.
-    3. **Phase C (15m Alignment)**: Validates 15-minute consolidation breakout level.
-    4. **Phase D (5m Trigger)**: Decoupled execution triggers:
-      - *Thrust Mode*: Price breaks local 5m highs with strong volume confirmation near trigger level.
-      - *Pullback Mode*: Breakout level or EMA9 is tested/defended, followed by a strong bullish rejection candle (close position $\ge 0.60$) with volume.
-    5. **Late-Session Entry Cutoff**: New Phase D entries are blocked after **14:15 IST** to eliminate late-day slippage and MOC imbalances.
-  - **Delivery Data Enrichment**: **[UPDATED on 2026-08-04 - MULTI_TF_DELIVERY_FIX_v1.0]** ~~`delivery_pct` was hardcoded to `0.0`~~. Now dynamically fetches the latest available NSE/BSE delivery percentage map (`fetch_latest_available_delivery_data`) and threads actual delivery percentages into `opportunity_manager.add()`.
-  - **Minimum Score**: Composite Score $\ge 78$ out of 100. Minimum Risk-Reward Ratio $\ge 1.5$.
-
-  ## 2.3 Reversal Scanner (`app/reversal_scanner.py`)
-  - **Market Objective**: Detects oversold mean-reversion bounce setups on high-quality companies that have suffered a sharp price correction.
-  - **Setup Pattern**: Quality stocks returning from oversold territory with RSI curling upward and MACD making a bullish histogram crossover.
-  - **Key Eligibility & Quality Gates**:
-    1. **Drop Band Gate**: Stock must be **20.0% to 45.0% below its 52-week high** (`MAX_DROP_BELOW_SMA200 = 20.0`).
-    2. **Trend Structure Reclaim**: $\text{Close} \ge \text{SMA}_{50}$ (mandatory trend recovery gate).
-    3. **Oversold RSI Curl**: RSI was $\le 38$ within the lookback window (`REVERSAL_RSI_LOOKBACK = 15`, `REVERSAL_RSI_MAX = 38`) and current RSI is $\ge 50$.
-    4. **MACD Momentum**: Bullish MACD histogram crossover occurring within the last 10 trading bars.
-    5. **Volume Confirmation**: Volume Ratio $\ge 2.0\text{x}$ 20-day average. 20-bar average volume $\ge 300,000$ shares.
-    6. **Fundamental Outage Alarm Protocol**: **[UPDATED on 2026-08-04 - REVERSAL_FUNDAMENTAL_ALARM_v1.0]** ~~High fundamental outage ratio (>60%) logged warning and returned 0, aborting alert persistence~~. If fundamental failure ratio exceeds 60%, scanner health status is set to `DEGRADED`, Web Push (`send_push_to_all`) & Admin notifications (`insert_notification`) are dispatched, and **execution proceeds to persist valid technical alerts**.
-    7. **Two-Tier Cooldown Architecture**: 
-      - *Tier 1 (7-Day Alert Dedup)*: `ALERT_COOLDOWN_MINUTES["REVERSAL"] = 10080` prevents duplicate alert spam for active setups.
-      - *Tier 2 (40-Day Fallen Knife Defense)*: `REVERSAL_COOLDOWN_TRADING_DAYS = 40` blocks symbols that recently stopped out from re-triggering for 40 trading days (matching holding lifecycle).
-    8. **Macro Regime Dampening**: In `STRONG_BEAR` macro regimes, the minimum score threshold is elevated to **90 pts** (vs normal 62 pts).
-    9. **Minimum Score**: Composite Score $\ge 62$ out of 100+ (90 in `STRONG_BEAR`). Reward Potential $\ge 3.0R$ (T3-based) and Natural Risk-Reward Ratio $\ge 2.0R$ (T1-based).
-
-  ## 2.4 Pullback Pipeline (`app/pullback_pipeline.py`)
-  - **Market Objective**: Identifies orderly, low-risk pullback entries within established strong uptrends.
-  - **Regime Constraint**: Automatically suspended during `STRONG_BEAR` macro market regimes.
-  - **4-Phase Cascade**:
-    1. **Uptrend Gate**: $\text{Close} > \text{SMA}_{50} > \text{SMA}_{200}$.
-    2. **Pivot & Impulse Wave**: Identifies recent swing high and validates impulse wave height ($\ge 8.0\%$, `MIN_IMPULSE_GAIN_PCT = 8.0`).
-    3. **Orderly Pullback Structure**: Pullback depth must be between **23.6% and 61.8% Fibonacci retracement** of the impulse wave, accompanied by clear **volume contraction** (volume declining during pullback bars).
-    4. **Resumption Trigger**: Bullish reversal bar closing above prior high/open (`PREVIOUS_HIGH`, `PREVIOUS_OPEN`, or `INSIDE_BAR`).
-    5. **Sanitized Evidence Bonus**: $+3$ pts if stock triggered an active EOD alert in last 30 days; $+2$ pts if stock triggered an active Multibagger/Multi-TF alert (`only_active=True`, excluding stopped-out alerts).
-    6. **Near-Miss Telemetry Logging**: **[UPDATED on 2026-08-04 - FIX-P4]** Near-miss logging exceptions now surface explicitly at `logger.warning` level instead of being silently swallowed.
-    7. **Minimum Score**: Composite Score $\ge 75$ out of 100+ (base threshold 75 + regime modifier). Minimum Risk-Reward Ratio $\ge 2.0$.
-
-  ## 2.5 Wealth Engine (`app/wealth_engine.py`)
-  - **Market Objective**: Screens long-term fundamental compounders for positional allocation and manages active positions during market hours.
-  - **Dual-Gate Signal Hierarchy**:
-    - **Gate 1 (Bucket Prerequisite)**:
-      - *Core Compounder*: $\text{Score} \ge 65$, $\text{Mcap} \ge ₹10,000\text{ Cr}$, Non-Financials: $\text{ROCE} \ge 20.0\%$, $\text{ROE} \ge 15.0\%$, $\text{Debt/Equity} \le 0.50$; Financials: $\text{ROE} \ge 15.0\%$.
-      - *Growth Multiplier*: $\text{Score} \ge 60$, $\text{Mcap} \ge ₹2,000\text{ Cr}$, $\text{YoY Sales} \ge 20.0\%$, $\text{YoY Profit} \ge 20.0\%$, $\text{RS}_{6m} \ge 0$ (or `None` UNKNOWN benefit-of-doubt), $\text{Dist 52W} \le 15.0\%$.
-      - *Quality-On-Sale*: $\text{Score} \ge 50$, $\text{Dist 52W} \ge 10.0\%$, Non-Financials: $\text{ROCE} \ge 15.0\%$, $\text{Debt/Equity} \le 1.0$; Financials: $\text{ROE} \ge 15.0\%$.
-      - *Opportunistic*: $\text{Score} \ge 55$, $\text{YoY Profit} \ge 40.0\%$, $\text{RS}_{6m} \ge 15.0\%$ (requires confirmed RS evidence).
-      - *Financial Sector Quality Gate*: **[UPDATED on 2026-08-04 - WEALTH_FIN_GNPA_GATE_v1.0]** ~~Financial stocks used non-financial D/E ceiling or passed unchecked~~. Banks/NBFCs omit D/E ceiling and enforce a **GNPA Quality Gate ($\text{GNPA} > 5.0\% \rightarrow \text{FAIL}$; missing GNPA $\rightarrow \text{UNKNOWN}$ benefit-of-doubt)**.
-      - *Proxy Removal Policy*: **[UPDATED on 2026-08-04 - WEALTH_PROXY_FIX_v1.0]** ~~Missing growth/FCF metrics defaulted to +15%/+10% proxies~~. Missing metrics propagate as `None`, ensuring V5 scoring handles data voids without score inflation.
-      - *Tiered Completeness Gate*: **[UPDATED on 2026-08-04 - WEALTH_COMPLETENESS_SPLIT_v1.0]** ~~Binary completeness check required all 8 fields to be non-null~~. Split into **Hard Mandatory** (`cmp`, `sma_200`, `FM_Score`) vs **Soft Mandatory** (`momentum_confidence`, `rs_6m`, etc.) which apply downstream conservative defaults.
-      - *Stale Exit Code*: **[UPDATED on 2026-08-04 - WEALTH_STALE_STATE_v1.0]** ~~Stale price data during exit evaluation returned silent `""`~~. Surfaced explicitly as `"DATA_STALE"`.
-      - *Extreme Valuation Ceiling*: $\text{PEG} \le 3.0$ (instant kill-gate for extreme bubble valuations).
-    - **Gate 2 (Timing Gate)**:
-      - Fundamental Quality Score $\ge 55$, Technical Momentum Score $\ge 25$, and $\text{Price} > \text{SMA}_{200}$.
-  - **Hybrid 2-Tier Schedule**:
-    - *Fast CMP Exit Updates*: Every 5 minutes during market hours (<3.0s runtime) to monitor active portfolio exit stops.
-    - *Full BUY Alert Scans*: Every 15 minutes during market hours to evaluate full 287-stock universe for new buy entries.
-
-  ## 2.6 Multibagger Engine (`app/multibagger.py`)
-  - **Market Objective**: Evaluates multi-year compounders combining fundamental quality, low promoter pledge ($\le 10\%$), high capital efficiency, and technical momentum.
-  - **Unified Conviction Tiers & Alert Triggering**:
-    - *🚀 Prime Multibagger*: Composite Score $\ge 75$, Quality $\ge 65$, Valuation $\ge 50$, Trend $\ge 10.0$, and **Piotroski F-Score $\ge 7$** ($₹100,000$ capital allocation). Generates active BUY alert when in buy zone.
-    - *💎 High Quality*: Composite Score $\ge 65$, Quality $\ge 60$, Trend $\ge 10.0$ ($₹50,000$ capital allocation). Generates active BUY alert when in buy zone.
-    - *🟡 Watchlist*: Composite Score $50–64$. **Non-alerting watchlist tier** (tracked in display cache for fundamental monitoring; strictly blocked from generating active BUY alerts).
-    - *Financial Sector CAR Fallback*: **[UPDATED on 2026-08-04 - MULTIBAGGER_FIN_FALLBACK_v2.0]** ~~Financial stocks missing Capital Adequacy Ratio (CAR) were permanently hard-rejected with `UNSUPPORTED: financial-sector CAR unavailable`~~. Replaced with tri-state UNKNOWN handling (missing CAR gives benefit of doubt during buying, and triggers `SELL_REVIEW` instead of position close during exit monitoring).
-  - **Category Label Binding**: The `category` column in the database (`alerts`) and alert payloads is strictly bound to the final post-bonus conviction tier (`tier`), ensuring zero mis-stamping of active alerts.
-  - **Execution Schedule**: **04:00 AM IST Cold Start** (initial screening with fresh daily watchlist) + **19:00 PM IST Daily Scan** (post-market full scan) + **15-minute intraday exit monitor**.
-  - **Build Manifest Fallback**: If database `build_manifest` is absent (e.g. after container restart or manual trigger), scanner falls back to disk `data/watchlist.parquet` restored from Postgres on boot.
-
-  ## 2.7 Result / Earnings Calendar Pipeline (`app/earnings_calendar.py`)
-  - **Market Objective**: Fetches upcoming and declared quarterly results across 986 stocks in the universe.
-  - **Schedule**: Post-market close window (**15:30 to 18:00 IST**).
-  - **Priority Execution Logic**:
-    - **Priority 1**: Stocks scheduled for results **TODAY** (`earnings_date = TODAY`) are re-checked first right after market close to immediately capture declared results.
-    - **Priority 2**: Rest of universe (skipped if known date updated within **45 days**, or missing date updated within **7 days**).
-  - **Rate Limiting & Resiliency**: Throttled to 2 parallel workers with `0.3s` sleep per HTTP request. Enforces circuit breaker on HTTP 429 rate limits.
+## Core Capabilities
+- **Certified Quantitative Scanning Engines**:
+  - `DAILY_BUILDER`: Autonomous daily universe construction, liquidity filtering, circuit filtering, and promoter pledge scraping.
+  - `TECHNICAL`: High-Conviction Technical Momentum Breakout Engine (active in `BULL` regime).
+  - `QUALITY_COMPOUNDER` / `WEALTH_ENGINE`: Fundamental Wealth Engine & Live Fundamental Scanner targeting 4 fundamental buckets (Core Compounder, Growth Multiplier, Quality-On-Sale, Opportunistic).
+  - `QUALITY_VALUE_RECOVERY`: Valuation-based recovery scanner targeting certified high-quality compounders trading at steep valuation discounts.
+  - `MULTIBAGGER_ENGINE`: Multi-year compounder evaluation combining fundamental quality, low promoter pledge ($\le 10\%$), capital efficiency, and technical momentum.
+- **Data Availability Auditor & Recovery-Diagnostics**: Pre-recovery diagnostic layer enforcing a strict 3-tier hierarchy (Tier 1 Production-Authoritative, Tier 2 FYERS API v3 Approved Broker Check, Tier 3 Screener.in Forensic Oracle Only). Emits discrete per-stock per-field alerts to the Admin Dashboard Bell Icon.
+- **Authoritative Outbox Persistence & Crash Recovery**: PostgreSQL Transactional Outbox (`buy_alerts_journal`) as single source of truth, with idempotent Parquet materialization and deterministic bidirectional crash recovery (`reconcile_alerts_outbox_materialization`).
+- **Dynamic Risk & Target Management**: Automated initial stop loss calculation, structural resistance placement, trailing stop loss management, multi-target profit booking (T1, T2, T3, T4), and exit alerting.
+- **Corporate Action Event Framework**: Decoupled, priority-ranked corporate event badges (`E` Earnings, `D` Dividends, `S` Splits, `B` Bonuses) with trading-day calendar calculation and touch-friendly overflow pills.
+- **Real-Time Dashboards**: User Dashboard, Admin Dashboard (with notification bell and real-time SSE stream), and Performance Tracker.
+- **Omnichannel Notification Engine**: Real-time signal delivery via Telegram Channels, Web Push Notifications (VAPID), and In-App Portal Alerts.
+- **Autonomous 24/7 Execution**: Self-healing scheduler operating around NSE trading hours (09:15 to 15:30 IST), post-market earnings calendar window (15:30 to 18:00 IST), and early morning build cycles.
 
 ---
 
-  # 3. TRADE EXECUTION, SIGNAL DELIVERY & ALERT LIFECYCLE
+# 2. PRODUCTION SCANNER SUITE & STRATEGY SPECIFICATIONS
 
-  ## 3.1 Alert Payload Structure
-  Every alert generated by the system contains complete structural parameters:
-  - **Symbol**: Standard NSE/BSE ticker (e.g. `RELIANCE`, `TATAMOTORS`, `YASHHV.BO`).
-  - **Scanner Source**: `EOD`, `MULTI_TF`, `REVERSAL`, `PULLBACK`, `WEALTH`, `MULTIBAGGER`.
-  - **Entry Price**: Recommended breakout execution price (in ₹ / RS).
-  - **Initial Stop Loss**: Structural stop loss calculated at signal generation time (**Immutable**).
-  - **Trailing Stop Loss**: Mutable stop loss updated as targets are hit.
-  - **Targets (T1 to T4)**:
-    - Dynamically generated using the `ClusterEngine`, which scans for structural resistance nodes (prior swing highs, volume nodes, moving averages, Fibonacci extensions).
-    - Targets are chosen in ascending order of resistance intensity rather than arbitrary R-multiples.
-  - **Composite Score**: 0–100+ quality score rendered in the **All Trades Table** and signal cards.
+The system operates strictly certified scanning engines reading configuration directly from `config.py`:
 
-  ### 3.1.1 Composite Quality Score & Selection Mechanics
-  - **What the Score Represents**: The `score` column displayed in the **All Trades Table** is a **Composite Technical & Fundamental Quality Score (0–100+)** calculated dynamically by the scoring engine (`app/scoring_engine.py`) at signal generation time. It combines:
-    1. *Technical Breakout Quality*: Candle body ratio, close position, ATR expansion, 50D-high breakout bonus (+5 pts).
-    2. *Volume & Liquidity Conviction*: Volume surge ratio vs 20D Median Volume baseline, NSE delivery percentage, institutional block deals.
-    3. *Trend & Momentum Stack*: Moving average alignment ($\text{EMA}_9 > \text{EMA}_{20} > \text{SMA}_{50} > \text{SMA}_{200}$), ADX trend strength, RS Percentile rating vs Nifty 50.
-    4. *Fundamental Quality*: Piotroski F-Score ($\ge 7$), sector tailwind bonus (+3 pts), ROCE/ROE efficiency, and PEG valuation ceiling.
-    5. *Penalties*: Deductions for extension above EMA20, unsustained volume, young listings ($< 200$ bars), or high promoter pledge ($> 10\%$).
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        DAILY WATCHLIST BUILDER                         │
+│       Universe Scrape → Liquidity Filter → Circuit Filter → Pledge      │
+│                     (Produces: data/watchlist.parquet)                 │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+         ┌──────────────────────────┴──────────────────────────┐
+         ▼                                                     ▼
+┌─────────────────────────────────┐   ┌──────────────────────────────────┐
+│   TECHNICAL BREAKOUT SCANNER    │   │   QUALITY COMPOUNDER / WEALTH    │
+│  • 20D High Momentum Breakout   │   │  • 4 Fundamental Buckets         │
+│  • Active in BULL Regime        │   │  • Never-Downgrade Gate          │
+│  • Dynamic SL & Resistance T1-T4│   │  • Source Freshness Fence        │
+└─────────────────────────────────┘   └─────────────────┬────────────────┘
+                                                        │
+                                                        ▼
+                                      ┌──────────────────────────────────┐
+                                      │   MULTIBAGGER CONVICTION ENGINE  │
+                                      │  • Prime Multibagger (Piotroski) │
+                                      │  • High Quality Conviction Tier  │
+                                      │  • Strict Non-Null Pledge Gates  │
+                                      └──────────────────────────────────┘
+```
 
-  - **How Scanners Select Alerts Using Score**:
-    1. **Hard Minimum Floor (Filtering)**: A candidate is immediately rejected (`rejected["low_score"]`) if `Score < Minimum_Threshold`:
-       - EOD Breakout: $\ge 82$ (elevated dynamically in bear regimes)
-       - Multi-TF Intraday: $\ge 78$
-       - Reversal Scanner: $\ge 62$ (elevated to **$\ge 90$** in `STRONG_BEAR` macro regimes)
-       - Pullback Pipeline: $\ge 75$
-       - Wealth Engine: $\ge 55$
-       - Multibagger Engine: $\ge 65$ (High Quality), $\ge 75$ (Prime Multibagger)
+## 2.1 Daily Watchlist Builder (`app/daily_builder.py`)
+- **Market Objective**: Autonomous generation and validation of the daily trading universe across listed NSE & BSE equities.
+- **Execution Schedule**: **01:00 AM IST** daily (prior to market open).
+- **Universe Filtering Cascade**:
+  1. **TradingView & Exchange Universe Ingestion**: Pulls active listed NSE/BSE stocks (~940+ symbols).
+  2. **Liquidity & Price Floor Gate**:
+     - `Close >= ₹100.0` (`MIN_STOCK_PRICE`)
+     - Daily Turnover $\ge ₹1.0\text{ Cr}$
+     - 20-day Average Daily Volume $\ge 100,000$ shares
+     - Minimum historical daily bars: $\ge 50$ bars (accommodating recent high-momentum IPOs).
+  3. **Circuit Filter & Surveillance Guard**: Excludes ASM/GSM stage securities and symbols with frequent $\le 5\%$ circuit limits.
+  4. **Promoter Pledge Scraper (`nse_pledge_fetcher.py`)**: Fetches official NSE promoter pledge filings and enforces a strict pledge ceiling ($\le 15\%$ maximum allowed, $\le 10\%$ for Prime Multibaggers).
+  5. **Output**: Authoritative daily watchlist saved to `data/watchlist.parquet` and mirrored in PostgreSQL database `build_manifest`.
 
-  ### 3.1.2 Earnings & Corporate Event Warning Badging (No Hard-Block Policy)
-  - **Policy Statement**: Upcoming earnings announcements or corporate action windows do **NOT** hard-block scanner trade generation. Trades meeting technical and fundamental criteria continue to fire normally.
-  - **Automated Metadata Enrichment**: Every generated alert is automatically enriched at database insertion time (`save_alert_if_new`) with earnings metadata from `EarningsCalendarService` (`earnings_flag`, `days_to_earnings`, `earnings_date`, `earnings_severity`, `warning_msg`).
-  - **UI Visual Badging**: The User & Admin Dashboards visually badge event risk directly in the **All Trades Table** symbol column and detail panels:
-    - `🔴 RESULTS TODAY`: Earnings expected today (0 days).
-    - `🟠 RESULTS IN 1D / 2D`: Earnings expected in 1 to 2 days.
-    - `🟡 RESULTS IN 3D–5D`: Earnings expected in 3 to 5 days.
-    - `⚠️ UNVERIFIED`: Missing or unverified calendar date.
-    2. **Descending Rank Selection (Truncation)**: When multiple stocks pass all technical and fundamental filters on the same scan cycle, the scanner sorts candidates in descending order by Score:
-       ```python
-       approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-       ```
-       Only the **Top-N highest-scoring candidates** (e.g. Top-10 for EOD/Reversal/Pullback) are selected and persisted into the `alerts` table. Lower-scoring candidates exceeding the limit are suppressed (`RANKED_OUT`).
+## 2.2 Technical Momentum Breakout Scanner (`app/technical_scanner.py`)
+- **Market Objective**: Identifies high-conviction momentum breakouts from consolidation bases in stocks exhibiting institutional accumulation.
+- **Regime Constraint**: Certified and actively alerting strictly during **`BULL`** market regimes.
+- **Key Eligibility & Quality Gates**:
+  1. **Price Floor**: `Close >= ₹100.0`.
+  2. **Data History**: $\ge 50$ historical daily bars.
+  3. **20-Day High Breakout**: `Close > Prior_20D_High`.
+  4. **Distance from 52-Week High**: Within 15.0% of 52W High (`MAX_DISTANCE_FROM_52W_HIGH_PCT`).
+  5. **Candle Geometry Quality**:
+     - Bullish candle: `Close > Open`
+     - Body Ratio: $\ge 45\%$ of total candle range
+     - Close Position: $\ge 65\%$ of candle range
+     - Upper Wick: $\le 35\%$ of candle range
+  6. **Volume Surge**: Volume $\ge 1.8\text{x}$ vs 20-day median volume baseline.
+  7. **ATR Volatility Expansion**: Candle Range / 20-day ATR $\ge 0.9$ (`MIN_ATR_EXPANSION_RATIO`).
+  8. **Non-Extended Extension Gate**: $(\text{Close} - \text{EMA}_{20}) / \text{ATR}_{20} \le 1.5$.
+  9. **Moving Average Stack**: $\text{Close} > \text{EMA}_{20} > \text{SMA}_{50} > \text{SMA}_{200}$ (with reduced trend gate for symbols with 50–199 bars).
+  10. **Composite Score Threshold**: Minimum score $\ge 82$ out of 100+.
+  11. **Natural Risk-Reward**: Minimum $R:R \ge 2.0R$ to Target 1.
 
-  ## 3.2 Signal Delivery Channels
-  1. **Telegram Channels**: Automated instant posts with symbol, price, stop loss, targets, and chart links.
-  2. **Web Push Notifications**: Browser push notifications via VAPID delivered to mobile and desktop browsers.
-  3. **In-App Portal Cards**: Live updating signal cards rendered on the User & Admin Dashboards.
+## 2.3 Quality Compounder & Fundamental Wealth Engine (`app/wealth_engine.py`, `app/live_fundamental_scanner.py`)
+- **Market Objective**: Screens and allocates capital to high-conviction fundamental compounders across 4 deterministic buckets, enforcing strict Point-in-Time (PIT) integrity.
+- **Four Deterministic Fundamental Buckets**:
+  1. **Core Compounder**:
+     - Fundamental Score $\ge 65$, Market Cap $\ge ₹10,000\text{ Cr}$.
+     - Non-Financials: $\text{ROCE} \ge 20.0\%$, $\text{ROE} \ge 15.0\%$, $\text{Debt/Equity} \le 0.50$.
+     - Financials: $\text{ROE} \ge 15.0\%$, $\text{GNPA} \le 5.0\%$.
+  2. **Growth Multiplier**:
+     - Fundamental Score $\ge 60$, Market Cap $\ge ₹2,000\text{ Cr}$.
+     - YoY Sales CAGR $\ge 20.0\%$, YoY Profit CAGR $\ge 20.0\%$.
+     - Relative Strength vs Nifty ($RS_{6m}$) $\ge 0$, Distance to 52W High $\le 15.0\%$.
+  3. **Quality-On-Sale**:
+     - Fundamental Score $\ge 50$, Distance from 52W High $\ge 10.0\%$ (discounted quality).
+     - Non-Financials: $\text{ROCE} \ge 15.0\%$, $\text{Debt/Equity} \le 1.0$.
+     - Financials: $\text{ROE} \ge 15.0\%$.
+  4. **Opportunistic**:
+     - Fundamental Score $\ge 55$, YoY Profit CAGR $\ge 40.0\%$, $RS_{6m} \ge 15.0\%$.
+- **Hard-Kill Valuation Ceiling**:
+  - $\text{PEG} \le 3.0$ ceiling: Immediate disqualification for bubble valuations.
+- **Timing Gate**:
+  - Fundamental Quality Score $\ge 55$, Technical Momentum Score $\ge 25$, and $\text{Price} > \text{SMA}_{200}$.
+- **Never-Downgrade Gate & Source Freshness Fence**:
+  - Never allow older or lower-quality data to overwrite certified canonical PIT records.
+  - Pre-BUY Filing Freshness Fence enforces that no BUY alert may be committed if a newer filing was published on the exchange before transaction commit.
+- **Execution Schedule**:
+  - Pre-market sweep at **02:00 AM IST**.
+  - Intraday 15-minute BUY alert scan during market hours (`09:15` to `15:30` IST).
+  - Fast 5-minute CMP exit updates (<3.0s runtime).
 
-  ## 3.3 How to Trade Scanner Alerts
-  1. **Entry Execution**:
-    - *EOD / Reversal / Pullback Alerts*: Generated after 18:00 IST. Enter position at Next Day Market Open (09:15 AM IST) or via limit order near the alert entry price.
-    - *Multi-TF Intraday Alerts*: Triggered intraday. Enter immediately upon receiving alert if price is within 0.5% of recommended entry price.
-  2. **Position Sizing & Risk Rules**:
-    - Risk fixed capital per trade (e.g., 1% of total portfolio equity).
-    - Position Size (Shares) = $\frac{\text{Capital at Risk (₹)}}{\text{Entry Price} - \text{Initial Stop Loss}}$.
-  3. **Profit Booking & Exit Profiles (`EXIT_PROFILES`)**:
-    - 100% of booked position size is liquidated across **Target 1 (T1)**, **Target 2 (T2)**, and **Target 3 (T3)** based on the scanner's assigned profile:
-      - **BALANCED** (EOD & Pullback): Sell 30% at T1, 40% at T2, 30% at T3.
-      - **AGGRESSIVE** (Multi-TF): Sell 20% at T1, 30% at T2, 50% at T3 (holds majority for momentum continuation).
-      - **CONSERVATIVE** (Reversal): Sell 25% at T1, 50% at T2, 25% at T3.
-    - **Target 4 (`target_4`) Status**: `target_4` is an **informational structural runner target** used for analytical quality scoring, notification alerts, and dashboard tracking. Position size is 100% liquidated by T3.
-    - **Trailing Stop Loss Rules**:
-      - At T1: Trail `stop_loss` to Breakeven (Entry Price).
-      - At T2: Trail `stop_loss` to Target 1 (T1).
-      - At T3: Trade is fully closed.
-    - **Full Exit Overwrite Guard & Terminal Immutability**: When remaining shares $\le 0$ (trade fully closed at T3, SL, or Expiry), the system freezes `status`, `stop_loss`, and `exit_reason` columns to preserve the trade's final historical record.
+## 2.4 Quality-Value Recovery Scanner (`app/fundamental_wealth_engine.py`)
+- **Market Objective**: Evaluates certified fundamental compounders that have undergone severe market pullbacks to identify high-margin-of-safety value entries.
+- **Eligibility Gates**:
+  - Verified Tier-1 fundamental certification (ROCE $\ge 15\%$, positive CFO/PAT).
+  - Drawdown from 52-week high between 15% and 35%.
+  - Technical stabilization: RSI divergence or bullish candle reclaim of $\text{EMA}_{20}$.
 
-  ## 3.4 Exit Alert System
-  Exits are triggered and notified under five specific conditions:
-  1. **Stop Loss Breach (`LOSS`)**: Candle Low drops below active `stop_loss`.
-  2. **Target Hit (`WIN` / `PARTIAL_WIN`)**: Price reaches T1, T2, or T3. (Target 4 is an informational runner target).
-  3. **Structural Failure Exit**: Price closes below structural support (EMA20 / SMA50) before T1.
-  4. **Trailing Stop Exit**: Price reverses after hitting T1/T2 and hits trailed stop.
-  5. **Time Expiry (`EXPIRED`)**: Trade fails to hit T1 within 20 trading days (40 days for REVERSAL).
+## 2.5 Multibagger Engine (`app/multibagger.py`)
+- **Market Objective**: Screens multi-year compounders combining capital efficiency, promoter skin-in-the-game, and financial health.
+- **Unified Conviction Tiers**:
+  - **🚀 Prime Multibagger**:
+    - Composite Score $\ge 75$, Quality $\ge 65$, Valuation $\ge 50$, Trend $\ge 10.0$.
+    - **Piotroski F-Score $\ge 7$**.
+    - Promoter Pledge $\le 10.0\%$.
+    - Full capital allocation ($₹100,000$).
+  - **💎 High Quality Multibagger**:
+    - Composite Score $\ge 65$, Quality $\ge 60$, Trend $\ge 10.0$.
+    - Promoter Pledge $\le 15.0\%$.
+    - Standard capital allocation ($₹50,000$).
+  - **🟡 Watchlist Tier (Score 50–64)**:
+    - Non-alerting display tier tracked for fundamental monitoring. Strictly blocked from generating active BUY alerts.
+- **Strict Non-Null Integrity**:
+  - Missing promoter pledge or Piotroski scores are never populated with synthetic proxies; missing data fails closed.
+- **Execution Schedule**: **04:00 AM IST** Cold Start, **19:00 PM IST** Post-Market Scan, and **15-minute** intraday exit monitor.
 
-  > [!IMPORTANT]
-  > **Intrabar Precedence Rule**: If a single candle touches both Stop Loss (Low <= SL) and Target (High >= T1/T2/T3), **Stop Loss (`LOSS`) takes conservative precedence**.
+## 2.6 Result / Earnings Calendar Pipeline (`app/earnings_calendar.py`)
+- **Market Objective**: Autonomous tracking of upcoming and declared quarterly financial results.
+- **Schedule**: Post-market close window (**15:30 to 18:00 IST**).
+- **Priority Execution Logic**:
+  - **Priority 1**: Stocks scheduled for results **TODAY** (`earnings_date = TODAY`) are queried first immediately after 15:30 IST to capture newly declared numbers.
+  - **Priority 2**: Rest of universe (skipped if known date cached within **45 days**, or missing date retried after **7-day** cooldown).
+- **Resilience**: Managed via `safe_yf_call` gateway with exponential backoff and circuit breaker on HTTP 429.
 
-  ---
+---
 
-  # 4. DASHBOARD SUITE & USER/ADMIN WORKFLOWS
+# 3. CORPORATE ACTION EVENT FRAMEWORK & WARNING BADGES
 
-  The platform provides three integrated, real-time glassmorphic web dashboards served autonomously by Flask (`app/dashboard_server.py`) and Jinja2 templates (`app/templates/`):
+The **Corporate Action Event Framework** (`app/corporate_events.py`) provides a decoupled, stateless, and extensible architecture for decorating stock objects with priority-ranked event badges across all backend API endpoints and frontend dashboards.
 
-  ## 4.1 User Dashboard (`/`)
-  Designed for active traders and portfolio managers to monitor live market signals, active position lifecycles, and risk-reward dynamics:
+```
+    CorporateEventRepository           TradingCalendar
+  (DB Query / Data Access Layer)     (Cross-Cutting Trading Days)
+               │                                │
+               └───────────────┬────────────────┘
+                               │
+                               ▼
+                      CorporateEventCache
+              (Cache Lifecycle, TTL & Fallbacks)
+                               │
+                               ▼
+                     CorporateEventPipeline
+             (Pluggable Contributor Registry)
+                               │
+                               ▼
+                decorate_events(stocks) -> Pure Function
+                               │
+                               ▼
+                 Versioned Semantic JSON Payload
+                               │
+                               ▼
+         shared_ui.js -> renderEventBadges(event_badges)
+       (Client-Side CSS Styling, Tooltips & +N Overflow)
+```
 
-  ### Key Components & Panels:
-  1. **Real-time Telemetry KPI Cards**:
-     - **Active Positions**: Count of currently open trades (`OPEN` / `TRAILING`).
-     - **Total Closed Trades**: Total historical trades completed (`WIN`, `PARTIAL_WIN`, `LOSS`, `EXPIRED`).
-     - **Win Rate (%)**: Realized win rate across all historical trades.
-     - **Net PnL (₹ and %)**: Cumulative realized portfolio profit/loss.
-     - **Active Viewers Badge**: Live SSE/Polling connection counter (`/api/viewers`).
-     - **Web Push VAPID Toggle**: One-click browser push notification subscription toggle (`/api/push/subscribe`).
-  2. **Scanner Category Filter Tabs**:
-     - Instant client-side filtering by scanner engine: **ALL**, **EOD Breakout**, **Multi-TF Intraday**, **Reversal**, **Pullback Pipeline**, **Wealth Engine**, **Multibagger Engine**.
-  3. **Signal Cards & Active Signals Table**:
-     - Displays every alert with real-time price updates (CMP) polled from NSE/BSE data providers:
-       - **Symbol**: Standard NSE/BSE ticker linked directly to TradingView charts (`https://in.tradingview.com/chart/?symbol=NSE:{symbol}`).
-       - **Scanner Badge**: Color-coded pill (`EOD` blue, `MULTI_TF` purple, `REVERSAL` orange, `PULLBACK` cyan, `WEALTH` green, `MULTIBAGGER` gold).
-       - **Entry Price (₹)**: Recommended execution price.
-       - **Initial Stop Loss (₹)**: Structural stop loss calculated at signal generation time (**Immutable**).
-       - **Trailing Stop Loss (₹)**: Active trailing stop updated as targets are hit.
-       - **Target Pillars (T1, T2, T3, T4)**:
-         - `Target 1`: Dynamic resistance cluster level (30% liquidation in Balanced mode; trails SL to Breakeven).
-         - `Target 2`: Dynamic resistance cluster level (40% liquidation in Balanced mode; trails SL to T1).
-         - `Target 3`: Final exit target (30% liquidation; 100% position closed).
-         - `Target 4`: **Informational Structural Runner Target** (0% position allocation; tracked for analytical quality scoring).
-       - **Natural Risk-Reward ($R:R$)**: $\frac{\text{Target}_1 - \text{Entry}}{\text{Entry} - \text{StopLoss}}$.
-       - **Composite Score**: 0–100+ quality score.
-       - **Status Badges**: `OPEN` (active), `TRAILING` (T1/T2 hit), `WIN` (T3 hit), `PARTIAL_WIN` (T1/T2 hit then stopped out), `LOSS` (stop loss hit), `EXPIRED` (holding period expiry).
-       - **Live PnL (%)**: Real-time gain/loss calculated as $\frac{\text{CMP} - \text{Entry}}{\text{Entry}} \times 100\%$.
+## 3.1 Components & Architecture
+1. **`TradingCalendar` (`app/trading_calendar.py`)**:
+   - Computes actual trading sessions between dates (`days_between()`), skipping weekends and official NSE market holidays.
+2. **`CorporateEventRepository`**: Isolated database data access layer (`fetch_all_events()`).
+3. **`CorporateEventCache`**: Manages cache lifecycle, 1-hour TTL, and fallback to stale snapshots on failure.
+4. **`EventContributor`**: Abstract provider class (`EarningsContributor`, `DividendContributor`, `SplitContributor`, `BonusContributor`).
+5. **`CorporateEventPipeline`**: Registry aggregating event contributors.
+6. **`decorate_events()`**: Stateless, pure functional transformer returning immutable copies decorated with `event_badges`.
 
-  ---
+## 3.2 Standardized JSON Schema Contract (`schema_version: 1`)
+```json
+{
+  "symbol": "TATAMOTORS",
+  "company_name": "Tata Motors Limited",
+  "schema_version": 1,
+  "event_badges": [
+    {
+      "type": "earnings",
+      "label": "E in 3d",
+      "priority": 100,
+      "status": "UPCOMING",
+      "metadata": {
+        "date": "2026-10-07",
+        "days": 3,
+        "date_status": "CONFIRMED"
+      }
+    }
+  ]
+}
+```
 
-  ## 4.2 Admin Dashboard (`/admin`)
-  Designed for system administrators and operations monitoring to manage autonomous scanner execution, memory performance, counterfactual shadow tracking, and notifications:
+### Event Priority Hierarchy (`EventPriority`):
+| Event Type | Priority Value | Label | Status Classification |
+|---|---|---|---|
+| **`EARNINGS`** | **100** | `E in 3d` / `E 2d ago` | `UPCOMING` (`0 <= days <= 7`) / `RECENT` (`-7 <= days < 0`) |
+| **`DIVIDEND`** | **80** | `D` | `UPCOMING` / `RECENT` |
+| **`SPLIT`** | **70** | `S` | `UPCOMING` / `RECENT` |
+| **`BONUS`** | **60** | `B` | `UPCOMING` / `RECENT` |
 
-  ### Key Components & Panels:
-  1. **Scanner Health & Control Grid (6 Scanner Cards)**:
-     - Real-time status cards for **EOD**, **MULTI_TF**, **REVERSAL**, **PULLBACK**, **WEALTH**, and **MULTIBAGGER**.
-     - Displays Status Pill (`OK` green, `RUNNING` blue, `QUEUED` yellow, `DEFERRED` orange, `DEGRADED` purple, `DOWN` red).
-     - **Manual "Run Scanner Now" Trigger**: One-click button initiating an asynchronous manual scan cycle (`/api/trigger-scanner`).
-     - **Dynamic Sliding Queue**: Renders real-time queue positions (`QUEUED-1`, `QUEUED-2`, etc.) calculated based on request timestamps.
-  2. **Counterfactual Shadow Tracking Table & Quality Metrics**:
-     - Monitors system-rejected trades (`is_rejected = TRUE`) in the background without affecting live portfolio equity curves.
-     - Displays `ghost_symbol`, `original_scanner`, `rejection_reason`, `entry_price`, `shadow_status`, `shadow_exit_price`, `shadow_pnl_pct`:
-       - `👻 SHADOW WIN`: Rejection touched Target 1/2/3 before SL (Hypothetical Missed Win).
-       - `👻 SHADOW LOSS`: Rejection touched Stop Loss before Target (Hypothetical Correct Rejection).
-       - `👻 SHADOW EXPIRED`: Rejection timed out after 40 trading days.
-     - **Rejection Quality Metrics**:
-       - **True Negatives Rate (%)**: Percentage of rejected trades that ended in `SHADOW_LOSS` (Validates rejection engine quality).
-       - **False Negatives Rate (%)**: Percentage of rejected trades that ended in `SHADOW_WIN` (Identifies overly strict filters).
-  3. **System Notification Log & Health Telemetry**:
-     - Displays API rate-limit throttles, Fyers failover events, Bhavcopy fallback warnings, and database connection pool health.
-     - **Mutex Lock Telemetry (`/api/lock-stats`)**: Displays active lock acquisitions, wait times, hold times, and contention events for scanner process locks.
-     - **Memory Profiler Timeline**: Stage timeline breakdown and heap usage memory profiling metrics.
-  4. **System Action Controls**:
-     - **Test Telegram Alert**: Triggers a test payload to configured Telegram channels (`/api/test_telegram`).
-     - **Test Push Notification**: Triggers a test push payload to registered Web Push devices (`/api/test_push`).
-     - **Export Watchlists / Data**: Direct CSV/JSON export buttons for watchlists, alerts, and outcomes.
+## 3.3 Event Badging Policy (No Hard-Block Policy)
+Upcoming earnings announcements or corporate action windows do **NOT** hard-block scanner trade generation. Valid technical and fundamental breakouts continue to fire normally. Event risk is visually badged in the UI to give operators complete situational awareness:
+- `🔴 RESULTS TODAY`: Earnings expected today (0 days).
+- `🟠 RESULTS IN 1D / 2D`: Earnings expected in 1 to 2 days.
+- `🟡 RESULTS IN 3D–5D`: Earnings expected in 3 to 5 days.
+- `⚠️ UNVERIFIED`: Missing or unverified calendar date.
 
-  ---
+Client-side rendering (`static/shared_ui.js`):
+- Sorts badges by `priority` descending.
+- Displays up to `maxDisplay` badges (default = 2).
+- Renders a touch-friendly and accessible `+N` overflow pill for remaining events with hover/tap popover tooltips.
 
-  ## 4.3 Performance Tracker Dashboard (`/performance`)
-  Designed for quantitative analytics, equity curve auditing, and multi-scanner strategy comparison:
+---
 
-  ### Key Components & Panels:
-  1. **Cumulative Equity Curve & Benchmark Comparison**:
-     - Interactive Chart.js visual tracking of cumulative portfolio return (%) over time vs Nifty 50 benchmark index.
-  2. **Strategy Key Performance Indicators (KPIs)**:
-     - **Cumulative Win Rate (%)**: $\frac{\text{Total Winning Trades}}{\text{Total Closed Trades}} \times 100\%$.
-     - **Profit Factor**: $\frac{\text{Gross Realized Profits (₹)}}{\text{Gross Realized Losses (₹)}}$.
-     - **Average Win vs Loss Ratio**: Average profit per winning trade divided by average loss per losing trade ($R:R$).
-     - **Max System Drawdown (%)**: Peak-to-trough equity decline.
-     - **Average Holding Period**: Mean trading days elapsed from entry to exit.
-  3. **Monthly Return Heatmap Matrix**:
-     - Grid displaying net realized returns (%) broken down by month and year.
-  4. **Scanner-by-Scanner Expectancy Matrix**:
-     - Detailed performance table breaking down win rate, profit factor, total signals, net PnL, and max drawdown individually across all 6 scanners (`EOD`, `MULTI_TF`, `REVERSAL`, `PULLBACK`, `WEALTH`, `MULTIBAGGER`).
-  5. **Historical Trade Audit Log**:
-     - Complete, searchable, sortable audit table of every historical trade with full entry/exit parameters, exit signal reason, and timestamp.
+# 4. TRADE EXECUTION, SIGNAL DELIVERY & PERSISTENCE ARCHITECTURE
 
-  ---
+## 4.1 Authoritative Outbox Pattern & Crash Recovery
+The system strictly prevents state drift between PostgreSQL and Parquet files using the **Authoritative Transactional Outbox Pattern**:
 
-  ---
+```
+      PRE-COMMIT DECISION GATE
+      (Snapshot SHA + Source Freshness Fence)
+                 │
+                 ▼
+     [1] POSTGRESQL OUTBOX COMMIT
+      (buy_alerts_journal: status='COMMITTED',
+       materialized_to_parquet=0)
+                 │
+                 ▼
+     [2] IDEMPOTENT PARQUET MATERIALIZATION
+      (atomic write to .parquet sidecar)
+                 │
+                 ▼
+     [3] POSTGRESQL COMPLETION MARKER
+      (materialized_to_parquet=1, materialized_at=NOW())
+```
 
-  # 5. SYSTEM SCHEDULE & OPERATING TIMELINE
+### Crash-Recovery Invariants (`reconcile_alerts_outbox_materialization`):
+1. **Crash before DB commit**: Rollback occurs; 0 rows in DB, 0 in Parquet.
+2. **Crash after DB commit before Parquet write**: Reconciler detects `materialized_to_parquet = 0`, materializes pending records into Parquet, and sets flag to `1`.
+3. **Crash after Parquet write before DB marker**: Reconciler detects row already in Parquet, skips duplicate insertion idempotently, and sets marker to `1`.
+4. **Parquet file deletion or corruption**: Reconciler fully reconstructs Parquet from the authoritative database journal.
 
-  ```
-  00:00 IST ── Midnight Rotation
-                └─ Reset SessionContext, release daily caches, purge memory (gc.collect())
-  01:00 IST ── Daily Builder Run
-                └─ Scrape TradingView universe -> Update data/watchlist.parquet
-  02:00 IST ── Wealth Engine Initial Sweep
-                └─ Pre-market fundamental & momentum scoring for all 287 compounders
-  08:30 IST ── Readiness Verification Check
-                └─ Verify watchlist freshness, DB schema health, and data readiness
-  09:14 IST ── Pre-Market Warmup (09:14:30 IST)
-                └─ Pre-fetch 15m/1H price data for Multi-TF scanner to prevent 09:15 tick lag
-  09:15 IST ── Market Open (SessionContext -> MARKET_OPEN)
-                ├─ Every 5 min:  Wealth Engine CMP Exit Updates + Performance Tracker (<3s)
-                └─ Every 15 min: Multi-TF Scanner (:00/:15/:30/:45) + Wealth BUY Scan + Multibagger Exit Monitor
-  15:30 IST ── Market Close (SessionContext -> POST_MARKET)
-  18:00 IST ── Evening Batch Scanners (Sequential)
-                ├─ 1. Poll for NSE Bhavcopy delivery publication (every 5 mins until 20:30 IST fallback)
-                ├─ 2. Run EOD Breakout Scanner (max 10m hard timeout)
-                ├─ 3. Run Reversal Scanner (max 10m hard timeout)
-                └─ 4. Run Pullback Pipeline Scanner (max 10m hard timeout)
+## 4.2 Alert Payload Structure
+Every alert contains complete structural parameters:
+- **`symbol`**: Official NSE/BSE ticker (e.g. `RELIANCE`, `TCS`, `TATAMOTORS`).
+- **`scanner`**: `TECHNICAL`, `WEALTH`, `MULTIBAGGER`, or `QUALITY_VALUE_RECOVERY`.
+- **`entry_price`**: Recommended execution price (₹).
+- **`initial_stop_loss`**: Structural stop loss calculated at signal generation time (**Immutable**).
+- **`trailing_stop_loss`**: Active trailing stop loss updated as targets are hit.
+- **`targets (T1, T2, T3, T4)`**:
+  - Dynamically calculated via `ClusterEngine` scanning for structural resistance nodes (prior swing highs, volume nodes, moving averages, Fibonacci extensions).
+  - Ascending order of resistance intensity.
+- **`score`**: Composite Technical & Fundamental Quality Score (0–100+).
+- **`conviction_tier`**: `PRIME`, `HIGH_QUALITY`, or `STANDARD`.
 
-  ## 5.1 Standardized Scanner Execution Banners (`[VERSION: SCANNER_LOCK_BANNERS_v1.0]`)
-  Every quantitative scanner and background exit monitor emits a prominent, standardized log banner at `INFO` level upon lock acquisition and release:
-  - **Start Banner (Lock Acquired)**:
-    `********************* Starting <Scanner Name> Scanner at YYYY-MM-DD HH:MM:SS IST *********************`
-  - **Completion Banner (Lock Released)**:
-    `********************* <Scanner Name> Scanner completed at YYYY-MM-DD HH:MM:SS IST *********************`
-  - **Scope**: Applied universally across all 8 scanner processes (`EOD`, `Reversal`, `Multi-TF`, `Wealth Engine`, `Multibagger`, `Pullback`, `Daily Builder`, `MF Breakout Scanner`) and `Exit Monitors / Performance Tracker`.
-  - **Memory Profiler Sub-Stage Filtering (`[VERSION: MEMORY_PROFILER_SUBSTAGE_SUPPRESS_v1.0]`)**: Intermediate sub-stage memory profiler snapshots (e.g. `"Wealth: Candidate Selection"`, `"Wealth: Entry Timing"`, `"MTF Price Fetch"`) route to `logger.debug` level to keep production logs clean and un-cluttered.
-  ## 4.4 "Analyse Your Watchlist" Diagnostic System & Personal Watchlist (`app/stock_analyzer.py`)
-  An on-demand stock analysis, diagnostic, and watchlist management suite accessible on both User and Admin dashboards:
-  - **Strict NSE/BSE Master Ticker Validation (`validate_nse_bse_ticker`)**: Integrates `_load_master_symbol_dictionary()` (covering active watchlists, excluded datasets, full `temp_universe.parquet` (940+ tickers), historical price caches (~685 tickers), and Postgres symbol mappings). Tickers are validated via strict 5-stage verification (master dictionary, BSE mappings, DB `symbol_mappings`, Yahoo Search API, and historical price fetcher check), cleanly rejecting non-existent tickers (e.g. `NONEXISTENT999`) with HTTP 400.
-  - **100% Parity Across All 7 Scanner Stages via Reusable Production Evaluators**:
-    - *Stage 1 (Daily Builder)*: Calls `evaluate_daily_builder_symbol()` in `app/daily_builder.py` validating price floor ($\ge ₹100.0$), turnover ($\ge ₹1.0\text{ Cr}$), bar history ($\ge 50$), promoter blacklist, D/E ceiling, and OPM limits.
-    - *Stage 2 (EOD Breakout)*: Calls `evaluate_eod_symbol()` in `app/eod_scanner.py` with real macro regime context, validating 20D high breakout, volume surge ($\ge 1.8\text{x}$ 20D median), upper wick ($\le 35\%$), body ratio ($\ge 45\%$), close position ($\ge 65\%$), ATR expansion ($\ge 0.9$), EMA20 extension ($\le 1.5$ ATR), and bullish candle.
-    - *Stage 3 (Multi-TF Intraday)*: Calls `evaluate_multi_tf_symbol()` in `app/multi_tf_scanner.py` independently fetching 1H, 30m, 15m, and 5m intraday datasets via `fetch_watchlist_data()`, evaluating Phase A 1H trend permission ($EMA9 > EMA20 > SMA50$, $Close > SMA200$, $ADX \ge 20$), Phase B 30m base/consolidation ($BB Width Pctile < 0.45$), Phase C 15m micro-alignment ($Close \ge 15m EMA15$), and Phase D 5m trigger/thrust ($Close \ge Resistance$ & $5m Vol \ge 1.2x$). Returns explicit status tags (`CORE MET (Phase A+B+C+D Trigger Ready)`).
-    - *Stage 4 (Reversal Oversold)*: Calls `evaluate_reversal_symbol()` in `app/reversal_scanner.py` evaluating mean-reversion oversold bounce ($20\%-45\%$ 52W High drop band, $\text{RSI}(14) \le 38$ or RSI curl $\ge 50$, $\text{Close} > \text{SMA}_{50}$ reclaim).
-    - *Stage 5 (Pullback Continuation)*: Calls `evaluate_pullback_symbol()` in `app/pullback_pipeline.py` executing full `swing_utils` swing pivot detection (`detect_confirmed_pivots`), impulse origin selection (`select_pullback_origin` with $\ge 8\%$ gain), retracement depth ($23.6\%-61.8\%$) & volume contraction measurement (`measure_pullback`), and resumption trigger bar validation (`detect_resumption_trigger`), guaranteeing 100% parity with `pullback_pipeline.py`.
-    - *Stage 6 (Wealth Engine)*: Calls `evaluate_wealth_symbol()` in `app/wealth_engine.py` evaluating all 4 fundamental buckets matching `wealth_engine.py` 100% (Core Compounder: $\text{ROCE} \ge 20\%$, $\text{ROE} \ge 15\%$, $\text{D/E} \le 0.50$; Growth Multiplier: YoY Revenue $\ge 20\%$, YoY Profit $\ge 20\%$; Quality-On-Sale: $\text{ROCE} \ge 15\%$, $\text{D/E} \le 1.0$, Drop from 52W High $\ge 15\%$; Opportunistic: YoY Profit $\ge 40\%$) coupled with mandatory CMP > SMA200 technical trend gate and PEG $\le 3.0$ valuation ceiling.
-    - *Stage 7 (Multibagger Engine)*: Calls `evaluate_multibagger_symbol()` in `app/multibagger.py` evaluating 2 conviction tiers matching `multibagger.py` 100%: `🚀 Prime Multibagger` ($\text{Piotroski} \ge 7$, $\text{Pledge} \le 10\%$, Uptrend) and `💎 High Quality Multibagger` ($\text{Composite Score} \ge 65.0$, $\text{Pledge} \le 15\%$, Uptrend), with strict non-null handling for pledge and Piotroski data.
-  - **Bulk Watchlist Vectorization (`analyze_watchlist`)**: Bulk batch processor in `app/stock_analyzer.py` executing 1-pass vectorized market data fetching across multi-stock watchlists. Replaces $N \times 6$ sequential API round-trips with 1 bulk download pass, reducing deep analysis latency for 10-stock watchlists by over 80%.
-  - **Fundamental Dict Ratio & Multi-Alias Synchronization**: Automatically extracts `roce`, `roe`, `debt_equity`, `yoy_revenue`, `yoy_profit`, and `promoter_pledge_pct` from `watchlist_cache`, `temp_universe.parquet`, and PostgreSQL `promoter_pledge_cache`, syncing them into `fund_data` across all three alias formats (`snake_case`, `Title Case`, and `%` suffix) prior to evaluator calls.
-  - **Rich Diagnostic Execution Logging**: Emits structured logger events (`logger.info` / `logger.debug`) during single-stock and bulk analysis runs detailing exact stock processing steps, active scanner evaluators, fundamental ratio resolution parameters, composite health scores, and qualified scanner outputs.
-  - **Inline Main Screen Diagnostic & Watchlist Layout**: Renders both the 7-stage scanner diagnostic panel (`#stock-diagnostic-main-container`) and personal monitored watchlist (`#my-watchlist-section`) directly inline on the main screen of `admin_dashboard.html` and `user_dashboard.html` right below the search widget rather than in overflowing modal popups, with smooth auto-scroll into view and 1-click collapse buttons.
-  - **Explicit Watchlist Click & Toggle**: Stocks are strictly added to personal watchlists only when the user explicitly clicks `⭐ Add to Watchlist` (eliminating false silent auto-add assumptions on search). Clicking `✓ Added to Watchlist` toggles removal cleanly.
-  - **Repositioned Advanced Outcome Analytics (PREVIEW)**: Placed directly below the Scanner Health grid (`#scannerGrid`) inside System Health & Diagnostics for logical workflow flow.
-  - **Piotroski Score Preservation & Safe On-Demand Merging**: Merging on-demand fundamental fetch results (`fund_data.update`) preserves any existing valid Piotroski score ($\ge 0$) in cache, preventing live daily Yahoo fetches from overwriting full annual Piotroski ratings.
-  - **Strict Per-User Watchlist Isolation & Real-Time Dynamic Evaluation (`user_watchlists`)**: Safely handles integer vs string user IDs (e.g. `DEFAULT_USER`, `admin`, `57880`) across session queries and database functions using strict per-user filtering (`WHERE user_id::text = %s`). Evaluates `is_in_watchlist` dynamically against the requesting user's live database entries in real-time, overriding frozen master cache fields (`stock_analysis_master`) and client RAM caches (`WATCHLIST_ITEMS_CACHE`) to guarantee 100% data privacy and isolation so each user only views and manages their own personal watchlist.
-  - **Universal Multi-Source Autocomplete Search**: Subsecond NSE/BSE ticker suggestions (`/api/v1/symbols/suggest?q=PREFIX`) querying a master registry across active watchlists, excluded datasets, full universe (`temp_universe.parquet`), historical price caches (~685 tickers), and Postgres symbol mappings. Includes a dynamic fallback (`Select 'TICKER' (NSE/BSE)`) guaranteeing coverage for **all ~4,000+ listed NSE & BSE stocks**.
-  - **Overall Health Score (0-100)**: Quantitative composite score combining Technical Trend (50%), Fundamental Quality (30%), and RS Percentile vs Nifty 500 (20%).
-  - **"What It Lacks" Deficit Summary**: Bulleted list of parameter gaps holding a stock back from becoming a top-tier active alert (e.g. volume ratio deficit, upper wick excess, Piotroski F-score gap, leverage).
-  - **7-Stage Scanner Funnel Table & Full Quantitative Gate Reasons**: Fast-path evaluation through all 6 scanners. Displays full quantitative gate criteria details (Close price, Volume surge ratio, RSI value, SMA50/200 alignment, ROC) alongside status badges (`⚡ CORE MET` in Orange `#f59e0b`, `✓ QUALIFIED` in Green `#10b981`, `🔍 MONITORING` in Blue `#3b82f6`). Displays operational taxonomy flags (`setup_qualified`, `production_eligible`, `selected_for_alert`).
-  - **Deep Analysis & Zero-Fallback Evaluator Qualification for Alert Creation**: Manual alert creation (`🚀 Raise Alert`) requires `is_deep_analysis = True` and enforces strict boolean qualification contract (`scanner_stage.get("qualified") is True`). Requires canonical risk package (`entry_price`, `stop_loss`, `target_1`, `score`) and conviction tier without artificial fallback calculations, rejecting incomplete evaluator returns with HTTP 400. Saves verbatim evaluator $T_4$, $RS$, sector, and regime metadata to database `alerts`.
-  - **Persistent Deep Analysis & Outcome JSON Storage**: Complete 7-stage diagnostic analysis outcomes are persisted in `user_watchlists` (`deep_analysis_result` JSONB & `last_deep_analysis_at` TIMESTAMPTZ). When a stock is fetched in the watchlist, its last analysis timestamp (in IST) and saved diagnostic breakdown are loaded instantly. Re-scanning overwrites and updates the database with fresh timestamps and new diagnostic metrics.
-  - **Master Symbols Database Registry & Admin Manual Sync (`/api/v1/admin/master_symbols/refresh`)**: Pre-populates all active listed NSE & BSE equities into PostgreSQL `master_symbols` table. Features a daily 07:00 AM IST scheduled refresh job as well as an Admin Dashboard action button (`⚡ Sync Master Stock List`), allowing administrators to manually update the universe of all listed stocks anytime of day.
-  - **IST Timestamp Standardization**: All added dates and last scanned timestamps are explicitly formatted and displayed in **Indian Standard Time (IST - Asia/Kolkata)** across tables and modals.
-  - **Watchlist Badge Synchronization**: Watchlist item counts are synchronized in real-time across main UI header buttons (`#my-watchlist-count`) and modal titles (`#modal-watchlist-count`).
-  - **Glassmorphic Modals, Body Scroll Locking & Standardized Confirm Popups**:
-    - Implemented `document.body.style.overflow = 'hidden'` on modal open and `overscroll-behavior: contain` on modal containers across `#stock-diagnostic-modal`, `#my-watchlist-section`, and `#custom-confirm-modal`, preventing background page scrolling when interacting with modals.
-    - Replaced browser default `confirm()` popups with custom dark glassmorphism confirmation cards (`showCustomConfirmModal`) matching standard validation alerts.
-    - Features explicit `event.stopPropagation()` on close buttons (`✕`), z-index isolation (`z-index: 9999-10010`), backdrop click-to-close overlay, and `Esc` keyboard shortcut listener.
-  - **Session Stability & Permanent Authentication**: Configured `_SESSION_CACHE_TTL = 300s` (5 minutes) and a static production `SECRET_KEY` fallback (`ELITE_BREAKOUT_SYSTEM_SECURE_PERMANENT_SECRET_KEY_PROD_2026_V10`) with `PERMANENT_SESSION_LIFETIME = timedelta(days=30)` to eliminate unexpected user logouts during Railway restarts and parallel API calls.
-  - **Ticker Aliasing & Symbol Resolution Pipeline**: Automatically maps reorganized or renamed tickers (e.g. `TATAMOTORS` -> `TMCV.NS`) in data providers and price fetchers (`data_provider.py`), guaranteeing seamless historical price downloading and 7-stage diagnostic analysis execution without delisting 404 errors.
-  - **Sub-Millisecond 0ms Client-Side Autocomplete Engine**: Pre-loads all 2,389+ official NSE equities from `/api/v1/symbols/master_list` into browser RAM on page load (`window.MASTER_SYMBOLS_CLIENT_ARRAY`), performing instant client-side autocomplete searches in `<0.1ms` without network keystroke lag.
-  - **Personal Monitored Watchlist**: Save non-qualifying or monitored stocks with `[ ⭐️ Add to Watchlist ]` into database table `user_watchlists`. Features a `[ 🔄 Re-Scan ]` button on dashboard tables for instant re-evaluation.
+## 4.3 Profit Booking & Trailing Stop Loss Management
+- **Target Liquidation Profile (`EXIT_PROFILES`)**:
+  - **Target 1 (T1)**: Book 30% of position size. Trail `stop_loss` to Breakeven (`entry_price`).
+  - **Target 2 (T2)**: Book 40% of position size. Trail `stop_loss` to Target 1 (`target_1`).
+  - **Target 3 (T3)**: Book remaining 30% of position size. Position is 100% liquidated.
+  - **Target 4 (T4)**: **Informational Structural Runner Target** (0% position allocation; tracked for analytical quality scoring and extended runner tracking).
+- **Terminal Immutability**:
+  - When remaining shares reach 0 (at T3, SL hit, or Expiry), the trade reaches terminal status (`WIN`, `PARTIAL_WIN`, `LOSS`, `EXPIRED`). All columns are frozen permanently.
+- **Conservative Intrabar Precedence**:
+  - If a single candle touches both Stop Loss (Low $\le$ SL) and Target (High $\ge$ Target), **Stop Loss (`LOSS`) takes conservative precedence**.
 
-  ## 4.5 Quality Data Availability Auditor & Screener-Only Governance (`app/data_providers/data_availability_auditor.py`)
-  Architectural separation between Quality/Valuation quantitative scanners and upstream data availability/recovery diagnostics:
-  - **Strict 3-Tier Data Source Hierarchy**:
-    - **Tier 1 (Authoritative / Certified Production Sources)**: Upstox Fundamentals API, Upstox Key Ratios, NSE XBRL filings, Exchange filings / PIT filing store, Certified local Parquet/JSON filing cache.
-    - **Tier 2 (Independent Approved Diagnostic & Broker Recovery Source)**: FYERS API v3 (`https://myapi.fyers.in/docsv3`). Fyers is an approved broker source. FYERS Quotes API v3 provides real-time market quotes (LTP, depth, volume, OHLCV), but does NOT expose a public documented REST fundamentals / key-ratios endpoint for annual statements. Fundamental diagnostic evidence requires authorized machine-readable interfaces or verified operator attestation.
-    - **Tier 3 (Forensic Diagnostic & Discovery Oracle Only)**: Screener.in. Operates strictly as a forensic oracle (`FORENSIC_REFERENCE_ONLY`). Prohibited from writing to canonical PIT, computing production scoring, or triggering BUY alerts.
-  - **Core Availability Classifications**:
-    - `PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE`: Primary recovery on Upstox/NSE failed, but data was found in an approved secondary broker feed (e.g. Fyers API v3). Triggers provider discrepancy alerts and recovery action without blocking production if certified.
-    - `SCREENER_ONLY_DATA_SOURCE`: Triggered when Upstox, NSE XBRL, Exchange filings, Local PIT, and FYERS are all missing/unavailable, but Screener forensic reference indicates data exists publicly. Emits **discrete per-stock per-field** administrator diagnostic notifications directly to `global_notifications` for the Admin Bell Icon (`#notif-badge`, `#notif-list`), logs upstream parser gap, and strictly enforces `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, and `buy_decision = BLOCKED`.
-    - `PARSER_OR_FIELD_MAPPING_FAILURE`: Triggered when upstream exchange/broker feeds return HTTP 200 with raw filings present, but 0 usable financial metrics could be extracted by the parser. Flags immediate high-priority admin alert to inspect raw JSON/XML taxonomy tags.
-    - `DATA_UNAVAILABLE_VERIFIED`: Verified missing across all authoritative, approved broker, and forensic reference sources. Confirms genuine public unavailability.
-  - **Admin Notification Delivery Architecture**:
-    - Notification path: `DataAvailabilityAuditor -> PostgreSQL global_notifications -> SSE stream -> Admin Dashboard Bell (#notif-badge / #notif-list)`.
-    - Custom stock-level format:
-      `🚨 DATA SOURCE NOTICE: {symbol} — {field} found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review.`
-  - **Granular 11 Diagnostic Categories & Admin Dashboard APIs**:
-    - Endpoints: `GET /api/admin/data_availability/counts` and `GET /api/admin/data_availability/audits`.
-    - 11 Categories: `verified_data_missing`, `provider_discrepancies`, `fyers_only_data_found`, `screener_only_data_found`, `genuinely_unavailable`, `insufficient_historical_depth`, `stale_pit`, `unprocessed_filing`, `parser_mapping_failure`, `calculation_failure`, `structural_ineligible`.
-  - **Pre-BUY Gate Telemetry Standardized Metrics**:
-    - `Strategy Candidates Produced`: Count of stocks passing all fundamental / technical rules in the scanner.
-    - `Pre-BUY Eligible`: Count of stocks successfully clearing the Source Freshness Fence and Snapshot SHA verification.
-    - `Pre-BUY Blocked`: Count of stocks held at the gate due to pending filing updates or exchange staleness (e.g., `UPDATE_PENDING`).
-    - `Production BUY Alerts Saved`: Final count of alerts authoritatively committed to the PostgreSQL transactional outbox and materialized to Parquet.
+---
 
-  ---
-  *End of System Specification & User/Admin Guide — `docs/SYSTEM_SPECIFICATION.md`*
+# 5. QUALITY DATA AVAILABILITY AUDITOR & GOVERNANCE
 
+Architectural separation between quantitative strategy scanners and upstream data availability/recovery diagnostics:
+
+| Component | Responsibility | Permitted Actions | Prohibited Actions |
+|---|---|---|---|
+| **Quality Scanner** (`live_fundamental_scanner.py`) | *"Given certified data, does this stock pass strategy rules?"* | Evaluates certified PIT data, filters candidates | Network recovery calls, third-party oracle lookups |
+| **Primary Recovery Engine** (`fundamental_pre_recovery.py` & `fundamental_source_router.py`) | *"Can we obtain and certify required data from authoritative sources?"* | Fetches Upstox, NSE XBRL, and Fyers approved feeds; updates canonical PIT staging | Writing uncertified data, skipping Never-Downgrade Gate |
+| **Data Availability Auditor** (`data_availability_auditor.py`) | *"When authoritative sources report missing data, does an independent source indicate it exists?"* | Diagnostic checks against Fyers & Screener; raises admin alerts and logs discrepancies | Writing to PIT, writing production metrics, enabling BUY |
+
+## 5.1 Strict 3-Tier Data Source Hierarchy
+- **Tier 1 — Production-Authoritative**:
+  - Upstox Fundamentals API (Annual Statements, Income, Balance Sheet, Cash Flow)
+  - Upstox Key Ratios API (EV/EBITDA, P/E, Debt/Equity)
+  - NSE Corporate Integrated Filing XBRL
+  - Cryptographically audited local PIT filing cache (`data/pit_raw_filings/`)
+- **Tier 2 — Independent Diagnostic & Approved Broker Source**:
+  - **FYERS API v3** ([myapi.fyers.in/docsv3](https://myapi.fyers.in/docsv3))
+  - FYERS Quotes API v3 provides real-time market quotes (`lp`, `volume`, `depth`), but does NOT expose a public documented REST fundamentals / key-ratios endpoint for annual balance sheets.
+  - For fundamental ratios, FYERS API v3 is classified as `UNSUPPORTED_IN_PUBLIC_REST_API_V3` / `NOT_AVAILABLE`. Tier 2 diagnostic evidence for fundamental ratios requires an authorized machine-readable interface or verified operator attestation.
+- **Tier 3 — Forensic Reference Only**:
+  - **Screener.in**: Strictly an offline diagnostic oracle.
+  - Mandatory invariant: `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, `buy_decision = BLOCKED`.
+
+## 5.2 Mandatory Governance Diagnostic Conditions
+1. **DATA PROVIDER DISCREPANCY (`PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE`)**:
+   - Upstox = Missing, NSE = Missing, FYERS = Available, Screener = Available.
+   - High-severity defect: Primary pipeline failed to acquire data that exists in an approved secondary source.
+2. **SCREENER-ONLY DATA FOUND (`SCREENER_ONLY_DATA_SOURCE`)**:
+   - Upstox = Missing, NSE = Missing, PIT = Missing, FYERS = Missing/Unavailable, Screener = Available.
+   - Emits **discrete per-stock per-field** notification directly to `global_notifications` for the Admin Bell Icon (`#notif-badge`, `#notif-list`).
+   - Format:
+     ```text
+     🚨 DATA SOURCE NOTICE: {symbol} — {field} found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review.
+     ```
+   - Strictly enforces `canonical_pit_write = FALSE`, `production_metric_write = FALSE`, and `buy_decision = BLOCKED`.
+3. **PARSER OR FIELD MAPPING FAILURE (`PARSER_OR_FIELD_MAPPING_FAILURE`)**:
+   - HTTP 200 raw filings returned, raw records present, but target metric unextracted (0 usable fields extracted).
+   - High-priority defect alerting to taxonomy tag changes or parser errors.
+4. **GENUINELY UNAVAILABLE (`DATA_UNAVAILABLE_VERIFIED`)**:
+   - Missing across Upstox, NSE, PIT, FYERS, and Screener. Confirms legitimate public data absence.
+
+## 5.3 Granular Diagnostic Categories & REST Endpoints
+- `GET /api/admin/data_availability/counts`: Real-time counts across all 11 categories (`verified_data_missing`, `provider_discrepancies`, `fyers_only_data_found`, `screener_only_data_found`, `genuinely_unavailable`, `insufficient_historical_depth`, `stale_pit`, `unprocessed_filing`, `parser_mapping_failure`, `calculation_failure`, `structural_ineligible`).
+- `GET /api/admin/data_availability/audits`: Stock-by-stock audit records containing complete 17-field provenance metadata.
+
+---
+
+# 6. DASHBOARD SUITE & OPERATIONAL WORKFLOWS
+
+## 6.1 User Dashboard (`/`)
+- **Real-time Telemetry KPI Cards**: Active Positions, Total Closed Trades, Cumulative Win Rate (%), Net PnL (₹ and %), Active Viewers, VAPID Web Push Toggle.
+- **Scanner Filter Tabs**: Instant filtering by active scanner engines: **ALL**, **TECHNICAL**, **WEALTH**, **MULTIBAGGER**, **QUALITY_RECOVERY**.
+- **Active Signals Table & Live CMP Polling**: Real-time ticker prices polled from Upstox/Fyers with direct TradingView chart links, color-coded status badges, trailing stops, and target progress.
+- **Corporate Action Badges**: Inline event chips (`E in 3d`, `D`, `S`, `B`) with priority sorting and `+N` overflow tooltips.
+
+## 6.2 Admin Dashboard (`/admin`)
+- **Active Scanner Health Grid**:
+  - Live status cards for **DAILY_BUILDER**, **TECHNICAL**, **FUNDAMENTAL**, **QUALITY_COMPOUNDER**, and **QUALITY_VALUE_RECOVERY**.
+  - Status Pills: `OK` (green), `RUNNING` (blue), `QUEUED` (yellow), `DEGRADED` (purple), `DOWN` (red).
+  - Manual "Run Scanner Now" triggers with sliding queue tracking (`QUEUED-1`, `QUEUED-2`).
+- **Admin Notification Bell Icon (`#notif-badge`, `#notif-list`)**:
+  - Connected via SSE stream (`/api/notifications/stream`) and `/api/notifications`.
+  - Displays discrete stock-level data source notices, parser mapping failures, and provider discrepancy alerts.
+- **Counterfactual Shadow Tracking**: Monitors rejected candidates (`is_rejected = TRUE`) to track hypothetical performance (`SHADOW_WIN`, `SHADOW_LOSS`, `SHADOW_EXPIRED`) and calculate True/False Negative rates.
+- **Process Lock Telemetry (`/api/lock-stats`)**: Displays active lock acquisitions, wait times, hold times, and contention events.
+- **Memory Profiler Timeline**: Stage timeline breakdown and heap usage profiling.
+
+## 6.3 Performance Tracker (`/performance`)
+- **Cumulative Equity Curve**: Chart.js visual tracking of realized returns vs Nifty 50 benchmark.
+- **Quantitative Performance Metrics**: Profit factor, win rate, average win/loss ratio, max drawdown, average holding days.
+- **Monthly Return Heatmap Matrix**: Calendar grid of realized returns by month and year.
+- **Historical Trade Audit Log**: Searchable, sortable audit table of every historical trade with full entry/exit parameters.
+
+## 6.4 "Analyse Your Watchlist" Diagnostic System (`app/stock_analyzer.py`)
+- **Master Ticker Validation**: 5-stage verification against master dictionary, BSE mappings, DB `symbol_mappings`, and Yahoo search.
+- **Active Scanner Evaluators**: Evaluates candidate stocks against active production evaluators:
+  - *Stage 1 (Daily Builder)*: `evaluate_daily_builder_symbol()`
+  - *Stage 2 (Technical Breakout)*: `evaluate_technical_symbol()`
+  - *Stage 3 (Wealth Engine)*: `evaluate_wealth_symbol()`
+  - *Stage 4 (Multibagger Engine)*: `evaluate_multibagger_symbol()`
+- **Inline Main Screen Diagnostic & Watchlist Layout**: Inline evaluation panel and personal monitored watchlist (`user_watchlists`) rendered directly on the main screen with click-to-add/toggle.
+
+---
+
+# 7. SYSTEM SCHEDULE & 24/7 EXECUTION TIMELINE
+
+```
+00:00 IST ── Midnight Rotation
+              └─ Reset SessionContext, release daily caches, force gc.collect()
+01:00 IST ── Daily Watchlist Builder Run (app/daily_builder.py)
+              └─ Scrape exchange universe -> Liquidity & pledge filters -> data/watchlist.parquet
+02:00 IST ── Wealth Engine Initial Pre-Market Sweep (app/wealth_engine.py)
+              └─ Pre-calculate fundamental buckets and momentum scores for approved universe
+04:00 IST ── Multibagger Engine Cold Start (app/multibagger.py)
+              └─ Initial conviction tier evaluation on fresh daily watchlist
+07:00 IST ── Master Symbols Database Registry Sync (/api/v1/admin/master_symbols/refresh)
+              └─ Refresh PostgreSQL master_symbols table
+08:30 IST ── Readiness Verification Check
+              └─ Verify watchlist freshness, DB schema health, and data provider availability
+09:14 IST ── Pre-Market Warmup (09:14:30 IST)
+              └─ Pre-fetch intraday data to eliminate 09:15:00 market open tick lag
+09:15 IST ── Market Open (SessionContext -> MARKET_OPEN)
+              ├─ Every 5 min:  Wealth Engine CMP Exit Updates + Performance Tracker (<3s)
+              ├─ Every 15 min: Technical Breakout Scan + Wealth BUY Scan + Multibagger Exit Monitor
+              └─ Continuous:   Authoritative Outbox Parquet Reconciler
+15:30 IST ── Market Close (SessionContext -> POST_MARKET)
+15:30 IST ── Post-Market Earnings Calendar Refresh (app/earnings_calendar.py)
+              ├─ Priority 1: Stocks with results expected TODAY re-checked immediately
+              └─ Priority 2: Rest of universe (45d TTL known, 7d TTL missing)
+19:00 IST ── Multibagger Daily Post-Market Scan (app/multibagger.py)
+              └─ End-of-day conviction tier ranking and portfolio review
+```
+
+## 7.1 Standardized Scanner Execution Banners (`[VERSION: SCANNER_LOCK_BANNERS_v1.0]`)
+Every active scanner and background monitor emits prominent log banners at `INFO` level upon lock acquisition and release:
+- **Start Banner**: `********************* Starting <Scanner Name> Scanner at YYYY-MM-DD HH:MM:SS IST *********************`
+- **Completion Banner**: `********************* <Scanner Name> Scanner completed at YYYY-MM-DD HH:MM:SS IST *********************`
+
+---
+*End of System Specification & Operational Guide — `docs/SYSTEM_SPECIFICATION.md`*

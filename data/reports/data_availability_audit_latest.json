@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-04T11:12:29.556214+05:30",
+  "generated_at": "2026-10-04T11:24:52.992413+05:30",
   "scanner": "QUALITY_COMPOUNDER",
   "records": [
     {
@@ -19,7 +19,7 @@
       "production_value_written": false,
       "buy_allowed": false,
       "admin_alert_generated": false,
-      "checked_at": "2026-10-04T11:12:29.548038+05:30",
+      "checked_at": "2026-10-04T11:24:52.989298+05:30",
       "upstox_key_ratios": "N/A",
       "severity": "HIGH",
       "admin_action": "INVESTIGATE_WHY_VALUE_IN_SCREENER_CANNOT_BE_RECOVERED_FROM_VERIFIED_SOURCE",
@@ -42,7 +42,7 @@
       "production_value_written": false,
       "buy_allowed": false,
       "admin_alert_generated": false,
-      "checked_at": "2026-10-04T11:12:29.548091+05:30",
+      "checked_at": "2026-10-04T11:24:52.989367+05:30",
       "upstox_key_ratios": "N/A",
       "severity": "HIGH",
       "admin_action": "INVESTIGATE_WHY_VALUE_IN_SCREENER_CANNOT_BE_RECOVERED_FROM_VERIFIED_SOURCE",
