@@ -965,7 +965,7 @@ Forensic audit executed across the 21 incomplete symbols (`data/reports/forensic
 2. **4 Valuation Stocks**:
    - `FRONTSP`: `PROVIDER_FAILURE` (Operational retry).
    - `MAHLIFE`: `REFERENCE_ONLY_AVAILABLE` (Screener reference-only, blocked by governance).
-   - `GOCLCORP` & `PFIZER`: Passed all 5 quality metrics in canonical local PIT; 3Y median EV/EBITDA valuation cache requires refresh.
+   - `GOCLCORP` & `PFIZER`: Classified as `VALUATION_CACHE_MISSING` (passed all 5 Quality Compounder metrics in canonical local PIT; 3Y median EV/EBITDA valuation cache refresh required; Quality Eligibility = PASS).
 3. **1 Price Failure (`GUJGASLTD`)**:
    - `TIER1_RECOVERY_NOT_EXHAUSTED`: Missing live CMP quote from broker feed; operational retry.
 4. **Scanner Telemetry Integration**:

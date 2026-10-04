@@ -135,6 +135,8 @@ class AvailabilityClassification(str, Enum):
     NOT_APPLICABLE_FOR_INSTRUMENT = "STRUCTURALLY_UNSUPPORTED"  # alias
     TIER1_RECOVERY_NOT_EXHAUSTED = "TIER1_RECOVERY_NOT_EXHAUSTED"
     PROVIDER_FAILURE = "PROVIDER_FAILURE"
+    VALUATION_CACHE_MISSING = "VALUATION_CACHE_MISSING"
+    VALUATION_DATA_PENDING = "VALUATION_DATA_PENDING"
 
 
 _SEVERITY: Dict[AvailabilityClassification, str] = {
@@ -154,6 +156,8 @@ _SEVERITY: Dict[AvailabilityClassification, str] = {
     AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH: "INFO",
     AvailabilityClassification.STRUCTURAL_INELIGIBLE: "INFO",
     AvailabilityClassification.STRUCTURALLY_UNSUPPORTED: "INFO",
+    AvailabilityClassification.VALUATION_CACHE_MISSING: "INFO",
+    AvailabilityClassification.VALUATION_DATA_PENDING: "INFO",
     AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED: "INFO",
     AvailabilityClassification.CONFIRMED_NO_DATA_ANYWHERE: "INFO",
 }
@@ -435,8 +439,12 @@ class DataAvailabilityAuditor:
             cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
             action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
         elif isin_unresolved and not is_bse_only:
-            cls = AvailabilityClassification.SYMBOL_MAPPING_FAILURE
-            action = "RESOLVE_SECURITY_ISIN_OR_SYMBOL_MAPPING"
+            if fld.lower() in ("current_ev_ebitda", "ev_ebitda_3y_median", "current_pe", "ev_ebitda"):
+                cls = AvailabilityClassification.VALUATION_CACHE_MISSING
+                action = f"VALUATION_CACHE_MISSING_PENDING_REFRESH ({fld.upper()})"
+            else:
+                cls = AvailabilityClassification.SYMBOL_MAPPING_FAILURE
+                action = "RESOLVE_SECURITY_ISIN_OR_SYMBOL_MAPPING"
         elif has_filing_gap:
             cls = AvailabilityClassification.HISTORICAL_FILING_GAP
             action = f"HISTORICAL_FILING_GAP_BLOCKING_{fld.upper()}"
