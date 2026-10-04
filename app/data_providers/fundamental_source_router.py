@@ -121,7 +121,6 @@ class FundamentalSourceRouter:
                             td = row.get("total_debt")
                             te = row.get("total_equity")
                             op = row.get("operating_profit")
-                            da = row.get("depreciation_amortization")
                             ebit = float(op) if op is not None else None
                             cap_emp = None
                             if te is not None and td is not None:
@@ -604,6 +603,7 @@ class FundamentalSourceRouter:
                     q_res = fyers_client.quotes({"symbols": fyers_sym})
                     if q_res and q_res.get("s") == "ok" and q_res.get("d"):
                         quote_data = q_res["d"][0].get("v", {})
+                        trace["fyers_quote_data"] = quote_data
                         trace["fyers_api_checked"] = True
                         trace["fyers_status"] = "AVAILABLE"
                         logger.info(f"⚡ [ROUTER: FYERS_APPROVED_SOURCE] Successfully retrieved Fyers API v3 market data for {symbol}.")

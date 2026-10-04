@@ -2500,7 +2500,7 @@ def api_admin_data_availability_counts():
         logger.debug(f"[DATA_AVAILABILITY_COUNTS] DB query fallback: {dbe}")
 
     # 2. Fallback to latest JSON report
-    report_path = os.path.join(config.DATA_DIR, "reports", "data_availability_audit_latest.json")
+    report_path = os.path.join(DATA_DIR, "reports", "data_availability_audit_latest.json")
     if os.path.exists(report_path):
         try:
             with open(report_path, "r", encoding="utf-8") as f:
@@ -2565,7 +2565,7 @@ def api_admin_data_availability_audits():
     except Exception as e:
         logger.debug(f"[DATA_AVAILABILITY_AUDITS] DB error: {e}")
 
-    report_path = os.path.join(config.DATA_DIR, "reports", "data_availability_audit_latest.json")
+    report_path = os.path.join(DATA_DIR, "reports", "data_availability_audit_latest.json")
     if os.path.exists(report_path):
         try:
             with open(report_path, "r", encoding="utf-8") as f:

@@ -12,7 +12,6 @@ Unit and regression tests for QUALITY_DATA_AVAILABILITY_AUDITOR:
 
 import os
 import tempfile
-import pytest
 from app.data_providers.data_availability_auditor import (
     DataAvailabilityAuditor,
     AvailabilityClassification,
