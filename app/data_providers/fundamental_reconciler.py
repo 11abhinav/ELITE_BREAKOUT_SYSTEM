@@ -39,8 +39,18 @@ class FundamentalReconciler:
             source_recs = nse_records if nse_records else upstox_records
             return self._calculate_from_records(symbol, source_recs, is_dual=False)
             
+        def _norm_unit(u: str) -> str:
+            u_clean = str(u or "").lower().strip()
+            if u_clean in ("cr", "crore", "crores", "inr_crores"):
+                return "cr"
+            if u_clean in ("lakh", "lakhs", "inr_lakhs"):
+                return "lakh"
+            return u_clean
+
         def _get_key(rec: RawFinancialRecord) -> str:
-            return f"{rec.symbol}|{rec.period_end_date}|{rec.period_type}|{rec.consolidation.value if hasattr(rec.consolidation, 'value') else rec.consolidation}|{rec.unit}|{rec.currency}"
+            u = _norm_unit(rec.unit)
+            c = rec.consolidation.value if hasattr(rec.consolidation, "value") else str(rec.consolidation)
+            return f"{rec.symbol}|{rec.period_end_date}|{rec.period_type}|{c}|{u}|{rec.currency}"
         
         nse_dict = {_get_key(r): r for r in nse_records}
         upstox_dict = {_get_key(r): r for r in upstox_records}
@@ -86,7 +96,12 @@ class FundamentalReconciler:
                 metrics.overall_status = FundamentalStatus.DATA_CONFLICT
                 return metrics
                 
-        return self._calculate_from_records(symbol, nse_records, is_dual=True)
+        # Merge non-overlapping multi-year records (NSE authoritative for overlapping)
+        by_date = {r.period_end_date: r for r in upstox_records}
+        for r in nse_records:
+            by_date[r.period_end_date] = r
+        combined_records = sorted(by_date.values(), key=lambda r: r.period_end_date)
+        return self._calculate_from_records(symbol, combined_records, is_dual=True)
 
     def _calculate_from_records(self, symbol: str, records: List[RawFinancialRecord], is_dual: bool = False) -> ReconciledCanonicalMetrics:
         """

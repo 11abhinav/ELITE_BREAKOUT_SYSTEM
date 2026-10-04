@@ -5037,17 +5037,57 @@ class QualityCompounderValueV2Scanner:
                         _inc_eligibility = f"DATA_FAILURE_INCOMPLETE_PIT ({_inc_cls['reason']})"
                         _inc_data_status = "DATA_FAILURE"
                         
+                    # Consult PitRecoveryStatusStore for audited provider exhaustion telemetry
+                    store_entry = None
+                    try:
+                        from app.pit_recovery_cache import get_pit_recovery_store
+                        store = get_pit_recovery_store()
+                        store_entry = store.get_status(sym, scanner_family="QUALITY_COMPOUNDER")
+                        if not store_entry:
+                            store_entry = store.get_status(sym, scanner_family="ALL")
+                        if _inc_cls.get("is_structural"):
+                            store.record_unavailability(
+                                symbol=sym,
+                                provider="PIT_DATABASE",
+                                status="INSUFFICIENT_HISTORICAL_DEPTH",
+                                reason=_inc_cls.get("reason", "INSUFFICIENT_HISTORICAL_DEPTH"),
+                                scanner_family="QUALITY_COMPOUNDER",
+                                field="sales_cagr_5y",
+                                raw_record_count=_inc_cls.get("filing_annual_count", 0),
+                            )
+                    except Exception as _store_err:
+                        logger.debug(f"Recovery store lookup notice for {sym}: {_store_err}")
+
                     provider_recs = [
                         {
                             "provider": "PIT_DATABASE (pit_fundamentals_v1.parquet)",
                             "result": "FETCHED",
                             "validation": "FAILED",
-                            "validation_reason": "INSUFFICIENT_5Y_ANNUAL_FILING_HISTORY_FOR_METRIC_CALCULATION",
+                            "validation_reason": _inc_cls.get("reason", "INSUFFICIENT_5Y_ANNUAL_FILING_HISTORY_FOR_METRIC_CALCULATION"),
                             "eligibility_classification": _inc_eligibility,
                             "annual_filing_count": _inc_cls["filing_annual_count"],
                         }
                     ]
-                    provider_recs.extend(locals().get('providers_audit', []))
+                    if store_entry:
+                        source_attempts_raw = store_entry.get("source_attempts")
+                        if source_attempts_raw:
+                            try:
+                                import json
+                                s_att = json.loads(source_attempts_raw) if isinstance(source_attempts_raw, str) else source_attempts_raw
+                                for p_name, p_res in s_att.items():
+                                    provider_recs.append({
+                                        "provider": p_name,
+                                        "result": str(p_res),
+                                        "validation": "PASSED" if ("SUCCESS" in str(p_res) or "RECOVERED" in str(p_res) or "AVAILABLE" in str(p_res)) else "FAILED",
+                                        "validation_reason": store_entry.get("reason", str(p_res)),
+                                    })
+                            except Exception:
+                                pass
+                        provider_recs.extend(locals().get('providers_audit', []))
+                        val_reason = f"AUDITED_EXHAUSTION: {store_entry.get('classification', _inc_cls.get('reason'))} | {store_entry.get('reason', '')}"
+                    else:
+                        provider_recs.extend(locals().get('providers_audit', []))
+                        val_reason = f"FIELDS_REMAIN_NULL_AFTER_PIT_LOAD: {', '.join(_missing_fields)}"
 
                     _emit_data_recovery_log(
                         scanner="QUALITY_COMPOUNDER",
@@ -5057,7 +5097,7 @@ class QualityCompounderValueV2Scanner:
                         recovery_attempted=True,
                         providers=provider_recs,
                         validation="FAILED",
-                        validation_reason=f"FIELDS_REMAIN_NULL_AFTER_PIT_LOAD: {', '.join(_missing_fields)}",
+                        validation_reason=val_reason,
                         final_action="STOCK_SKIPPED",
                     )
 

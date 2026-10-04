@@ -105,6 +105,21 @@ def test_bse_http_error():
     assert "Connection timed out" in str(provider.last_error.get("ADOR"))
 
 
+def test_bse_feed_access_required():
+    """HTTP 401 or 403 produces BSE_FEED_ACCESS_REQUIRED, not generic HTTP error."""
+    provider = BseCorporateProvider()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+
+    with patch.object(provider.session, "get", return_value=mock_resp):
+        records = provider.fetch_raw_financials("ADOR")
+
+    assert len(records) == 0
+    assert provider.last_status.get("ADOR") == "BSE_FEED_ACCESS_REQUIRED"
+    assert provider.bse_auth_or_403_blocks == 2  # C and S flags attempted
+
+
+
 def test_bse_parse_failure_p0_invariant():
     """
     P0 INVARIANT: HTTP 200 + raw rows > 0 + usable == 0 -> BSE_PARSE_FAILURE.

@@ -101,6 +101,7 @@ class FundamentalPreRecoveryEngine:
             else:
                 self.pit_parquet_path = "data/daily_builder_master_v2.parquet"
         self.router = FundamentalSourceRouter()
+        self.auditor = DataAvailabilityAuditor()
         # 0 or negative means uncapped (processes every incomplete symbol in universe)
         self.global_daily_recovery_limit = int(os.getenv("PRE_RECOVERY_LIMIT", "0"))
 
@@ -425,10 +426,40 @@ class FundamentalPreRecoveryEngine:
                     f"promotion_reason=VALIDATION_INCOMPLETE | recovered_fields={list(metrics.recovered_fields.keys())}"
                 )
             else:
+                audit_reason = metrics.rejection_reason or metrics.overall_status.value
                 logger.info(
                     f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=UNAVAILABLE | promotion_status=BLOCKED | "
-                    f"reason={metrics.rejection_reason or metrics.overall_status.value}"
+                    f"reason={audit_reason}"
                 )
+                try:
+                    from app.pit_recovery_cache import get_pit_recovery_store
+                    store = get_pit_recovery_store()
+                    trace = getattr(self.router, "last_trace", {}) or {}
+                    attempts_map = {}
+                    if trace.get("nse_status"): attempts_map["NSE_XBRL"] = trace["nse_status"]
+                    if trace.get("bse_status"): attempts_map["BSE_CORPORATE"] = trace["bse_status"]
+                    if trace.get("upstox_status"): attempts_map["UPSTOX"] = trace["upstox_status"]
+                    if trace.get("fyers_status"): attempts_map["FYERS"] = trace["fyers_status"]
+                    if trace.get("screener_status"): attempts_map["SCREENER"] = trace["screener_status"]
+
+                    fld = missing_fields[0] if missing_fields else "sales_cagr_5y"
+                    aud = self.auditor.audit_stock(symbol, trace, target_field=fld)
+
+                    store.record_unavailability(
+                        symbol=symbol,
+                        provider=trace.get("resolved_source", "ROUTER"),
+                        status=aud.get("availability_status", "DATA_UNAVAILABLE"),
+                        reason=aud.get("block_reason") or aud.get("final_classification", "DATA_UNAVAILABLE"),
+                        scanner_family="QUALITY_COMPOUNDER",
+                        field=fld,
+                        missing_fields=missing_fields,
+                        source_attempts=attempts_map,
+                        raw_record_count=trace.get("annual_record_count", 0),
+                        latest_filing_date=trace.get("latest_filing_date"),
+                        latest_period_end=trace.get("latest_period_end"),
+                    )
+                except Exception as _rec_err:
+                    logger.debug(f"[PRE_RECOVERY] Store recording notice for {symbol}: {_rec_err}")
 
         published = False
         if promoted_count > 0:

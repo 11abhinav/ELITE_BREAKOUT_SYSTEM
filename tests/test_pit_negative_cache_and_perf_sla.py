@@ -210,10 +210,7 @@ def test_acceptance_symbol_deletion_behavior():
     test_sym = "BDL"
 
     # Ensure test symbol is removed from store
-    with store._lock:
-        if test_sym in store._cache:
-            del store._cache[test_sym]
-        store._atomic_persist()
+    store.clear_quarantine(test_sym)
 
     is_neg_before, _ = store.is_negatively_cached(test_sym)
     assert is_neg_before is False, f"{test_sym} should not be in cache initially"

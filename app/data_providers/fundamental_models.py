@@ -117,6 +117,21 @@ class ReconciledCanonicalMetrics:
     provenance_chain: List[FundamentalProvenance] = field(default_factory=list)
     overall_status: FundamentalStatus = FundamentalStatus.INSUFFICIENT
 
+    @property
+    def recovered_fields(self) -> Dict[str, Any]:
+        """Returns dictionary of metrics that have a valid (non-None) value."""
+        fields = (
+            "roce_5y",
+            "sales_cagr_5y",
+            "pat_cagr_5y",
+            "cfo_pat_5y",
+            "debt_to_equity",
+            "q_eps_growth_yoy",
+            "q_sales_growth_yoy",
+            "eps_ttm",
+        )
+        return {f: getattr(self, f) for f in fields if getattr(self, f) is not None}
+
 
 class DataFailureClass(enum.Enum):
     API_VALUE_CONFIRMED = "API_VALUE_CONFIRMED"

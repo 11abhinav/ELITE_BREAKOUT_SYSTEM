@@ -1,0 +1,20 @@
+[
+  {
+    "symbol": "CORRUPT_CO",
+    "source": "BSE_CORPORATE",
+    "period_end_date": "2024-03-31",
+    "period_type": "ANNUAL",
+    "consolidation": "CONSOLIDATED",
+    "revenue": 500.0,
+    "net_profit": 50.0,
+    "operating_cash_flow": 45.0,
+    "total_debt": 10.0,
+    "total_equity": 200.0,
+    "ebit": 60.0,
+    "capital_employed": 210.0,
+    "eps": null,
+    "unit": "cr",
+    "currency": "INR",
+    "source_record_hash": "4279f760c7077c107349de8fde2d0748dd981d283eeb4763179dd60709a4314b"
+  }
+]

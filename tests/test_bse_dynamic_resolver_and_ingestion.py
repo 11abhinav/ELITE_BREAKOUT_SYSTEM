@@ -43,8 +43,8 @@ def bse_resolver():
 
 
 @pytest.fixture
-def bse_provider():
-    return BseCorporateProvider()
+def bse_provider(tmp_path):
+    return BseCorporateProvider(cache_dir=str(tmp_path / "bse_cache"))
 
 
 # ---------------------------------------------------------------------------

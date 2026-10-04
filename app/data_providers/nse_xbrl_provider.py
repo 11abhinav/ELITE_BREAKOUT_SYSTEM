@@ -495,6 +495,7 @@ class NseXbrlProvider:
         self.last_status: Dict[str, str] = {}
         self.last_raw_count: Dict[str, int] = {}
         self.last_usable_count: Dict[str, int] = {}
+        self.last_xbrl_doc_count: Dict[str, int] = {}
 
     def _init_session(self) -> bool:
         """Establish NSE session cookie."""
@@ -1032,6 +1033,7 @@ class NseXbrlProvider:
         self.last_raw_count[symbol] = len(filings)
 
         all_records: List[RawFinancialRecord] = []
+        doc_count = 0
         for f in active_filings:
             xbrl_url = f.get("xbrl")
             if not xbrl_url:
@@ -1040,6 +1042,7 @@ class NseXbrlProvider:
             xml_path = self.download_xbrl_file(xbrl_url)
             if not xml_path:
                 continue
+            doc_count += 1
 
             bcast = str(f.get("broadCastDate") or f.get("filingDate") or "")
             fdate = _parse_date_to_iso(f.get("filingDate"))
@@ -1086,6 +1089,7 @@ class NseXbrlProvider:
                 self.statement_basis_matches += len(filtered)
 
         self.last_usable_count[symbol] = len(deduped)
+        self.last_xbrl_doc_count[symbol] = doc_count
 
         if filings and not deduped:
             self.last_status[symbol] = "PARSER_OR_FIELD_MAPPING_FAILURE"

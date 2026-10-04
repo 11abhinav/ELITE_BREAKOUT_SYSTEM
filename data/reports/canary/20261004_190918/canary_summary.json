@@ -1,0 +1,977 @@
+{
+  "run_ts_ist": "20261004_190918",
+  "duration_s": 122.9,
+  "verdict": "INVALID \u2014 READ_ONLY_VIOLATION",
+  "production_certified": false,
+  "read_only": {
+    "intact": false,
+    "blocked_db_write_calls": [],
+    "raw_filing_persist_suppressed": [
+      {
+        "symbol": "RELIANCE",
+        "records": 4
+      },
+      {
+        "symbol": "TCS",
+        "records": 4
+      },
+      {
+        "symbol": "INFY",
+        "records": 4
+      },
+      {
+        "symbol": "HDFCBANK",
+        "records": 4
+      },
+      {
+        "symbol": "ICICIBANK",
+        "records": 4
+      },
+      {
+        "symbol": "SBIN",
+        "records": 4
+      },
+      {
+        "symbol": "ADOR",
+        "records": 4
+      },
+      {
+        "symbol": "BASF",
+        "records": 4
+      },
+      {
+        "symbol": "GABRIEL",
+        "records": 3
+      },
+      {
+        "symbol": "GLOBUSSPR",
+        "records": 4
+      },
+      {
+        "symbol": "STYRENIX",
+        "records": 4
+      },
+      {
+        "symbol": "MAHLIFE",
+        "records": 4
+      },
+      {
+        "symbol": "MOLDTKPAC",
+        "records": 4
+      },
+      {
+        "symbol": "JUSTDIAL",
+        "records": 4
+      },
+      {
+        "symbol": "KENNAMET",
+        "records": 4
+      },
+      {
+        "symbol": "VIMTALABS",
+        "records": 4
+      },
+      {
+        "symbol": "MANYAVAR",
+        "records": 4
+      },
+      {
+        "symbol": "ABSLAMC",
+        "records": 4
+      },
+      {
+        "symbol": "HEXT",
+        "records": 4
+      },
+      {
+        "symbol": "VERANDA",
+        "records": 4
+      },
+      {
+        "symbol": "IDEA",
+        "records": 4
+      },
+      {
+        "symbol": "YESBANK",
+        "records": 4
+      },
+      {
+        "symbol": "TATAMOTORS",
+        "records": 4
+      },
+      {
+        "symbol": "ETERNAL",
+        "records": 4
+      }
+    ],
+    "filesystem_changes_under_data": [
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_41978_78959_31012019044121_WEB_2.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_73087_488522_17072021054405_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_70369_451148_26052021105957_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_73512_496536_28072021041134_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_97836_965600_21102023061226.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_58953_300881_31072020063623_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_105338_1116375_06052024075755.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_90848_832967_25042023091440.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_104571_1098469_18042024043931.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_37080_27696_20072018083956_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_59163_301679_01082020032253_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_90792_831748_22042023043553.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_94598_900707_26072023054318.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_109065_1190057_17072024060312.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_69364_440079_19042021064746_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_48339_135210_04092019063456_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_70407_451342_26052021033338_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_65999_391472_15012021064345_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_73341_495263_24072021053206_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_51730_210989_25012020041625_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_90707_818532_14042023102753.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_84346_653736_12052022070207_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_55648_263816_05062020081656_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_34712_8104_03052018052322_WEB_2.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_46341_125791_27072019060758_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_109011_1186123_15072024075057.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_98356_972718_31102023073338.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_104624_1105245_21042024035835.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_587891_2510_16072022184059_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_800715_5318_27102022180947_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_105822_1123310_14052024024235.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_600781_2315_24072022182125_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_101032_1019706_12012024104915.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_840743_5147_05112022165623_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_62728_353013_30102020083804_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_804704_6524_28102022154401_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_55138_258032_15052020052332_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_76677_545352_23102021051607_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_101241_1031830_20012024040311.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_41062_60284_15112018103022_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_94599_900716_26072023054523.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_113783_1292109_29102024013222.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_77559_550329_01112021071049_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_88422_784321_02022023075814_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_117294_1348219_16012025074210.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_76417_536395_18102021054807_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_113855_1292850_29102024060151.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_73090_488992_19072021114537_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_862479_6599_11112022193444_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_73086_488519_17072021054217_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_104589_1099938_19042024112830.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_94827_902806_28072023050409.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_607426_4036_27072022151505_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_51749_211235_27012020040500_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_69437_443549_24042021101308_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_105061_1112732_30042024075622.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_94630_901027_26072023091217.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_94431_898857_24072023024045.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_81685_605308_09022022035107_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_608194_2806_27072022175429_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_51733_211037_25012020055220_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_110302_1211725_03082024041459.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_46615_127441_02082019052512_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_117198_1342768_11012025125045.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_69891_447485_13052021120416_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_81402_603849_05022022091317_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_66297_398052_25012021121536_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_66060_394314_19012021060701_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_76542_543759_21102021060143_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_65405_362932_13112020062118_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_51569_208966_21012020064430_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_85634_662195_26052022073538_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_98222_971292_30102023061859.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_110192_1210503_02082024040258.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_66298_398055_25012021121738_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_94631_901029_26072023091431.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_73564_496831_28072021073450_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_66753_400664_30012021063252_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_91134_836855_03052023072948.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_77678_550850_02112021041800_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_104871_1110097_27042024050106.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_102258_1043913_03022024041802.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_97617_956252_17102023054651.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_118384_1367989_31012025081810.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_58589_299237_30072020011245_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_84484_654628_14052022125234_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_73342_495289_24072021064458_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_102159_1043181_02022024062643.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_48949_157949_25102019013507_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_109710_1205328_29072024050806.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_112946_1281172_20102024121424.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_113784_1292112_29102024013331.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_84149_652433_10052022112052_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_110592_1215077_07082024013824.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_69333_434774_14042021095204_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_40441_58476_09112018054923_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_84204_652793_10052022091245_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_81403_603852_05022022091742_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_69964_447923_14052021031341_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_62808_353365_31102020063422_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_92946_853973_26052023072351.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_65404_362927_13112020061928_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_97544_949331_12102023044047.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_57821_286995_15072020054810_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_87602_776152_20012023073907_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_41430_62400_07122018040907_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_109235_1198409_21072024124854.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_66742_400597_30012021043528_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_83497_628880_11042022011727_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_46085_123671_22072019025254_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_101511_1035952_25012024040059.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_89897_793153_13022023054035.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_58584_299211_30072020125949_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_43585_97150_19042019113343_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_80104_589325_17012022114157_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_62810_353374_31102020065823_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_102283_1044108_03022024072955.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_46345_125818_27072019071513_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_83532_638252_18042022023249_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_117298_1348254_16012025082021.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_35424_10355_21052018090537_WEB_2.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_88001_779837_28012023031642_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_46753_128126_06082019021851_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_39559_55477_26102018071539_WEB_2.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_83516_634679_13042022084838_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_105064_1112743_30042024080127.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_69965_447926_14052021031559_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_53333_218487_12022020084634_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_110591_1215073_07082024013629.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_46065_121955_19072019072403_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_112851_1276022_17102024074550.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_112771_1269085_14102024073244.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_63901_357723_10112020053003_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_58733_300006_30072020100922_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_74084_499765_05082021013557_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_55363_261180_26052020042200_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_87442_766963_14012023043623_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_109381_1201434_24072024061018.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_43541_85648_19032019071556_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_52022_213104_30012020070636_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_840790_5147_05112022165725_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_51533_206515_20012020023420_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_804705_6524_28102022154401_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_118654_1370906_04022025075321.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_101708_1038610_30012024011356.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_48706_156370_22102019025859_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_55062_251300_09052020072343_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_66059_394310_19012021060557_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_76680_545381_23102021073821_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_51391_193740_10012020051427_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_587318_3504_15072022222922_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_94381_898237_21072023083827.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_54914_241958_21042020033926_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_48707_156372_22102019025947_WEB_2.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_73303_495024_23072021080800_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_641735_4099_09082022165415_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_40327_58065_05112018060640_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_87968_779545_27012023053921_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_770697_4851_18102022135422_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_88755_787172_07022023111412.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_101876_1040390_31012024051225.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_118254_1366965_31012025124842.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_73302_495021_23072021080622_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_87603_776169_20012023074330_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_76367_532030_13102021060122_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_58223_296685_25072020050425_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_80325_597567_21012022082559_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_73091_489000_19072021114809_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_74328_501084_07082021112618_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_55870_265473_15062020060131_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_600397_2736_23072022172705_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_87637_777233_21012023061443_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_118874_1373047_06022025045242.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_87410_763987_12012023042211_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_44099_101674_13052019105841_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_74085_499768_05082021014202_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_117822_1362719_28012025124545.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_44080_101588_13052019051807_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_112770_1269079_14102024072938.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_94194_885838_14072023105654.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_114657_1302333_08112024081109.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_761158_4655_13102022170237_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_87629_777062_21012023044622_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_51509_205240_17012020074024_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_80466_598795_25012022053829_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_98033_968998_27102023043023.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_91132_836812_03052023064333.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_104623_1105106_21042024122701.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_101710_1038619_30012024011640.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_49686_163172_09112019020521_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_77864_551897_04112021030210_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_70019_448219_15052021051931_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_113422_1289142_25102024073205.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_118873_1373034_06022025045052.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_43594_98455_22042019125125_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/BANKING_62164_344524_19102020112602_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_88002_779845_28012023032500_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_59160_301671_01082020032015_WEB.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/NBFC_INDAS_104839_1109729_26042024094557.xml"
+      ],
+      [
+        "CREATED",
+        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/xbrl_cache/nse/INDAS_103454_1051925_12022024042337.xml"
+      ]
+    ],
+    "quarantine_db_sync_env": "false"
+  },
+  "p0_parser_remediation": {
+    "pass_no_raw_present_usable_zero": true,
+    "pass_metrics_extracted": false,
+    "per_symbol": {
+      "ADOR": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=128 usable=57",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 0,
+        "metrics_total": 5
+      },
+      "BASF": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=117 usable=46",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 0,
+        "metrics_total": 5
+      },
+      "GABRIEL": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=112 usable=28",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 0,
+        "metrics_total": 5
+      },
+      "GLOBUSSPR": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=106 usable=28",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 0,
+        "metrics_total": 5
+      },
+      "STYRENIX": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=105 usable=40",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 0,
+        "metrics_total": 5
+      }
+    }
+  },
+  "state_machine_coverage": {
+    "RECOVERED_FROM_NSE": "NOT_OBSERVED",
+    "RECOVERED_FROM_BSE": "NOT_OBSERVED",
+    "RECOVERED_FROM_UPSTOX": "OBSERVED",
+    "RECOVERED_FROM_FYERS": "UNREACHABLE_BY_DESIGN",
+    "REFERENCE_ONLY_AVAILABLE": "OBSERVED",
+    "CONFIRMED_NO_DATA_ANYWHERE": "NOT_OBSERVED",
+    "CONFIRMED_SHORT_HISTORY": "OBSERVED",
+    "HISTORICAL_FILING_GAP": "NOT_OBSERVED",
+    "PARSER_OR_FIELD_MAPPING_FAILURE": "OBSERVED",
+    "SYMBOL_MAPPING_FAILURE": "OBSERVED"
+  },
+  "unreachable_by_design_notes": {
+    "RECOVERED_FROM_FYERS": "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface available to the application does not expose the required fundamental field."
+  },
+  "observed_states": [
+    "CONFIRMED_SHORT_HISTORY",
+    "INVALID_CAGR_BASE",
+    "PARSER_OR_FIELD_MAPPING_FAILURE",
+    "RECOVERED_FROM_UPSTOX",
+    "REFERENCE_ONLY_AVAILABLE",
+    "SYMBOL_MAPPING_FAILURE"
+  ],
+  "errors": [],
+  "cohort_size": 25
+}

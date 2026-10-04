@@ -63,17 +63,20 @@ REASON_SPECIFIC_TTLS: Dict[str, timedelta] = {
     "PROVIDER_TIMEOUT": timedelta(minutes=30),
     "PROVIDER_5XX": timedelta(minutes=30),
     "AUTH_FAILURE": timedelta(minutes=30),
+    "BSE_FEED_ACCESS_REQUIRED": timedelta(minutes=30),
+    "BSE_HTTP_ERROR": timedelta(minutes=30),
     "SYMBOL_MAPPING_FAILURE": timedelta(hours=2),
     "PARSER_OR_FIELD_MAPPING_FAILURE": timedelta(minutes=15),  # High priority defect: NEVER 7 days!
     "PARSER_FAILURE": timedelta(minutes=15),
     "PARSER_CIRCUIT_BREAKER_TRIPPED": timedelta(hours=6),     # Repeated parser failures circuit breaker
-    "CONFIRMED_NO_DATA": timedelta(days=7),
-    "CONFIRMED_SHORT_HISTORY": timedelta(days=7),
-    "CONFIRMED_HISTORICAL_GAP": timedelta(days=7),
     "CONFIRMED_NO_DATA_ANYWHERE": timedelta(days=7),
-    "NO_DATA_ANYWHERE": timedelta(days=7),
+    "CONFIRMED_NO_DATA": timedelta(days=7),
     "DATA_UNAVAILABLE": timedelta(days=7),
-    "FIELD_ABSENT": timedelta(days=7),             # Specific ratio not reported in published statements
+    "FIELD_ABSENT": timedelta(days=7),
+    "CONFIRMED_SHORT_HISTORY": timedelta(days=7),
+    "INSUFFICIENT_HISTORICAL_DEPTH": timedelta(days=7),
+    "HISTORICAL_FILING_GAP": timedelta(days=7),
+    "CONFIRMED_HISTORICAL_GAP": timedelta(days=7),
     "NOT_REPORTED": timedelta(days=21),            # Filing not yet published by exchange (tied to LODR deadline)
 }
 
@@ -131,13 +134,19 @@ def compute_evidence_fingerprint(
 
 _QUARANTINE_REASONS = {
     "CONFIRMED_NO_DATA_ANYWHERE",
-    "NO_DATA_ANYWHERE",
     "CONFIRMED_SHORT_HISTORY",
+    "HISTORICAL_FILING_GAP",
     "CONFIRMED_HISTORICAL_GAP",
-    "CONFIRMED_NO_DATA",
-    "DATA_UNAVAILABLE",
-    "FIELD_ABSENT",
+    "INSUFFICIENT_HISTORICAL_DEPTH",
 }
+
+
+def make_quarantine_key(symbol: str, field: str = "ALL", scanner_family: str = "FUNDAMENTAL") -> str:
+    """Produces canonical key for (symbol, field, scanner_family) dependency quarantine."""
+    s = str(symbol or "").strip().upper()
+    f = str(field or "ALL").strip().upper()
+    fam = str(scanner_family or "FUNDAMENTAL").strip().upper()
+    return f"{s}::{f}::{fam}"
 
 
 class PitRecoveryStatusStore:
@@ -175,9 +184,12 @@ class PitRecoveryStatusStore:
                     active_cache = {}
                     for r in records:
                         sym = str(r["symbol"]).strip().upper()
+                        fld = str(r.get("field") or "ALL").strip().upper()
+                        fam = str(r.get("scanner_family") or "FUNDAMENTAL").strip().upper()
                         exp = str(r.get("expires_at", ""))
                         if exp and exp > now_str:
-                            active_cache[sym] = r
+                            k = make_quarantine_key(sym, fld, fam)
+                            active_cache[k] = r
                     self._cache = active_cache
                 else:
                     self._cache = {}
@@ -230,50 +242,122 @@ class PitRecoveryStatusStore:
                     except OSError:
                         pass
 
-    def get_status(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Returns active, unexpired negative cache entry if present."""
+    def get_status(
+        self,
+        symbol: str,
+        field: str = "ALL",
+        scanner_family: str = "ALL"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Returns active, unexpired negative cache entry for (symbol, field, scanner_family).
+        Supports wildcard lookups when field or scanner_family is 'ALL'.
+        """
         sym = symbol.strip().upper()
+        fld = str(field or "ALL").strip().upper()
+        fam = str(scanner_family or "ALL").strip().upper()
         now_str = datetime.now(IST).isoformat()
         with self._lock:
-            entry = self._cache.get(sym)
-            if entry is not None:
-                exp = str(entry.get("expires_at", ""))
-                if exp and exp > now_str:
-                    return entry
-                # Expired
-                del self._cache[sym]
+            # 1. Exact or wildcard candidate keys
+            candidates = []
+            if fld != "ALL" and fam != "ALL":
+                candidates.append(make_quarantine_key(sym, fld, fam))
+            if fld != "ALL":
+                candidates.append(make_quarantine_key(sym, fld, "ALL"))
+            if fam != "ALL":
+                candidates.append(make_quarantine_key(sym, "ALL", fam))
+            candidates.append(make_quarantine_key(sym, "ALL", "ALL"))
+
+            for cand in candidates:
+                entry = self._cache.get(cand)
+                if entry is not None:
+                    exp = str(entry.get("expires_at", ""))
+                    if exp and exp > now_str:
+                        return entry
+                    else:
+                        del self._cache[cand]
+
+            # 2. Check all entries starting with sym:: if wildcard lookup
+            prefix = f"{sym}::"
+            matching_keys = [k for k in self._cache if k.startswith(prefix)]
+            for k in matching_keys:
+                entry = self._cache.get(k)
+                if entry is not None:
+                    exp = str(entry.get("expires_at", ""))
+                    if exp and exp > now_str:
+                        if fam != "ALL":
+                            e_fam = str(entry.get("scanner_family", "FUNDAMENTAL")).strip().upper()
+                            if e_fam != "ALL" and e_fam != fam:
+                                continue
+                        if fld != "ALL":
+                            e_fld = str(entry.get("field", "ALL")).strip().upper()
+                            if e_fld != "ALL" and e_fld != fld:
+                                continue
+                        return entry
+                    else:
+                        del self._cache[k]
         return None
 
-    def is_negatively_cached(self, symbol: str) -> Tuple[bool, Optional[str]]:
+    def is_negatively_cached(
+        self,
+        symbol: str,
+        field: str = "ALL",
+        scanner_family: str = "ALL"
+    ) -> Tuple[bool, Optional[str]]:
         """
-        Returns (True, reason) if symbol is actively negatively cached and unexpired.
-        Returns (False, None) if symbol is eligible for lookup/recovery.
+        Returns (True, reason) if (symbol, field, scanner_family) is actively negatively cached.
+        Returns (False, None) if eligible for lookup/recovery.
         """
-        entry = self.get_status(symbol)
+        entry = self.get_status(symbol, field=field, scanner_family=scanner_family)
         if entry is not None:
             return True, str(entry.get("reason", entry.get("status", "DATA_UNAVAILABLE")))
         return False, None
 
-    def is_quarantined_for_scanner(self, symbol: str, scanner_family: str = "FUNDAMENTAL") -> bool:
+    def is_quarantined_for_scanner(
+        self,
+        symbol: str,
+        scanner_family: str = "FUNDAMENTAL",
+        field: Optional[str] = None
+    ) -> bool:
         """
-        [RULE 67 CHANGE-RATIONALE: Scanner Dependency Quarantine Invariant.
-        Checks if symbol is currently under an active 7-day quarantine specifically for
-        scanner_family (e.g. FUNDAMENTAL / QUALITY_COMPOUNDER).
+        [RULE 67 CHANGE-RATIONALE: Dependency-Scoped Scanner Quarantine Invariant]
+        Checks if (symbol, field, scanner_family) is currently under an active 7-day quarantine.
         Quarantine applies strictly to confirmed data absence (CONFIRMED_NO_DATA_ANYWHERE,
-        CONFIRMED_SHORT_HISTORY, HISTORICAL_GAP).
+        CONFIRMED_SHORT_HISTORY, HISTORICAL_FILING_GAP, DATA_UNAVAILABLE_VERIFIED).
         Returns False for internal code defects (PARSER_OR_FIELD_MAPPING_FAILURE) or
-        transient provider outages (PROVIDER_FAILURE).]
+        transient provider outages (PROVIDER_FAILURE).
         """
-        entry = self.get_status(symbol)
-        if entry is None:
-            return False
+        sym = symbol.strip().upper()
+        fam = str(scanner_family or "FUNDAMENTAL").strip().upper()
+        now_str = datetime.now(IST).isoformat()
+        with self._lock:
+            prefix = f"{sym}::"
+            keys = [k for k in self._cache if k.startswith(prefix)]
+            for k in keys:
+                entry = self._cache.get(k)
+                if entry is None:
+                    continue
+                exp = str(entry.get("expires_at", ""))
+                if not exp or exp <= now_str:
+                    del self._cache[k]
+                    continue
 
-        entry_family = str(entry.get("scanner_family", "FUNDAMENTAL")).upper()
-        if entry_family != "ALL" and entry_family != str(scanner_family).upper():
-            return False
+                # Check scanner family match
+                e_fam = str(entry.get("scanner_family", "FUNDAMENTAL")).strip().upper()
+                if e_fam != "ALL" and fam != "ALL" and e_fam != fam:
+                    continue
 
-        reason_u = str(entry.get("reason", entry.get("classification", entry.get("status", "")))).upper()
-        return any(q_r in reason_u for q_r in _QUARANTINE_REASONS)
+                # Check field match if specific field requested
+                if field is not None and str(field).strip().upper() not in ("", "ALL"):
+                    target_fld = str(field).strip().upper()
+                    e_fld = str(entry.get("field", "ALL")).strip().upper()
+                    if e_fld != "ALL" and e_fld != target_fld:
+                        continue
+
+                # Check quarantine eligibility reasons
+                reason_u = str(entry.get("reason", entry.get("classification", entry.get("status", "")))).upper()
+                if any(q_r in reason_u for q_r in _QUARANTINE_REASONS):
+                    return True
+        return False
 
     def check_and_invalidate_on_new_filing(
         self,
@@ -286,7 +370,7 @@ class PitRecoveryStatusStore:
         provider_snapshot_hash: Optional[str] = None,
     ) -> bool:
         """
-        [RULE 67 CHANGE-RATIONALE: Evidence Fingerprint Invalidation Invariant.
+        [RULE 67 CHANGE-RATIONALE: Evidence Fingerprint Invalidation Invariant]
         Breaks the 7-day quarantine early if any component of upstream exchange
         evidence changes:
           - latest_filing_date
@@ -295,75 +379,86 @@ class PitRecoveryStatusStore:
           - raw_record_count
           - raw_content_hash
           - provider_snapshot_hash
-        Ensuring revised filings or updated periods immediately release the stock.]
+        Ensuring revised filings or updated periods immediately release all scoped entries for the stock.
         """
         sym = symbol.strip().upper()
         with self._lock:
-            entry = self._cache.get(sym)
-            if entry is None:
+            prefix = f"{sym}::"
+            matching_keys = [k for k in self._cache if k.startswith(prefix)]
+            if not matching_keys:
                 return False
 
             invalidated = False
-            cached_date = str(entry.get("latest_filing_date") or "")
-            cached_period_end = str(entry.get("latest_period_end") or "")
-            cached_broadcast = str(entry.get("latest_broadcast_timestamp") or "")
-            cached_count = int(entry.get("raw_record_count") or 0)
-            cached_content_hash = str(entry.get("raw_content_hash") or "")
-            cached_snapshot_hash = str(entry.get("provider_snapshot_hash") or "")
-            cached_evidence_hash = str(entry.get("evidence_fingerprint") or "")
+            for k in matching_keys:
+                entry = self._cache[k]
+                cached_date = str(entry.get("latest_filing_date") or "")
+                cached_period_end = str(entry.get("latest_period_end") or "")
+                cached_broadcast = str(entry.get("latest_broadcast_timestamp") or "")
+                cached_count = int(entry.get("raw_record_count") or 0)
+                cached_content_hash = str(entry.get("raw_content_hash") or "")
+                cached_snapshot_hash = str(entry.get("provider_snapshot_hash") or "")
+                cached_evidence_hash = str(entry.get("evidence_fingerprint") or "")
 
-            if latest_filing_date and cached_date and str(latest_filing_date)[:10] > cached_date[:10]:
-                logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer filing date detected for {sym}: "
-                    f"exchange={latest_filing_date[:10]} > cached={cached_date[:10]}. Invalidating cooldown immediately."
-                )
-                invalidated = True
-            elif latest_period_end and cached_period_end and str(latest_period_end)[:10] > cached_period_end[:10]:
-                logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer period end detected for {sym}: "
-                    f"exchange={latest_period_end[:10]} > cached={cached_period_end[:10]}. Invalidating cooldown immediately."
-                )
-                invalidated = True
-            elif latest_broadcast_timestamp and cached_broadcast and str(latest_broadcast_timestamp) > cached_broadcast:
-                logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer broadcast timestamp detected for {sym}: "
-                    f"exchange={latest_broadcast_timestamp} > cached={cached_broadcast}. Invalidating cooldown immediately."
-                )
-                invalidated = True
-            elif raw_record_count is not None and raw_record_count > cached_count and cached_count > 0:
-                logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Additional raw records detected for {sym}: "
-                    f"raw_records={raw_record_count} > cached={cached_count}. Invalidating cooldown immediately."
-                )
-                invalidated = True
-            elif raw_content_hash and cached_content_hash and raw_content_hash != cached_content_hash:
-                logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Raw content hash changed for {sym}. Invalidating cooldown immediately."
-                )
-                invalidated = True
-            elif provider_snapshot_hash and cached_snapshot_hash and provider_snapshot_hash != cached_snapshot_hash:
-                logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Provider snapshot hash changed for {sym}. Invalidating cooldown immediately."
-                )
-                invalidated = True
+                if latest_filing_date and cached_date and str(latest_filing_date)[:10] > cached_date[:10]:
+                    logger.info(
+                        f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer filing date detected for {sym}: "
+                        f"exchange={latest_filing_date[:10]} > cached={cached_date[:10]}. Invalidating cooldown immediately."
+                    )
+                    invalidated = True
+                    break
+                elif latest_period_end and cached_period_end and str(latest_period_end)[:10] > cached_period_end[:10]:
+                    logger.info(
+                        f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer period end detected for {sym}: "
+                        f"exchange={latest_period_end[:10]} > cached={cached_period_end[:10]}. Invalidating cooldown immediately."
+                    )
+                    invalidated = True
+                    break
+                elif latest_broadcast_timestamp and cached_broadcast and str(latest_broadcast_timestamp) > cached_broadcast:
+                    logger.info(
+                        f"⚡ [NEGATIVE_CACHE_INVALIDATED] Newer broadcast timestamp detected for {sym}: "
+                        f"exchange={latest_broadcast_timestamp} > cached={cached_broadcast}. Invalidating cooldown immediately."
+                    )
+                    invalidated = True
+                    break
+                elif raw_record_count is not None and raw_record_count > cached_count and cached_count > 0:
+                    logger.info(
+                        f"⚡ [NEGATIVE_CACHE_INVALIDATED] Additional raw records detected for {sym}: "
+                        f"raw_records={raw_record_count} > cached={cached_count}. Invalidating cooldown immediately."
+                    )
+                    invalidated = True
+                    break
+                elif raw_content_hash and cached_content_hash and raw_content_hash != cached_content_hash:
+                    logger.info(
+                        f"⚡ [NEGATIVE_CACHE_INVALIDATED] Raw content hash changed for {sym}. Invalidating cooldown immediately."
+                    )
+                    invalidated = True
+                    break
+                elif provider_snapshot_hash and cached_snapshot_hash and provider_snapshot_hash != cached_snapshot_hash:
+                    logger.info(
+                        f"⚡ [NEGATIVE_CACHE_INVALIDATED] Provider snapshot hash changed for {sym}. Invalidating cooldown immediately."
+                    )
+                    invalidated = True
+                    break
 
-            new_fingerprint = compute_evidence_fingerprint(
-                latest_filing_date=latest_filing_date or cached_date or None,
-                latest_period_end=latest_period_end or cached_period_end or None,
-                latest_broadcast_timestamp=latest_broadcast_timestamp or cached_broadcast or None,
-                raw_record_count=raw_record_count if raw_record_count is not None else cached_count,
-                raw_content_hash=raw_content_hash or cached_content_hash or None,
-                provider_snapshot_hash=provider_snapshot_hash or cached_snapshot_hash or None,
-            )
-            if cached_evidence_hash and new_fingerprint != cached_evidence_hash:
-                logger.info(
-                    f"⚡ [NEGATIVE_CACHE_INVALIDATED] Composite evidence fingerprint changed for {sym}: "
-                    f"{new_fingerprint[:8]} != {cached_evidence_hash[:8]}. Invalidating cooldown immediately."
+                new_fingerprint = compute_evidence_fingerprint(
+                    latest_filing_date=latest_filing_date or cached_date or None,
+                    latest_period_end=latest_period_end or cached_period_end or None,
+                    latest_broadcast_timestamp=latest_broadcast_timestamp or cached_broadcast or None,
+                    raw_record_count=raw_record_count if raw_record_count is not None else cached_count,
+                    raw_content_hash=raw_content_hash or cached_content_hash or None,
+                    provider_snapshot_hash=provider_snapshot_hash or cached_snapshot_hash or None,
                 )
-                invalidated = True
+                if cached_evidence_hash and new_fingerprint != cached_evidence_hash:
+                    logger.info(
+                        f"⚡ [NEGATIVE_CACHE_INVALIDATED] Composite evidence fingerprint changed for {sym}: "
+                        f"{new_fingerprint[:8]} != {cached_evidence_hash[:8]}. Invalidating cooldown immediately."
+                    )
+                    invalidated = True
+                    break
 
             if invalidated:
-                del self._cache[sym]
+                for k in matching_keys:
+                    del self._cache[k]
                 self._atomic_persist()
                 return True
             return False
@@ -403,8 +498,12 @@ class PitRecoveryStatusStore:
         consecutive_failures = 1
         circuit_breaker_tripped = False
 
+        k = make_quarantine_key(sym, field_name, scanner_family)
+
         with self._lock:
-            existing = self._cache.get(sym)
+            existing = self._cache.get(k)
+            if existing is None:
+                existing = self._cache.get(make_quarantine_key(sym, "ALL", scanner_family)) or self._cache.get(make_quarantine_key(sym, "ALL", "ALL"))
             if existing is not None:
                 attempt_cnt = int(existing.get("attempt_count", 0)) + 1
                 prev_fp = str(existing.get("failure_fingerprint", ""))
@@ -435,7 +534,7 @@ class PitRecoveryStatusStore:
             except Exception:
                 pass
         elif ttl is None:
-            ttl = REASON_SPECIFIC_TTLS.get(reason_u, REASON_SPECIFIC_TTLS.get(status_u, timedelta(days=7)))
+            ttl = REASON_SPECIFIC_TTLS.get(reason_u, REASON_SPECIFIC_TTLS.get(status_u, timedelta(minutes=30)))
 
         expires_dt = now_dt + ttl
         evidence_fp = compute_evidence_fingerprint(
@@ -479,7 +578,7 @@ class PitRecoveryStatusStore:
         }
 
         with self._lock:
-            self._cache[sym] = record
+            self._cache[k] = record
             if persist:
                 self._atomic_persist()
 
@@ -545,14 +644,39 @@ class PitRecoveryStatusStore:
         """Batch-records multiple negative availability entries with a single atomic disk write."""
         with self._lock:
             for r in records:
-                sym = r["symbol"].strip().upper()
-                self._cache[sym] = r
+                sym = str(r["symbol"]).strip().upper()
+                fld = str(r.get("field") or "ALL").strip().upper()
+                fam = str(r.get("scanner_family") or "FUNDAMENTAL").strip().upper()
+                k = make_quarantine_key(sym, fld, fam)
+                self._cache[k] = r
             self._atomic_persist()
+
+    def clear_quarantine(self, symbol: str, field: Optional[str] = None, scanner_family: Optional[str] = None) -> None:
+        """Clears quarantine entries matching symbol and optional field/scanner_family."""
+        sym = symbol.strip().upper()
+        with self._lock:
+            prefix = f"{sym}::"
+            to_del = []
+            for k in self._cache:
+                if k.startswith(prefix):
+                    entry = self._cache[k]
+                    if field is not None and str(field).strip().upper() not in ("", "ALL"):
+                        if str(entry.get("field", "ALL")).strip().upper() != str(field).strip().upper():
+                            continue
+                    if scanner_family is not None and str(scanner_family).strip().upper() not in ("", "ALL"):
+                        if str(entry.get("scanner_family", "FUNDAMENTAL")).strip().upper() != str(scanner_family).strip().upper():
+                            continue
+                    to_del.append(k)
+            for k in to_del:
+                del self._cache[k]
+            if to_del:
+                self._atomic_persist()
 
     def clear(self) -> None:
         with self._lock:
             self._cache = {}
             self._atomic_persist()
+
 
 
 # Global Singleton Store
@@ -565,3 +689,8 @@ def get_pit_recovery_store(path: Optional[str] = None) -> PitRecoveryStatusStore
         if _GLOBAL_RECOVERY_STORE is None or path is not None:
             _GLOBAL_RECOVERY_STORE = PitRecoveryStatusStore(path)
         return _GLOBAL_RECOVERY_STORE
+
+
+# Backward-compatible alias for live scanner pre-filter
+get_pit_recovery_cache = get_pit_recovery_store
+

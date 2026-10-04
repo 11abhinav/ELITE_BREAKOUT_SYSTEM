@@ -49,12 +49,15 @@ class BseSecurityEntry:
     has_nse: bool = True
 
 
-# Known Historical Corporate Actions & Renames
 KNOWN_ALIASES: Dict[str, str] = {
     "ADORWELD": "ADOR",
-    "TATAMTRDVR": "TATAMOTORS",
-    "TMPV": "TATAMOTORS",
-    "TMCV": "TATAMOTORS",
+    "TATAMOTORS": "TMPV",
+    "TATAMTRDVR": "TMPV",
+    "TMPV": "TMPV",
+    "TMCV": "TMPV",
+    "GABRIEL_BSE": "505714",
+    "570001": "500570",
+    "500400": "500570",
     "L&TFH": "LTF",
     "L_TFH": "LTF",
     "LTFH": "LTF",
@@ -139,6 +142,15 @@ class BseSecurityMasterResolver:
                     self._by_security_id[sec_id] = entry
                 if isin:
                     self._by_isin[isin] = entry
+                
+                # Special corporate action handling: TATAMOTORS / TMPV (500570)
+                if scrip == "500570" or isin == "INE155A01022" or canonical in ("TMPV", "TATAMOTORS"):
+                    self._by_canonical["TATAMOTORS"] = entry
+                    self._by_security_id["TATAMOTORS"] = entry
+                    self._by_canonical["TATAMTRDVR"] = entry
+                    self._by_scrip_code["570001"] = entry
+                    self._by_scrip_code["500400"] = entry
+
                 count += 1
 
             logger.info(f"✅ [BSE_MASTER] Loaded {count} dynamic BSE security entries into memory.")

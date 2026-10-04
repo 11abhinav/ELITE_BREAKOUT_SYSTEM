@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-04T17:22:40.807546+05:30",
+  "generated_at": "2026-10-04T20:58:52.383789+05:30",
   "scanner": "QUALITY_COMPOUNDER",
   "records": [
     {
@@ -16,14 +16,22 @@
       "fyers_status": "UNSUPPORTED_FIELD",
       "screener_status": "AVAILABLE",
       "classification": "SCREENER_ONLY_DATA_SOURCE",
+      "bse_status": "NO_DATA",
       "production_value_written": false,
       "buy_allowed": false,
-      "admin_alert_generated": false,
-      "checked_at": "2026-10-04T17:22:40.806400+05:30",
+      "admin_alert_generated": true,
+      "checked_at": "2026-10-04T20:58:52.378894+05:30",
       "upstox_key_ratios": "N/A",
       "severity": "HIGH",
       "admin_action": "INVESTIGATE_WHY_VALUE_IN_SCREENER_CANNOT_BE_RECOVERED_FROM_VERIFIED_SOURCE",
-      "admin_message": "\ud83d\udea8 DATA SOURCE NOTICE: MANYAVAR \u2014 sales_cagr_5y found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review."
+      "admin_message": "\ud83d\udea8 DATA SOURCE NOTICE: MANYAVAR \u2014 sales_cagr_5y found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review.",
+      "source_of_truth": "NONE",
+      "availability_status": "REFERENCE_ONLY",
+      "production_eligibility": "INELIGIBLE",
+      "block_reason": "SCREENER_REFERENCE_ONLY_GOVERNANCE_BLOCKED",
+      "quarantine_action": "NONE",
+      "quarantine_until": null,
+      "selected_periods": []
     },
     {
       "symbol": "MANYAVAR",
@@ -39,14 +47,22 @@
       "fyers_status": "UNSUPPORTED_FIELD",
       "screener_status": "AVAILABLE",
       "classification": "SCREENER_ONLY_DATA_SOURCE",
+      "bse_status": "NO_DATA",
       "production_value_written": false,
       "buy_allowed": false,
-      "admin_alert_generated": false,
-      "checked_at": "2026-10-04T17:22:40.806464+05:30",
+      "admin_alert_generated": true,
+      "checked_at": "2026-10-04T20:58:52.379013+05:30",
       "upstox_key_ratios": "N/A",
       "severity": "HIGH",
       "admin_action": "INVESTIGATE_WHY_VALUE_IN_SCREENER_CANNOT_BE_RECOVERED_FROM_VERIFIED_SOURCE",
-      "admin_message": "\ud83d\udea8 DATA SOURCE NOTICE: MANYAVAR \u2014 pat_cagr_5y found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review."
+      "admin_message": "\ud83d\udea8 DATA SOURCE NOTICE: MANYAVAR \u2014 pat_cagr_5y found on Screener.in but unavailable from primary authoritative providers (Upstox/NSE/Exchange). This data will NOT be used for trading decisions. Potential upstream ingestion gap flagged for review.",
+      "source_of_truth": "NONE",
+      "availability_status": "REFERENCE_ONLY",
+      "production_eligibility": "INELIGIBLE",
+      "block_reason": "SCREENER_REFERENCE_ONLY_GOVERNANCE_BLOCKED",
+      "quarantine_action": "NONE",
+      "quarantine_until": null,
+      "selected_periods": []
     }
   ]
 }

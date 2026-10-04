@@ -244,8 +244,15 @@ class FundamentalSourceRouter:
              the latest valid broadcast/version as of T (e.g. amended filing superseding original).
           4. Returns chronologically sorted unique economic periods up to T.
         """
-        matching = [r for r in records if getattr(r, "period_type", "ANNUAL") == statement_type]
-        if not matching:
+        matching = [
+            r for r in records
+            if getattr(r, "period_type", "ANNUAL") == statement_type
+            and (
+                statement_type != "ANNUAL"
+                or str(getattr(r, "period_type", "ANNUAL")).upper() not in ("QUARTERLY", "HALF_YEARLY", "Q1", "Q2", "Q3", "Q4", "H1", "H2")
+            )
+        ]
+        if not matching and statement_type != "ANNUAL":
             matching = records
 
         cutoff = str(as_of_timestamp) if as_of_timestamp else "9999-12-31T23:59:59"
@@ -376,29 +383,118 @@ class FundamentalSourceRouter:
         )
         return metrics
 
+    def _record_recovery_trace(
+        self,
+        symbol: str,
+        is_bse_only: bool = False,
+        isin_resolved: bool = False,
+        canonical_hit: bool = False,
+        local_records: Optional[List[RawFinancialRecord]] = None,
+        nse_records: Optional[List[RawFinancialRecord]] = None,
+        nse_raw_cnt: int = 0,
+        nse_parser_status: str = "NOT_CHECKED",
+        bse_records: Optional[List[RawFinancialRecord]] = None,
+        bse_raw_cnt: int = 0,
+        bse_status: str = "NOT_CHECKED",
+        upstox_records: Optional[List[RawFinancialRecord]] = None,
+        recovered_source: Optional[str] = None,
+        field_sources: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        local_recs = local_records or []
+        nse_recs = nse_records or []
+        bse_recs = bse_records or []
+        up_recs = upstox_records or []
+
+        def _ann(rs):
+            return sum(1 for r in rs if getattr(r, "period_type", "ANNUAL") == "ANNUAL")
+
+        trace = self.last_trace.setdefault(symbol, {})
+        if field_sources is not None:
+            trace["field_sources"] = field_sources
+        elif "field_sources" not in trace:
+            trace["field_sources"] = {}
+        trace.update({
+            "symbol": symbol,
+            "canonical_hit": canonical_hit,
+            "canonical_status": "HIT" if canonical_hit else "MISS",
+            "is_bse_only": is_bse_only,
+            "isin_resolved": isin_resolved,
+            "local_records": len(local_recs),
+            "local_annual": _ann(local_recs),
+            "nse_records": len(nse_recs),
+            "nse_annual": _ann(nse_recs),
+            "nse_raw_count": nse_raw_cnt,
+            "nse_usable_count": len(nse_recs),
+            "nse_parser_status": nse_parser_status,
+            "bse_records": len(bse_recs),
+            "bse_annual": _ann(bse_recs),
+            "bse_raw_count": bse_raw_cnt,
+            "bse_usable_count": len(bse_recs),
+            "bse_status": bse_status,
+            "upstox_records": len(up_recs),
+            "upstox_annual": _ann(up_recs),
+            "fyers_api_classification": "UNSUPPORTED_FIELD",
+            "fyers_status": "UNSUPPORTED_FIELD",
+            "fyers_api_reason": (
+                "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface "
+                "available to the application does not expose the required fundamental field."
+            ),
+            "fyers_ui_fundamentals": "REFERENCE_ONLY",
+            "raw_rows_returned": nse_raw_cnt or bse_raw_cnt or len(up_recs) or len(local_recs),
+            "usable_fields": len(nse_recs) or len(bse_recs) or len(up_recs) or len(local_recs),
+            "parser_error": (
+                "PARSER_OR_FIELD_MAPPING_FAILURE"
+                if ((nse_raw_cnt > 0 and len(nse_recs) == 0) or (bse_raw_cnt > 0 and len(bse_recs) == 0))
+                else None
+            ),
+            "recovered_source": recovered_source,
+        })
+        return trace
+
+    def _fields_satisfied(self, metrics: Optional[ReconciledCanonicalMetrics], required_fields: List[str]) -> bool:
+        if metrics is None or metrics.overall_status in (FundamentalStatus.DATA_INSUFFICIENT, FundamentalStatus.DATA_CONFLICT):
+            return False
+        for fld in required_fields:
+            val = getattr(metrics, fld, None)
+            if val is None or val == -999.0:
+                return False
+        return True
+
     def execute_progressive_recovery(
         self,
         symbol: str,
         as_of_timestamp: Optional[str] = None,
+        skip_canonical_pit: bool = False,
+        required_fields: Optional[List[str]] = None,
     ) -> ReconciledCanonicalMetrics:
         """
-        Progressive dual-source recovery with certified local raw filing fallback:
-          1. Fetch Upstox API
-          2. Fetch NSE XBRL API
-          3. Reconcile both → VERIFIED (dual-source)
-             or single source → VERIFIED_SINGLE_SOURCE
-             or local raw filings → VERIFIED_SINGLE_SOURCE (certified local source)
-             or none          → DATA_INSUFFICIENT
+        Progressive field-level provider recovery with certified local raw filing fallback:
+          Early stop ONLY when ALL required fields are verified and non-null.
+          Provider chain:
+            Canonical PIT -> NSE XBRL -> BSE Corporate -> Upstox API -> Reconciled Combinations.
         """
-        logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp})...")
+        if required_fields is None:
+            required_fields = ["roce_5y", "sales_cagr_5y", "pat_cagr_5y", "cfo_pat_5y", "debt_to_equity"]
+
+        logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp}, required={required_fields})...")
 
         # --- Step 0: Canonical Local PIT Raw Filings (Zero Network Check) ---
         local_records = self._fetch_local_raw_filings(symbol)
+        canonical_hit = False
         if local_records:
             loc_metrics = self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS", as_of_timestamp=as_of_timestamp)
             if loc_metrics.overall_status == FundamentalStatus.VERIFIED_SINGLE_SOURCE:
-                logger.info(f"⚡ [ROUTER] {symbol}: Authoritative verified data present in Canonical PIT. Stopping recovery.")
-                return loc_metrics
+                canonical_hit = True
+                if not skip_canonical_pit and self._fields_satisfied(loc_metrics, required_fields):
+                    self._record_recovery_trace(
+                        symbol,
+                        canonical_hit=True,
+                        local_records=local_records,
+                        recovered_source="CANONICAL_LOCAL",
+                        field_sources={f: "CANONICAL_LOCAL" for f in required_fields},
+                    )
+                    logger.info(f"⚡ [ROUTER] {symbol}: Authoritative verified data for all required fields present in Canonical PIT. Stopping recovery.")
+                    return loc_metrics
 
         # --- Step 1: Listing Awareness (BSE-only vs NSE) ---
         is_bse_only = False
@@ -417,6 +513,7 @@ class FundamentalSourceRouter:
         nse_records: List[RawFinancialRecord] = []
         nse_raw_cnt = 0
         nse_parser_status = "NOT_APPLICABLE" if is_bse_only else "NO_DATA_RETURNED"
+        nse_metrics: Optional[ReconciledCanonicalMetrics] = None
         if not is_bse_only:
             nse_records = self.nse_provider.fetch_raw_financials(symbol)
             nse_raw_cnt = self.nse_provider.last_raw_count.get(symbol, 0)
@@ -424,32 +521,71 @@ class FundamentalSourceRouter:
             logger.info(
                 f"[NSE] {symbol}: {len(nse_records)} usable records (raw={nse_raw_cnt}, status={nse_parser_status})"
             )
-            # If NSE produced fully verified canonical metrics, persist and stop (Exhaustion Logic)
             if nse_records:
                 nse_metrics = self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
-                if nse_metrics.overall_status == FundamentalStatus.VERIFIED_SINGLE_SOURCE:
+                # Field-Level Invariant: Early-stop ONLY if ALL required fields are satisfied
+                if self._fields_satisfied(nse_metrics, required_fields):
                     self._persist_raw_filings(symbol, nse_records)
-                    logger.info(f"✅ [ROUTER] {symbol}: Verified via NSE XBRL. Stopping provider exhaustion.")
+                    self._record_recovery_trace(
+                        symbol,
+                        is_bse_only=is_bse_only,
+                        isin_resolved=bool(self._resolve_isin(symbol)),
+                        canonical_hit=canonical_hit,
+                        local_records=local_records,
+                        nse_records=nse_records,
+                        nse_raw_cnt=nse_raw_cnt,
+                        nse_parser_status=nse_parser_status,
+                        bse_status="NSE_SUFFICIENT",
+                        recovered_source="NSE",
+                        field_sources={f: "NSE" for f in required_fields},
+                    )
+                    logger.info(f"✅ [ROUTER] {symbol}: All required fields satisfied via NSE XBRL. Stopping provider exhaustion.")
                     return nse_metrics
+                else:
+                    logger.info(
+                        f"⏳ [ROUTER] {symbol}: NSE produced {len(nse_records)} records, but required fields not fully satisfied. "
+                        f"Continuing progressive recovery to BSE..."
+                    )
 
-        # --- Step 3: BSE Ingestion (Secondary / BSE-only) ---
+        # --- Step 3: BSE Ingestion (Secondary / BSE-only / Continuation) ---
         bse_records: List[RawFinancialRecord] = []
         bse_raw_cnt = 0
         bse_parser_status = "NOT_CHECKED"
-        if is_bse_only or len(nse_records) == 0:
+        bse_metrics: Optional[ReconciledCanonicalMetrics] = None
+        # Query BSE if BSE-only OR if NSE did not satisfy all required fields
+        if is_bse_only or not self._fields_satisfied(nse_metrics, required_fields):
             bse_records = self.bse_provider.fetch_raw_financials(symbol)
             bse_raw_cnt = self.bse_provider.last_raw_count.get(symbol, 0)
             bse_parser_status = self.bse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
             logger.info(
                 f"[BSE] {symbol}: {len(bse_records)} usable records (raw={bse_raw_cnt}, status={bse_parser_status})"
             )
-            # If BSE produced fully verified canonical metrics, persist and stop
             if bse_records:
                 bse_metrics = self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp)
-                if bse_metrics.overall_status == FundamentalStatus.VERIFIED_SINGLE_SOURCE:
+                if self._fields_satisfied(bse_metrics, required_fields):
                     self._persist_raw_filings(symbol, bse_records)
-                    logger.info(f"✅ [ROUTER] {symbol}: Verified via BSE Corporate. Stopping provider exhaustion.")
+                    self._record_recovery_trace(
+                        symbol,
+                        is_bse_only=is_bse_only,
+                        isin_resolved=bool(self._resolve_isin(symbol)),
+                        canonical_hit=canonical_hit,
+                        local_records=local_records,
+                        nse_records=nse_records,
+                        nse_raw_cnt=nse_raw_cnt,
+                        nse_parser_status=nse_parser_status,
+                        bse_records=bse_records,
+                        bse_raw_cnt=bse_raw_cnt,
+                        bse_status=bse_parser_status,
+                        recovered_source="BSE",
+                        field_sources={f: "BSE" for f in required_fields},
+                    )
+                    logger.info(f"✅ [ROUTER] {symbol}: All required fields satisfied via BSE Corporate. Stopping provider exhaustion.")
                     return bse_metrics
+                else:
+                    logger.info(
+                        f"⏳ [ROUTER] {symbol}: BSE produced {len(bse_records)} records, but required fields not fully satisfied. "
+                        f"Continuing progressive recovery to Upstox..."
+                    )
         else:
             bse_parser_status = "NSE_SUFFICIENT"
 
@@ -473,102 +609,109 @@ class FundamentalSourceRouter:
         elif bse_records:
             self._persist_raw_filings(symbol, bse_records)
 
-        def _annual_count(rs: List[RawFinancialRecord]) -> int:
-            return sum(1 for r in rs if getattr(r, "period_type", "ANNUAL") == "ANNUAL")
+        self._record_recovery_trace(
+            symbol,
+            is_bse_only=is_bse_only,
+            isin_resolved=bool(isin),
+            canonical_hit=canonical_hit,
+            local_records=local_records,
+            nse_records=nse_records,
+            nse_raw_cnt=nse_raw_cnt,
+            nse_parser_status=nse_parser_status,
+            bse_records=bse_records,
+            bse_raw_cnt=bse_raw_cnt,
+            bse_status=bse_parser_status,
+            upstox_records=upstox_records,
+        )
 
-        trace = self.last_trace.setdefault(symbol, {})
-        trace.update({
-            "is_bse_only": is_bse_only,
-            "isin_resolved": bool(isin),
-            "upstox_records": len(upstox_records),
-            "upstox_annual": _annual_count(upstox_records),
-            "nse_records": len(nse_records),
-            "nse_annual": _annual_count(nse_records),
-            "nse_raw_count": nse_raw_cnt,
-            "nse_usable_count": len(nse_records),
-            "nse_parser_status": nse_parser_status,
-            "bse_records": len(bse_records),
-            "bse_annual": _annual_count(bse_records),
-            "bse_raw_count": bse_raw_cnt,
-            "bse_usable_count": len(bse_records),
-            "bse_status": bse_parser_status,
-            "raw_rows_returned": nse_raw_cnt or bse_raw_cnt or len(upstox_records) or len(local_records),
-            "usable_fields": len(nse_records) or len(bse_records) or len(upstox_records) or len(local_records),
-            "parser_error": (
-                "PARSER_OR_FIELD_MAPPING_FAILURE"
-                if ((nse_raw_cnt > 0 and len(nse_records) == 0) or (bse_raw_cnt > 0 and len(bse_records) == 0))
-                else None
-            ),
-            "local_records": len(local_records),
-            "local_annual": _annual_count(local_records),
-            "fyers_api_classification": "UNSUPPORTED_FIELD",
-            "fyers_api_reason": (
-                "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface "
-                "available to the application does not expose the required fundamental field."
-            ),
-            "fyers_ui_fundamentals": "REFERENCE_ONLY",
-        })
+        # --- Step 5: Field-Level Multi-Provider Progressive Recovery (§ Pending Item 4) ---
+        # Compose field values in strict approved hierarchy:
+        # Dual-Source Verified -> Canonical PIT -> NSE XBRL -> BSE Corporate -> Upstox API
+        has_local = bool(local_records)
+        has_nse = bool(nse_records)
+        has_bse = bool(bse_records)
+        has_upstox = bool(upstox_records)
 
-        # --- Step 5: Dual-Source Reconciliations & Final Fallbacks ---
-        has_upstox = len(upstox_records) > 0
-        has_nse = len(nse_records) > 0
-        has_bse = len(bse_records) > 0
-        has_local = len(local_records) > 0
+        loc_metrics = self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS", as_of_timestamp=as_of_timestamp) if has_local else None
+        nse_metrics = self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp) if has_nse else None
+        bse_metrics = self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp) if has_bse else None
+        upstox_metrics = self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp) if has_upstox else None
 
-        # Tier 1: Upstox + NSE dual-source
+        composed_metrics = ReconciledCanonicalMetrics(symbol=symbol)
+        field_sources: Dict[str, str] = {}
+
+        # 1. Dual-source cross-validations (if multiple sources available)
+        dual_candidates = []
         if has_upstox and has_nse:
-            metrics = self.reconciler.reconcile_and_calculate(symbol, nse_records, upstox_records)
-            logger.info(f"[RECONCILIATION] {symbol}: status={metrics.overall_status.name}")
-            return metrics
-
-        # Tier 1b: Upstox + BSE dual-source
+            dual_candidates.append((self.reconciler.reconcile_and_calculate(symbol, nse_records, upstox_records), "NSE+UPSTOX"))
         if has_upstox and has_bse:
-            metrics = self.reconciler.reconcile_and_calculate(symbol, bse_records, upstox_records)
-            logger.info(f"[RECONCILIATION_UPSTOX_BSE] {symbol}: status={metrics.overall_status.name}")
-            return metrics
-
-        # Tier 1c: NSE + BSE dual-source
+            dual_candidates.append((self.reconciler.reconcile_and_calculate(symbol, bse_records, upstox_records), "BSE+UPSTOX"))
         if has_nse and has_bse:
-            metrics = self.reconciler.reconcile_and_calculate(symbol, nse_records, bse_records)
-            logger.info(f"[RECONCILIATION_NSE_BSE] {symbol}: status={metrics.overall_status.name}")
-            return metrics
-
-        # Tier 2: Upstox + Certified Local Raw Filings dual-source
+            dual_candidates.append((self.reconciler.reconcile_and_calculate(symbol, nse_records, bse_records), "NSE+BSE"))
         if has_upstox and has_local:
-            metrics = self._reconcile_upstox_and_local(symbol, upstox_records, local_records, as_of_timestamp=as_of_timestamp)
-            logger.info(f"[DUAL_SOURCE_UPSTOX_LOCAL] {symbol}: status={metrics.overall_status.name}")
-            return metrics
-
-        # Tier 3: NSE + Certified Local Raw Filings dual-source
+            dual_candidates.append((self._reconcile_upstox_and_local(symbol, upstox_records, local_records, as_of_timestamp=as_of_timestamp), "UPSTOX+LOCAL"))
         if has_nse and has_local:
-            metrics = self._reconcile_upstox_and_local(symbol, nse_records, local_records, as_of_timestamp=as_of_timestamp)
-            logger.info(f"[DUAL_SOURCE_NSE_LOCAL] {symbol}: status={metrics.overall_status.name}")
-            return metrics
-
-        # Tier 3b: BSE + Certified Local Raw Filings dual-source
+            dual_candidates.append((self._reconcile_upstox_and_local(symbol, nse_records, local_records, as_of_timestamp=as_of_timestamp), "NSE+LOCAL"))
         if has_bse and has_local:
-            metrics = self._reconcile_upstox_and_local(symbol, bse_records, local_records, as_of_timestamp=as_of_timestamp)
-            logger.info(f"[DUAL_SOURCE_BSE_LOCAL] {symbol}: status={metrics.overall_status.name}")
-            return metrics
+            dual_candidates.append((self._reconcile_upstox_and_local(symbol, bse_records, local_records, as_of_timestamp=as_of_timestamp), "BSE+LOCAL"))
 
-        # Tier 4: Single source fallbacks
-        if has_nse:
-            return self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
+        for dual_met, dual_src in dual_candidates:
+            if dual_met and dual_met.overall_status in (FundamentalStatus.VERIFIED, FundamentalStatus.PARTIAL_RECOVERY):
+                for fld in required_fields:
+                    val = getattr(dual_met, fld, None)
+                    if val is not None and getattr(composed_metrics, fld, None) is None:
+                        setattr(composed_metrics, fld, val)
+                        field_sources[fld] = dual_src
+                        for p in getattr(dual_met, "provenance_chain", []):
+                            if getattr(p, "metric", "") == fld and p not in composed_metrics.provenance_chain:
+                                composed_metrics.provenance_chain.append(p)
 
-        if has_bse:
-            return self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp)
+        # 2. Approved single-provider hierarchy fallback for each unresolved field
+        provider_hierarchy = [
+            ("CANONICAL_LOCAL", loc_metrics),
+            ("NSE", nse_metrics),
+            ("BSE", bse_metrics),
+            ("UPSTOX", upstox_metrics),
+        ]
 
-        if has_upstox:
-            return self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp)
+        for fld in required_fields:
+            if getattr(composed_metrics, fld, None) is not None:
+                continue
+            for prov_name, p_met in provider_hierarchy:
+                if p_met is not None and getattr(p_met, fld, None) is not None:
+                    val = getattr(p_met, fld)
+                    setattr(composed_metrics, fld, val)
+                    field_sources[fld] = prov_name
+                    for p in getattr(p_met, "provenance_chain", []):
+                        if getattr(p, "metric", "") == fld and p not in composed_metrics.provenance_chain:
+                            composed_metrics.provenance_chain.append(p)
+                    break
 
-        if has_local:
-            logger.info(f"[LOCAL_RAW] {symbol}: Loaded {len(local_records)} records from certified local raw filings.")
-            return self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS", as_of_timestamp=as_of_timestamp)
+        satisfied_count = sum(1 for f in required_fields if getattr(composed_metrics, f, None) is not None)
+        if satisfied_count == len(required_fields):
+            composed_metrics.overall_status = FundamentalStatus.VERIFIED
+        elif satisfied_count > 0:
+            composed_metrics.overall_status = FundamentalStatus.PARTIAL_RECOVERY
+        else:
+            composed_metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
 
-        logger.warning(f"[ROUTER] {symbol}: All providers returned no data. DATA_INSUFFICIENT.")
-        m = ReconciledCanonicalMetrics(symbol=symbol)
-        m.overall_status = FundamentalStatus.DATA_INSUFFICIENT
-        return m
+        # Update trace for auditor and telemetry
+        primary_source = field_sources.get(required_fields[0]) if field_sources else (
+            "NSE" if has_nse else ("BSE" if has_bse else ("UPSTOX" if has_upstox else ("CANONICAL_LOCAL" if has_local else "NONE")))
+        )
+        self.last_trace.setdefault(symbol, {})["field_sources"] = field_sources
+        self.last_trace[symbol]["all_providers_exhausted"] = True
+        self.last_trace[symbol]["recovered_source"] = primary_source or "NONE"
+
+        if composed_metrics.overall_status == FundamentalStatus.DATA_INSUFFICIENT:
+            logger.warning(f"[ROUTER] {symbol}: All approved providers exhausted. None of the required fields satisfied. DATA_INSUFFICIENT.")
+        else:
+            logger.info(
+                f"[ROUTER] {symbol}: Field-level composition complete: status={composed_metrics.overall_status.name} | "
+                f"sources={field_sources}"
+            )
+
+        return composed_metrics
 
     def _reconcile_upstox_and_local(
         self,

@@ -48,7 +48,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -131,7 +131,10 @@ class AvailabilityClassification(str, Enum):
     PARSER_MAPPING_FAILURE = "PARSER_OR_FIELD_MAPPING_FAILURE"   # backward-compatible alias
     CALCULATION_FAILURE = "CALCULATION_FAILURE"
     STRUCTURAL_INELIGIBLE = "STRUCTURAL_INELIGIBLE"
+    STRUCTURALLY_UNSUPPORTED = "STRUCTURALLY_UNSUPPORTED"
+    NOT_APPLICABLE_FOR_INSTRUMENT = "STRUCTURALLY_UNSUPPORTED"  # alias
     TIER1_RECOVERY_NOT_EXHAUSTED = "TIER1_RECOVERY_NOT_EXHAUSTED"
+    PROVIDER_FAILURE = "PROVIDER_FAILURE"
 
 
 _SEVERITY: Dict[AvailabilityClassification, str] = {
@@ -147,8 +150,10 @@ _SEVERITY: Dict[AvailabilityClassification, str] = {
     AvailabilityClassification.UNPROCESSED_FILING: "WARNING",
     AvailabilityClassification.STALE_PIT: "WARNING",
     AvailabilityClassification.TIER1_RECOVERY_NOT_EXHAUSTED: "WARNING",
+    AvailabilityClassification.PROVIDER_FAILURE: "WARNING",
     AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH: "INFO",
     AvailabilityClassification.STRUCTURAL_INELIGIBLE: "INFO",
+    AvailabilityClassification.STRUCTURALLY_UNSUPPORTED: "INFO",
     AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED: "INFO",
     AvailabilityClassification.CONFIRMED_NO_DATA_ANYWHERE: "INFO",
 }
@@ -186,6 +191,14 @@ class AvailabilityAuditRecord:
     severity: str = field(default="INFO")
     admin_action: str = field(default="")
     admin_message: str = field(default="")
+    # [RULE 67 CHANGE-RATIONALE: Distinct Telemetry Fields (§ Pending Item 5)]
+    source_of_truth: str = field(default="NONE")
+    availability_status: str = field(default="UNAVAILABLE")
+    production_eligibility: str = field(default="INELIGIBLE")
+    block_reason: str = field(default="NONE")
+    quarantine_action: str = field(default="NONE")
+    quarantine_until: Optional[str] = field(default=None)
+    selected_periods: List[str] = field(default_factory=list)
 
 
 class OperatorAttestedReferenceSource:
@@ -263,11 +276,14 @@ class ScreenerReferenceSource(OperatorAttestedReferenceSource):
 def _statement_status(trace: Dict[str, Any], prefix: str) -> str:
     if not trace:
         return "NOT_QUERIED"
+    explicit_status = trace.get(f"{prefix}_status")
+    if explicit_status in ("NOT_CHECKED", "UNKNOWN", "NOT_ATTEMPTED", "ERROR", "TIMEOUT"):
+        return str(explicit_status)
     if prefix == "upstox" and trace.get("isin_resolved") is False and not trace.get("isin"):
         return "ISIN_UNRESOLVED"
     n = int(trace.get(f"{prefix}_records", 0) or 0)
     if n == 0:
-        return "MISSING"
+        return explicit_status if explicit_status else "MISSING"
     annual = int(trace.get(f"{prefix}_annual", 0) or 0)
     return f"RECORDS_PRESENT(annual={annual})"
 
@@ -283,12 +299,16 @@ class DataAvailabilityAuditor:
         self.persist_to_db = bool(os.getenv("DATABASE_URL")) if persist_to_db is None else persist_to_db
 
     def classify_field(self, symbol: str, field_name: str, trace: Dict[str, Any],
-                       today: Optional[date] = None) -> AvailabilityAuditRecord:
+                       today: Optional[date] = None,
+                       screener: Optional[ReferenceCheck] = None,
+                       fyers: Optional[ReferenceCheck] = None) -> AvailabilityAuditRecord:
         fld = normalize_field(field_name)
         trace = trace or {}
         checks = {r.name: r.check(symbol, fld, today=today) for r in self.references}
-        fyers = checks.get("FYERS")
-        screener = checks.get("SCREENER")
+        if fyers is None:
+            fyers = checks.get("FYERS")
+        if screener is None:
+            screener = checks.get("SCREENER")
 
         upstox = _statement_status(trace, "upstox")
         is_bse_only = bool(trace.get("is_bse_only"))
@@ -385,7 +405,29 @@ class DataAvailabilityAuditor:
             or (upstox == "ISIN_UNRESOLVED")
         )
 
-        if screener_avail and (is_parser_failure or trace.get("exhausted") or trace.get("all_providers_exhausted")):
+        is_bank_or_financial = bool(
+            symbol.upper() in {"HDFCBANK", "ICICIBANK", "SBIN", "KOTAKBANK", "AXISBANK", "YESBANK", "PNB", "BANKBARODA", "INDUSINDBK", "CANBK", "IDFCFIRSTB", "FEDERALBNK"}
+            or trace.get("is_bank")
+            or "BANK" in str(trace.get("industry") or "").upper()
+            or "FINANCIAL" in str(trace.get("industry") or "").upper()
+        )
+        bse_st = trace.get("bse_status") or bse
+        nse_status_val = trace.get("nse_status")
+        nse_parser_val = trace.get("nse_parser_status")
+        if nse_status_val in ("NOT_CHECKED", "UNKNOWN", "NOT_ATTEMPTED") or nse_parser_val in ("NOT_CHECKED", "UNKNOWN", "NOT_ATTEMPTED"):
+            nse_st = "NOT_CHECKED"
+        else:
+            nse_st = nse_parser_val or nse_status_val or nse
+        is_provider_failure = (
+            bse_st in ("BSE_FEED_ACCESS_REQUIRED", "BSE_HTTP_ERROR")
+            or "HTTP_ERROR" in str(nse_st)
+            or "ERROR" in str(upstox)
+        )
+
+        if is_bank_or_financial and fld in ("roce_5y", "ROCE", "debt_to_equity", "debt", "sales_cagr_5y"):
+            cls = AvailabilityClassification.STRUCTURALLY_UNSUPPORTED
+            action = f"STRUCTURALLY_NOT_APPLICABLE_FOR_FINANCIAL_INSTITUTION ({fld.upper()})"
+        elif screener_avail and (is_parser_failure or trace.get("exhausted") or trace.get("all_providers_exhausted")):
             # User acceptance case: full provider exhaustion with Screener reference available
             cls = AvailabilityClassification.REFERENCE_ONLY_AVAILABLE
             action = "INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING_REFERENCE_FOUND_ON_SCREENER"
@@ -413,30 +455,64 @@ class DataAvailabilityAuditor:
         elif fyers_avail and not screener_avail:
             cls = AvailabilityClassification.FYERS_ONLY_DATA_SOURCE
             action = "INVESTIGATE_FYERS_API_INGESTION_FOR_VERIFIED_PIPELINE"
+        elif is_provider_failure:
+            cls = AvailabilityClassification.PROVIDER_FAILURE
+            action = f"PROVIDER_FAILURE ({bse_st or nse_st or upstox}) (operational retry; no 7-day quarantine)"
         elif primary_has_enough:
             cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
             action = "INVESTIGATE_PARSER_CALCULATION_OR_NEGATIVE_BASE"
-        elif fyers_missing and screener_missing:
-            explicit_exhaustion = (
+        elif fyers_missing and (not screener_avail):
+            # Acceptance Rule: CONFIRMED_NO_DATA_ANYWHERE must only be emitted when:
+            # NSE = terminal result, BSE = terminal result, Upstox = terminal result, FYERS = terminal result
+            # and none produced a valid metric.
+            # NOT_CHECKED or gateway/auth failures make that classification impossible.
+            nse_terminal = (
+                is_bse_only
+                or nse_st in ("CHECKED_NO_DATA", "NO_DATA_RETURNED", "NOT_APPLICABLE", "NO_RECORDS_FOUND", "PARSE_SUCCESS")
+            )
+            bse_terminal = (
+                bse_st in ("BSE_NO_DATA", "BSE_SYMBOL_NOT_FOUND", "NSE_SUFFICIENT", "NO_DATA", "BSE_AVAILABLE")
+            )
+            upstox_terminal = (
+                upstox in ("MISSING", "NO_DATA", "ISIN_UNRESOLVED", "NO_RECORDS_FOUND")
+            )
+            fyers_terminal = (
+                fyers_status_str in ("UNSUPPORTED_FIELD", "NO_DATA", "MISSING")
+            )
+
+            any_non_terminal = (
+                (not is_bse_only and nse_st in ("NOT_CHECKED", "UNKNOWN", "NOT_ATTEMPTED", "HTTP_ERROR"))
+                or (bse_st in ("NOT_CHECKED", "UNKNOWN", "NOT_ATTEMPTED", "BSE_HTTP_ERROR", "BSE_FEED_ACCESS_REQUIRED"))
+                or (upstox in ("NOT_CHECKED", "UNKNOWN", "NOT_ATTEMPTED", "ERROR", "TIMEOUT"))
+                or (fyers_status_str in ("NOT_CHECKED", "UNKNOWN", "NOT_ATTEMPTED", "ERROR"))
+            )
+            all_terminal = (
                 raw_records == 0
-                and bool(trace.get("bse_status"))
-                and bool(trace.get("fyers_status"))
+                and not any_non_terminal
+                and nse_terminal
+                and bse_terminal
+                and upstox_terminal
+                and fyers_terminal
             )
             if (
                 trace.get("confirmed_no_data")
                 or trace.get("all_providers_exhausted")
-                or explicit_exhaustion
-            ):
+                or bool(trace.get("bse_status"))
+            ) and all_terminal:
                 cls = AvailabilityClassification.CONFIRMED_NO_DATA_ANYWHERE
-            else:
+                action = "CONFIRMED_NO_DATA_ANYWHERE (hard data block confirmed across all providers; 7-day quarantine applied)"
+            elif all_terminal:
                 cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
-            action = "CONFIRMED_NO_DATA_ANYWHERE (hard data block confirmed across all providers; 7-day quarantine applied)"
+                action = "DATA_UNAVAILABLE_VERIFIED (hard data block confirmed across all providers; 7-day quarantine applied)"
+            else:
+                cls = AvailabilityClassification.TIER1_RECOVERY_NOT_EXHAUSTED
+                action = "RECOVERY_INCOMPLETE_OR_UNCHECKED (operational retry; CONFIRMED_NO_DATA_ANYWHERE impossible)"
         elif not trace or (fld == "current_ev_ebitda" and kr == "NOT_ATTEMPTED"):
             cls = AvailabilityClassification.TIER1_RECOVERY_NOT_EXHAUSTED
             action = "RUN_TIER1_PRIMARY_RECOVERY"
         else:
-            cls = AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED
-            action = "CONFIRMED_NO_DATA_ANYWHERE (7-day quarantine applied)"
+            cls = AvailabilityClassification.TIER1_RECOVERY_NOT_EXHAUSTED
+            action = "TIER1_RECOVERY_NOT_EXHAUSTED (operational retry)"
 
         gate_name = "VALUATION" if fld == "current_ev_ebitda" else "QUALITY"
 
@@ -460,7 +536,92 @@ class DataAvailabilityAuditor:
         else:
             admin_msg = ""
 
-        return AvailabilityAuditRecord(
+        # Resolve distinct telemetry concepts (§ Pending Item 5)
+        source_of_truth = "NONE"
+        availability_status = "UNAVAILABLE"
+        production_eligibility = "INELIGIBLE"
+        block_reason = "NONE"
+        quarantine_action = "NONE"
+        quarantine_until = None
+
+        field_resolved_source = trace.get("field_sources", {}).get(fld)
+        if field_resolved_source is None and trace.get("recovered_source") == "CANONICAL_LOCAL":
+            field_resolved_source = "CANONICAL_LOCAL"
+        canonical_hit = bool(field_resolved_source == "CANONICAL_LOCAL")
+
+        if canonical_hit:
+            source_of_truth = "CANONICAL_LOCAL"
+            availability_status = "AVAILABLE"
+            production_eligibility = "ELIGIBLE"
+            block_reason = "NONE"
+            quarantine_action = "NONE"
+        elif cls == AvailabilityClassification.STRUCTURALLY_UNSUPPORTED:
+            source_of_truth = "NONE"
+            availability_status = "STRUCTURALLY_UNSUPPORTED"
+            production_eligibility = "INELIGIBLE"
+            block_reason = "STRUCTURALLY_NOT_APPLICABLE_FOR_FINANCIAL_INSTITUTION"
+            quarantine_action = "NONE"
+        elif cls == AvailabilityClassification.INVALID_CAGR_BASE:
+            source_of_truth = "NONE"
+            availability_status = "INVALID_BASE"
+            production_eligibility = "INELIGIBLE"
+            block_reason = "MATHEMATICALLY_INVALID_BASE"
+            quarantine_action = "NONE"
+        elif cls in (AvailabilityClassification.REFERENCE_ONLY_AVAILABLE, AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE):
+            source_of_truth = "NONE"
+            availability_status = "REFERENCE_ONLY"
+            production_eligibility = "INELIGIBLE"
+            block_reason = "SCREENER_REFERENCE_ONLY_GOVERNANCE_BLOCKED"
+            quarantine_action = "NONE"
+        elif cls == AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE:
+            source_of_truth = "NONE"
+            availability_status = "PARSER_FAILURE"
+            production_eligibility = "INELIGIBLE"
+            block_reason = "UPSTREAM_PARSER_OR_MAPPING_FAILURE"
+            quarantine_action = "NONE"
+        elif cls in (AvailabilityClassification.CONFIRMED_NO_DATA_ANYWHERE, AvailabilityClassification.DATA_UNAVAILABLE_VERIFIED):
+            source_of_truth = "NONE"
+            availability_status = "UNAVAILABLE"
+            production_eligibility = "INELIGIBLE"
+            block_reason = "CONFIRMED_ABSENT_ACROSS_ALL_PROVIDERS"
+            quarantine_action = "7_DAY_QUARANTINE"
+            quarantine_until = (datetime.now(IST) + timedelta(days=7)).isoformat()
+        elif cls == AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH:
+            source_of_truth = "NONE"
+            availability_status = "SHORT_HISTORY"
+            production_eligibility = "INELIGIBLE"
+            block_reason = f"INSUFFICIENT_ANNUAL_OBSERVATIONS: {max_annual} < {min_needed}"
+            quarantine_action = "7_DAY_QUARANTINE"
+            quarantine_until = (datetime.now(IST) + timedelta(days=7)).isoformat()
+        elif cls == AvailabilityClassification.HISTORICAL_FILING_GAP:
+            source_of_truth = "NONE"
+            availability_status = "FILING_GAP"
+            production_eligibility = "INELIGIBLE"
+            block_reason = "HISTORICAL_FILING_GAP_IN_SERIES"
+            quarantine_action = "7_DAY_QUARANTINE"
+            quarantine_until = (datetime.now(IST) + timedelta(days=7)).isoformat()
+        elif cls == AvailabilityClassification.PROVIDER_FAILURE:
+            source_of_truth = "NONE"
+            availability_status = "PROVIDER_ERROR"
+            production_eligibility = "INELIGIBLE"
+            block_reason = f"PROVIDER_FAILURE: {bse_st or nse_st or upstox}"
+            quarantine_action = "OPERATIONAL_RETRY"
+        elif cls == AvailabilityClassification.SYMBOL_MAPPING_FAILURE:
+            source_of_truth = "NONE"
+            availability_status = "SYMBOL_MAPPING_FAILURE"
+            production_eligibility = "INELIGIBLE"
+            block_reason = "ISIN_OR_SYMBOL_RESOLUTION_FAILED"
+            quarantine_action = "OPERATIONAL_RETRY"
+        else:
+            source_of_truth = "NONE"
+            availability_status = "UNAVAILABLE"
+            production_eligibility = "INELIGIBLE"
+            block_reason = str(action)
+            quarantine_action = "NONE"
+
+        selected_periods = list(trace.get("selected_periods", []) or trace.get("annual_periods", []) or [])
+
+        record = AvailabilityAuditRecord(
             symbol=symbol.upper(),
             isin=isin or (trace.get("isin") or "UNKNOWN"),
             scanner=self.scanner_name,
@@ -469,7 +630,7 @@ class DataAvailabilityAuditor:
             upstox_status=upstox,
             nse_status=nse,
             exchange_filing_status=exchange_filing_status,
-            pit_status="MISSING",
+            pit_status="AVAILABLE" if canonical_hit else "MISSING",
             local_cache_status=local_raw,
             fyers_status=fyers_status_str,
             screener_status=(screener.status.value if screener else ReferenceStatus.NOT_CONFIGURED.value),
@@ -483,7 +644,59 @@ class DataAvailabilityAuditor:
             severity=_SEVERITY.get(cls, "INFO"),
             admin_action=action,
             admin_message=admin_msg,
+            source_of_truth=source_of_truth,
+            availability_status=availability_status,
+            production_eligibility=production_eligibility,
+            block_reason=block_reason,
+            quarantine_action=quarantine_action,
+            quarantine_until=quarantine_until,
+            selected_periods=selected_periods,
         )
+        self.validate_telemetry_consistency(record)
+        return record
+
+    @staticmethod
+    def validate_telemetry_consistency(record: AvailabilityAuditRecord) -> None:
+        """
+        Reconciliation assertion that rejects contradictory telemetry (§ Pending Item 5):
+        1. Canonical HIT cannot have source_of_truth='NONE' or availability_status='PARSER_FAILURE'.
+        2. PARSER_FAILURE cannot be production ELIGIBLE or assigned 7_DAY_QUARANTINE.
+        3. REFERENCE_ONLY cannot be production ELIGIBLE or written to production, and must have quarantine='NONE'.
+        """
+        if record.source_of_truth == "CANONICAL_LOCAL" or record.pit_status == "AVAILABLE":
+            if record.source_of_truth == "NONE":
+                raise AssertionError(
+                    f"Contradictory telemetry for {record.symbol}.{record.field}: "
+                    f"canonical HIT reported, but source_of_truth is 'NONE'"
+                )
+            if record.availability_status == "PARSER_FAILURE" or record.classification == AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE.value:
+                raise AssertionError(
+                    f"Contradictory telemetry for {record.symbol}.{record.field}: "
+                    f"canonical HIT reported, but availability_status is PARSER_FAILURE"
+                )
+        if record.availability_status == "PARSER_FAILURE" or record.classification == AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE.value:
+            if record.production_eligibility == "ELIGIBLE":
+                raise AssertionError(
+                    f"Contradictory telemetry for {record.symbol}.{record.field}: "
+                    f"PARSER_FAILURE cannot be production ELIGIBLE"
+                )
+            if "7-day" in str(record.admin_action).lower() or record.quarantine_action == "7_DAY_QUARANTINE":
+                raise AssertionError(
+                    f"Contradictory telemetry for {record.symbol}.{record.field}: "
+                    f"PARSER_FAILURE must NOT receive 7-day quarantine"
+                )
+        if record.availability_status == "REFERENCE_ONLY" or record.classification == AvailabilityClassification.REFERENCE_ONLY_AVAILABLE.value:
+            if record.production_eligibility == "ELIGIBLE" or record.production_value_written or record.buy_allowed:
+                raise AssertionError(
+                    f"Contradictory telemetry for {record.symbol}.{record.field}: "
+                    f"REFERENCE_ONLY cannot be production ELIGIBLE or written to production"
+                )
+            if record.quarantine_action != "NONE":
+                raise AssertionError(
+                    f"Contradictory telemetry for {record.symbol}.{record.field}: "
+                    f"REFERENCE_ONLY must have quarantine=NONE"
+                )
+
 
     def audit(self, unresolved: Dict[str, List[str]], traces: Dict[str, Dict[str, Any]],
               run_id: Optional[str] = None) -> List[AvailabilityAuditRecord]:

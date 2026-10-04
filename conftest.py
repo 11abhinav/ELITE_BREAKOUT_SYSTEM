@@ -16,9 +16,10 @@ rewrite all existing test imports while keeping the package layout intact.
 import os
 import sys
 
-# Insert the app/ directory as the *first* entry on sys.path so that bare-name
-# imports in tests resolve to app/<module>.py rather than any identically-named
-# system package.
-_APP_DIR = os.path.join(os.path.dirname(__file__), "app")
+_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
+_APP_DIR = os.path.join(_ROOT_DIR, "app")
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)

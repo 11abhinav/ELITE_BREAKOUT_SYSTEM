@@ -1,0 +1,182 @@
+{
+  "run_ts_ist": "20261004_194037",
+  "duration_s": 61.9,
+  "verdict": "CANARY_PASS",
+  "production_certified": false,
+  "read_only": {
+    "intact": true,
+    "blocked_db_write_calls": [],
+    "raw_filing_persist_suppressed": [
+      {
+        "symbol": "RELIANCE",
+        "records": 4
+      },
+      {
+        "symbol": "TCS",
+        "records": 4
+      },
+      {
+        "symbol": "INFY",
+        "records": 4
+      },
+      {
+        "symbol": "HDFCBANK",
+        "records": 4
+      },
+      {
+        "symbol": "ICICIBANK",
+        "records": 4
+      },
+      {
+        "symbol": "SBIN",
+        "records": 4
+      },
+      {
+        "symbol": "ADOR",
+        "records": 4
+      },
+      {
+        "symbol": "BASF",
+        "records": 4
+      },
+      {
+        "symbol": "GABRIEL",
+        "records": 3
+      },
+      {
+        "symbol": "GLOBUSSPR",
+        "records": 4
+      },
+      {
+        "symbol": "STYRENIX",
+        "records": 4
+      },
+      {
+        "symbol": "MAHLIFE",
+        "records": 4
+      },
+      {
+        "symbol": "MOLDTKPAC",
+        "records": 4
+      },
+      {
+        "symbol": "JUSTDIAL",
+        "records": 4
+      },
+      {
+        "symbol": "KENNAMET",
+        "records": 4
+      },
+      {
+        "symbol": "VIMTALABS",
+        "records": 4
+      },
+      {
+        "symbol": "MANYAVAR",
+        "records": 4
+      },
+      {
+        "symbol": "ABSLAMC",
+        "records": 4
+      },
+      {
+        "symbol": "HEXT",
+        "records": 4
+      },
+      {
+        "symbol": "VERANDA",
+        "records": 4
+      },
+      {
+        "symbol": "IDEA",
+        "records": 4
+      },
+      {
+        "symbol": "TATAMOTORS",
+        "records": 4
+      },
+      {
+        "symbol": "ETERNAL",
+        "records": 4
+      },
+      {
+        "symbol": "GABRIEL_BSE",
+        "records": 3
+      }
+    ],
+    "filesystem_changes_under_data": [],
+    "quarantine_db_sync_env": "false"
+  },
+  "p0_parser_remediation": {
+    "pass_no_raw_present_usable_zero": true,
+    "pass_metrics_extracted": true,
+    "per_symbol": {
+      "ADOR": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=128 usable=57",
+        "bse": "BSE_FEED_ACCESS_REQUIRED raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      },
+      "BASF": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=117 usable=46",
+        "bse": "BSE_FEED_ACCESS_REQUIRED raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      },
+      "GABRIEL": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=112 usable=28",
+        "bse": "BSE_AVAILABLE raw=2 usable=2",
+        "metrics_available": 1,
+        "metrics_total": 5
+      },
+      "GLOBUSSPR": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=106 usable=28",
+        "bse": "BSE_FEED_ACCESS_REQUIRED raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      },
+      "STYRENIX": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=105 usable=40",
+        "bse": "BSE_FEED_ACCESS_REQUIRED raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      }
+    }
+  },
+  "state_machine_coverage": {
+    "RECOVERED_FROM_NSE": "OBSERVED",
+    "RECOVERED_FROM_BSE": "OBSERVED",
+    "RECOVERED_FROM_UPSTOX": "OBSERVED",
+    "RECOVERED_FROM_FYERS": "UNREACHABLE_BY_DESIGN",
+    "REFERENCE_ONLY_AVAILABLE": "OBSERVED",
+    "CONFIRMED_NO_DATA_ANYWHERE": "OBSERVED",
+    "CONFIRMED_SHORT_HISTORY": "NOT_OBSERVED",
+    "HISTORICAL_FILING_GAP": "NOT_OBSERVED",
+    "PARSER_OR_FIELD_MAPPING_FAILURE": "OBSERVED",
+    "SYMBOL_MAPPING_FAILURE": "NOT_OBSERVED",
+    "STRUCTURALLY_UNSUPPORTED": "OBSERVED",
+    "INVALID_CAGR_BASE": "OBSERVED"
+  },
+  "unreachable_by_design_notes": {
+    "RECOVERED_FROM_FYERS": "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface available to the application does not expose the required fundamental field."
+  },
+  "observed_states": [
+    "CONFIRMED_NO_DATA_ANYWHERE",
+    "INVALID_CAGR_BASE",
+    "PARSER_OR_FIELD_MAPPING_FAILURE",
+    "PROVIDER_FAILURE",
+    "RECOVERED_FROM_BSE",
+    "RECOVERED_FROM_NSE",
+    "RECOVERED_FROM_UPSTOX",
+    "REFERENCE_ONLY_AVAILABLE",
+    "STRUCTURALLY_UNSUPPORTED",
+    "TIER1_RECOVERY_NOT_EXHAUSTED"
+  ],
+  "errors": [],
+  "cohort_size": 25
+}

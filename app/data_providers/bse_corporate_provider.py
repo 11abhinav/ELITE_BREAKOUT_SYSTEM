@@ -421,7 +421,7 @@ class BseCorporateProvider:
                 elif resp.status_code in (401, 403):
                     self.bse_auth_or_403_blocks += 1
                     self.http_error_count += 1
-                    self.last_status[symbol] = "BSE_HTTP_ERROR"
+                    self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
                     self.last_error[symbol] = f"HTTP {resp.status_code} (Gateway Auth / Feed Access Required)"
                     logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) HTTP {resp.status_code}")
                 elif resp.status_code in (404, 400):

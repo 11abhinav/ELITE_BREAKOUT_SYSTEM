@@ -1,0 +1,177 @@
+{
+  "run_ts_ist": "20261004_191752",
+  "duration_s": 48.0,
+  "verdict": "CANARY_PASS",
+  "production_certified": false,
+  "read_only": {
+    "intact": true,
+    "blocked_db_write_calls": [],
+    "raw_filing_persist_suppressed": [
+      {
+        "symbol": "RELIANCE",
+        "records": 67
+      },
+      {
+        "symbol": "TCS",
+        "records": 49
+      },
+      {
+        "symbol": "INFY",
+        "records": 49
+      },
+      {
+        "symbol": "HDFCBANK",
+        "records": 4
+      },
+      {
+        "symbol": "ICICIBANK",
+        "records": 4
+      },
+      {
+        "symbol": "SBIN",
+        "records": 4
+      },
+      {
+        "symbol": "ADOR",
+        "records": 57
+      },
+      {
+        "symbol": "BASF",
+        "records": 46
+      },
+      {
+        "symbol": "GABRIEL",
+        "records": 28
+      },
+      {
+        "symbol": "GLOBUSSPR",
+        "records": 28
+      },
+      {
+        "symbol": "STYRENIX",
+        "records": 40
+      },
+      {
+        "symbol": "MAHLIFE",
+        "records": 66
+      },
+      {
+        "symbol": "MOLDTKPAC",
+        "records": 19
+      },
+      {
+        "symbol": "JUSTDIAL",
+        "records": 29
+      },
+      {
+        "symbol": "KENNAMET",
+        "records": 4
+      },
+      {
+        "symbol": "VIMTALABS",
+        "records": 32
+      },
+      {
+        "symbol": "MANYAVAR",
+        "records": 32
+      },
+      {
+        "symbol": "ABSLAMC",
+        "records": 33
+      },
+      {
+        "symbol": "HEXT",
+        "records": 4
+      },
+      {
+        "symbol": "VERANDA",
+        "records": 38
+      },
+      {
+        "symbol": "IDEA",
+        "records": 32
+      },
+      {
+        "symbol": "YESBANK",
+        "records": 4
+      },
+      {
+        "symbol": "TATAMOTORS",
+        "records": 4
+      },
+      {
+        "symbol": "ETERNAL",
+        "records": 42
+      }
+    ],
+    "filesystem_changes_under_data": [],
+    "quarantine_db_sync_env": "false"
+  },
+  "p0_parser_remediation": {
+    "pass_no_raw_present_usable_zero": true,
+    "pass_metrics_extracted": true,
+    "per_symbol": {
+      "ADOR": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=128 usable=57",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      },
+      "BASF": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=117 usable=46",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 2,
+        "metrics_total": 5
+      },
+      "GABRIEL": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=112 usable=28",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      },
+      "GLOBUSSPR": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=106 usable=28",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      },
+      "STYRENIX": {
+        "raw_present_usable_zero_on": [],
+        "nse": "PARSE_SUCCESS raw=105 usable=40",
+        "bse": "NSE_SUFFICIENT raw=0 usable=0",
+        "metrics_available": 3,
+        "metrics_total": 5
+      }
+    }
+  },
+  "state_machine_coverage": {
+    "RECOVERED_FROM_NSE": "OBSERVED",
+    "RECOVERED_FROM_BSE": "NOT_OBSERVED",
+    "RECOVERED_FROM_UPSTOX": "OBSERVED",
+    "RECOVERED_FROM_FYERS": "UNREACHABLE_BY_DESIGN",
+    "REFERENCE_ONLY_AVAILABLE": "OBSERVED",
+    "CONFIRMED_NO_DATA_ANYWHERE": "NOT_OBSERVED",
+    "CONFIRMED_SHORT_HISTORY": "OBSERVED",
+    "HISTORICAL_FILING_GAP": "NOT_OBSERVED",
+    "PARSER_OR_FIELD_MAPPING_FAILURE": "OBSERVED",
+    "SYMBOL_MAPPING_FAILURE": "OBSERVED"
+  },
+  "unreachable_by_design_notes": {
+    "RECOVERED_FROM_FYERS": "FYERS adapter classifies fields as UNSUPPORTED_FIELD when the API surface available to the application does not expose the required fundamental field."
+  },
+  "observed_states": [
+    "CONFIRMED_SHORT_HISTORY",
+    "INVALID_CAGR_BASE",
+    "PARSER_OR_FIELD_MAPPING_FAILURE",
+    "RECOVERED_FROM_NSE",
+    "RECOVERED_FROM_UPSTOX",
+    "REFERENCE_ONLY_AVAILABLE",
+    "SYMBOL_MAPPING_FAILURE"
+  ],
+  "errors": [],
+  "cohort_size": 25
+}

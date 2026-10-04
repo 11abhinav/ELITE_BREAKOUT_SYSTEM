@@ -45,6 +45,8 @@ class SecurityIdentityResolver:
             "543270": "MTARTECH",
             "500325": "RELIANCE",
             "500400": "TATAMOTORS",
+            "500570": "TATAMOTORS",
+            "570001": "TATAMOTORS",
             "532540": "TCS",
             "500209": "INFY",
             "500180": "HDFCBANK",
@@ -153,8 +155,8 @@ class SecurityIdentityResolver:
         elif fyers_key and "-T" in fyers_key:
             segment = "T"
 
-        exchange_primary = "BSE" if (clean.isdigit() or (fyers_key and "BSE:" in fyers_key)) else "NSE"
-        status = "RESOLVED" if (fyers_key or upstox_key) else "UNSUPPORTED_INSTRUMENT"
+        exchange_primary = "BSE" if (clean.isdigit() or (fyers_key and "BSE:" in fyers_key) or clean.endswith("_BSE") or clean.startswith("BSE_")) else "NSE"
+        status = "RESOLVED" if (fyers_key or upstox_key or bse_code) else "UNSUPPORTED_INSTRUMENT"
 
         return ResolvedSecurityIdentity(
             input_key=input_key,

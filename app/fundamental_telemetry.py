@@ -874,6 +874,38 @@ class FundamentalScanTelemetry:
 
         _append_jsonl_record(SCAN_AUDIT_LOG, alert_record)
 
+    def record_alert_suppression(
+        self,
+        symbol: str,
+        reason: str,
+        suppress_code: str = "PRE_BUY_INTEGRITY_BLOCKED"
+    ) -> None:
+        """Records alert suppression when pre-buy governance or integrity checks block alert creation."""
+        sym = symbol.upper()
+        if sym not in self.dispositions:
+            return
+
+        disp = self.dispositions[sym]
+        now_ist = datetime.now(IST)
+
+        disp["status"] = "BUY_ALERT_SUPPRESSED"
+        norm_suppress_reason = normalize_reason_code(suppress_code or reason)
+        disp["suppression_reason"] = norm_suppress_reason
+        self.funnel_counts["buy_alerts_suppressed"] += 1
+        if "DUPLICATE" in norm_suppress_reason.upper():
+            self.funnel_counts["duplicates"] += 1
+        alert_record = {
+            "event_type": "BUY_ALERT_SUPPRESSED",
+            "scan_run_id": self.scan_run_id,
+            "trace_id": disp["trace_id"],
+            "timestamp": now_ist.isoformat(),
+            "symbol": sym,
+            "reason_code": norm_suppress_reason,
+            "reason_detail": reason
+        }
+        logger.info(f"🛡️ [BUY_ALERT_SUPPRESSED] {sym}: {reason}")
+        _append_jsonl_record(SCAN_AUDIT_LOG, alert_record)
+
     def produce_end_of_run_summary(self) -> Dict[str, Any]:
         """
         Produces end-of-run reconciliation and performance summary with exact ASCII banner (§17).
