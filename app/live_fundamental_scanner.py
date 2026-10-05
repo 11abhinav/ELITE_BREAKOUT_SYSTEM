@@ -1078,7 +1078,6 @@ class DailyBuilderFundamentalProvider:
                     from database import get_connection
                 except ImportError:
                     from app.database import get_connection
-                import warnings
                 with get_connection() as conn:
                     query = f"SELECT * FROM {cls.MASTER_TABLE} WHERE build_date = (SELECT MAX(build_date) FROM {cls.MASTER_TABLE})"
                     with warnings.catch_warnings():
@@ -1638,7 +1637,6 @@ class LiveFundamentalBuyScanner:
         Also records execution run in scanner_execution_history and scanner_health.
         Uses Daily Builder 2.0 as the authoritative upstream fundamental intelligence layer.
         """
-        import time
         start_ts = time.time()
         ctx = None
         acquired_scan = False
@@ -3948,7 +3946,6 @@ class QualityCompounderValueV2Scanner:
         Generates daily immutable SCAN_SNAPSHOT rows for ALL evaluated stocks and
         ALERT_EVENT rows for passing candidate stocks directly in the existing 'alerts' table.
         """
-        import time
         start_ts = time.time()
         _scan_start = time.monotonic()  # must be monotonic — print_scanner_end_banner computes time.monotonic() - start_mono
         _computed_v2_health_status = None   # set by _scan_universe_core via exec_run_ctx_holder; passed to end banner
@@ -5101,7 +5098,6 @@ class QualityCompounderValueV2Scanner:
                         source_attempts_raw = store_entry.get("source_attempts")
                         if source_attempts_raw:
                             try:
-                                import json
                                 s_att = json.loads(source_attempts_raw) if isinstance(source_attempts_raw, str) else source_attempts_raw
                                 for p_name, p_res in s_att.items():
                                     provider_recs.append({
