@@ -801,21 +801,26 @@ class FundamentalSourceRouter:
         Where annual periods overlap, validates Revenue and PAT consistency.
         Supplements missing balance-sheet / cash-flow fields from certified audited filings.
         """
-        live_annual = {r.period_end_date: r for r in live_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
-        local_annual = {r.period_end_date: r for r in local_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
+        def _rec_key(r: RawFinancialRecord) -> Tuple[str, str]:
+            c_val = r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation)
+            return (r.period_end_date, c_val.upper())
 
-        overlap_dates = set(live_annual.keys()).intersection(local_annual.keys())
+        live_annual = {_rec_key(r): r for r in live_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
+        local_annual = {_rec_key(r): r for r in local_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
+
+        overlap_keys = set(live_annual.keys()).intersection(local_annual.keys())
         has_conflict = False
 
-        for dt in overlap_dates:
-            u_rec = live_annual[dt]
-            l_rec = local_annual[dt]
+        for k in overlap_keys:
+            u_rec = live_annual[k]
+            l_rec = local_annual[k]
+            dt, c_type = k
             # Check revenue tolerance (prefer Live NSE filings when divergence <= 25%)
             if u_rec.revenue is not None and l_rec.revenue is not None and abs(l_rec.revenue) > 1.0:
                 diff = abs(u_rec.revenue - l_rec.revenue) / abs(l_rec.revenue)
                 if diff > 0.05:
                     logger.info(
-                        f"[{symbol}] Revenue divergence for {dt}: Live={u_rec.revenue}, Local={l_rec.revenue} (diff={diff:.1%}) - using Live NSE filing"
+                        f"[{symbol}] Revenue divergence for {dt} ({c_type}): Live={u_rec.revenue}, Local={l_rec.revenue} (diff={diff:.1%}) - using Live NSE filing"
                     )
                     if diff > 0.25:
                         has_conflict = True
@@ -825,23 +830,24 @@ class FundamentalSourceRouter:
                 diff = abs(u_rec.net_profit - l_rec.net_profit) / abs(l_rec.net_profit)
                 if diff > 0.05:
                     logger.info(
-                        f"[{symbol}] PAT divergence for {dt}: Live={u_rec.net_profit}, Local={l_rec.net_profit} (diff={diff:.1%}) - using Live NSE filing"
+                        f"[{symbol}] PAT divergence for {dt} ({c_type}): Live={u_rec.net_profit}, Local={l_rec.net_profit} (diff={diff:.1%}) - using Live NSE filing"
                     )
                     if diff > 0.25:
                         has_conflict = True
 
         if has_conflict:
-            logger.warning(f"⚠️ [{symbol}] DATA_CONFLICT (>25% divergence) between Live and Local filings.")
+            logger.warning(f"⚠️ [{symbol}] DATA_CONFLICT (>25% divergence) between Live and Local filings on identical statement basis.")
             metrics = ReconciledCanonicalMetrics(symbol=symbol)
             metrics.overall_status = FundamentalStatus.DATA_CONFLICT
             return metrics
 
         # Merge records across periods, with live taking precedence and local supplementing missing metrics
-        all_dates = sorted(set(live_annual.keys()).union(local_annual.keys()))
+        all_keys = sorted(set(live_annual.keys()).union(local_annual.keys()), key=lambda x: (x[0], x[1]))
         merged_records: List[RawFinancialRecord] = []
-        for dt in all_dates:
-            u = live_annual.get(dt)
-            l = local_annual.get(dt)
+        for k in all_keys:
+            u = live_annual.get(k)
+            l = local_annual.get(k)
+            dt, c_type = k
             if u and l:
                 # Merge: prefer live for income, use local to supplement missing balance sheet/cash flow
                 rec = RawFinancialRecord(
