@@ -4258,6 +4258,8 @@ function changeAdminPage(type, delta) {
       'PERFORMANCE_TRACKER': { label: 'Exit Monitor — Technical', desc: 'Position & Exit Monitor for Active Technical Breakout Positions · Every 5m (09:15–15:30 IST)' },
       'WEALTH_EXIT_V1': { label: 'V1 Intraday Exit Monitor (COMPOUNDER, RECOVERY)', desc: 'Common Intraday Warning Telemetry Pulse · Pre-Close 15:15 IST (ORANGE / SELL_REVIEW Warning, Position Remains OPEN)' },
       'WEALTH_EXIT_V2': { label: 'V2 EOD Exit Execution Engine (COMPOUNDER, RECOVERY)', desc: 'Definitive Post-Market Exit Engine · Post-Market 18:30 IST (Strategy Evaluators + wealth_engine.py State Mutation)' },
+      'QUALITY_COMPOUNDER_EXIT': { label: 'Quality Compounder Exit Monitor', desc: 'Definitive Post-Market Compounder Exit Engine · Daily 18:30 IST (QualityCompounderExitEvaluator + wealth_engine.py)' },
+      'QUALITY_VALUE_RECOVERY_EXIT': { label: 'Quality Value Recovery Exit Monitor', desc: 'Definitive Post-Market Recovery Exit Engine · Daily 18:30 IST (CanonicalRecoveryE3ExitEvaluator + wealth_engine.py)' },
       'FILING_WATCHER': { label: 'Filing Watcher', desc: 'NSE/BSE Corporate Filings & Freshness Watcher · Periodic (08:00, 16:30, 21:00 IST)' }
     };
 

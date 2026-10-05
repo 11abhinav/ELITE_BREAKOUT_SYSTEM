@@ -4806,6 +4806,8 @@ def get_all_scanner_health() -> list[dict]:
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "WEALTH_EXIT_V1": "V1 Intraday Exit Monitor · 15:15 IST Pre-Close Warning Pulse (ORANGE / SELL_REVIEW, Position OPEN)",
         "WEALTH_EXIT_V2": "V2 EOD Exit Execution Engine · 18:30 IST EOD Execution Pulse (Strategy Evaluators + wealth_engine.py)",
+        "QUALITY_COMPOUNDER_EXIT": "QualityCompounderExitMonitor · 18:30 IST Post-Market Exit Engine (QualityCompounderExitEvaluator + wealth_engine.py)",
+        "QUALITY_VALUE_RECOVERY_EXIT": "QualityValueRecoveryExitMonitor · 18:30 IST Post-Market Exit Engine (CanonicalRecoveryE3ExitEvaluator + wealth_engine.py)",
         "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
     }
 
@@ -4871,6 +4873,7 @@ def get_all_scanner_health() -> list[dict]:
                     "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
                     "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
                     "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
+                    "QUALITY_COMPOUNDER_EXIT", "QUALITY_VALUE_RECOVERY_EXIT",
                     "FILING_WATCHER"
                 }
                 rows = [
