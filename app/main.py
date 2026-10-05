@@ -851,6 +851,7 @@ def run_all_seven_scanners_non_market_boot():
             ("FUNDAMENTAL", _trigger_fundamental),
             ("QUALITY_COMPOUNDER", _trigger_quality_compounder_v2),
             ("QUALITY_VALUE_RECOVERY", _trigger_quality_value_recovery),
+            ("WEALTH_ENGINE", _trigger_wealth_engine),
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
@@ -1420,26 +1421,18 @@ def run_system_scheduler():
 
     logger.info("🕒 SCHEDULER | Started (custom time-based scheduler)")
     
-    # [VERSION: BOOT_TEST_SCAN_MARKET_HOURS_SKIP_v1.0] Skip post-deployment / startup test scans if within market hours (9:00 AM - 3:45 PM IST)
-    from market_utils import is_within_custom_hours
-    from datetime import time as dt_time
-    now_boot = datetime.now(IST)
-    is_market_hours_boot = is_within_custom_hours(dt_time(9, 0), dt_time(15, 45), now_boot)
-
-    if is_market_hours_boot:
-        logger.info("⏰ Startup / Deployment during MARKET HOURS (9:00 AM - 3:45 PM IST) — Standing by for intraday scheduler windows.")
-        verify_scans()
-    else:
-        logger.info("🌙 Startup during NON-MARKET HOURS — Triggering 1-pass catchup execution for ALL SCANNERS...")
-        verify_scans()
-        run_all_seven_scanners_non_market_boot()
-        try:
-            from telemetry_manager import telemetry
-            telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
-            _run_performance_tracker_single()
-            telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
-        except Exception as e:
-            logger.error(f"Boot perf tracker failed: {e}")
+    # [MANDATORY SERVER RESTART INVARIANT]
+    # Irrespective of market hours, holidays, or weekends, every server restart triggers a full 1-pass execution for ALL SCANNERS.
+    logger.info("🚀 [SERVER RESTART BOOT] Server restarted — Triggering mandatory 1-pass execution for ALL SCANNERS (irrespective of market hours or holidays)...")
+    verify_scans()
+    run_all_seven_scanners_non_market_boot()
+    try:
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
+        _run_performance_tracker_single()
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
+    except Exception as e:
+        logger.error(f"Boot perf tracker failed: {e}")
 
     # Main scheduler loop state variables
     from market_utils import is_within_custom_hours
