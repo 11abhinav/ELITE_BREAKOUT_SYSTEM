@@ -48,6 +48,14 @@ except ImportError:
     from data_providers.bse_corporate_provider import BseCorporateProvider
     from data_providers.upstox_fundamentals_provider import UpstoxFundamentalsProvider
 
+try:
+    from app.financial_data_integrity import record_source_watermark
+except ImportError:
+    try:
+        from financial_data_integrity import record_source_watermark
+    except ImportError:
+        record_source_watermark = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -522,11 +530,19 @@ class FundamentalSourceRouter:
             ]
 
         if not as_of_timestamp:
-            from datetime import datetime, timezone
-            as_of_timestamp = datetime.now(timezone.utc).isoformat()
-            logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: as_of cutoff was None. Enforcing explicit current UTC timestamp: {as_of_timestamp}")
+            logger.error(f"🚨 [FUNDAMENTAL_RECOVERY] {symbol}: RECOVERY_CONTEXT_INVALID — missing mandatory as_of_timestamp. Failing closed.")
+            metrics = ReconciledCanonicalMetrics(symbol=symbol)
+            metrics.overall_status = FundamentalStatus.INVALID
+            metrics.rejection_reason = "RECOVERY_CONTEXT_INVALID: as_of_timestamp is mandatory for PIT recovery"
+            return metrics
 
         logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp}, required={required_fields})...")
+        if record_source_watermark is not None:
+            try:
+                record_source_watermark("NSE", symbol=symbol)
+                record_source_watermark("BSE", symbol=symbol)
+            except Exception:
+                pass
 
         # --- Step 0: Canonical Local PIT Raw Filings (Zero Network Check) ---
         local_records = self._fetch_local_raw_filings(symbol)

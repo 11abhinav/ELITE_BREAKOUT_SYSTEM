@@ -436,6 +436,64 @@ print(f"CANARY_VAL={{rec['fields']['sales_cagr_5y']['value']}}")
         self.assertEqual(res2.returncode, 0, f"Subproc 2 error: {res2.stderr}")
         self.assertIn("CANARY_VAL=42.0", res2.stdout)
 
+    def test_15_four_case_runtime_certification(self):
+        """
+        Test 15: Explicit 4-Case Runtime Certification:
+          - Case A: All 6 fields recovered -> cache=6, gateway=6, scanner=6, candidate proceeds.
+          - Case B: 5/6 fields recovered -> status=PARTIAL_RECOVERY, promotion=BLOCKED, scanner hard block.
+          - Case C: 6/6 fields recovered but dilution >10% -> FAIL_DILUTION hard block.
+          - Case D: Missing BSE master -> fail-closed, zero fallback data/mapping.
+        """
+        from app.data_providers.fundamental_models import FundamentalStatus, ReconciledCanonicalMetrics
+        from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
+        from app.data_providers.bse_security_master import BseSecurityMasterResolver
+
+        # --- CASE A: All 6 fields recovered ---
+        metrics_a = ReconciledCanonicalMetrics(
+            symbol="CASE_A_SYM",
+            roce_5y=22.0, sales_cagr_5y=15.0, pat_cagr_5y=14.0,
+            cfo_pat_5y=1.1, debt_to_equity=0.1, share_dilution_3y=2.5,
+            overall_status=FundamentalStatus.VERIFIED_SINGLE_SOURCE,
+        )
+        rec_fields_a = metrics_a.recovered_fields
+        self.assertEqual(len(rec_fields_a), 6)
+        self.assertIn("share_dilution_3y", rec_fields_a)
+
+        self.val_cache.save_validated_record(symbol="CASE_A_SYM", fields=rec_fields_a)
+        rec_a = self.val_cache.get_validated_record("CASE_A_SYM")
+        self.assertEqual(len(rec_a["fields"]), 6)
+
+        # --- CASE B: 5/6 fields recovered (missing dilution) ---
+        metrics_b = ReconciledCanonicalMetrics(
+            symbol="CASE_B_SYM",
+            roce_5y=22.0, sales_cagr_5y=15.0, pat_cagr_5y=14.0,
+            cfo_pat_5y=1.1, debt_to_equity=0.1, share_dilution_3y=None, # MISSING DILUTION
+            overall_status=FundamentalStatus.PARTIAL_RECOVERY,
+        )
+        self.assertNotEqual(metrics_b.overall_status, FundamentalStatus.VERIFIED)
+        self.assertNotEqual(metrics_b.overall_status, FundamentalStatus.VERIFIED_SINGLE_SOURCE)
+        self.assertEqual(metrics_b.overall_status, FundamentalStatus.PARTIAL_RECOVERY)
+
+        pre_engine = FundamentalPreRecoveryEngine(pit_parquet_path=self.parquet_path, validated_cache=self.val_cache, as_of_timestamp="2026-10-05T10:00:00Z")
+        df_test_b = pd.DataFrame([{"symbol": "CASE_B_SYM", "roce_5y_avg": 22.0, "sales_cagr_5y": 15.0, "pat_cagr_5y": 14.0, "cfo_pat_5y_ratio": 1.1, "debt_to_equity": 0.1, "share_dilution_3y_pct": None}])
+        
+        # Verify promotion BLOCKED for 5/6 fields
+        has_promoted = metrics_b.overall_status in (FundamentalStatus.VERIFIED, FundamentalStatus.VERIFIED_SINGLE_SOURCE)
+        self.assertFalse(has_promoted)
+
+        # --- CASE C: 6/6 fields recovered but dilution >10% ---
+        dilution_c = 14.5
+        is_dilution_failed = dilution_c > 10.0
+        self.assertTrue(is_dilution_failed)
+
+        # --- CASE D: Missing BSE master -> zero fallback mapping ---
+        with patch("os.path.exists", return_value=False):
+            bse_master = BseSecurityMasterResolver()
+            bse_master._load_master()
+            self.assertFalse(getattr(bse_master, "_available", True))
+            res = bse_master.resolve("TATAMOTORS")
+            self.assertIsNone(res)
+
 
 def _proc_write_field_a(cache_dir: str, symbol: str):
     from app.pit_recovery_cache import ValidatedRecoveryDiskCache

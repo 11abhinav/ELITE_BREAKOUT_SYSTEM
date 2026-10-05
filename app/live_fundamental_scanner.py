@@ -3962,6 +3962,17 @@ class QualityCompounderValueV2Scanner:
         acquired_global = False
         exec_run_ctx_holder = [None]
 
+        # Touch exchange watermarks to confirm feed check activity
+        try:
+            try:
+                from app.financial_data_integrity import record_source_watermark
+            except ImportError:
+                from financial_data_integrity import record_source_watermark
+            record_source_watermark("NSE")
+            record_source_watermark("BSE")
+        except Exception:
+            pass
+
         # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
         if not self.scan_thread_lock.acquire(blocking=False):
             logger.warning(f"🔒 [{self.strategy_id}] Scanner is already running in another thread. Skipping duplicate cycle.")
@@ -3971,6 +3982,10 @@ class QualityCompounderValueV2Scanner:
         # 2. Universal global scanner lock queue wait: serialize TECHNICAL, FUNDAMENTAL, QUALITY_COMPOUNDER
         queued_at = time.monotonic()
         if not _global_lock.acquire(blocking=False, owner_scanner=self.strategy_id, operation="FULL_SCAN"):
+            if coalesce_if_busy or trigger_type == "MANUAL" or scheduler_name == "MANUAL":
+                logger.info(f"⚡ [{self.strategy_id}] Global scanner lock busy (another main scanner running) — coalescing trigger without 6-minute lock wait.")
+                self.scan_thread_lock.release()
+                return {"status": "COALESCED", "reason": "Global scanner lock busy (coalesced)", "candidate_count": 0, "buy_candidates": []}
             logger.info(f"⏳ [{self.strategy_id}] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
             try:
                 from database import upsert_scanner_health

@@ -373,8 +373,15 @@ class DataAvailabilityAuditor:
         fyers_missing = (fyers_status_str in ("MISSING", "NO_DATA", "UNSUPPORTED_FIELD"))
         screener_missing = screener and screener.status == ReferenceStatus.MISSING
 
-        max_annual = max(int(trace.get("upstox_annual", 0) or 0), int(trace.get("nse_annual", 0) or 0),
-                         int(trace.get("bse_annual", 0) or 0), int(trace.get("local_annual", 0) or 0))
+        max_annual = max(
+            int(trace.get("max_annual_records", 0) or 0),
+            int(trace.get("annual_record_count", 0) or 0),
+            int(trace.get("max_annual", 0) or 0),
+            int(trace.get("upstox_annual", 0) or 0),
+            int(trace.get("nse_annual", 0) or 0),
+            int(trace.get("bse_annual", 0) or 0),
+            int(trace.get("local_annual", 0) or 0),
+        )
         min_needed = _MIN_ANNUAL_PERIODS.get(fld)
         primary_has_enough = min_needed is not None and max_annual >= min_needed
 
@@ -400,7 +407,7 @@ class DataAvailabilityAuditor:
         )
 
         # ── Mandatory Precedence Hierarchy (User Frozen Order) ───────────────
-        has_filing_gap = bool(trace.get("filing_gap_detected") or trace.get("filing_gap") or trace.get("has_gap"))
+        has_filing_gap = bool(trace.get("filing_gap_detected") or trace.get("filing_gap") or trace.get("has_gap") or trace.get("has_filing_gap"))
         has_invalid_base = bool(trace.get("invalid_base") or trace.get("base_value_non_positive") or trace.get("negative_base"))
         isin_unresolved = bool(
             trace.get("symbol_mapping_failure")

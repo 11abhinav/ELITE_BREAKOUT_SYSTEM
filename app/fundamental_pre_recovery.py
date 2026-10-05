@@ -71,10 +71,10 @@ REQUIRED_FIELDS: List[str] = list(REQUIRED_FIELD_ALIASES.keys())
 CALCULATION_VERSION = "v2.1_dual_source_reconciliation"
 
 
-def _generate_deterministic_key(symbol: str, metrics: ReconciledCanonicalMetrics) -> str:
-    """SHA256 hash of the canonical metrics — excludes retrieval timestamp."""
+def _generate_deterministic_key(symbol: str, metrics: ReconciledCanonicalMetrics, as_of_timestamp: Optional[str] = None) -> str:
+    """SHA256 hash of the canonical metrics and explicit PIT cutoff."""
     payload = (
-        f"{symbol}|{CALCULATION_VERSION}|"
+        f"{symbol}|{CALCULATION_VERSION}|as_of={as_of_timestamp}|"
         f"roce={metrics.roce_5y}|"
         f"sales_cagr={metrics.sales_cagr_5y}|"
         f"pat_cagr={metrics.pat_cagr_5y}|"
@@ -100,6 +100,9 @@ class FundamentalPreRecoveryEngine:
         as_of_timestamp: Optional[str] = None,
     ):
         self.scanner_name = scanner_name
+        if not as_of_timestamp:
+            from datetime import datetime, timezone
+            as_of_timestamp = datetime.now(timezone.utc).isoformat()
         self.as_of_timestamp = as_of_timestamp
         if pit_parquet_path is not None:
             self.pit_parquet_path = pit_parquet_path
@@ -322,7 +325,7 @@ class FundamentalPreRecoveryEngine:
 
         df.loc[idx, "calculation_version"] = CALCULATION_VERSION
         df.loc[idx, "recovery_status"] = metrics.overall_status.name
-        df.loc[idx, "provenance_hash"] = _generate_deterministic_key(symbol, metrics)
+        df.loc[idx, "provenance_hash"] = _generate_deterministic_key(symbol, metrics, as_of_timestamp=self.as_of_timestamp)
 
         # Layer B — Persist to Validated Recovery Disk Cache for cross-scanner and process restart reuse
         try:
@@ -338,7 +341,7 @@ class FundamentalPreRecoveryEngine:
                 val_cache.save_validated_record(
                     symbol=symbol,
                     fields=rec_fields,
-                    evidence_fingerprint=_generate_deterministic_key(symbol, metrics),
+                    evidence_fingerprint=_generate_deterministic_key(symbol, metrics, as_of_timestamp=self.as_of_timestamp),
                     calculation_version=CALCULATION_VERSION,
                 )
                 for f_name, f_val in rec_fields.items():
@@ -347,6 +350,20 @@ class FundamentalPreRecoveryEngine:
                         f"cache_status=MISS provider={metrics.overall_status.name} provider_status=SUCCESS "
                         f"validation_status=VERIFIED persist_status=PERSISTED final_status=AVAILABLE_TO_SCANNER"
                     )
+                # Clear UPDATE_PENDING in filing_watcher_state once verified
+                try:
+                    state_file = "data/filing_watcher_state.json"
+                    if os.path.exists(state_file):
+                        with open(state_file, "r") as sf:
+                            st_data = json.load(sf)
+                        if symbol.upper() in st_data and st_data[symbol.upper()].get("snapshot_status") == "UPDATE_PENDING":
+                            st_data[symbol.upper()]["snapshot_status"] = "FRESH"
+                            tmp = f"{state_file}.tmp.{os.getpid()}"
+                            with open(tmp, "w") as tf:
+                                json.dump(st_data, tf, indent=2)
+                            os.replace(tmp, state_file)
+                except Exception:
+                    pass
         except Exception as _vc_err:
             logger.error(f"❌ [PRE_RECOVERY] Validated disk cache write error for {symbol}: {_vc_err}")
 
