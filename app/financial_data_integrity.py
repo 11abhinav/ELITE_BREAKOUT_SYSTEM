@@ -2056,7 +2056,10 @@ def check_pre_buy_source_freshness_fence(
                     raw_list = json.load(rf)
                 if isinstance(raw_list, list):
                     for r in raw_list:
+                        p_type = str(r.get("period_type", "ANNUAL")).upper()
                         r_period = str(r.get("period_end_date") or "")[:10]
+                        if p_type in ("QUARTERLY", "HALF_YEAR", "HALF_YEARLY", "Q1", "Q2", "Q3", "Q4", "H1", "H2") or not r_period.endswith("-03-31"):
+                            continue
                         if r_period and canonical_period_end and r_period > str(canonical_period_end):
                             _mark_update_pending(sym_clean, state_file)
                             return False, f"UNPROCESSED_RAW_FILING: Newly acquired filing {r_period} > canonical {canonical_period_end}"
