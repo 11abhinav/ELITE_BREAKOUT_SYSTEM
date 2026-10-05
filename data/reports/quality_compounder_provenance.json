@@ -1,9 +1,9 @@
 {
-  "scan_date": "2026-10-04",
+  "scan_date": "2026-10-05",
   "scanned_universe": 886,
-  "fully_evaluable": 856,
-  "incomplete_data_failures": 19,
-  "structural_ineligible": 5,
+  "fully_evaluable": 824,
+  "incomplete_data_failures": 32,
+  "structural_ineligible": 24,
   "stale_uncertified": 6,
   "current_ev_ebitda_coverage": 829,
   "current_ev_ebitda_coverage_pct": 93.57,
@@ -29,5 +29,5 @@
     "rejected_recoveries": 46,
     "rejection_reason": "Lack of audited multi-year PIT timestamps and raw XBRL provenance"
   },
-  "generated_at": "2026-10-04T19:56:14.807938+05:30"
+  "generated_at": "2026-10-05T11:35:31.077808+05:30"
 }

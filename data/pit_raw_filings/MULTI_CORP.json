@@ -121,6 +121,7 @@
     "ebit": 15.0,
     "capital_employed": 100.0,
     "eps": null,
+    "shares_outstanding": null,
     "unit": null,
     "currency": null,
     "source_record_hash": "acee7deabc7520c4d945e84d6cf15d0d5ed81bebcc04b4eb4117f49738383caa"

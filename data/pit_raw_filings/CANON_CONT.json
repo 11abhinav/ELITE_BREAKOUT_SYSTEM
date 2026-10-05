@@ -49,6 +49,7 @@
     "ebit": 25.0,
     "capital_employed": 100.0,
     "eps": null,
+    "shares_outstanding": null,
     "unit": null,
     "currency": null,
     "source_record_hash": "b320aeb6fc1fecc624fb95b461091cfe73ab75cd4bd11c3d39bdff1b25656b48"
@@ -67,6 +68,7 @@
     "ebit": 25.0,
     "capital_employed": 100.0,
     "eps": null,
+    "shares_outstanding": null,
     "unit": null,
     "currency": null,
     "source_record_hash": "c60732cce1a0505047bcda330dcf4a96e2af191091b49f5acff46f505f5a342e"
@@ -85,6 +87,7 @@
     "ebit": 25.0,
     "capital_employed": 100.0,
     "eps": null,
+    "shares_outstanding": null,
     "unit": null,
     "currency": null,
     "source_record_hash": "b21e860429332638bc21e2e2e0f25bf006a2ea56bfe4858e1c2bc48c564b426f"
@@ -103,6 +106,7 @@
     "ebit": 25.0,
     "capital_employed": 100.0,
     "eps": null,
+    "shares_outstanding": null,
     "unit": null,
     "currency": null,
     "source_record_hash": "2431ed0cb0892e8091dba85df6ecf080cf9189989888840826861c7069e9b241"
@@ -121,6 +125,7 @@
     "ebit": null,
     "capital_employed": null,
     "eps": null,
+    "shares_outstanding": null,
     "unit": null,
     "currency": null,
     "source_record_hash": "2445d01b3dafc2935713a68ca0c8e76cf519d518ff27e4b559c2939b9bf990bc"
@@ -139,6 +144,7 @@
     "ebit": null,
     "capital_employed": null,
     "eps": null,
+    "shares_outstanding": null,
     "unit": null,
     "currency": null,
     "source_record_hash": "a67417f7cd0d8058cd476cf2ad43a756013c62a238e84786c8052119c0ff6ad6"

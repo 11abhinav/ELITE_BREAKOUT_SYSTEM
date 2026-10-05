@@ -8,7 +8,8 @@ echo "========================================================"
 echo "🛡️  RUNNING AUTOMATED PRE-PUSH INTEGRITY GATE AUDIT"
 echo "========================================================"
 
-export PYTHONPATH="app:."
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/app"
 
 # 1. Codebase Integrity Test Suite
 echo "🔍 [1/3] Checking undefined variables, unassigned locals, and SQL safety..."

@@ -63,12 +63,12 @@
     "net_profit": 89.31,
     "operating_cash_flow": 117.72,
     "total_debt": null,
-    "total_equity": null,
+    "total_equity": 852.4000000000001,
     "ebit": 80.35,
-    "capital_employed": null,
+    "capital_employed": 852.4000000000001,
     "eps": null,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "1b21d15f9011d4cb4ba1fbbb6efe7fd121b8c00e827de6fc637581953f58fa0e"
+    "source_record_hash": "521e6072be5b89b6223e60c08ab6fd6d0d5244c0389eab9ccf4bc707e7e29b46"
   }
 ]
