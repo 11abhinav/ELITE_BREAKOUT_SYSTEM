@@ -1435,9 +1435,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         base_hold_score = calculate_hold_score(r)
         sym = r.get("Stock")
 
-        trend = trend_map.get(sym, {"action": "HOLD", "reason": "Stable"})
-        hold_trend = trend["reason"] if trend.get("action") != "HOLD" else "Stable"
-        r["hold_trend"] = hold_trend
+        r["hold_trend"] = "UNKNOWN"
         r["Hold_Score"] = base_hold_score
         r["Exit_Code"] = r.get("Exit_Code", "")
         r["Exit_Reason"] = r.get("Exit_Reason", "")
@@ -1595,6 +1593,9 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             pass
 
         r["Hold_Score"] = final_hold_score
+
+        trend = trend_map.get(sym, {"action": "HOLD", "reason": "Stable"})
+        hold_trend = trend["reason"] if trend.get("action") != "HOLD" else "Stable"
         r["hold_trend"] = hold_trend
 
         # 4. Soft Exits & Review Signals
@@ -2650,7 +2651,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         if not portfolio_df.empty:
             for col in ["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]:
                 if col not in portfolio_df.columns:
-                    portfolio_df[col] = "Stable" if col == "hold_trend" else ""
+                    portfolio_df[col] = "UNKNOWN" if col == "hold_trend" else ""
             # Map Portfolio outputs back into wealth_df for Dashboard display (Actual position closing is handled by dedicated WEALTH_EXIT monitor)
             port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
             def map_port(r):
@@ -3018,7 +3019,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                 if not portfolio_df.empty:
                     for col in ["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]:
                         if col not in portfolio_df.columns:
-                            portfolio_df[col] = "Stable" if col == "hold_trend" else ""
+                            portfolio_df[col] = "UNKNOWN" if col == "hold_trend" else ""
                     port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
                 for sym, info in port_map.items():
                     if sym in wealth_df["Stock"].values:
