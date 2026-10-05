@@ -12257,10 +12257,9 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, status, watchlist_state, alert_date FROM alerts
-                WHERE symbol = %s AND (scanner = %s OR (%s = 'QUALITY_COMPOUNDER' AND scanner = 'QUALITY_COMPOUNDER_VALUE_V2_FINAL') OR (%s = 'QUALITY_VALUE_RECOVERY' AND scanner = 'QUALITY_VALUE_RECOVERY_WEALTH_V1'))
-                  AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                WHERE symbol = %s AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
                 ORDER BY alert_time DESC LIMIT 1
-            """, (sym, scanner_name, scanner_name, scanner_name))
+            """, (sym,))
             row = cur.fetchone()
             if row:
                 alert_id, prev_status, prev_state, prev_date = row[0], row[1], row[2], row[3]

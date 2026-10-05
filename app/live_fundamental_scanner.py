@@ -4503,8 +4503,8 @@ class QualityCompounderValueV2Scanner:
             cmp_price = float(live_prices_map.get(sym, 0.0) or 0.0)
             price_source = "LIVE_QUOTE" if cmp_price > 0 else "UNRESOLVED"
 
-            # Allow mock / PIT override price if live quote is missing (e.g. unit tests or mock datasets)
-            if cmp_price <= 0.0 and sym in pit_records_map:
+            # Allow mock / PIT override price ONLY during pytest unit tests or offline simulations (when PYTEST_CURRENT_TEST is set)
+            if cmp_price <= 0.0 and sym in pit_records_map and os.environ.get("PYTEST_CURRENT_TEST"):
                 _mock_px = pit_records_map[sym].get('current_price')
                 if _mock_px is not None and not pd.isna(_mock_px) and float(_mock_px) > 0:
                     cmp_price = float(_mock_px)
@@ -5354,6 +5354,12 @@ class QualityCompounderValueV2Scanner:
                 required_improvements.append("EV/EBITDA Discount >= 25% (Current: N/A — valuation data missing)")
             elif ev_discount < 0.25:
                 required_improvements.append(f"EV/EBITDA Discount >= 25% (Current: {ev_discount*100:.1f}%)")
+
+            if not is_candidate and not required_improvements:
+                if rejections:
+                    required_improvements = [f"Resolve Rejection: {r}" for r in rejections]
+                else:
+                    required_improvements = [f"Resolve Rejection: {primary_rejection}"]
 
             # Per-Stock Complete Telemetry Logging
             ev_disc_str = f"{ev_discount*100:.1f}%" if ev_discount is not None else ("EXCLUDED_FINANCIAL" if is_fin else ("OPERATING_LOSS" if ev_ebitda_curr_loss else "N/A (DATA_INSUFFICIENT)"))

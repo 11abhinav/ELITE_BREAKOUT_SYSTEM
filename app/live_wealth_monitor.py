@@ -1365,10 +1365,15 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
     processed_count = 0
     warnings_count = 0
     exits_count = 0
+    seen_symbols = set()
 
     for al in active_alerts:
-        processed_count += 1
         sym = str(al["symbol"]).upper()
+        if sym in seen_symbols:
+            continue
+        seen_symbols.add(sym)
+
+        processed_count += 1
         p_path = os.path.join(history_dir, f"{sym}.parquet")
         if not os.path.exists(p_path):
             logger.warning(f"No price history found for active candidate {sym}")
