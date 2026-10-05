@@ -1403,6 +1403,19 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                         context_update={"close_1515": close_t, "sma200": sma200_t}
                     )
                     logger.info(f"⚠️ [V2 15:15 WARNING] {sym} price ₹{close_t:.2f} < SMA200 ₹{sma200_t:.2f} -> ORANGE state set")
+                else:
+                    # [STATE RECOVERY]: If price recovers above SMA200 and was previously flagged ORANGE, restore state to GREEN
+                    curr_state = str(al.get("watchlist_state") or "GREEN").upper()
+                    if curr_state == "ORANGE":
+                        save_v2_exit_event(
+                            symbol=sym,
+                            event_type="PRE_CLOSE_RECOVERY",
+                            new_watchlist_state="GREEN",
+                            exit_reason="INTRADAY_SMA200_RECOVERY",
+                            exit_price=close_t,
+                            context_update={"close_1515": close_t, "sma200": sma200_t}
+                        )
+                        logger.info(f"🟢 [V2 15:15 RECOVERY] {sym} price ₹{close_t:.2f} >= SMA200 ₹{sma200_t:.2f} -> GREEN state restored (removed from SELL_REVIEW)")
             # Definitive 18:30 IST EOD Check
             else:
                 sc_name = al.get("scanner", "")
@@ -1482,6 +1495,19 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                         }
                     )
                     logger.info(f"📙 [V2 SHADOW TELEMETRY] {sym} shadow exit detected ({exit_reason_str}) @ ₹{close_t:.2f} — position remains OPEN (V1 live authority required for close)")
+                else:
+                    # [STATE RECOVERY EOD]: If no exit reasons present and symbol was previously ORANGE, restore state to GREEN
+                    curr_state = str(al.get("watchlist_state") or "GREEN").upper()
+                    if curr_state == "ORANGE":
+                        save_v2_exit_event(
+                            symbol=sym,
+                            event_type="EOD_WARNING_CLEARED",
+                            new_watchlist_state="GREEN",
+                            exit_reason="EXIT_CONDITIONS_CLEARED",
+                            exit_price=close_t,
+                            context_update={"close_t": close_t, "sma200_t": sma200_t}
+                        )
+                        logger.info(f"🟢 [V2 EOD RECOVERY] {sym} price/fundamentals restored -> GREEN state restored (removed from SELL_REVIEW)")
 
         except Exception as e:
             logger.error(f"Error evaluating V2 exit for {sym}: {e}")
@@ -1509,4 +1535,16 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
 
     logger.info(f"✅ [V2_EXIT_MONITOR] {check_type} Exit Check Complete: Processed={processed_count}, Warnings={warnings_count}, Exits={exits_count}")
     return {"status": "SUCCESS", "processed": processed_count, "warnings": warnings_count, "exits": exits_count}
+
+
+check_v2_exit_signals = run_v2_exit_check
+
+# STRATEGY-SPECIFIC EXIT MONITORS & EVALUATORS
+QualityCompounderExitEvaluator = CanonicalV2ExitEvaluator
+QualityCompounderExitMonitor = LiveWealthMonitorEngine
+
+QualityValueRecoveryExitEvaluator = CanonicalRecoveryE3ExitEvaluator
+QualityValueRecoveryExitMonitor = LiveWealthMonitorEngine
+
+
 

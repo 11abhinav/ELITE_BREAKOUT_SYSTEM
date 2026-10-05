@@ -4256,8 +4256,8 @@ function changeAdminPage(type, delta) {
       'QUALITY_COMPOUNDER': { label: 'Quality Compounder', desc: 'Quality × Value Compounder · Daily 17:00 IST (ALL REGIMES)' },
       'QUALITY_VALUE_RECOVERY': { label: 'Quality Value Recovery', desc: 'Quality Value Recovery · Daily 17:15 IST (ALL REGIMES)' },
       'PERFORMANCE_TRACKER': { label: 'Exit Monitor — Technical', desc: 'Position & Exit Monitor for Active Technical Breakout Positions · Every 5m (09:15–15:30 IST)' },
-      'WEALTH_EXIT_V1': { label: 'Exit Monitor V1 — Wealth (COMPOUNDER, QUALITY_RECOVERY)', desc: 'Primary Intraday Portfolio & Exit Monitor for QUALITY_COMPOUNDER & QUALITY_VALUE_RECOVERY · Market Hours (09:15–15:30 IST)' },
-      'WEALTH_EXIT_V2': { label: 'Exit Monitor V2 — Model E3 (COMPOUNDER, QUALITY_RECOVERY)', desc: 'Model E3 Dual-Pulse Exit Guard for QUALITY_COMPOUNDER & QUALITY_VALUE_RECOVERY · 15:15 & 18:30 IST Pulses' },
+      'WEALTH_EXIT_V1': { label: 'V1 Intraday Exit Monitor (COMPOUNDER, RECOVERY)', desc: 'Common Intraday Warning Telemetry Pulse · Pre-Close 15:15 IST (ORANGE / SELL_REVIEW Warning, Position Remains OPEN)' },
+      'WEALTH_EXIT_V2': { label: 'V2 EOD Exit Execution Engine (COMPOUNDER, RECOVERY)', desc: 'Definitive Post-Market Exit Engine · Post-Market 18:30 IST (Strategy Evaluators + wealth_engine.py State Mutation)' },
       'FILING_WATCHER': { label: 'Filing Watcher', desc: 'NSE/BSE Corporate Filings & Freshness Watcher · Periodic (08:00, 16:30, 21:00 IST)' }
     };
 

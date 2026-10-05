@@ -4804,8 +4804,8 @@ def get_all_scanner_health() -> list[dict]:
         "QUALITY_COMPOUNDER": "Daily 17:00 IST (Fundamental Quality Compounder · ALL Regimes)",
         "QUALITY_VALUE_RECOVERY": "Daily 17:15 IST (Quality Value Recovery · ALL Regimes)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
-        "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
-        "WEALTH_EXIT_V2": "Exit Monitor · Live V2 Dual Pulse (15:15 & 18:30 IST)",
+        "WEALTH_EXIT_V1": "V1 Intraday Exit Monitor · 15:15 IST Pre-Close Warning Pulse (ORANGE / SELL_REVIEW, Position OPEN)",
+        "WEALTH_EXIT_V2": "V2 EOD Exit Execution Engine · 18:30 IST EOD Execution Pulse (Strategy Evaluators + wealth_engine.py)",
         "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
     }
 
@@ -4983,8 +4983,8 @@ def reset_all_scanners_on_boot() -> None:
                     "QUALITY_COMPOUNDER": "Daily 17:00 IST (Fundamental Quality Compounder · ALL Regimes)",
                     "QUALITY_VALUE_RECOVERY": "Daily 17:15 IST (Quality Value Recovery · ALL Regimes)",
                     "PERFORMANCE_TRACKER": "Exit Monitor · Technical (EOD, REVERSAL, MULTI_TF) · Every 5m (09:15 - 15:30 IST)",
-                    "WEALTH_EXIT_V1": "Exit Monitor V1 · Wealth (COMPOUNDER, QUALITY_RECOVERY) · Every 5m (09:15 - 15:30 IST)",
-                    "WEALTH_EXIT_V2": "Exit Monitor V2 · Model E3 (COMPOUNDER, QUALITY_RECOVERY) · 15:15 & 18:30 IST Pulses",
+                    "WEALTH_EXIT_V1": "V1 Intraday Exit Monitor · 15:15 IST Pre-Close Warning Pulse (ORANGE / SELL_REVIEW, Position OPEN)",
+                    "WEALTH_EXIT_V2": "V2 EOD Exit Execution Engine · 18:30 IST EOD Execution Pulse (Strategy Evaluators + wealth_engine.py)",
                     "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
                 }
                 for sc_name, sched_str in schedule_map.items():
