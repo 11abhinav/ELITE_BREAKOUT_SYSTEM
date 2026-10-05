@@ -431,20 +431,6 @@ class DataAvailabilityAuditor:
         if is_bank_or_financial and fld in ("roce_5y", "ROCE", "debt_to_equity", "debt", "sales_cagr_5y"):
             cls = AvailabilityClassification.STRUCTURALLY_UNSUPPORTED
             action = f"STRUCTURALLY_NOT_APPLICABLE_FOR_FINANCIAL_INSTITUTION ({fld.upper()})"
-        elif screener_avail and (is_parser_failure or trace.get("exhausted") or trace.get("all_providers_exhausted")):
-            # User acceptance case: full provider exhaustion with Screener reference available
-            cls = AvailabilityClassification.REFERENCE_ONLY_AVAILABLE
-            action = "INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING_REFERENCE_FOUND_ON_SCREENER"
-        elif is_parser_failure:
-            cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
-            action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
-        elif isin_unresolved and not is_bse_only:
-            if fld.lower() in ("current_ev_ebitda", "ev_ebitda_3y_median", "current_pe", "ev_ebitda"):
-                cls = AvailabilityClassification.VALUATION_CACHE_MISSING
-                action = f"VALUATION_CACHE_MISSING_PENDING_REFRESH ({fld.upper()})"
-            else:
-                cls = AvailabilityClassification.SYMBOL_MAPPING_FAILURE
-                action = "RESOLVE_SECURITY_ISIN_OR_SYMBOL_MAPPING"
         elif has_filing_gap:
             cls = AvailabilityClassification.HISTORICAL_FILING_GAP
             action = f"HISTORICAL_FILING_GAP_BLOCKING_{fld.upper()}"
@@ -454,6 +440,21 @@ class DataAvailabilityAuditor:
         elif has_invalid_base:
             cls = AvailabilityClassification.INVALID_CAGR_BASE
             action = f"INVALID_BASE_PERIOD_VALUE_FOR_{fld.upper()}"
+        elif isin_unresolved and not is_bse_only:
+            if fld.lower() in ("current_ev_ebitda", "ev_ebitda_3y_median", "current_pe", "ev_ebitda"):
+                cls = AvailabilityClassification.VALUATION_CACHE_MISSING
+                action = f"VALUATION_CACHE_MISSING_PENDING_REFRESH ({fld.upper()})"
+            else:
+                cls = AvailabilityClassification.SYMBOL_MAPPING_FAILURE
+                action = "RESOLVE_SECURITY_ISIN_OR_SYMBOL_MAPPING"
+        elif screener_avail and (is_parser_failure or trace.get("exhausted") or trace.get("all_providers_exhausted")):
+            # User acceptance case: full provider exhaustion with Screener reference available
+            cls = AvailabilityClassification.REFERENCE_ONLY_AVAILABLE
+            action = "INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING_REFERENCE_FOUND_ON_SCREENER"
+        elif is_parser_failure:
+            cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
+            action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"
+
         elif fyers_avail and screener_avail:
             cls = AvailabilityClassification.PRIMARY_RECOVERY_FAILURE_DATA_EXISTS_ELSEWHERE
             action = "INVESTIGATE_UPSTOX_NSE_PARSER_OR_MAPPING"

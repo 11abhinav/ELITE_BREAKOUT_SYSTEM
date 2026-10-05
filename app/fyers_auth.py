@@ -89,14 +89,13 @@ def log_token_diagnostics(token: str):
     iat = payload.get("iat", 0)
     now = time.time()
     logger.info(
-        f"🔍 [TOKEN DIAG] JWT Claims dump:\n"
+        f"🔍 [TOKEN DIAG] JWT Claims metadata:\n"
         f"  app_id     : {payload.get('app_id', payload.get('client_id', 'MISSING'))}\n"
         f"  sub        : {payload.get('sub', 'MISSING')}\n"
         f"  scope/perms: {payload.get('scope', payload.get('perms', payload.get('permissions', 'MISSING')))}\n"
         f"  iat (issued): {iat} → {time.strftime('%Y-%m-%d %H:%M:%S IST', time.localtime(iat)) if iat else 'N/A'}\n"
         f"  exp (expire): {exp} → {time.strftime('%Y-%m-%d %H:%M:%S IST', time.localtime(exp)) if exp else 'N/A'}\n"
-        f"  expired    : {now >= exp if exp else 'unknown'}\n"
-        f"  full_payload: {payload}"
+        f"  expired    : {now >= exp if exp else 'unknown'}"
     )
 
 def get_login_url() -> str:
@@ -468,23 +467,21 @@ def auto_login() -> Optional[str]:
                 return None
 
             try:
-                res1_text = res_obj.text
-                logger.info(f"Fyers Step 1 raw response text (Status {res_obj.status_code}): {res1_text}")
                 res = res_obj.json()
-                logger.info(f"Fyers Step 1 parsed payload: {res}")
+                logger.info(f"Fyers Step 1 HTTP {res_obj.status_code} | success={res.get('s') == 'ok'}")
             except ValueError:
-                logger.error(f"Fyers Step 1 non-JSON response (Status {res_obj.status_code}): {error_text[:1000]}")
+                logger.error(f"Fyers Step 1 non-JSON response (Status {res_obj.status_code})")
                 return None
             
             if 'request_key' not in res:
-                logger.error(f"Fyers Step 1 failed: {res}")
+                logger.error("Fyers Step 1 failed: missing request_key")
                 return None
             request_key = res["request_key"]
             
             logger.info("Fyers login Step 2: Verifying TOTP...")
             try:
                 totp = pyotp.TOTP(totp_secret.strip()).now()
-                logger.info(f"Generated TOTP for Step 2: {totp[:2]}****")
+                logger.info("Generated TOTP for Step 2: **masked**")
             except Exception as e:
                 logger.error(f"Fyers TOTP generation failed. Check if FYERS_TOTP_SECRET is valid base32: {e}")
                 return None
@@ -492,16 +489,14 @@ def auto_login() -> Optional[str]:
             payload2 = {"request_key": request_key, "otp": totp}
             res2_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_otp", payload2)
             try:
-                res2_text = res2_obj.text
-                logger.info(f"Fyers Step 2 raw response text (Status {res2_obj.status_code}): {res2_text}")
                 res2 = res2_obj.json()
-                logger.info(f"Fyers Step 2 parsed payload: {res2}")
+                logger.info(f"Fyers Step 2 HTTP {res2_obj.status_code} | success={res2.get('s') == 'ok'}")
             except ValueError:
-                logger.error(f"Fyers Step 2 non-JSON response (Status {res2_obj.status_code}): {res2_obj.text[:1000]}")
+                logger.error(f"Fyers Step 2 non-JSON response (Status {res2_obj.status_code})")
                 return None
                 
             if 'request_key' not in res2:
-                logger.error(f"Fyers Step 2 TOTP verification failed: {res2}")
+                logger.error("Fyers Step 2 TOTP verification failed: missing request_key")
                 return None
             request_key2 = res2["request_key"]
             
@@ -509,16 +504,14 @@ def auto_login() -> Optional[str]:
             payload3 = {"request_key": request_key2, "identity_type": "pin", "identifier": base64.b64encode(f"{pin.strip()}".encode()).decode()}
             res3_obj = fyers_post_with_scraper_fallback(session, "https://api-t2.fyers.in/vagator/v2/verify_pin_v2", payload3)
             try:
-                res3_text = res3_obj.text
-                logger.info(f"Fyers Step 3 raw response text (Status {res3_obj.status_code}): {res3_text}")
                 res3 = res3_obj.json()
-                logger.info(f"Fyers Step 3 response status: {res3.get('s')}, code: {res3.get('code')}")
+                logger.info(f"Fyers Step 3 HTTP {res3_obj.status_code} | status: {res3.get('s')}, code: {res3.get('code')}")
             except ValueError:
-                logger.error(f"Fyers Step 3 non-JSON response (Status {res3_obj.status_code}): {res3_obj.text[:1000]}")
+                logger.error(f"Fyers Step 3 non-JSON response (Status {res3_obj.status_code})")
                 return None
                 
             if 'data' not in res3 or 'access_token' not in res3.get('data', {}):
-                logger.error(f"Fyers Step 3 PIN verification failed: {res3}")
+                logger.error("Fyers Step 3 PIN verification failed: missing access_token in response")
                 return None
             auth_token = res3["data"]["access_token"]
             
@@ -549,12 +542,10 @@ def auto_login() -> Optional[str]:
                 }
                 res4_obj = fyers_post_with_scraper_fallback(session, "https://api-t1.fyers.in/api/v3/token", payload4, headers=headers)
                 try:
-                    res4_text = res4_obj.text
-                    logger.info(f"Fyers Step 4 raw response text for '{cand_app_id}' (Status {res4_obj.status_code}): {res4_text}")
                     res4 = res4_obj.json()
-                    logger.info(f"Fyers Step 4 parsed response for '{cand_app_id}': {res4}")
+                    logger.info(f"Fyers Step 4 HTTP {res4_obj.status_code} for '{cand_app_id}' | success={res4.get('s') == 'ok'}")
                 except ValueError:
-                    logger.error(f"Fyers Step 4 non-JSON response ({cand_app_id}, Status {res4_obj.status_code}): {res4_obj.text[:1000]}")
+                    logger.error(f"Fyers Step 4 non-JSON response ({cand_app_id}, Status {res4_obj.status_code})")
                     continue
                 
                 if isinstance(res4.get('data'), dict) and res4['data'].get('auth'):

@@ -71,6 +71,7 @@ class RawFinancialRecord:
     ebit: Optional[float] = None
     capital_employed: Optional[float] = None
     eps: Optional[float] = None
+    shares_outstanding: Optional[float] = None
     availability_date: Optional[str] = None
     broadcast_timestamp: Optional[str] = None
     version: str = "v1"

@@ -28,7 +28,7 @@ class TestFundamentalReconcilerRedTeam(unittest.TestCase):
                 revenue=1000.0 * (1.10 ** i) * (rev_mult if (i == 5 and source == "UPSTOX") else 1.0),
                 net_profit=100.0 * (1.10 ** i),
                 ebit=150.0, capital_employed=500.0, total_debt=50.0, total_equity=450.0,
-                operating_cash_flow=120.0
+                operating_cash_flow=120.0, shares_outstanding=10.0
             )
             for i, yr in enumerate(range(2020, 2026))
         ]
@@ -50,9 +50,9 @@ class TestFundamentalReconcilerRedTeam(unittest.TestCase):
         self.assertEqual(metrics.overall_status, FundamentalStatus.VERIFIED)
 
     def test_03_exceeds_tolerance(self):
-        # TEST 03: Upstox differs by 2% -> DATA_CONFLICT -> BLOCK
-        upstox = [RawFinancialRecord(symbol="TEST", source="UPSTOX", period_end_date="2025-03-31", period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED, revenue=1020.0, net_profit=100.0, ebit=150.0, capital_employed=500.0)]
-        nse = [RawFinancialRecord(symbol="TEST", source="NSE", period_end_date="2025-03-31", period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED, revenue=1000.0, net_profit=100.0, ebit=150.0, capital_employed=500.0)]
+        # TEST 03: Upstox differs by 30% -> DATA_CONFLICT -> BLOCK
+        upstox = [RawFinancialRecord(symbol="TEST", source="UPSTOX", period_end_date="2025-03-31", period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED, revenue=1300.0, net_profit=100.0, ebit=150.0, capital_employed=500.0, shares_outstanding=10.0)]
+        nse = [RawFinancialRecord(symbol="TEST", source="NSE", period_end_date="2025-03-31", period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED, revenue=1000.0, net_profit=100.0, ebit=150.0, capital_employed=500.0, shares_outstanding=10.0)]
         
         metrics = self.reconciler.reconcile_and_calculate("TEST", nse, upstox)
         self.assertEqual(metrics.overall_status, FundamentalStatus.DATA_CONFLICT)

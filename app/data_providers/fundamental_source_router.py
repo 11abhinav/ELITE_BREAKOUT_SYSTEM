@@ -320,10 +320,18 @@ class FundamentalSourceRouter:
             metrics.debt_to_equity = 0.0
 
         # 3. 5Y CAGR (Sales & PAT) — STRICT 5Y REQUIREMENT (6+ annual observations needed)
-        # [RULE 67 CHANGE-RATIONALE: Prevent writing 3Y CAGR into 5Y fields (Finding #3). Require target_years=5 and len(annual) >= 6.]
-        if len(annual) >= 6:
+        # [RULE 67 CHANGE-RATIONALE: Prevent writing 3Y CAGR into 5Y fields. Enforce continuous annual series.]
+        try:
+            from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+        except ImportError:
+            from data_providers.nse_xbrl_provider import NseXbrlProvider
+
+        is_cont, gap_err, window_recs = NseXbrlProvider.validate_continuous_annual_series(
+            annual, target_years=5
+        )
+        if is_cont and len(window_recs) >= 6:
             ann_dicts = []
-            for r in annual:
+            for r in window_recs:
                 ann_dicts.append({
                     "period_end_date": r.period_end_date,
                     "revenue": r.revenue,
@@ -348,10 +356,11 @@ class FundamentalSourceRouter:
             except Exception as _ce:
                 logger.debug(f"[ROUTER] CAGR calculation exception for {symbol}: {_ce}")
         else:
-            # Insufficient annual observations for 5Y CAGR: leave as None. Do NOT substitute 3Y.
+            # Insufficient annual observations or filing gap: leave as None. Do NOT substitute 3Y.
             metrics.sales_cagr_5y = None
             metrics.pat_cagr_5y = None
-            logger.info(f"[ROUTER] {symbol}: Insufficient annual records ({len(annual)} < 6) for 5Y CAGR. sales_cagr_5y and pat_cagr_5y remain None.")
+            if gap_err:
+                logger.info(f"[ROUTER] {symbol}: 5Y CAGR blocked by annual series validation ({gap_err}). sales_cagr_5y and pat_cagr_5y remain None.")
 
         # 4. 5Y Cumulative CFO / PAT Ratio
         cfo_vals = [r.operating_cash_flow for r in annual[-5:] if r.operating_cash_flow is not None]
@@ -364,10 +373,39 @@ class FundamentalSourceRouter:
             else:
                 metrics.cfo_pat_5y = -999.0
 
+        # 5. 3Y Share Dilution calculation
+        dilution_dicts = []
+        for r in annual:
+            shs = getattr(r, "shares_outstanding", getattr(r, "shares_outstanding_m", None))
+            dilution_dicts.append({
+                "period_end_date": r.period_end_date,
+                "shares_outstanding_m": shs,
+                "filing_date": r.broadcast_timestamp or getattr(r, "filing_date", None),
+            })
+        try:
+            try:
+                from app.financial_data_integrity import compute_share_dilution_3y
+            except ImportError:
+                from financial_data_integrity import compute_share_dilution_3y
+            dilution_res = compute_share_dilution_3y(dilution_dicts, symbol=symbol)
+            if dilution_res.ok:
+                metrics.share_dilution_3y = dilution_res.share_dilution_3y
+            else:
+                logger.info(f"[ROUTER] {symbol}: 3Y Share dilution not verified ({dilution_res.reason}). share_dilution_3y remains None.")
+        except Exception as _de:
+            logger.debug(f"[ROUTER] Share dilution calculation exception for {symbol}: {_de}")
+
         # [RULE 67 CHANGE-RATIONALE: VERIFIED with NULL field = 0.
-        # Check if all core metrics are populated. If any core metric is missing,
+        # Check if all 6 core metrics are populated. If any core metric is missing,
         # status must NOT be VERIFIED_SINGLE_SOURCE; it must be PARTIAL_RECOVERY.]
-        core_fields = [metrics.roce_5y, metrics.sales_cagr_5y, metrics.pat_cagr_5y, metrics.cfo_pat_5y, metrics.debt_to_equity]
+        core_fields = [
+            metrics.roce_5y,
+            metrics.sales_cagr_5y,
+            metrics.pat_cagr_5y,
+            metrics.cfo_pat_5y,
+            metrics.debt_to_equity,
+            metrics.share_dilution_3y,
+        ]
         populated_count = sum(1 for f in core_fields if f is not None)
         if populated_count == len(core_fields):
             metrics.overall_status = FundamentalStatus.VERIFIED_SINGLE_SOURCE
@@ -379,7 +417,7 @@ class FundamentalSourceRouter:
         logger.info(
             f"[ROUTER] {symbol}: status={metrics.overall_status.name} from {source_name} | "
             f"roce={metrics.roce_5y} sales_cagr={metrics.sales_cagr_5y} pat_cagr={metrics.pat_cagr_5y} "
-            f"cfo/pat={metrics.cfo_pat_5y} d/e={metrics.debt_to_equity}"
+            f"cfo/pat={metrics.cfo_pat_5y} d/e={metrics.debt_to_equity} dilution_3y={metrics.share_dilution_3y}"
         )
         return metrics
 
@@ -474,7 +512,19 @@ class FundamentalSourceRouter:
             Canonical PIT -> NSE XBRL -> BSE Corporate -> Upstox API -> Reconciled Combinations.
         """
         if required_fields is None:
-            required_fields = ["roce_5y", "sales_cagr_5y", "pat_cagr_5y", "cfo_pat_5y", "debt_to_equity"]
+            required_fields = [
+                "roce_5y",
+                "sales_cagr_5y",
+                "pat_cagr_5y",
+                "cfo_pat_5y",
+                "debt_to_equity",
+                "share_dilution_3y",
+            ]
+
+        if not as_of_timestamp:
+            from datetime import datetime, timezone
+            as_of_timestamp = datetime.now(timezone.utc).isoformat()
+            logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: as_of cutoff was None. Enforcing explicit current UTC timestamp: {as_of_timestamp}")
 
         logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp}, required={required_fields})...")
 
@@ -656,7 +706,12 @@ class FundamentalSourceRouter:
             dual_candidates.append((self._reconcile_upstox_and_local(symbol, bse_records, local_records, as_of_timestamp=as_of_timestamp), "BSE+LOCAL"))
 
         for dual_met, dual_src in dual_candidates:
-            if dual_met and dual_met.overall_status in (FundamentalStatus.VERIFIED, FundamentalStatus.PARTIAL_RECOVERY):
+            if dual_met and dual_met.overall_status == FundamentalStatus.DATA_CONFLICT:
+                logger.error(f"🚨 [ROUTER] {symbol}: Unresolved DATA_CONFLICT (>25% divergence) in {dual_src}. Hard blocking recovery.")
+                composed_metrics.overall_status = FundamentalStatus.DATA_CONFLICT
+                composed_metrics.rejection_reason = f"DATA_CONFLICT (>25% divergence) between {dual_src}"
+                return composed_metrics
+            elif dual_met and dual_met.overall_status in (FundamentalStatus.VERIFIED, FundamentalStatus.PARTIAL_RECOVERY):
                 for fld in required_fields:
                     val = getattr(dual_met, fld, None)
                     if val is not None and getattr(composed_metrics, fld, None) is None:
@@ -798,7 +853,14 @@ class FundamentalSourceRouter:
         # [RULE 67 CHANGE-RATIONALE: VERIFIED with NULL field = 0.
         # Even when dual sources overlap, status is VERIFIED only if all core metrics are populated.
         # If any core metric is missing, status must be PARTIAL_RECOVERY.]
-        core_fields = [metrics.roce_5y, metrics.sales_cagr_5y, metrics.pat_cagr_5y, metrics.cfo_pat_5y, metrics.debt_to_equity]
+        core_fields = [
+            metrics.roce_5y,
+            metrics.sales_cagr_5y,
+            metrics.pat_cagr_5y,
+            metrics.cfo_pat_5y,
+            metrics.debt_to_equity,
+            metrics.share_dilution_3y,
+        ]
         populated_count = sum(1 for f in core_fields if f is not None)
         if populated_count == len(core_fields):
             metrics.overall_status = FundamentalStatus.VERIFIED if overlap_dates else FundamentalStatus.VERIFIED_SINGLE_SOURCE

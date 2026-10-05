@@ -100,13 +100,15 @@ class BseSecurityMasterResolver:
         self._by_isin: Dict[str, BseSecurityEntry] = {}
         self._alias_map: Dict[str, str] = dict(KNOWN_ALIASES)
 
+        self._available = True
         self._load_master()
         self._initialized = True
 
     def _load_master(self) -> None:
         """Loads master from data/bse_security_master.json if present."""
         if not os.path.exists(MASTER_JSON_PATH):
-            logger.warning(f"[BSE_MASTER] Master file not found at {MASTER_JSON_PATH}. Dynamic lookups will use fallbacks.")
+            logger.error(f"🚨 [BSE_MASTER] CRITICAL: Master file missing at {MASTER_JSON_PATH}. Dynamic BSE resolution is UNAVAILABLE. Fail-closed enforced.")
+            self._available = False
             return
 
         try:
@@ -162,6 +164,9 @@ class BseSecurityMasterResolver:
         Resolves ANY identifier (NSE symbol, BSE scrip code, BSE security ID, ISIN, or alias)
         to the authoritative BseSecurityEntry.
         """
+        if not getattr(self, "_available", True):
+            return None
+
         if not key:
             return None
 

@@ -182,11 +182,35 @@ class FundamentalReconciler:
             metrics.cfo_pat_5y = round(sum(cfo_vals) / sum(pat_vals), 2)
         elif pat_vals and sum(pat_vals) <= 0:
             metrics.cfo_pat_5y = -999.0
-        else:
-            metrics.cfo_pat_5y = None
+        # 5. 3Y Share Dilution
+        dilution_dicts = [
+            {
+                "period_end_date": r.period_end_date,
+                "shares_outstanding_m": getattr(r, "shares_outstanding", getattr(r, "shares_outstanding_m", None)),
+                "filing_date": r.broadcast_timestamp or getattr(r, "filing_date", None),
+            }
+            for r in annual_records
+        ]
+        try:
+            try:
+                from app.financial_data_integrity import compute_share_dilution_3y
+            except ImportError:
+                from financial_data_integrity import compute_share_dilution_3y
+            dilution_res = compute_share_dilution_3y(dilution_dicts, symbol=symbol)
+            if dilution_res.ok:
+                metrics.share_dilution_3y = dilution_res.share_dilution_3y
+        except Exception as _de:
+            logger.debug(f"[RECONCILER] Share dilution calculation exception for {symbol}: {_de}")
 
-        # [RULE 67 CHANGE-RATIONALE: Section 21 Strict Verification. VERIFIED only when all fields are populated and valid.]
-        core_fields = [metrics.roce_5y, metrics.sales_cagr_5y, metrics.pat_cagr_5y, metrics.cfo_pat_5y, metrics.debt_to_equity]
+        # [RULE 67 CHANGE-RATIONALE: Section 21 Strict Verification. VERIFIED only when all 6 fields are populated and valid.]
+        core_fields = [
+            metrics.roce_5y,
+            metrics.sales_cagr_5y,
+            metrics.pat_cagr_5y,
+            metrics.cfo_pat_5y,
+            metrics.debt_to_equity,
+            metrics.share_dilution_3y,
+        ]
         populated_count = sum(1 for v in core_fields if v is not None)
 
         if populated_count == len(core_fields):

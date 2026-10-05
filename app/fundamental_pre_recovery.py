@@ -79,7 +79,8 @@ def _generate_deterministic_key(symbol: str, metrics: ReconciledCanonicalMetrics
         f"sales_cagr={metrics.sales_cagr_5y}|"
         f"pat_cagr={metrics.pat_cagr_5y}|"
         f"cfo_pat={metrics.cfo_pat_5y}|"
-        f"debt={metrics.debt_to_equity}"
+        f"debt={metrics.debt_to_equity}|"
+        f"dilution={metrics.share_dilution_3y}"
     )
     return hashlib.sha256(payload.encode()).hexdigest()
 
@@ -96,8 +97,10 @@ class FundamentalPreRecoveryEngine:
         pit_parquet_path: Optional[str] = None,
         scanner_name: str = "QUALITY_VALUE_RECOVERY",
         validated_cache: Optional[Any] = None,
+        as_of_timestamp: Optional[str] = None,
     ):
         self.scanner_name = scanner_name
+        self.as_of_timestamp = as_of_timestamp
         if pit_parquet_path is not None:
             self.pit_parquet_path = pit_parquet_path
         else:
@@ -259,7 +262,7 @@ class FundamentalPreRecoveryEngine:
 
     def recover_symbol(self, symbol: str) -> ReconciledCanonicalMetrics:
         """Invokes the dual-source router to progressively fetch and reconcile."""
-        return self.router.execute_progressive_recovery(symbol)
+        return self.router.execute_progressive_recovery(symbol, as_of_timestamp=self.as_of_timestamp)
 
     def persist_verified_record(
         self,
@@ -294,6 +297,11 @@ class FundamentalPreRecoveryEngine:
             if col in df.columns:
                 if metrics.debt_to_equity is not None:
                     df.loc[idx, col] = metrics.debt_to_equity
+                break
+        for col in ["share_dilution_3y_pct", "share_dilution_3y"]:
+            if col in df.columns:
+                if metrics.share_dilution_3y is not None:
+                    df.loc[idx, col] = metrics.share_dilution_3y
                 break
 
         # [RULE 67 CHANGE-RATIONALE: Progressive recovery of current_ev_ebitda & current_pe from Upstox Key Ratios]
@@ -357,6 +365,7 @@ class FundamentalPreRecoveryEngine:
             "pat_cagr_5y": metrics.pat_cagr_5y,
             "cfo_pat_5y": metrics.cfo_pat_5y,
             "debt": metrics.debt_to_equity,
+            "share_dilution_3y": metrics.share_dilution_3y,
         }
         still_missing = [f for f in missing_fields if field_vals.get(f) is None and f != "current_ev_ebitda"]
         recovered = [f for f in missing_fields if field_vals.get(f) is not None or f == "current_ev_ebitda"]
