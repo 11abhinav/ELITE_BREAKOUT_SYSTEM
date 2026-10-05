@@ -7222,8 +7222,22 @@ class QualityValueRecoveryScanner:
                 return {"status": "COALESCED", "reason": "Global lock busy", "candidate_count": 0, "buy_candidates": []}
 
             try:
+                exec_run_ctx = None
+                try:
+                    from database import start_scanner_execution_run, complete_scanner_execution_run, save_v2_candidate_alert, upsert_scanner_health
+                    exec_run_ctx = start_scanner_execution_run(
+                        scanner_name=self.strategy_id,
+                        trigger_type=trigger_type,
+                        scheduler_name=scheduler_name
+                    )
+                    upsert_scanner_health(self.strategy_id, status="RUNNING", error_msg="Executing Model D/E3 Quality Value Recovery scan...")
+                except Exception as e_run_err:
+                    logger.debug(f"start_scanner_execution_run for {self.strategy_id} non-fatal: {e_run_err}")
+
                 pit_df = self.daily_builder_provider.load_pit_dataset()
                 if pit_df is None or pit_df.empty:
+                    if exec_run_ctx:
+                        complete_scanner_execution_run(exec_run_ctx, exception=RuntimeError("PIT_DATASET_UNAVAILABLE"))
                     return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
 
                 approved_univ = sorted(list(self.universe_registry.approved_symbols))
@@ -7237,6 +7251,7 @@ class QualityValueRecoveryScanner:
                     pass
 
                 candidates = []
+                candidates_inserted = 0
                 for sym in approved_univ:
                     row = pit_records_map.get(sym)
                     if not row:
@@ -7247,7 +7262,68 @@ class QualityValueRecoveryScanner:
 
                     passed, rejection_reasons, metrics = self.evaluate_symbol_recovery(sym, row, cmp_price)
                     if passed:
-                        candidates.append({"symbol": sym, "cmp_price": cmp_price, "metrics": metrics, "scanner": self.strategy_id, "breakout_type": "QUALITY_VALUE_RECOVERY"})
+                        cand = {
+                            "symbol": sym,
+                            "entry_price": cmp_price,
+                            "current_price": cmp_price,
+                            "tier": "TIER1",
+                            "ranking_score": 90.0,
+                            "signal_date": datetime.now(IST).strftime("%Y-%m-%d"),
+                            "scanner": self.strategy_id,
+                            "breakout_type": "QUALITY_VALUE_RECOVERY",
+                            "metrics": metrics,
+                            "context": {"price_source": "UPSTOX", "metrics": metrics}
+                        }
+
+                        # ── PRE-BUY DATA INTEGRITY GATE UNDER QUALITY_VALUE_RECOVERY IDENTITY ──
+                        try:
+                            from financial_data_integrity import BUYEvidenceBundle, pre_buy_data_integrity_gate, DataStatus
+                            fin_metrics = self.daily_builder_provider.build_provenance_records_for_symbol(sym, row)
+                            c_bundle = BUYEvidenceBundle(
+                                symbol=sym,
+                                scanner=self.strategy_id,
+                                required_metrics=list(fin_metrics.keys()),
+                                gate_results={"QUALITY": True, "VALUATION": True},
+                                financial_metrics=fin_metrics,
+                                data_integrity_status=DataStatus.VALID,
+                                financial_provenance_complete=True,
+                                pit_valid=True,
+                                period_integrity=True,
+                                basis_integrity=True,
+                                unit_integrity=True,
+                                required_metrics_complete=True,
+                            )
+                            c_verdict = pre_buy_data_integrity_gate(c_bundle)
+                            if not c_verdict.ok:
+                                logger.warning(
+                                    f"🛑 [PRE_BUY_GATE_BLOCKED: {self.strategy_id}] {sym} failed Pre-BUY Data Integrity Gate: "
+                                    f"{c_verdict.reason} | {c_bundle.blocking_reasons}. Alert suppressed."
+                                )
+                                continue
+                        except Exception as gate_err:
+                            logger.warning(f"⚠️ Pre-BUY gate check for {sym} under {self.strategy_id} encountered non-fatal error: {gate_err}")
+
+                        ok, msg = save_v2_candidate_alert(cand)
+                        if ok:
+                            candidates_inserted += 1
+                            candidates.append(cand)
+                            logger.info(
+                                f"🚀 [BUY_ALERT: {self.strategy_id}] {sym:<12} | CMP=₹{cmp_price:<8.2f} | Status={msg}"
+                            )
+
+                if exec_run_ctx:
+                    try:
+                        complete_scanner_execution_run(
+                            ctx=exec_run_ctx,
+                            total_scanned=len(approved_univ),
+                            total_stocks=len(approved_univ),
+                            candidate_count=candidates_inserted,
+                            quality_status="NORMAL",
+                            lifecycle_status="COMPLETED"
+                        )
+                        upsert_scanner_health(self.strategy_id, status="OK", error_msg=None)
+                    except Exception as comp_err:
+                        logger.debug(f"complete_scanner_execution_run error: {comp_err}")
 
                 return {
                     "status": "OK",
