@@ -1942,6 +1942,63 @@ def init_buy_alerts_journal(db_path: Optional[str] = None) -> str:
     return db_path
 
 
+def is_verified_annual_filing_record(r: dict) -> bool:
+    """
+    Governance Invariant for Annual Filing Classification:
+      1. Verified filing metadata 'period_type' == 'ANNUAL' or 'statement_type' == 'ANNUAL' is authoritative.
+      2. Explicit interim classifications ('QUARTERLY', 'HALF_YEAR', 'Q1', 'Q2', 'Q3', 'Q4', 'H1', 'H2', 'NINE_MONTHS') are instantly rejected.
+      3. Supporting duration/span fallback (e.g. >=300 days) is ONLY accepted if metadata is empty AND:
+         - no interim labels ('QUARTER', 'HALF', '3 MONTH', '6 MONTH', '9 MONTH', 'UNAUDITED') exist in raw details/labels
+         - valid start and end dates span >= 300 days
+         - period_end falls on a recognized month-end fiscal boundary.
+    """
+    p_type = str(r.get("period_type") or r.get("statement_type") or "").upper().strip()
+    
+    # Explicit negative check — instant rejection for any interim filing type
+    if p_type in ("QUARTERLY", "HALF_YEAR", "HALF_YEARLY", "Q1", "Q2", "Q3", "Q4", "H1", "H2", "NINE_MONTHS", "9M", "INTERIM"):
+        return False
+
+    raw_label = str(
+        r.get("Period") or r.get("PeriodEnded") or r.get("FinPeriod") or r.get("raw_fact_details") or ""
+    ).upper()
+    if any(q in raw_label for q in ("QUARTER", "Q1", "Q2", "Q3", "Q4", "HALF", "3 MONTH", "6 MONTH", "9 MONTH", "UNAUDITED", "INTERIM")):
+        return False
+
+    # Primary check: Explicit verified ANNUAL metadata
+    if p_type == "ANNUAL":
+        return True
+
+    # Controlled supporting fallback ONLY if period_type is missing/ambiguous
+    if not p_type:
+        d_days = r.get("duration_days")
+        p_start = r.get("period_start_date") or r.get("from_date")
+        p_end = r.get("period_end_date") or r.get("to_date") or r.get("date")
+        
+        span_days = None
+        if d_days is not None:
+            try:
+                span_days = float(d_days)
+            except (ValueError, TypeError):
+                pass
+
+        if span_days is None and p_start and p_end:
+            try:
+                d1 = date.fromisoformat(str(p_start)[:10])
+                d2 = date.fromisoformat(str(p_end)[:10])
+                span_days = float(abs((d2 - d1).days) + 1)
+            except Exception:
+                pass
+
+        if span_days is not None and span_days >= 300:
+            if p_end:
+                p_end_str = str(p_end)[:10]
+                # Must end on a recognized month-end fiscal boundary (-31, -30, -28, -29)
+                if any(p_end_str.endswith(me) for me in ("-31", "-30", "-28", "-29")):
+                    return True
+
+    return False
+
+
 def check_pre_buy_source_freshness_fence(
     symbol: str,
     canonical_period_end: Optional[str] = None,
@@ -2056,10 +2113,9 @@ def check_pre_buy_source_freshness_fence(
                     raw_list = json.load(rf)
                 if isinstance(raw_list, list):
                     for r in raw_list:
-                        p_type = str(r.get("period_type", "ANNUAL")).upper()
-                        r_period = str(r.get("period_end_date") or "")[:10]
-                        if p_type in ("QUARTERLY", "HALF_YEAR", "HALF_YEARLY", "Q1", "Q2", "Q3", "Q4", "H1", "H2") or not r_period.endswith("-03-31"):
+                        if not is_verified_annual_filing_record(r):
                             continue
+                        r_period = str(r.get("period_end_date") or "")[:10]
                         if r_period and canonical_period_end and r_period > str(canonical_period_end):
                             _mark_update_pending(sym_clean, state_file)
                             return False, f"UNPROCESSED_RAW_FILING: Newly acquired filing {r_period} > canonical {canonical_period_end}"

@@ -801,53 +801,95 @@ class FundamentalSourceRouter:
         Where annual periods overlap, validates Revenue and PAT consistency.
         Supplements missing balance-sheet / cash-flow fields from certified audited filings.
         """
-        def _rec_key(r: RawFinancialRecord) -> Tuple[str, str]:
-            c_val = r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation)
-            return (r.period_end_date, c_val.upper())
+        try:
+            from app.financial_data_integrity import convert_to_inr_crores
+        except ImportError:
+            from financial_data_integrity import convert_to_inr_crores
 
-        live_annual = {_rec_key(r): r for r in live_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
-        local_annual = {_rec_key(r): r for r in local_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"}
+        def _get_c_val(r: RawFinancialRecord) -> str:
+            return (r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation)).upper()
 
-        overlap_keys = set(live_annual.keys()).intersection(local_annual.keys())
+        live_annual = [r for r in live_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"]
+        local_annual = [r for r in local_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"]
+
+        live_periods = {r.period_end_date for r in live_annual if r.period_end_date}
+        local_periods = {r.period_end_date for r in local_annual if r.period_end_date}
+        overlap_periods = sorted(list(live_periods.intersection(local_periods)))
+
         has_conflict = False
+        has_statement_mismatch = False
+        mismatch_reason = ""
 
-        for k in overlap_keys:
-            u_rec = live_annual[k]
-            l_rec = local_annual[k]
-            dt, c_type = k
-            # Check revenue tolerance (prefer Live NSE filings when divergence <= 25%)
-            if u_rec.revenue is not None and l_rec.revenue is not None and abs(l_rec.revenue) > 1.0:
-                diff = abs(u_rec.revenue - l_rec.revenue) / abs(l_rec.revenue)
-                if diff > 0.05:
-                    logger.info(
-                        f"[{symbol}] Revenue divergence for {dt} ({c_type}): Live={u_rec.revenue}, Local={l_rec.revenue} (diff={diff:.1%}) - using Live NSE filing"
-                    )
-                    if diff > 0.25:
-                        has_conflict = True
+        for dt in overlap_periods:
+            live_in_dt = [r for r in live_annual if r.period_end_date == dt]
+            local_in_dt = [r for r in local_annual if r.period_end_date == dt]
 
-            # Check PAT tolerance (prefer Live NSE filings when divergence <= 25%)
-            if u_rec.net_profit is not None and l_rec.net_profit is not None and abs(l_rec.net_profit) > 1.0:
-                diff = abs(u_rec.net_profit - l_rec.net_profit) / abs(l_rec.net_profit)
-                if diff > 0.05:
-                    logger.info(
-                        f"[{symbol}] PAT divergence for {dt} ({c_type}): Live={u_rec.net_profit}, Local={l_rec.net_profit} (diff={diff:.1%}) - using Live NSE filing"
-                    )
-                    if diff > 0.25:
-                        has_conflict = True
+            live_bases = {_get_c_val(r) for r in live_in_dt}
+            local_bases = {_get_c_val(r) for r in local_in_dt}
+
+            shared_bases = live_bases.intersection(local_bases)
+            if not shared_bases:
+                logger.warning(f"⚠️ [{symbol}] STATEMENT_MISMATCH for period {dt}: Live bases={live_bases} vs Local bases={local_bases}")
+                has_statement_mismatch = True
+                mismatch_reason = f"STATEMENT_MISMATCH: Live ({live_bases}) and Local ({local_bases}) share no common consolidation basis for period {dt}"
+                continue
+
+            for b_type in shared_bases:
+                u_rec = next((r for r in live_in_dt if _get_c_val(r) == b_type), None)
+                l_rec = next((r for r in local_in_dt if _get_c_val(r) == b_type), None)
+
+                if not u_rec or not l_rec:
+                    continue
+
+                u_rev = convert_to_inr_crores(u_rec.revenue, u_rec.unit or "CR")
+                l_rev = convert_to_inr_crores(l_rec.revenue, l_rec.unit or "CR")
+                u_pat = convert_to_inr_crores(u_rec.net_profit, u_rec.unit or "CR")
+                l_pat = convert_to_inr_crores(l_rec.net_profit, l_rec.unit or "CR")
+
+                # Check revenue tolerance (prefer Live NSE filings when divergence <= 25%)
+                if u_rev is not None and l_rev is not None and abs(l_rev) > 0.1:
+                    diff = abs(u_rev - l_rev) / abs(l_rev)
+                    if diff > 0.05:
+                        logger.info(
+                            f"[{symbol}] Revenue divergence for {dt} ({b_type}): Live={u_rev}Cr, Local={l_rev}Cr (diff={diff:.1%}) - using Live NSE filing"
+                        )
+                        if diff > 0.25:
+                            has_conflict = True
+
+                # Check PAT tolerance (prefer Live NSE filings when divergence <= 25%)
+                if u_pat is not None and l_pat is not None and abs(l_pat) > 0.1:
+                    diff = abs(u_pat - l_pat) / abs(l_pat)
+                    if diff > 0.05:
+                        logger.info(
+                            f"[{symbol}] PAT divergence for {dt} ({b_type}): Live={u_pat}Cr, Local={l_pat}Cr (diff={diff:.1%}) - using Live NSE filing"
+                        )
+                        if diff > 0.25:
+                            has_conflict = True
 
         if has_conflict:
             logger.warning(f"⚠️ [{symbol}] DATA_CONFLICT (>25% divergence) between Live and Local filings on identical statement basis.")
             metrics = ReconciledCanonicalMetrics(symbol=symbol)
             metrics.overall_status = FundamentalStatus.DATA_CONFLICT
+            metrics.rejection_reason = "DATA_CONFLICT: >25% divergence between Live and Local filings on identical statement basis"
+            return metrics
+
+        if has_statement_mismatch:
+            logger.warning(f"🚨 [{symbol}] {mismatch_reason}")
+            metrics = ReconciledCanonicalMetrics(symbol=symbol)
+            metrics.overall_status = FundamentalStatus.STATEMENT_MISMATCH
+            metrics.rejection_reason = mismatch_reason
             return metrics
 
         # Merge records across periods, with live taking precedence and local supplementing missing metrics
-        all_keys = sorted(set(live_annual.keys()).union(local_annual.keys()), key=lambda x: (x[0], x[1]))
+        live_dict = {(_get_c_val(r), r.period_end_date): r for r in live_annual}
+        local_dict = {(_get_c_val(r), r.period_end_date): r for r in local_annual}
+        all_keys = sorted(set(live_dict.keys()).union(local_dict.keys()), key=lambda x: (x[1], x[0]))
+
         merged_records: List[RawFinancialRecord] = []
         for k in all_keys:
-            u = live_annual.get(k)
-            l = local_annual.get(k)
-            dt, c_type = k
+            u = live_dict.get(k)
+            l = local_dict.get(k)
+            c_type, dt = k
             if u and l:
                 # Merge: prefer live for income, use local to supplement missing balance sheet/cash flow
                 rec = RawFinancialRecord(
