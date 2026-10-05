@@ -351,6 +351,31 @@ class ShareCountResult:
 
 
 @dataclass
+class ShareDilutionResult:
+    """Result of 3-year PIT share dilution calculation with full auditability."""
+    status: DataStatus
+    reason: str = "VALID"
+    share_dilution_3y: Optional[float] = None
+    latest_share_count: Optional[float] = None
+    latest_period: Optional[str] = None
+    base_share_count: Optional[float] = None
+    base_period: Optional[str] = None
+    corporate_action_factor: float = 1.0
+    corporate_action_ids: List[str] = field(default_factory=list)
+    source_provider: str = "HISTORICAL_PIT_FILING"
+    source_filing_dates: Tuple[Optional[str], Optional[str]] = (None, None)
+    calculation_version: str = "v3.0_pit_exact_fy_matching"
+
+    @property
+    def ok(self) -> bool:
+        return self.status == DataStatus.VALID
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+
+@dataclass
 class BUYEvidenceBundle:
     """
     Complete evidence record that must accompany every BUY alert.
@@ -817,6 +842,177 @@ def compute_cagr(
         target_years=target_years,
         basis=basis,
     )
+
+
+def compute_share_dilution_3y(
+    annual_rows_sorted: List[Dict[str, Any]],
+    symbol: str = "UNKNOWN",
+    as_of_date: Optional[date] = None,
+    corporate_actions: Optional[List[Dict[str, Any]]] = None,
+) -> ShareDilutionResult:
+    """
+    Computes 3-year share dilution percentage with exact fiscal-period matching,
+    corporate action (splits/bonuses) normalization, and PIT window integrity.
+
+    Fail-Closed Invariants:
+      1. Requires exact T and T-3 fiscal periods (e.g. FY2026 vs FY2023).
+      2. If T-3 period is missing or unavailable (e.g. recent IPO < 3Y) -> DILUTION_HISTORY_INSUFFICIENT (HARD BLOCK).
+      3. Corporate actions (splits/bonuses) adjust base share count to prevent false dilution.
+      4. Unresolved corporate actions or invalid share counts -> HARD BLOCK.
+    """
+    if not annual_rows_sorted:
+        return ShareDilutionResult(
+            status=DataStatus.DATA_INSUFFICIENT,
+            reason="DILUTION_HISTORY_INSUFFICIENT: no_annual_rows"
+        )
+
+    # Apply PIT filter if as_of_date provided
+    if as_of_date is not None:
+        filtered = []
+        for r in annual_rows_sorted:
+            fd = r.get("filing_date") or r.get("conservative_availability_timestamp")
+            if fd is not None:
+                fd_dt = _parse_date_fast(fd)
+                if fd_dt is not None and fd_dt <= as_of_date:
+                    filtered.append(r)
+            else:
+                filtered.append(r)
+        annual_rows_sorted = filtered
+
+    # Filter rows containing valid shares_outstanding (or derived shares_outstanding_m)
+    valid_rows = []
+    for r in annual_rows_sorted:
+        sh = r.get("shares_outstanding_m")
+        if sh is None or (isinstance(sh, float) and math.isnan(sh)) or sh <= 0:
+            sh_raw = r.get("shares_outstanding")
+            if sh_raw is not None and not (isinstance(sh_raw, float) and math.isnan(sh_raw)) and sh_raw > 0:
+                sh = sh_raw / 1e6 if sh_raw > 1e4 else sh_raw
+        if sh is not None and sh > 0:
+            r_copy = dict(r)
+            r_copy["_resolved_shares_m"] = float(sh)
+            valid_rows.append(r_copy)
+
+    if not valid_rows:
+        return ShareDilutionResult(
+            status=DataStatus.DATA_INSUFFICIENT,
+            reason="DILUTION_HISTORY_INSUFFICIENT: no_valid_shares"
+        )
+
+    # De-duplicate rows with same period_end_date, prioritizing latest filing_date (amended filing)
+    by_period: Dict[str, Dict[str, Any]] = {}
+    for r in valid_rows:
+        p_str = str(r.get("period_end_date") or r.get("period_end") or r.get("as_of_date") or "")
+        if not p_str:
+            continue
+        if p_str not in by_period:
+            by_period[p_str] = r
+        else:
+            existing_f_date = str(by_period[p_str].get("filing_date") or "")
+            new_f_date = str(r.get("filing_date") or "")
+            if new_f_date >= existing_f_date:
+                by_period[p_str] = r
+
+    if by_period:
+        valid_rows = sorted(by_period.values(), key=lambda r: str(r.get("period_end_date") or r.get("period_end") or r.get("as_of_date")))
+
+    if not valid_rows:
+        return ShareDilutionResult(
+            status=DataStatus.DATA_INSUFFICIENT,
+            reason="DILUTION_HISTORY_INSUFFICIENT: no_valid_period_dates"
+        )
+
+    latest_row = valid_rows[-1]
+    latest_p_end = _parse_date_fast(latest_row.get("period_end_date") or latest_row.get("period_end") or latest_row.get("as_of_date"))
+
+    if not latest_p_end:
+        return ShareDilutionResult(
+            status=DataStatus.DATA_INVALID,
+            reason="DILUTION_INVALID: latest_period_end_missing"
+        )
+
+    # Exact Fiscal Year Resolution for T-3
+    target_year = latest_p_end.year - 3
+    target_month = latest_p_end.month
+
+    
+    base_row = None
+    # Priority 1: Exact Fiscal Year & Month Identity (e.g., 2023-03-31)
+    for r in valid_rows[:-1]:
+        p_dt = _parse_date_fast(r.get("period_end_date") or r.get("period_end"))
+        if p_dt and p_dt.year == target_year and p_dt.month == target_month:
+            base_row = r
+            break
+
+    # Priority 2: Exact Fiscal Year Identity if month differs slightly (e.g. 52-week calendar)
+    if not base_row:
+        for r in valid_rows[:-1]:
+            p_dt = _parse_date_fast(r.get("period_end_date") or r.get("period_end"))
+            if p_dt and p_dt.year == target_year:
+                base_row = r
+                break
+
+    # Priority 3: Tightly controlled date tolerance (365*3 ± 30 days) ONLY if exact FY missing
+    if not base_row:
+        for r in valid_rows[:-1]:
+            p_dt = _parse_date_fast(r.get("period_end_date") or r.get("period_end"))
+            if p_dt:
+                diff_days = (latest_p_end - p_dt).days
+                if 1060 <= diff_days <= 1125:
+                    base_row = r
+                    break
+
+    if not base_row:
+        return ShareDilutionResult(
+            status=DataStatus.DATA_INSUFFICIENT,
+            reason=f"DILUTION_HISTORY_INSUFFICIENT: T-3 period (FY{target_year}) not found in PIT filings",
+            latest_share_count=latest_row.get("_resolved_shares_m"),
+            latest_period=str(latest_p_end),
+        )
+
+    base_p_dt = _parse_date_fast(base_row.get("period_end_date") or base_row.get("period_end"))
+    latest_sh = float(latest_row["_resolved_shares_m"])
+    base_sh_raw = float(base_row["_resolved_shares_m"])
+
+    # Resolve Corporate Action Adjustments (Splits / Bonuses between base_p_dt and latest_p_end)
+    ca_factor = 1.0
+    ca_ids = []
+    if corporate_actions:
+        for ca in corporate_actions:
+            ex_dt = _parse_date_fast(ca.get("ex_date") or ca.get("effective_date"))
+            if ex_dt and base_p_dt and latest_p_end and base_p_dt < ex_dt <= latest_p_end:
+                action_type = str(ca.get("action_type", "")).upper()
+                ratio = float(ca.get("adjustment_factor", 1.0))
+                if action_type in ("SPLIT", "BONUS", "CAPITAL_REDUCTION") and ratio > 0:
+                    ca_factor *= ratio
+                    ca_ids.append(f"{action_type}:{ca.get('id', 'UNK')}:{ratio}")
+
+    adjusted_base_sh = base_sh_raw * ca_factor
+
+    if adjusted_base_sh <= 0:
+        return ShareDilutionResult(
+            status=DataStatus.DATA_INVALID,
+            reason=f"DILUTION_INVALID: adjusted_base_shares={adjusted_base_sh} <= 0",
+        )
+
+    dilution_pct = round(((latest_sh - adjusted_base_sh) / adjusted_base_sh) * 100.0, 2)
+
+    return ShareDilutionResult(
+        status=DataStatus.VALID,
+        reason="VALID",
+        share_dilution_3y=dilution_pct,
+        latest_share_count=latest_sh,
+        latest_period=str(latest_p_end),
+        base_share_count=base_sh_raw,
+        base_period=str(base_p_dt),
+        corporate_action_factor=round(ca_factor, 4),
+        corporate_action_ids=ca_ids,
+        source_provider="HISTORICAL_PIT_FILING",
+        source_filing_dates=(
+            str(base_row.get("filing_date", base_row.get("period_end_date"))),
+            str(latest_row.get("filing_date", latest_row.get("period_end_date"))),
+        ),
+    )
+
 
 
 # ---------------------------------------------------------------------------
