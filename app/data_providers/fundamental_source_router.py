@@ -140,6 +140,9 @@ class FundamentalSourceRouter:
                             elif te is not None:
                                 cap_emp = float(te)
 
+                            sh_raw = row.get("shares_outstanding") or row.get("shares_outstanding_m") or row.get("paid_up_capital")
+                            sh_val = float(sh_raw) if sh_raw is not None and not (isinstance(sh_raw, float) and math.isnan(sh_raw)) else None
+
                             rec = RawFinancialRecord(
                                 symbol=symbol,
                                 source="LOCAL_RAW_FILINGS",
@@ -153,6 +156,7 @@ class FundamentalSourceRouter:
                                 total_equity=float(te) if te is not None else None,
                                 ebit=ebit,
                                 capital_employed=cap_emp,
+                                shares_outstanding=sh_val,
                                 eps=float(row.get("eps")) if row.get("eps") is not None else None,
                                 unit=str(row.get("unit", "cr")),
                                 currency="INR",
@@ -209,6 +213,7 @@ class FundamentalSourceRouter:
                     "ebit": r.ebit,
                     "capital_employed": r.capital_employed,
                     "eps": r.eps,
+                    "shares_outstanding": r.shares_outstanding,
                     "unit": r.unit,
                     "currency": r.currency
                 }
