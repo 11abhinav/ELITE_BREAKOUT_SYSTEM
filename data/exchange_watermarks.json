@@ -5,13 +5,46 @@
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
-        "last_successful_check_at": "2026-10-05T12:13:42.288534"
+        "last_successful_check_at": "2026-10-05T15:47:40.557013"
       },
       "MULTI_CORP": {
-        "last_successful_check_at": "2026-10-05T12:13:42.494513"
+        "last_successful_check_at": "2026-10-05T15:47:38.221861"
       },
       "UP_CORP": {
-        "last_successful_check_at": "2026-10-05T12:13:42.509410"
+        "last_successful_check_at": "2026-10-05T15:47:40.338305"
+      },
+      "ADOR": {
+        "last_successful_check_at": "2026-10-05T12:39:29.227247"
+      },
+      "BHARATWIRE": {
+        "last_successful_check_at": "2026-10-05T12:39:31.732946"
+      },
+      "BORORENEW": {
+        "last_successful_check_at": "2026-10-05T12:39:33.861949"
+      },
+      "CUPID": {
+        "last_successful_check_at": "2026-10-05T12:39:35.534393"
+      },
+      "DPABHUSHAN": {
+        "last_successful_check_at": "2026-10-05T12:39:36.783233"
+      },
+      "FOSECOIND": {
+        "last_successful_check_at": "2026-10-05T12:39:37.989757"
+      },
+      "GMBREW": {
+        "last_successful_check_at": "2026-10-05T12:39:38.987742"
+      },
+      "HIRECT": {
+        "last_successful_check_at": "2026-10-05T12:39:39.959469"
+      },
+      "KSL": {
+        "last_successful_check_at": "2026-10-05T12:39:41.388045"
+      },
+      "PRECWIRE": {
+        "last_successful_check_at": "2026-10-05T12:39:42.685931"
+      },
+      "TIMKEN": {
+        "last_successful_check_at": "2026-10-05T12:39:43.864915"
       }
     }
   },
@@ -21,13 +54,46 @@
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
-        "last_successful_check_at": "2026-10-05T12:13:42.294512"
+        "last_successful_check_at": "2026-10-05T15:47:40.567283"
       },
       "MULTI_CORP": {
-        "last_successful_check_at": "2026-10-05T12:13:42.495966"
+        "last_successful_check_at": "2026-10-05T15:47:38.225620"
       },
       "UP_CORP": {
-        "last_successful_check_at": "2026-10-05T12:13:42.510753"
+        "last_successful_check_at": "2026-10-05T15:47:40.342255"
+      },
+      "ADOR": {
+        "last_successful_check_at": "2026-10-05T12:39:29.235912"
+      },
+      "BHARATWIRE": {
+        "last_successful_check_at": "2026-10-05T12:39:31.734763"
+      },
+      "BORORENEW": {
+        "last_successful_check_at": "2026-10-05T12:39:33.863912"
+      },
+      "CUPID": {
+        "last_successful_check_at": "2026-10-05T12:39:35.536162"
+      },
+      "DPABHUSHAN": {
+        "last_successful_check_at": "2026-10-05T12:39:36.786376"
+      },
+      "FOSECOIND": {
+        "last_successful_check_at": "2026-10-05T12:39:37.991809"
+      },
+      "GMBREW": {
+        "last_successful_check_at": "2026-10-05T12:39:38.990178"
+      },
+      "HIRECT": {
+        "last_successful_check_at": "2026-10-05T12:39:39.961871"
+      },
+      "KSL": {
+        "last_successful_check_at": "2026-10-05T12:39:41.391211"
+      },
+      "PRECWIRE": {
+        "last_successful_check_at": "2026-10-05T12:39:42.687617"
+      },
+      "TIMKEN": {
+        "last_successful_check_at": "2026-10-05T12:39:43.866647"
       }
     }
   }

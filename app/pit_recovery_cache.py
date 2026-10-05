@@ -359,6 +359,33 @@ class PitRecoveryStatusStore:
                     return True
         return False
 
+    def get_quarantined_symbols(self, scanner_family: str = "ALL") -> Set[str]:
+        """
+        [RULE 67 CHANGE-RATIONALE: Universe-Level Pre-Filter Quarantine Invariant]
+        Returns set of symbol strings currently under an active 7-day quarantine cooldown.
+        Used at universe loading time to exclude quarantined stocks upfront before fetching candles.
+        """
+        quarantined = set()
+        fam = str(scanner_family or "ALL").strip().upper()
+        now_str = datetime.now(IST).isoformat()
+        with self._lock:
+            for k, entry in list(self._cache.items()):
+                if entry is None:
+                    continue
+                exp = str(entry.get("expires_at", ""))
+                if not exp or exp <= now_str:
+                    del self._cache[k]
+                    continue
+                e_fam = str(entry.get("scanner_family", "FUNDAMENTAL")).strip().upper()
+                if e_fam != "ALL" and fam != "ALL" and e_fam != fam:
+                    continue
+                reason_u = str(entry.get("reason", entry.get("classification", entry.get("status", "")))).upper()
+                if any(q_r in reason_u for q_r in _QUARANTINE_REASONS):
+                    sym = str(entry.get("symbol") or k.split("::")[0]).strip().upper()
+                    if sym:
+                        quarantined.add(sym)
+        return quarantined
+
     def check_and_invalidate_on_new_filing(
         self,
         symbol: str,

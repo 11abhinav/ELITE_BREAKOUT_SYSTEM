@@ -2430,10 +2430,11 @@ def reconcile_alerts_outbox_materialization(
     }
 
 
-def check_existing_open_position(symbol: str, allow_pyramiding: bool = False) -> Tuple[bool, Optional[str]]:
+def check_existing_open_position(symbol: str, scanner: Optional[str] = None, allow_pyramiding: bool = False) -> Tuple[bool, Optional[str]]:
     """
     [P0 GOVERNANCE INVARIANT]: RE-ENTRY / DUPLICATE POSITION GATE.
-    Checks if an active OPEN/ACTIVE position or BUY alert already exists for symbol across ANY scanner in PostgreSQL.
+    Checks if an active OPEN/ACTIVE position or BUY alert already exists for symbol in PostgreSQL.
+    If scanner is specified, checks open positions for THAT specific scanner (Q32 cross-strategy non-blocking).
     Unless explicit pyramiding/add-on policy permits it, blocks duplicate BUY alert creation.
     """
     if allow_pyramiding:
@@ -2446,11 +2447,18 @@ def check_existing_open_position(symbol: str, allow_pyramiding: bool = False) ->
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("""
-                        SELECT id, scanner, alert_date, entry_price FROM alerts
-                        WHERE symbol = %s AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
-                        LIMIT 1
-                    """, (sym,))
+                    if scanner:
+                        cur.execute("""
+                            SELECT id, scanner, alert_date, entry_price FROM alerts
+                            WHERE symbol = %s AND scanner = %s AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                            LIMIT 1
+                        """, (sym, str(scanner).strip()))
+                    else:
+                        cur.execute("""
+                            SELECT id, scanner, alert_date, entry_price FROM alerts
+                            WHERE symbol = %s AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                            LIMIT 1
+                        """, (sym,))
                     row = cur.fetchone()
                     if row:
                         return False, f"EXISTING_POSITION_OPEN: Position already open for {sym} (Alert ID: {row['id']}, Scanner: {row['scanner']}, Date: {row['alert_date']})"
@@ -2484,7 +2492,7 @@ def pre_buy_integrity_gate(
     reasons: List[str] = list(blocking_reasons or [])
 
     # ── PRE-BUY EXISTING OPEN POSITION CHECK (RE-ENTRY GOVERNANCE HOLE FIX) ──
-    pos_ok, pos_reason = check_existing_open_position(symbol=symbol)
+    pos_ok, pos_reason = check_existing_open_position(symbol=symbol, scanner=scanner)
     if not pos_ok and pos_reason:
         reasons.append(pos_reason)
 
@@ -2526,10 +2534,16 @@ def pre_buy_integrity_gate(
             )
 
     if reasons:
-        logger.error(
-            f"[PRE_BUY_GATE] {scanner}/{symbol}: BUY BLOCKED. "
-            f"{len(reasons)} integrity failure(s): {reasons}"
-        )
+        has_only_position_open = all(r.startswith("EXISTING_POSITION_OPEN") for r in reasons)
+        if has_only_position_open:
+            logger.info(
+                f"ℹ️ [PRE_BUY_GATE] {scanner}/{symbol}: BUY SKIPPED. Position already open: {reasons}"
+            )
+        else:
+            logger.error(
+                f"[PRE_BUY_GATE] {scanner}/{symbol}: BUY BLOCKED. "
+                f"{len(reasons)} integrity failure(s): {reasons}"
+            )
         return False, reasons
 
     logger.info(

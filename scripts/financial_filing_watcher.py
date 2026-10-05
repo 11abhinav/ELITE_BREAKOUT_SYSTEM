@@ -43,29 +43,53 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-# Ensure repository root is on sys.path
+# Ensure repository root is position 0 on sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
+APP_DIR = BASE_DIR / "app"
+if str(APP_DIR) in sys.path:
+    sys.path.remove(str(APP_DIR))
+sys.path.append(str(APP_DIR))
 
 import numpy as np
 import pandas as pd
 
-from app.financial_data_integrity import (
-    DataStatus,
-    StatementBasis,
-    check_pit_freshness,
-    detect_annual_fiscal_gaps,
-    compute_cagr_pit,
-    compute_ev_ebitda,
-    derive_and_validate_shares,
-    validate_share_count,
-    reconcile_nse_bse_fact,
-)
-from app.live_fundamental_scanner import (
-    ApprovedUniverseRegistry,
-    _get_pit_filings,
-)
+try:
+    from app.financial_data_integrity import (
+        DataStatus,
+        StatementBasis,
+        check_pit_freshness,
+        detect_annual_fiscal_gaps,
+        compute_cagr_pit,
+        compute_ev_ebitda,
+        derive_and_validate_shares,
+        validate_share_count,
+        reconcile_nse_bse_fact,
+    )
+except ImportError:
+    from financial_data_integrity import (
+        DataStatus,
+        StatementBasis,
+        check_pit_freshness,
+        detect_annual_fiscal_gaps,
+        compute_cagr_pit,
+        compute_ev_ebitda,
+        derive_and_validate_shares,
+        validate_share_count,
+        reconcile_nse_bse_fact,
+    )
+
+try:
+    from app.live_fundamental_scanner import (
+        ApprovedUniverseRegistry,
+        _get_pit_filings,
+    )
+except ImportError:
+    from live_fundamental_scanner import (
+        ApprovedUniverseRegistry,
+        _get_pit_filings,
+    )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("filling scanner")

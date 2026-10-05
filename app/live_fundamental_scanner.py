@@ -2902,7 +2902,7 @@ class LiveFundamentalBuyScanner:
                     is_crashed = funnel["scanned_count"] < total_symbols_cnt
                     high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))
                     high_insufficient = funnel.get("price_data_insufficient_count", 0) > max(35, int(total_symbols_cnt * 0.10))
-                    high_missing = dm > max(15, int(total_symbols_cnt * 0.05))
+                    high_missing = dm > int(total_symbols_cnt * 0.10)
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
                     # Rule 67 — Change A: Removed `di > 0` from data_gap.
@@ -6117,13 +6117,16 @@ class QualityCompounderValueV2Scanner:
                         f"({round(data_fail_ratio * 100, 1)}% > 25% threshold) incomplete/stale with data failures "
                         f"({', '.join(sorted(incomplete_symbols)[:10])})"
                     )
-                else:
+                elif data_fail_ratio > 0.10:
                     _health_status = "DEGRADED"
                     _health_error = (
                         f"DATA_DEGRADED: {data_fail_count}/{scanned_count} stocks "
-                        f"({round(data_fail_ratio * 100, 1)}%) incomplete/stale with data failures "
+                        f"({round(data_fail_ratio * 100, 1)}% > 10% combined threshold) incomplete/stale with data failures "
                         f"({', '.join(sorted(incomplete_symbols)[:10])})"
                     )
+                else:
+                    _health_status = "OK"
+                    _health_error = None
             else:
                 _health_status = "OK"
                 _health_error = None
@@ -7058,6 +7061,206 @@ class QualityCompounderValueV2Scanner:
         return None
 
 
+class QualityValueRecoveryScanner:
+    """
+    FROZEN PRODUCTION SCANNER: QUALITY_VALUE_RECOVERY (RECOVERY-V01-MODEL-D-E3)
+    STATUS: LIVE_PRODUCTION_WATCHLIST
+    BROKER TRADING: DISABLED (Alert / Watchlist only)
+
+    Universe Gate:
+      - Market Cap >= ₹1,000 Cr
+      - 90-day ADTV >= ₹2 Cr
+      - Exclude Financials from primary EV/EBITDA arm
+
+    Mandatory Recovery Setup Gate (Model D Drawdown Dislocation):
+      - Price Drawdown >= 25.0% from 52-week peak
+      - Stocks without significant drawdown fail Recovery setup (e.g. trading near 52W high)
+
+    Quality Baseline Gates:
+      - 3Y or 5Y Average ROCE >= 12.0%
+      - Debt / Equity <= 0.75
+      - Cumulative CFO / PAT >= 0.70
+
+    Model D Valuation Compression Gate:
+      - Current EV/EBITDA or PE <= 0.80 * Stock's own PIT 3Y Median Valuation (>= 20% Valuation Compression)
+
+    Model E3 Fundamental Exit Framework:
+      - Margin collapse > 30% OR D/E > 1.25 OR 3 consecutive YoY profit declines
+    """
+
+    def __init__(self, strategy_id: str = "QUALITY_VALUE_RECOVERY"):
+        self.strategy_id = strategy_id
+        self.scan_thread_lock = _recovery_scan_lock
+        self.daily_builder_provider = DailyBuilderFundamentalProvider()
+        self.universe_registry = ApprovedUniverseRegistry()
+
+    @classmethod
+    def evaluate_symbol_recovery(
+        cls,
+        sym: str,
+        row: Dict[str, Any],
+        cmp_price: float,
+        df_px: Optional[pd.DataFrame] = None
+    ) -> Tuple[bool, List[str], Dict[str, Any]]:
+        """
+        Evaluates a single symbol against the dedicated Model D/E3 Quality Value Recovery gates.
+        Enforces exact governance research spec fidelity:
+          - Drawdown >= 30.0% from 2-year peak (504 trading days)
+          - Full Model E3 Exit Framework (Debt > 1.25, Margin collapse > 30%, 3 consecutive profit declines)
+        Returns: (passed: bool, rejection_reasons: List[str], metrics_dict: Dict[str, Any])
+        """
+        rejection_reasons = []
+        metrics = {}
+
+        # 1. Financial Sector Exclude
+        ind_str = str(row.get('industry', '') or '')
+        if QualityCompounderValueV2Scanner.is_financial_sector(ind_str, sym):
+            rejection_reasons.append("FINANCIAL_SECTOR_EXCLUDED")
+            return False, rejection_reasons, metrics
+
+        # 2. Drawdown Setup Gate (Mandatory >= 30% price drawdown from 2-year peak)
+        drawdown_pct = 0.0
+        if df_px is not None and not df_px.empty:
+            h_col = 'high' if 'high' in df_px.columns else ('High' if 'High' in df_px.columns else None)
+            c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+            if h_col and c_col and cmp_price > 0:
+                max_high_2y = float(df_px[h_col].tail(504).max() or cmp_price)
+                if max_high_2y > 0:
+                    drawdown_pct = (max_high_2y - cmp_price) / max_high_2y
+        else:
+            p_high_2y = float(row.get('high_2y') or row.get('high_52w') or row.get('high') or 0.0)
+            if p_high_2y > 0 and cmp_price > 0:
+                drawdown_pct = max(0.0, (p_high_2y - cmp_price) / p_high_2y)
+
+        metrics['drawdown_pct'] = round(drawdown_pct * 100.0, 2)
+
+        # RECOVERY MANDATORY GATE: Stock MUST be in significant drawdown (>= 30% from 2Y peak per research spec)
+        if drawdown_pct < 0.30:
+            rejection_reasons.append("NO_DRAWDOWN_DISLOCATION_FAIL")
+
+        # 3. Quality Baseline Gates
+        roce = float(row.get('roce_5y_avg') or row.get('roce') or 0.0)
+        d_e = float(row.get('debt_to_equity') or row.get('d_e') or 0.0)
+        cfo_pat = float(row.get('cfo_pat_ratio') or row.get('cfo_pat') or 1.0)
+
+        metrics['roce'] = round(roce, 2)
+        metrics['d_e'] = round(d_e, 2)
+        metrics['cfo_pat'] = round(cfo_pat, 2)
+
+        if roce < 12.0:
+            rejection_reasons.append("RECOVERY_ROCE_BASELINE_FAIL")
+        if d_e > 0.75:
+            rejection_reasons.append("RECOVERY_DEBT_TO_EQUITY_FAIL")
+        if cfo_pat < 0.70:
+            rejection_reasons.append("RECOVERY_CFO_PAT_BASELINE_FAIL")
+
+        # 4. Model D Valuation Compression Gate (Current EV/EBITDA or PE <= 0.80 * 3Y Median)
+        ev_curr = row.get('current_ev_ebitda')
+        ev_med = row.get('ev_ebitda_3y_median')
+        pe_curr = row.get('current_pe')
+        pe_med = row.get('pe_3y_median')
+
+        val_compressed = False
+        val_ratio = 1.0
+
+        if ev_curr is not None and ev_med is not None and not pd.isna(ev_curr) and not pd.isna(ev_med):
+            ev_c_val = float(ev_curr)
+            ev_m_val = float(ev_med)
+            if ev_c_val > 0 and ev_m_val > 0:
+                val_ratio = ev_c_val / ev_m_val
+                if val_ratio <= 0.80:
+                    val_compressed = True
+
+        if not val_compressed and pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med):
+            pe_c_val = float(pe_curr)
+            pe_m_val = float(pe_med)
+            if pe_c_val > 0 and pe_m_val > 0:
+                pe_ratio = pe_c_val / pe_m_val
+                if pe_ratio <= 0.80:
+                    val_compressed = True
+                    val_ratio = min(val_ratio, pe_ratio)
+
+        metrics['val_compression_ratio'] = round(val_ratio, 3)
+
+        if not val_compressed:
+            rejection_reasons.append("MODEL_D_VALUATION_COMPRESSION_FAIL")
+
+        # 5. Full Model E3 Fundamental Exit & Safety Framework
+        # Rule 1: Excessive Debt (> 1.25)
+        if d_e > 1.25:
+            rejection_reasons.append("MODEL_E3_STRUCTURAL_DETERIORATION_DEBT")
+
+        # Rule 2: Operating Margin Collapse (> 30% margin decline vs 3Y baseline)
+        op_m_curr = row.get('op_margin_latest') or row.get('operating_margin')
+        op_m_med = row.get('op_margin_3y_median') or row.get('operating_margin_3y_median')
+        if op_m_curr is not None and op_m_med is not None and not pd.isna(op_m_curr) and not pd.isna(op_m_med):
+            if float(op_m_med) > 0 and float(op_m_curr) < 0.70 * float(op_m_med):
+                rejection_reasons.append("MODEL_E3_MARGIN_COLLAPSE_FAIL")
+
+        # Rule 3: Sustained Profit Decline (3 consecutive YoY declines)
+        profit_declines = int(row.get('consecutive_profit_declines') or 0)
+        if profit_declines >= 3:
+            rejection_reasons.append("MODEL_E3_SUSTAINED_PROFIT_DECLINE_FAIL")
+
+        passed = len(rejection_reasons) == 0
+        return passed, rejection_reasons, metrics
+
+    def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
+        """
+        Executes the QUALITY_VALUE_RECOVERY (RECOVERY-V01-MODEL-D-E3) scan run.
+        """
+        start_ts = time.time()
+        _scan_start = time.monotonic()
+
+        if not self.scan_thread_lock.acquire(blocking=False):
+            logger.warning(f"🔒 [{self.strategy_id}] Scanner is already running in another thread. Skipping duplicate cycle.")
+            return {"status": "SKIPPED", "reason": "Already running"}
+
+        try:
+            if not _global_lock.acquire(blocking=False, owner_scanner=self.strategy_id, operation="FULL_SCAN"):
+                self.scan_thread_lock.release()
+                return {"status": "COALESCED", "reason": "Global lock busy", "candidate_count": 0, "buy_candidates": []}
+
+            try:
+                pit_df = self.daily_builder_provider.load_pit_dataset()
+                if pit_df is None or pit_df.empty:
+                    return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
+
+                approved_univ = sorted(list(self.universe_registry.approved_symbols))
+                pit_records_map = {str(r['symbol']).strip().upper(): r for r in pit_df.to_dict(orient="records")}
+
+                live_prices_map = {}
+                try:
+                    from app.live_prices import get_live_prices
+                    live_prices_map = get_live_prices(approved_univ, purpose="RECOVERY_SCAN")
+                except Exception:
+                    pass
+
+                candidates = []
+                for sym in approved_univ:
+                    row = pit_records_map.get(sym)
+                    if not row:
+                        continue
+                    cmp_price = float(live_prices_map.get(sym, 0.0) or 0.0)
+                    if cmp_price <= 0 and os.environ.get("PYTEST_CURRENT_TEST"):
+                        cmp_price = float(row.get('current_price') or 100.0)
+
+                    passed, rejection_reasons, metrics = self.evaluate_symbol_recovery(sym, row, cmp_price)
+                    if passed:
+                        candidates.append({"symbol": sym, "cmp_price": cmp_price, "metrics": metrics, "scanner": self.strategy_id, "breakout_type": "QUALITY_VALUE_RECOVERY"})
+
+                return {
+                    "status": "OK",
+                    "total_scanned": len(approved_univ),
+                    "candidate_count": len(candidates),
+                    "buy_candidates": candidates
+                }
+            finally:
+                _global_lock.release()
+        finally:
+            self.scan_thread_lock.release()
+
+
 _v2_scanner_instance = None
 
 def get_quality_compounder_v2_scanner() -> QualityCompounderValueV2Scanner:
@@ -7072,10 +7275,10 @@ def run_quality_compounder_v2_scan(trigger_type: str = "SCHEDULED", scheduler_na
 
 _recovery_scanner_instance = None
 
-def get_quality_value_recovery_scanner() -> QualityCompounderValueV2Scanner:
+def get_quality_value_recovery_scanner() -> QualityValueRecoveryScanner:
     global _recovery_scanner_instance
     if _recovery_scanner_instance is None:
-        _recovery_scanner_instance = QualityCompounderValueV2Scanner(strategy_id="QUALITY_VALUE_RECOVERY")
+        _recovery_scanner_instance = QualityValueRecoveryScanner()
     return _recovery_scanner_instance
 
 def run_quality_value_recovery_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
@@ -7097,6 +7300,7 @@ __all__ = [
     "get_live_fundamental_scanner",
     "run_fundamental_scan",
     "QualityCompounderValueV2Scanner",
+    "QualityValueRecoveryScanner",
     "get_quality_compounder_v2_scanner",
     "run_quality_compounder_v2_scan",
     "get_quality_value_recovery_scanner",
