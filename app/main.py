@@ -1606,6 +1606,7 @@ def run_system_scheduler():
                     logger.info("🕒 SCHEDULER | [15:15 IST] Triggering 3:15 PM Pre-Close Exit Guard Pulse for Wealth Engine")
                     _threading.Thread(
                         target=_trigger_wealth_exit,
+                        kwargs={"check_type": "PRE_CLOSE"},
                         name=f"WealthExit-1515-{now.strftime('%Y%m%d')}",
                         daemon=True
                     ).start()
