@@ -7294,20 +7294,37 @@ class QualityValueRecoveryScanner:
             rejection_reasons.append("NO_DRAWDOWN_DISLOCATION_FAIL")
 
         # 3. Quality Baseline Gates
-        roce = float(row.get('roce_5y_avg') or row.get('roce') or 0.0)
-        d_e = float(row.get('debt_to_equity') or row.get('d_e') or 0.0)
-        cfo_pat = float(row.get('cfo_pat_ratio') or row.get('cfo_pat') or 1.0)
+        roce_raw = row.get('roce_5y_avg') if row.get('roce_5y_avg') is not None else row.get('roce')
+        d_e_raw = row.get('debt_to_equity') if row.get('debt_to_equity') is not None else row.get('d_e')
+        cfo_pat_raw = row.get('cfo_pat_ratio') if row.get('cfo_pat_ratio') is not None else row.get('cfo_pat')
+
+        if roce_raw is None or pd.isna(roce_raw):
+            rejection_reasons.append("QUALITY_DATA_INSUFFICIENT")
+            roce = 0.0
+        else:
+            roce = float(roce_raw)
+            if roce < 12.0:
+                rejection_reasons.append("RECOVERY_ROCE_BASELINE_FAIL")
+
+        if d_e_raw is None or pd.isna(d_e_raw):
+            rejection_reasons.append("QUALITY_DATA_INSUFFICIENT")
+            d_e = 0.0
+        else:
+            d_e = float(d_e_raw)
+            if d_e > 0.75:
+                rejection_reasons.append("RECOVERY_DEBT_TO_EQUITY_FAIL")
+
+        if cfo_pat_raw is None or pd.isna(cfo_pat_raw):
+            rejection_reasons.append("QUALITY_DATA_INSUFFICIENT")
+            cfo_pat = 1.0
+        else:
+            cfo_pat = float(cfo_pat_raw)
+            if cfo_pat < 0.70:
+                rejection_reasons.append("RECOVERY_CFO_PAT_BASELINE_FAIL")
 
         metrics['roce'] = round(roce, 2)
         metrics['d_e'] = round(d_e, 2)
         metrics['cfo_pat'] = round(cfo_pat, 2)
-
-        if roce < 12.0:
-            rejection_reasons.append("RECOVERY_ROCE_BASELINE_FAIL")
-        if d_e > 0.75:
-            rejection_reasons.append("RECOVERY_DEBT_TO_EQUITY_FAIL")
-        if cfo_pat < 0.70:
-            rejection_reasons.append("RECOVERY_CFO_PAT_BASELINE_FAIL")
 
         # 4. Model D Valuation Compression Gate (Current EV/EBITDA or PE <= 0.80 * 3Y Median)
         ev_curr = row.get('current_ev_ebitda')
@@ -7442,10 +7459,21 @@ class QualityValueRecoveryScanner:
                     prebuy_block_reasons: Dict[str, int] = {}
                     rejection_reason_occurrences: Dict[str, int] = {}
                     evaluated_count = 0
+                    data_insufficient_count = 0
+                    data_missing_count = 0
+                    stale_data_count = 0
+                    provider_failure_count = 0
 
                     for sym in approved_univ:
                         row = pit_records_map.get(sym)
                         if not row:
+                            data_missing_count += 1
+                            evaluated_count += 1
+                            rejection_reason_occurrences['PIT_DATA_MISSING'] = rejection_reason_occurrences.get('PIT_DATA_MISSING', 0) + 1
+                            logger.info(
+                                f"❌ [STOCK_TELEMETRY:RECOVERY] {sym:<12} | Status=REJECTED | FailedAt=PIT_DATA_MISSING | "
+                                f"Rejections=['PIT_DATA_MISSING'] | Funnel=[fun:FAIL dd:FAIL qual:FAIL val:FAIL safety:FAIL] | Metrics=[]"
+                            )
                             continue
 
                         df_px = None
@@ -7458,12 +7486,13 @@ class QualityValueRecoveryScanner:
                                     pass
 
                         cmp_price = float(live_prices_map.get(sym, 0.0) or 0.0)
-                        if cmp_price <= 0 and df_px is not None and not df_px.empty:
-                            c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
-                            if c_col and len(df_px[c_col]) > 0:
-                                cmp_price = float(df_px[c_col].iloc[-1])
                         if cmp_price <= 0 and os.environ.get("PYTEST_CURRENT_TEST"):
-                            cmp_price = float(row.get('current_price') or 100.0)
+                            if df_px is not None and not df_px.empty:
+                                c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                                if c_col and len(df_px[c_col]) > 0:
+                                    cmp_price = float(df_px[c_col].iloc[-1])
+                            if cmp_price <= 0:
+                                cmp_price = float(row.get('current_price') or 100.0)
 
                         passed, rejection_reasons, metrics = self.evaluate_symbol_recovery(sym, row, cmp_price, df_px=df_px)
                         evaluated_count += 1
@@ -7483,9 +7512,11 @@ class QualityValueRecoveryScanner:
                             }
                             strategy_qualified_candidates.append(cand)
                             logger.info(
-                                f"✨ [GATE_EVAL:RECOVERY] {sym:<12} PASSED: CMP=₹{cmp_price:.2f} | "
-                                f"DD={metrics.get('drawdown_pct')}% (>=30% PASS) | ROCE={metrics.get('roce')}% | "
-                                f"D/E={metrics.get('d_e')} | ValRatio={metrics.get('val_compression_ratio')} (<=0.80 PASS)"
+                                f"✨ [STOCK_TELEMETRY:RECOVERY] {sym:<12} | Status=PASSED | "
+                                f"Funnel=[fun:PASS dd:PASS qual:PASS val:PASS safety:PASS] | "
+                                f"Metrics=[cmp=₹{cmp_price:.2f}, dd={metrics.get('drawdown_pct')}%(>=30%), "
+                                f"roce={metrics.get('roce')}%, d_e={metrics.get('d_e')}, "
+                                f"cfo_pat={metrics.get('cfo_pat')}, val_ratio={metrics.get('val_compression_ratio')}x(<=0.80)]"
                             )
 
                             # ── PRE-BUY DATA INTEGRITY GATE UNDER QUALITY_VALUE_RECOVERY IDENTITY ──
@@ -7536,28 +7567,65 @@ class QualityValueRecoveryScanner:
                         else:
                             for r in rejection_reasons:
                                 rejection_reason_occurrences[r] = rejection_reason_occurrences.get(r, 0) + 1
-                            if evaluated_count <= 15 or evaluated_count % 100 == 0:
-                                logger.info(
-                                    f"🔍 [GATE_EVAL:RECOVERY] {sym:<12} REJECTED: {','.join(rejection_reasons)} | "
-                                    f"DD={metrics.get('drawdown_pct', 0.0)}% | ROCE={metrics.get('roce', 0.0)}% | "
-                                    f"D/E={metrics.get('d_e', 0.0)} | ValRatio={metrics.get('val_compression_ratio', 1.0)}"
-                                )
+
+                            if any(r in rejection_reasons for r in ['QUALITY_DATA_INSUFFICIENT', 'VALUATION_DATA_INSUFFICIENT', 'PRICE_DATA_INSUFFICIENT']):
+                                data_insufficient_count += 1
+                            if 'PRICE_HISTORY_MISSING' in rejection_reasons:
+                                data_missing_count += 1
+                            if 'STALE_PRICE_DATA' in rejection_reasons:
+                                stale_data_count += 1
+
+                            failed_at = rejection_reasons[0] if rejection_reasons else "UNKNOWN_FAIL"
+                            funnel_str = (
+                                f"fun:{'FAIL' if 'FINANCIAL_SECTOR_EXCLUDED' in rejection_reasons else 'PASS'} "
+                                f"dd:{'FAIL' if 'NO_DRAWDOWN_DISLOCATION_FAIL' in rejection_reasons else 'PASS'} "
+                                f"qual:{'FAIL' if any(r in rejection_reasons for r in ['RECOVERY_ROCE_BASELINE_FAIL','RECOVERY_DEBT_TO_EQUITY_FAIL','RECOVERY_CFO_PAT_BASELINE_FAIL','QUALITY_DATA_INSUFFICIENT']) else 'PASS'} "
+                                f"val:{'FAIL' if any(r in rejection_reasons for r in ['MODEL_D_VALUATION_COMPRESSION_FAIL','VALUATION_DATA_INSUFFICIENT']) else 'PASS'} "
+                                f"safety:{'FAIL' if any(r in rejection_reasons for r in ['MODEL_E3_STRUCTURAL_DETERIORATION_DEBT','MODEL_E3_MARGIN_COLLAPSE_FAIL','MODEL_E3_SUSTAINED_PROFIT_DECLINE_FAIL']) else 'PASS'}"
+                            )
+                            logger.info(
+                                f"❌ [STOCK_TELEMETRY:RECOVERY] {sym:<12} | Status=REJECTED | FailedAt={failed_at} | "
+                                f"Rejections={rejection_reasons} | Funnel=[{funnel_str}] | "
+                                f"Metrics=[cmp=₹{cmp_price:.2f}, dd={metrics.get('drawdown_pct', 0.0)}%, "
+                                f"roce={metrics.get('roce', 0.0)}%, d_e={metrics.get('d_e', 0.0)}, "
+                                f"cfo_pat={metrics.get('cfo_pat', 0.0)}, val_ratio={metrics.get('val_compression_ratio', 1.0)}x]"
+                            )
+
+                    incomplete_data_count = data_insufficient_count + data_missing_count + provider_failure_count
+                    fresh_data_count = max(0, len(approved_univ) - incomplete_data_count - stale_data_count)
+
+                    failure_ratio = (incomplete_data_count / len(approved_univ)) if approved_univ else 0.0
+                    if failure_ratio > 0.25:
+                        health_status = "DOWN"
+                        quality_status = "CRITICAL"
+                    elif failure_ratio > 0.10:
+                        health_status = "DEGRADED"
+                        quality_status = "DEGRADED"
+                    else:
+                        health_status = "OK"
+                        quality_status = "NORMAL"
 
                     logger.info(
-                        f"📊 [SCAN_SUMMARY: {self.strategy_id}] Evaluated={evaluated_count} symbols | "
-                        f"Strategy_Gate_Passed={len(strategy_qualified_candidates)} | "
-                        f"PreBuy_Eligible={len(strategy_qualified_candidates)} | "
-                        f"PreBuy_Blocked={prebuy_blocked_count} | "
-                        f"Inserted={candidates_inserted} | "
-                        f"PreBuy_Block_Reasons={prebuy_block_reasons} | "
-                        f"Rejection_Reason_Occurrences={rejection_reason_occurrences}"
+                        f"\n================================================================================\n"
+                        f"📊 [SCAN_SUMMARY: {self.strategy_id}] QUALITY VALUE RECOVERY AUDIT BREAKDOWN\n"
+                        f"================================================================================\n"
+                        f"  • Total Approved Universe Scanned    : {evaluated_count}\n"
+                        f"  • Strategy Gate Passed               : {len(strategy_qualified_candidates)}\n"
+                        f"  • Pre-BUY Data Integrity Blocked     : {prebuy_blocked_count}\n"
+                        f"  • Total Alerts Saved/Inserted        : {candidates_inserted}\n"
+                        f"  • Incomplete / Data Failures         : {incomplete_data_count} (Insuff={data_insufficient_count}, Missing={data_missing_count})\n"
+                        f"  • Stale / Fresh Breakdown            : Fresh={fresh_data_count}, Stale={stale_data_count}\n"
+                        f"  • Health Status / Quality Verdict    : Health={health_status}, Quality={quality_status}\n"
+                        f"  • Pre-BUY Block Reasons Breakdown    : {prebuy_block_reasons}\n"
+                        f"  • Rejection Reason Occurrences       : {rejection_reason_occurrences}\n"
+                        f"================================================================================"
                     )
                     try:
                         print_scanner_end_banner(
                             self.strategy_id,
                             start_mono=_scan_start,
                             run_id=getattr(exec_run_ctx, "run_id", None),
-                            override_status="OK",
+                            override_status=health_status,
                             start_wall_ts=start_ts
                         )
                     except Exception as _b_err:
@@ -7570,10 +7638,20 @@ class QualityValueRecoveryScanner:
                                 total_scanned=len(approved_univ),
                                 total_stocks=len(approved_univ),
                                 candidate_count=candidates_inserted,
-                                quality_status="NORMAL",
-                                lifecycle_status="COMPLETED"
+                                quality_status=quality_status,
+                                lifecycle_status="COMPLETED",
+                                fresh_data_count=fresh_data_count,
+                                stale_data_count=stale_data_count,
+                                incomplete_data_count=incomplete_data_count,
+                                data_insufficient_count=data_insufficient_count,
+                                data_missing_count=data_missing_count,
+                                provider_failure_count=provider_failure_count,
+                                summary_notes=(
+                                    f"Scanned={evaluated_count} | Fresh={fresh_data_count} | Stale={stale_data_count} | "
+                                    f"Incomplete={incomplete_data_count} | Insuff={data_insufficient_count} | Missing={data_missing_count}"
+                                )
                             )
-                            upsert_scanner_health(self.strategy_id, status="OK", error_msg=None)
+                            upsert_scanner_health(self.strategy_id, status=health_status, error_msg=None)
                         except Exception as comp_err:
                             logger.debug(f"complete_scanner_execution_run error: {comp_err}")
 

@@ -309,6 +309,19 @@ CERTIFIED_FOR_PRODUCTION
 
 ---
 
+## MANDATORY ALERT CMP & MARKET-CLOSE PRICE INVARIANT
+1. **ALERT CMP MUST BE THE ACTUAL LIVE OR LATEST OFFICIAL MARKET CLOSE PRICE**:
+   - Whenever any scanner (Technical, Quality Compounder, Quality Value Recovery, Fundamental, Performance Tracker, Wealth Engine) evaluates a strategy or generates a BUY alert:
+     - **During Live Trading Hours**: The `current_price` / `entry_price` MUST strictly be the live market price quote (LTP / CMP) fetched directly from Upstox API.
+     - **During Non-Trading / Closed Market Hours**: The `current_price` / `entry_price` MUST strictly be the latest official exchange closing price from the most recent completed market session (e.g., yesterday's close or Friday's close if scanning on a weekend/holiday).
+2. **STRICT PROHIBITION OF STALE HISTORICAL CANDLE FALLBACKS**:
+   - Scanners are **STRICTLY FORBIDDEN** from falling back to multi-day-old historical parquet candles (e.g. a 10-day-old close bar) or arbitrary default numbers when live price fetching fails.
+   - If a live CMP quote cannot be fetched AND a valid last-session closing price is unavailable, the symbol MUST be marked `PRICE_DATA_INSUFFICIENT` / `LIVE_PRICE_UNAVAILABLE` and **HARD BLOCKED**.
+3. **UNIFIED RESOLVER**:
+   - All scanners MUST route price resolution through standardized CMP helpers (`get_live_prices` with fallback to verified latest market session close), ensuring 100% price consistency across all scanners, alerts, database journals, and dashboard UI displays.
+
+---
+
 ## MANDATORY PRE-PUSH CODE INTEGRITY RULES
 1. **FULL IMPORT & VARIABLE SCOPE VALIDATION (ZERO UNBOUND / SHADOW VARIABLES)**:
    - All newly added functions, modified methods, and variables MUST have their imports and symbols fully declared at the proper scope level.

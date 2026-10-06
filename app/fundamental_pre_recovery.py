@@ -243,6 +243,39 @@ class FundamentalPreRecoveryEngine:
                 for sym in eval_df[missing_mask]["symbol"].unique():
                     field_map.setdefault(str(sym), []).append(field_name)
 
+        # Check PIT filing staleness (> 2.0Y old) or missing latest_annual_period
+        period_col = None
+        for col_candidate in ["latest_annual_period", "period_end_date", "financial_period_end", "period_end"]:
+            if col_candidate in eval_df.columns:
+                period_col = col_candidate
+                break
+
+        if period_col is not None:
+            try:
+                from datetime import datetime
+                import pytz
+                IST = pytz.timezone("Asia/Kolkata")
+                now_date = datetime.now(IST).date()
+
+                for _, r in eval_df.iterrows():
+                    sym = str(r.get("symbol", "") or "").strip()
+                    if not sym:
+                        continue
+                    p_val = r.get(period_col)
+                    if pd.isna(p_val) or not p_val:
+                        field_map.setdefault(sym, []).append("latest_annual_period")
+                    else:
+                        try:
+                            p_str = str(p_val)[:10]
+                            dt = datetime.strptime(p_str, "%Y-%m-%d").date()
+                            staleness_years = (now_date - dt).days / 365.25
+                            if staleness_years > 2.0:
+                                field_map.setdefault(sym, []).append("pit_staleness")
+                        except Exception:
+                            pass
+            except Exception as st_err:
+                logger.debug(f"[PRE_RECOVERY] Staleness check notice: {st_err}")
+
         return list(field_map.keys()), field_map
 
     def build_recovery_queue(
