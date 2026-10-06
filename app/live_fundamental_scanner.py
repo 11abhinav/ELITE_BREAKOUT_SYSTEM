@@ -783,6 +783,28 @@ class DailyBuilderFundamentalProvider:
     MASTER_TABLE = "daily_builder_master_v2"
 
     @classmethod
+    def load_pit_dataset(cls, parquet_path: Optional[str] = None) -> Optional[pd.DataFrame]:
+        """Loads master records as a pandas DataFrame."""
+        path = parquet_path or os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+        if not os.path.exists(path) and os.path.exists(cls.MASTER_PARQUET):
+            path = cls.MASTER_PARQUET
+        if not os.path.exists(path):
+            try:
+                from database import download_parquet_from_db_today, download_parquet_from_db
+                download_parquet_from_db_today("daily_builder_master_v2", path) or download_parquet_from_db("daily_builder_master_v2", path)
+            except Exception:
+                pass
+        if os.path.exists(path):
+            try:
+                return pd.read_parquet(path)
+            except Exception:
+                pass
+        funds_map, _ = cls.load_master_fundamentals(parquet_path=parquet_path)
+        if funds_map:
+            return pd.DataFrame.from_dict(funds_map, orient="index")
+        return None
+
+    @classmethod
     def load_master_fundamentals(
         cls,
         parquet_path: Optional[str] = None,
