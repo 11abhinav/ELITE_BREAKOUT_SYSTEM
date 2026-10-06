@@ -1356,7 +1356,7 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
         logger.info("ℹ️ [V2_EXIT_MONITOR] Zero active QUALITY_COMPOUNDER alerts found.")
         if run_ctx:
             try:
-                complete_scanner_execution_run(run_ctx, status_override="OK", processed_count=0, total_count=0, stop_reason="Zero active alerts")
+                complete_scanner_execution_run(run_ctx, status_override="COMPLETED", processed_count=0, total_count=0, stop_reason="Zero active alerts")
                 upsert_scanner_health(scanner_name="WEALTH_EXIT_V2", status="OK", last_success=now_ist.isoformat(), processed_count=0, total_count=0)
             except Exception: pass
         return {"status": "SUCCESS", "active_count": 0, "processed": 0}
@@ -1517,7 +1517,7 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
             from database import complete_scanner_execution_run, upsert_scanner_health
             complete_scanner_execution_run(
                 run_ctx,
-                status_override="OK",
+                status_override="COMPLETED",
                 processed_count=processed_count,
                 total_count=processed_count,
                 stop_reason=f"Pulse {check_type} complete (warnings={warnings_count}, exits={exits_count})"
