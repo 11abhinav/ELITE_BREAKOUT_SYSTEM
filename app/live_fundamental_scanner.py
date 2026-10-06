@@ -2927,9 +2927,14 @@ class LiveFundamentalBuyScanner:
             if ctx and complete_scanner_execution_run is not None:
                 try:
                     ctx.set_alerts(funnel.get("buy_alerts_count", 0))
-                    ctx.fresh_count = len(target_symbols) - funnel.get("data_missing_count", 0) - funnel.get("price_data_insufficient_count", 0)
+                    total_data_failures = (
+                        funnel.get("data_insufficient_count", 0) +
+                        funnel.get("data_missing_count", 0) +
+                        funnel.get("provider_failure_count", 0)
+                    )
+                    ctx.incomplete_count = total_data_failures
                     ctx.stale_count = 0
-                    ctx.incomplete_count = funnel.get("data_missing_count", 0) + funnel.get("price_data_insufficient_count", 0)
+                    ctx.fresh_count = max(0, len(target_symbols) - total_data_failures)
                     ctx.data_insufficient_count = funnel.get("data_insufficient_count", 0)
                     ctx.data_missing_count = funnel.get("data_missing_count", 0)
                     ctx.provider_failure_count = funnel.get("provider_failure_count", 0)
@@ -2969,36 +2974,15 @@ class LiveFundamentalBuyScanner:
 
             if upsert_scanner_health is not None:
                 try:
-                    di = funnel["data_insufficient_count"]
-                    dm = funnel["data_missing_count"]
-                    pf = funnel["provider_failure_count"]
+                    di = funnel.get("data_insufficient_count", 0)
+                    dm = funnel.get("data_missing_count", 0)
+                    pf = funnel.get("provider_failure_count", 0)
                     total_symbols_cnt = len(target_symbols)
 
-                    # Scanner is degraded only if there is an actual system/broker outage:
-                    # 1. Scanned fewer symbols than approved universe (crashed early)
-                    # 2. Broker provider failures exceed 5% of universe
-                    # 3. Technical lookback insufficiency exceeds 10% of universe (>35 symbols, indicating bundle/cache loss)
-                    # 4. Upstream fundamental master records missing from provider exceeds 5% of universe (>44 symbols)
-                    # 5. Context lifecycle failed
+                    total_data_issues = di + dm + pf
                     is_crashed = funnel["scanned_count"] < total_symbols_cnt
-                    high_provider_failure = pf > max(5, int(total_symbols_cnt * 0.05))
-                    high_insufficient = funnel.get("price_data_insufficient_count", 0) > max(35, int(total_symbols_cnt * 0.10))
-                    high_missing = dm > int(total_symbols_cnt * 0.10)
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
-                    # Rule 67 — Change A: Removed `di > 0` from data_gap.
-                    # Rationale (Finding 1 & 7): `di` counts per-symbol data insufficiency (e.g. one missing OCF field).
-                    # A single missing field on any of 886 symbols previously set di=1, which fired data_gap=True,
-                    # making health_status=DEGRADED unconditionally and making OK structurally unachievable.
-                    # Per the declared intent in the comment block at L2317 ("degraded only if there is an actual
-                    # system/broker outage"), individual symbol data insufficiency is expected/normal scanner behaviour
-                    # and is already fully tracked per-symbol in telemetry + funnel counters.
-                    # Only SYSTEMIC thresholds (>5% provider failures, >10% price data gaps, >5% missing master records,
-                    # context lifecycle crash, or early termination) constitute a system-level health degradation event.
-                    data_gap = (high_provider_failure) or (high_insufficient) or (high_missing) or (context_failed)
-
-                    # [RULE 67 CHANGE-RATIONALE: P1_HEALTH_HONESTY_NO_OVERRIDE]
-                    # Never override a failed telemetry integrity or mathematical reconciliation to OK.
                     telemetry_failed = False
                     if telemetry is not None:
                         try:
@@ -3008,25 +2992,22 @@ class LiveFundamentalBuyScanner:
                         except Exception as _tel_err:
                             logger.debug(f"Telemetry check notice: {_tel_err}")
 
-                    # Systemic data failure count excludes strategy-level filter rejections (di):
-                    # Systemic failures = missing files (dm) + broker API failures (pf) + missing OHLCV price history
-                    systemic_fail_cnt = dm + pf + funnel.get("price_data_insufficient_count", 0)
-                    fail_ratio = systemic_fail_cnt / max(1, total_symbols_cnt)
+                    fail_ratio = total_data_issues / max(1, total_symbols_cnt)
                     is_down = is_crashed or fail_ratio > 0.25
-                    is_degraded = is_down or data_gap or telemetry_failed
+                    is_degraded = is_down or (total_data_issues > 0) or context_failed or telemetry_failed
                     if is_down:
                         health_status = "DOWN"
                         health_outcome = "FAILED"
                         gap_msg = (
-                            f"DATA_DOWN: {systemic_fail_cnt}/{total_symbols_cnt} stocks "
-                            f"({round(fail_ratio * 100, 1)}% > 25% threshold) systemic data failures"
+                            f"DATA_DOWN: {total_data_issues}/{total_symbols_cnt} stocks "
+                            f"({round(fail_ratio * 100, 1)}% > 25% threshold) incomplete/missing data failures"
                         )
                     elif is_degraded:
                         health_status = "DEGRADED"
                         health_outcome = "PARTIAL"
                         gap_msg = (
-                            f"DATA_DEGRADED: {systemic_fail_cnt}/{total_symbols_cnt} stocks "
-                            f"({round(fail_ratio * 100, 1)}%) systemic data gaps"
+                            f"DATA_DEGRADED: {total_data_issues}/{total_symbols_cnt} stocks "
+                            f"({round(fail_ratio * 100, 1)}%) data gaps/failures"
                         )
                     else:
                         health_status = "OK"
