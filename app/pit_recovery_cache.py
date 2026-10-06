@@ -134,10 +134,15 @@ def compute_evidence_fingerprint(
 
 _QUARANTINE_REASONS = {
     "CONFIRMED_NO_DATA_ANYWHERE",
+    "CONFIRMED_NO_DATA",
     "CONFIRMED_SHORT_HISTORY",
     "HISTORICAL_FILING_GAP",
     "CONFIRMED_HISTORICAL_GAP",
     "INSUFFICIENT_HISTORICAL_DEPTH",
+    "DATA_UNAVAILABLE_VERIFIED",
+    "DATA_UNAVAILABLE",
+    "NOT_REPORTED",
+    "FIELD_ABSENT",
 }
 
 
@@ -342,7 +347,7 @@ class PitRecoveryStatusStore:
                     continue
 
                 # Check scanner family match
-                e_fam = str(entry.get("scanner_family", "FUNDAMENTAL")).strip().upper()
+                e_fam = str(entry.get("scanner_family") or "ALL").strip().upper()
                 if e_fam != "ALL" and fam != "ALL" and e_fam != fam:
                     continue
 
@@ -376,7 +381,7 @@ class PitRecoveryStatusStore:
                 if not exp or exp <= now_str:
                     del self._cache[k]
                     continue
-                e_fam = str(entry.get("scanner_family", "FUNDAMENTAL")).strip().upper()
+                e_fam = str(entry.get("scanner_family") or "ALL").strip().upper()
                 if e_fam != "ALL" and fam != "ALL" and e_fam != fam:
                     continue
                 reason_u = str(entry.get("reason", entry.get("classification", entry.get("status", "")))).upper()

@@ -122,3 +122,46 @@ def test_quality_value_recovery_uses_df_px_drawdown():
     assert metrics["drawdown_pct"] == 35.0
     assert metrics["val_compression_ratio"] <= 0.80
     assert "NO_DRAWDOWN_DISLOCATION_FAIL" not in rejection_reasons
+
+
+def test_get_quarantined_symbols_filters_active_absences():
+    """
+    Verify that get_quarantined_symbols returns symbols under active quarantine
+    (CONFIRMED_NO_DATA_ANYWHERE, NOT_REPORTED, DATA_UNAVAILABLE) and excludes transient provider errors.
+    """
+    from app.pit_recovery_cache import PitRecoveryStatusStore
+    import tempfile
+    import os
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = os.path.join(tmpdir, "test_recovery_status.parquet")
+        store = PitRecoveryStatusStore(parquet_path=tmp_path)
+        # Add confirmed data unavailable symbol
+        store.record_unavailability(
+            symbol="BAD_CO",
+            provider="ALL",
+            status="UNAVAILABLE",
+            reason="CONFIRMED_NO_DATA_ANYWHERE",
+            scanner_family="FUNDAMENTAL",
+        )
+        # Add not reported filing symbol
+        store.record_unavailability(
+            symbol="GAP_CO",
+            provider="ALL",
+            status="UNAVAILABLE",
+            reason="NOT_REPORTED",
+            scanner_family="ALL",
+        )
+        # Add transient failure that should NOT be quarantined
+        store.record_unavailability(
+            symbol="RETRY_CO",
+            provider="UPSTOX",
+            status="PROVIDER_ERROR",
+            reason="PROVIDER_FAILURE",
+            scanner_family="FUNDAMENTAL",
+        )
+
+        q_symbols = store.get_quarantined_symbols(scanner_family="FUNDAMENTAL")
+        assert "BAD_CO" in q_symbols
+        assert "GAP_CO" in q_symbols
+        assert "RETRY_CO" not in q_symbols

@@ -359,6 +359,16 @@ class ApprovedUniverseRegistry:
             except Exception as e:
                 logger.warning(f"Failed to load quarantine JSON: {e}")
 
+        # Dynamically merge active 7-day quarantines from PitRecoveryStatusStore
+        try:
+            from app.pit_recovery_cache import get_pit_recovery_store
+            dyn_q = get_pit_recovery_store().get_quarantined_symbols(scanner_family="FUNDAMENTAL")
+            if dyn_q:
+                self.quarantined_symbols.update(dyn_q)
+                self.clean_symbols -= dyn_q
+        except Exception as e_dq:
+            logger.debug(f"Dynamic quarantine merge notice: {e_dq}")
+
         # Fallback if clean_symbols is empty: populate from 1D history parquets
         if not self.clean_symbols:
             history_dir = os.path.join(DATA_DIR, "history", "1d")
