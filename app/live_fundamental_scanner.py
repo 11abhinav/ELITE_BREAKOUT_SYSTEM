@@ -7296,7 +7296,11 @@ class QualityValueRecoveryScanner:
         # 3. Quality Baseline Gates
         roce_raw = row.get('roce_5y_avg') if row.get('roce_5y_avg') is not None else row.get('roce')
         d_e_raw = row.get('debt_to_equity') if row.get('debt_to_equity') is not None else row.get('d_e')
-        cfo_pat_raw = row.get('cfo_pat_ratio') if row.get('cfo_pat_ratio') is not None else row.get('cfo_pat')
+        cfo_pat_raw = row.get('cfo_pat_5y_ratio') if row.get('cfo_pat_5y_ratio') is not None else (
+            row.get('cfo_pat_5y') if row.get('cfo_pat_5y') is not None else (
+                row.get('cfo_pat_ratio') if row.get('cfo_pat_ratio') is not None else row.get('cfo_pat')
+            )
+        )
 
         if roce_raw is None or pd.isna(roce_raw):
             rejection_reasons.append("QUALITY_DATA_INSUFFICIENT")
