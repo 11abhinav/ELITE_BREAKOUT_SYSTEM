@@ -105,7 +105,53 @@ class BseSecurityMasterResolver:
         self._initialized = True
 
     def _load_master(self) -> None:
-        """Loads master from data/bse_security_master.json if present."""
+        """Loads master from data/bse_security_master.json if present, with DB cache recovery & fallback reconstruction."""
+        if not os.path.exists(MASTER_JSON_PATH):
+            logger.info(f"🔄 [BSE_MASTER] Master file missing at {MASTER_JSON_PATH}. Attempting DB parquet_cache download...")
+            try:
+                try:
+                    from app.database import download_parquet_from_db
+                except ImportError:
+                    from database import download_parquet_from_db
+                download_parquet_from_db("bse_security_master", MASTER_JSON_PATH)
+            except Exception as _dbe:
+                logger.debug(f"DB download attempt for bse_security_master failed: {_dbe}")
+
+        if not os.path.exists(MASTER_JSON_PATH):
+            # Attempt fallback reconstruction from nse_bse_master_universe.json or nse_master_equities.json
+            for alt_name in ("nse_bse_master_universe.json", "nse_master_equities.json"):
+                alt_path = os.path.join(BASE_DIR, "data", alt_name)
+                if os.path.exists(alt_path):
+                    try:
+                        logger.info(f"🔄 [BSE_MASTER] Reconstructing bse_security_master.json from fallback {alt_path}...")
+                        with open(alt_path, "r", encoding="utf-8") as af:
+                            alt_data = json.load(af)
+                        bse_dict = {}
+                        if isinstance(alt_data, dict):
+                            for k, v in alt_data.items():
+                                if not isinstance(v, dict):
+                                    continue
+                                scrip = str(v.get("bse_scrip_code") or v.get("scrip_code") or "").strip()
+                                if scrip and scrip != "None":
+                                    sym = str(v.get("canonical_symbol") or k).strip().upper()
+                                    bse_dict[sym] = {
+                                        "canonical_symbol": sym,
+                                        "bse_security_id": str(v.get("bse_security_id") or sym).strip().upper(),
+                                        "bse_scrip_code": scrip,
+                                        "isin": str(v.get("isin") or "").strip().upper(),
+                                        "company_name": str(v.get("company_name") or "").strip(),
+                                        "segment": str(v.get("segment") or "EQUITY").strip(),
+                                        "has_nse": bool(v.get("has_nse", True)),
+                                    }
+                        if bse_dict:
+                            os.makedirs(os.path.dirname(MASTER_JSON_PATH), exist_ok=True)
+                            with open(MASTER_JSON_PATH, "w", encoding="utf-8") as outf:
+                                json.dump(bse_dict, outf, indent=2)
+                            logger.info(f"💾 [BSE_MASTER] Reconstructed {len(bse_dict)} entries to {MASTER_JSON_PATH}")
+                            break
+                    except Exception as _recon_err:
+                        logger.warning(f"Failed to reconstruct bse_security_master.json from {alt_name}: {_recon_err}")
+
         if not os.path.exists(MASTER_JSON_PATH):
             logger.error(f"🚨 [BSE_MASTER] CRITICAL: Master file missing at {MASTER_JSON_PATH}. Dynamic BSE resolution is UNAVAILABLE. Fail-closed enforced.")
             self._available = False
@@ -155,7 +201,18 @@ class BseSecurityMasterResolver:
 
                 count += 1
 
+            self._available = True
             logger.info(f"✅ [BSE_MASTER] Loaded {count} dynamic BSE security entries into memory.")
+            
+            # Sync to DB parquet_cache so future container instances can download it
+            try:
+                try:
+                    from app.database import upload_parquet_to_db
+                except ImportError:
+                    from database import upload_parquet_to_db
+                upload_parquet_to_db("bse_security_master", MASTER_JSON_PATH)
+            except Exception as _sync_err:
+                logger.debug(f"DB parquet_cache upload for bse_security_master non-fatal: {_sync_err}")
         except Exception as e:
             logger.error(f"[BSE_MASTER] Failed to load {MASTER_JSON_PATH}: {e}")
 
