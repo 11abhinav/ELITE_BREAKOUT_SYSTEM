@@ -1155,6 +1155,16 @@ class DailyBuilderFundamentalProvider:
 
             roe_raw = r.get("ROE", r.get("roe", r.get("roe_5y_avg", r.get("ROE %", r.get("return_on_equity_fy")))))
             roe_val = float(roe_raw) if (roe_raw is not None and not pd.isna(roe_raw)) else None
+            if roe_val is None:
+                np_val = r.get("net_profit", r.get("pat"))
+                eq_val = r.get("total_equity", r.get("equity"))
+                if np_val is not None and eq_val is not None and not pd.isna(np_val) and not pd.isna(eq_val):
+                    try:
+                        eq_f = float(eq_val)
+                        if eq_f > 0:
+                            roe_val = round((float(np_val) / eq_f) * 100.0, 2)
+                    except (ValueError, TypeError):
+                        pass
 
             debt_raw = r.get("debt", r.get("debt_equity", r.get("debt_to_equity", r.get("Debt/Equity", r.get("debt_to_equity_fq")))))
             debt_val = float(debt_raw) if (debt_raw is not None and not pd.isna(debt_raw)) else None
@@ -1226,7 +1236,7 @@ class DailyBuilderFundamentalProvider:
         # Ensure symbols with valid Upstox PIT data in canonical_pit_rebuilt.parquet
         # (e.g. MOLDTKPAC, JUSTDIAL, HEXT, MANYAVAR, KENNAMET, VIMTALABS, ABSLAMC)
         # have their 5Y metrics recognized if absent in the daily builder slice.
-        has_missing_essentials = any(f.get("roce") is None or f.get("debt_equity") is None for f in funds_map.values())
+        has_missing_essentials = any(f.get("roce") is None or f.get("roe") is None or f.get("debt_equity") is None for f in funds_map.values())
         if has_missing_essentials:
             canonical_pit_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
             if os.path.exists(canonical_pit_path):
@@ -1238,10 +1248,24 @@ class DailyBuilderFundamentalProvider:
                             if not c_sym:
                                 continue
                             c_roce = cr.get("roce_5y_avg", cr.get("ROCE", cr.get("roce")))
+                            c_roe = cr.get("roe_5y_avg", cr.get("ROE", cr.get("roe", cr.get("return_on_equity"))))
                             c_debt = cr.get("debt_to_equity", cr.get("debt_equity", cr.get("debt")))
                             c_ocf = cr.get("operating_cash_flow", cr.get("cfo_pat_5y_ratio"))
+
+                            c_roce_v = float(c_roce) if (c_roce is not None and not pd.isna(c_roce)) else None
+                            c_roe_v = float(c_roe) if (c_roe is not None and not pd.isna(c_roe)) else None
+                            if c_roe_v is None:
+                                c_np = cr.get("net_profit")
+                                c_eq = cr.get("total_equity")
+                                if c_np is not None and c_eq is not None and not pd.isna(c_np) and not pd.isna(c_eq):
+                                    try:
+                                        c_eq_f = float(c_eq)
+                                        if c_eq_f > 0:
+                                            c_roe_v = round((float(c_np) / c_eq_f) * 100.0, 2)
+                                    except (ValueError, TypeError):
+                                        pass
+
                             if c_sym not in funds_map:
-                                c_roce_v = float(c_roce) if (c_roce is not None and not pd.isna(c_roce)) else None
                                 c_debt_v = float(c_debt) if (c_debt is not None and not pd.isna(c_debt)) else None
                                 c_ocf_v = None
                                 if c_ocf is not None and not pd.isna(c_ocf):
@@ -1253,7 +1277,7 @@ class DailyBuilderFundamentalProvider:
                                 funds_map[c_sym] = {
                                     "symbol": c_sym,
                                     "roce": c_roce_v,
-                                    "roe": None,
+                                    "roe": c_roe_v,
                                     "debt_equity": c_debt_v,
                                     "operating_cash_flow": c_ocf_v,
                                     "fundamental_category": "NONE",
@@ -1280,8 +1304,10 @@ class DailyBuilderFundamentalProvider:
                                 }
                             else:
                                 f_item = funds_map[c_sym]
-                                if f_item.get("roce") is None and c_roce is not None and not pd.isna(c_roce):
-                                    f_item["roce"] = float(c_roce)
+                                if f_item.get("roce") is None and c_roce_v is not None:
+                                    f_item["roce"] = c_roce_v
+                                if f_item.get("roe") is None and c_roe_v is not None:
+                                    f_item["roe"] = c_roe_v
                                 if f_item.get("debt_equity") is None and c_debt is not None and not pd.isna(c_debt):
                                     f_item["debt_equity"] = float(c_debt)
                                 if f_item.get("operating_cash_flow") is None and c_ocf is not None and not pd.isna(c_ocf):
@@ -2901,6 +2927,9 @@ class LiveFundamentalBuyScanner:
             if ctx and complete_scanner_execution_run is not None:
                 try:
                     ctx.set_alerts(funnel.get("buy_alerts_count", 0))
+                    ctx.fresh_count = len(target_symbols) - funnel.get("data_missing_count", 0) - funnel.get("price_data_insufficient_count", 0)
+                    ctx.stale_count = 0
+                    ctx.incomplete_count = funnel.get("data_missing_count", 0) + funnel.get("price_data_insufficient_count", 0)
                     ctx.data_insufficient_count = funnel.get("data_insufficient_count", 0)
                     ctx.data_missing_count = funnel.get("data_missing_count", 0)
                     ctx.provider_failure_count = funnel.get("provider_failure_count", 0)
