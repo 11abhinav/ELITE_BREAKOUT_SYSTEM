@@ -403,10 +403,26 @@ Production Source Check           Screener Forensic Oracle
        │                                 │
        └────────────────┬────────────────┘
                         ▼
-             Go Back Upstream (NSE / Upstox)
-                        ▼
-             Fix Parser / Mapping / Fetch
-                        ▼
-             Certified Exchange / Upstox PIT
+
+---
+
+## MANDATORY UNIFIED SCANNER HEALTH & DATA FAILURE ACCOUNTING INVARIANT
+
+### 1. Unified Data Failure Definition Across All Scanners
+For all scanners in the Elite Breakout System (Fundamental Breakout, Technical Breakout, Quality Compounder, Quality Value Recovery, Performance Tracker, Filing Watcher), **Data Failures** are strictly defined as any stock where required market price or financial statement disclosures are missing or unreadable:
+```text
+Total Data Failures = data_insufficient_count + data_missing_count + provider_failure_count
 ```
+Where:
+* **data_insufficient_count**: Stocks missing required financial statement fields (e.g. missing ROCE, ROE, OCF, D/E, Sales CAGR, PAT CAGR) or missing 1D lookback candles required for strategy evaluation.
+* **data_missing_count**: Stocks missing upstream PIT filing records or master Parquet files.
+* **provider_failure_count**: Broker API HTTP / transport network failures.
+
+### 2. Synchronized Execution History & Health Status Accounting
+* **Execution History Sync**: In `scanner_execution_history`, `incomplete_data_count` MUST equal `Total Data Failures`. `fresh_data_count` MUST equal `scanned_count - Total Data Failures - stale_data_count`.
+* **Standard Health Status Boundaries Across All Scanners**:
+  - **DOWN**: Triggered if `Total Data Failures / scanned_count > 0.25` (>25% data failures) OR early thread crash / lifecycle failure.
+  - **DEGRADED**: Triggered if `Total Data Failures / scanned_count > 0.10` (>10% data failures) OR telemetry reconciliation failure.
+  - **OK**: Triggered when `Total Data Failures / scanned_count <= 0.10` (<=10% data failures) and execution completes cleanly with zero thread crashes.
+
 
