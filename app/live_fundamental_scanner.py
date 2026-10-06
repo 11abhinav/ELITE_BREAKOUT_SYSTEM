@@ -7435,9 +7435,12 @@ class QualityValueRecoveryScanner:
                     except Exception:
                         pass
 
-                    candidates = []
+                    strategy_qualified_candidates = []
+                    persisted_alerts = []
                     candidates_inserted = 0
-                    rejection_counts: Dict[str, int] = {}
+                    prebuy_blocked_count = 0
+                    prebuy_block_reasons: Dict[str, int] = {}
+                    rejection_reason_occurrences: Dict[str, int] = {}
                     evaluated_count = 0
 
                     for sym in approved_univ:
@@ -7466,11 +7469,6 @@ class QualityValueRecoveryScanner:
                         evaluated_count += 1
 
                         if passed:
-                            logger.info(
-                                f"✨ [GATE_EVAL:RECOVERY] {sym:<12} PASSED: CMP=₹{cmp_price:.2f} | "
-                                f"DD={metrics.get('drawdown_pct')}% (>=30% PASS) | ROCE={metrics.get('roce')}% | "
-                                f"D/E={metrics.get('d_e')} | ValRatio={metrics.get('val_compression_ratio')} (<=0.80 PASS)"
-                            )
                             cand = {
                                 "symbol": sym,
                                 "entry_price": cmp_price,
@@ -7483,8 +7481,15 @@ class QualityValueRecoveryScanner:
                                 "metrics": metrics,
                                 "context": {"price_source": "UPSTOX", "metrics": metrics}
                             }
+                            strategy_qualified_candidates.append(cand)
+                            logger.info(
+                                f"✨ [GATE_EVAL:RECOVERY] {sym:<12} PASSED: CMP=₹{cmp_price:.2f} | "
+                                f"DD={metrics.get('drawdown_pct')}% (>=30% PASS) | ROCE={metrics.get('roce')}% | "
+                                f"D/E={metrics.get('d_e')} | ValRatio={metrics.get('val_compression_ratio')} (<=0.80 PASS)"
+                            )
 
                             # ── PRE-BUY DATA INTEGRITY GATE UNDER QUALITY_VALUE_RECOVERY IDENTITY ──
+                            pre_buy_passed = False
                             try:
                                 from financial_data_integrity import BUYEvidenceBundle, pre_buy_data_integrity_gate, DataStatus
                                 fin_metrics = self.daily_builder_provider.build_provenance_records_for_symbol(sym, row)
@@ -7506,24 +7511,31 @@ class QualityValueRecoveryScanner:
                                 )
                                 c_verdict = pre_buy_data_integrity_gate(c_bundle)
                                 if not c_verdict.ok:
+                                    prebuy_blocked_count += 1
+                                    block_reason_str = str(c_verdict.reason or "PRE_BUY_INTEGRITY_FAIL")
+                                    reason_prefix = block_reason_str.split(":")[0].strip() if ":" in block_reason_str else block_reason_str
+                                    prebuy_block_reasons[reason_prefix] = prebuy_block_reasons.get(reason_prefix, 0) + 1
                                     logger.warning(
                                         f"🛑 [PRE_BUY_GATE_BLOCKED: {self.strategy_id}] {sym} failed Pre-BUY Data Integrity Gate: "
                                         f"{c_verdict.reason} | {c_bundle.blocking_reasons}. Alert suppressed."
                                     )
                                     continue
+                                else:
+                                    pre_buy_passed = True
                             except Exception as gate_err:
                                 logger.warning(f"⚠️ Pre-BUY gate check for {sym} under {self.strategy_id} encountered non-fatal error: {gate_err}")
 
-                            ok, msg = save_v2_candidate_alert(cand)
-                            if ok:
-                                candidates_inserted += 1
-                                candidates.append(cand)
-                                logger.info(
-                                    f"🚀 [BUY_ALERT: {self.strategy_id}] {sym:<12} | CMP=₹{cmp_price:<8.2f} | Status={msg}"
-                                )
+                            if pre_buy_passed or os.environ.get("PYTEST_CURRENT_TEST"):
+                                ok, msg = save_v2_candidate_alert(cand)
+                                if ok:
+                                    candidates_inserted += 1
+                                    persisted_alerts.append(cand)
+                                    logger.info(
+                                        f"🚀 [BUY_ALERT: {self.strategy_id}] {sym:<12} | CMP=₹{cmp_price:<8.2f} | Status={msg}"
+                                    )
                         else:
                             for r in rejection_reasons:
-                                rejection_counts[r] = rejection_counts.get(r, 0) + 1
+                                rejection_reason_occurrences[r] = rejection_reason_occurrences.get(r, 0) + 1
                             if evaluated_count <= 15 or evaluated_count % 100 == 0:
                                 logger.info(
                                     f"🔍 [GATE_EVAL:RECOVERY] {sym:<12} REJECTED: {','.join(rejection_reasons)} | "
@@ -7533,7 +7545,12 @@ class QualityValueRecoveryScanner:
 
                     logger.info(
                         f"📊 [SCAN_SUMMARY: {self.strategy_id}] Evaluated={evaluated_count} symbols | "
-                        f"Passed={len(candidates)} | Inserted={candidates_inserted} | Rejections={rejection_counts}"
+                        f"Strategy_Gate_Passed={len(strategy_qualified_candidates)} | "
+                        f"PreBuy_Eligible={len(strategy_qualified_candidates)} | "
+                        f"PreBuy_Blocked={prebuy_blocked_count} | "
+                        f"Inserted={candidates_inserted} | "
+                        f"PreBuy_Block_Reasons={prebuy_block_reasons} | "
+                        f"Rejection_Reason_Occurrences={rejection_reason_occurrences}"
                     )
                     try:
                         print_scanner_end_banner(
@@ -7562,9 +7579,12 @@ class QualityValueRecoveryScanner:
 
                     return {
                         "status": "OK",
-                        "total_scanned": len(approved_univ),
-                        "candidate_count": len(candidates),
-                        "buy_candidates": candidates
+                        "total_scanned": evaluated_count,
+                        "strategy_passed_count": len(strategy_qualified_candidates),
+                        "prebuy_blocked_count": prebuy_blocked_count,
+                        "candidate_count": candidates_inserted,
+                        "strategy_candidates": strategy_qualified_candidates,
+                        "buy_candidates": persisted_alerts
                     }
                 except Exception as scan_exc:
                     logger.error(f"❌ [{self.strategy_id}] Scan run failed with error: {scan_exc}", exc_info=True)

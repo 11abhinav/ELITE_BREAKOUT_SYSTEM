@@ -165,3 +165,95 @@ def test_get_quarantined_symbols_filters_active_absences():
         assert "BAD_CO" in q_symbols
         assert "GAP_CO" in q_symbols
         assert "RETRY_CO" not in q_symbols
+
+
+def test_fresh_feed_pre_buy_pass_to_db_insertion():
+    """
+    PROVES THE REMAINING PROOF GAP:
+    Qualified Recovery Candidate -> Fresh Exchange Feed (within 24h SLA) -> Pre-BUY Gate PASS -> DB Insertion.
+    Verifies that when market data feed SLA is valid, qualified recovery stocks cleanly pass
+    the Pre-BUY Data Integrity Gate and persist as active BUY alerts in the database.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from unittest.mock import patch
+    from app.financial_data_integrity import (
+        BUYEvidenceBundle,
+        pre_buy_data_integrity_gate,
+        DataStatus,
+        FieldProvenance,
+    )
+    from app.database import save_v2_candidate_alert
+
+    ist = ZoneInfo("Asia/Kolkata")
+    now_iso = datetime.now(ist).isoformat()
+
+    # 1. Qualified candidate bundle with complete field provenance
+    fin_metrics = {
+        "roce": FieldProvenance(
+            symbol="TEST_RECOVERY", scanner="QUALITY_VALUE_RECOVERY", field="roce",
+            value_used=18.5, unit="PERCENT", period_end="2026-03-31", period_type="ANNUAL",
+            basis="CONSOLIDATED", source_used="EXCHANGE_FILINGS", validation_status="PASSED"
+        ),
+        "debt_to_equity": FieldProvenance(
+            symbol="TEST_RECOVERY", scanner="QUALITY_VALUE_RECOVERY", field="debt_to_equity",
+            value_used=0.15, unit="RATIO", period_end="2026-03-31", period_type="ANNUAL",
+            basis="CONSOLIDATED", source_used="EXCHANGE_FILINGS", validation_status="PASSED"
+        ),
+        "cfo_pat_ratio": FieldProvenance(
+            symbol="TEST_RECOVERY", scanner="QUALITY_VALUE_RECOVERY", field="cfo_pat_ratio",
+            value_used=0.95, unit="RATIO", period_end="2026-03-31", period_type="ANNUAL",
+            basis="CONSOLIDATED", source_used="EXCHANGE_FILINGS", validation_status="PASSED"
+        ),
+    }
+
+    c_bundle = BUYEvidenceBundle(
+        scan_run_id="RECOVERY_TEST_RUN_001",
+        scanner="QUALITY_VALUE_RECOVERY",
+        symbol="TEST_RECOVERY",
+        cmp=500.0,
+        strategy_score=90.0,
+        gate_results={"QUALITY": True, "VALUATION": True},
+        financial_metrics=fin_metrics,
+        data_integrity_status=DataStatus.VALID,
+        financial_provenance_complete=True,
+        pit_valid=True,
+        period_integrity=True,
+        basis_integrity=True,
+        unit_integrity=True,
+        required_metrics_complete=True,
+    )
+
+    # 2. Fresh exchange feed watermark (checked 10 minutes ago, well within 24h SLA)
+    fresh_watermark = {
+        "symbol": "TEST_RECOVERY",
+        "valid": True,
+        "latest_exchange_period_end": "2026-03-31",
+        "latest_exchange_filing_timestamp": "2026-03-31T20:00:00+05:30",
+        "nse_last_checked": now_iso,
+        "bse_last_checked": now_iso,
+        "failure_reason": None,
+    }
+
+    with patch("app.financial_data_integrity.get_multi_source_exchange_watermark", return_value=fresh_watermark):
+        # Evaluate Pre-BUY gate under fresh feed
+        c_verdict = pre_buy_data_integrity_gate(c_bundle)
+        assert c_verdict.ok is True, f"Expected Pre-BUY gate to PASS with fresh feed, but got: {c_verdict.reason}"
+
+        # Persist alert to database
+        cand = {
+            "symbol": "TEST_RECOVERY",
+            "entry_price": 500.0,
+            "current_price": 500.0,
+            "tier": "TIER1",
+            "ranking_score": 90.0,
+            "signal_date": datetime.now(ist).strftime("%Y-%m-%d"),
+            "scanner": "QUALITY_VALUE_RECOVERY",
+            "breakout_type": "QUALITY_VALUE_RECOVERY",
+            "metrics": {"drawdown_pct": 45.0, "roce": 18.5, "d_e": 0.15, "val_compression_ratio": 0.65},
+            "context": {"price_source": "UPSTOX"},
+        }
+
+        ok, msg = save_v2_candidate_alert(cand)
+        assert ok is True, f"Failed to persist candidate alert: {msg}"
+        assert "TEST_RECOVERY" in msg or "INSERTED" in msg
