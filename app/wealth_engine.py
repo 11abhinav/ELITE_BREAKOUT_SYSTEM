@@ -1823,16 +1823,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
-                        SELECT symbol, entry_price, added_at::date AS entry_date
-                        FROM manual_portfolio
-                    """)
-                    for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
-
-                    cur.execute("""
-                        SELECT symbol, alert_price AS entry_price, alert_date::date AS entry_date
-                        FROM wealth_buy_alert
-                        WHERE is_closed = FALSE
+                        SELECT symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date
+                        FROM alerts
+                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                          AND record_type = 'ALERT_EVENT'
+                          AND status IN ('OPEN', 'ACTIVE')
                     """)
                     for r in cur.fetchall():
                         portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
@@ -2924,17 +2919,20 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="Empty parquet")
             return run_wealth_scan(is_test_mode=is_test_mode)
 
-        stage_tracker.start_stage(1, "Postgres Portfolio Query", "Querying open holdings from manual_portfolio and wealth_buy_alert")
+        stage_tracker.start_stage(1, "Postgres Portfolio Query", "Querying open holdings from canonical alerts table")
         portfolio_dict = {}
         try:
             from database import get_connection
             from psycopg2.extras import RealDictCursor
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("SELECT symbol, entry_price, added_at::date AS entry_date FROM manual_portfolio")
-                    for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"], "source": "MANUAL"}
-                    cur.execute("SELECT symbol, alert_price AS entry_price, alert_date::date AS entry_date FROM wealth_buy_alert WHERE is_closed = FALSE")
+                    cur.execute("""
+                        SELECT symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date
+                        FROM alerts
+                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                          AND record_type = 'ALERT_EVENT'
+                          AND status IN ('OPEN', 'ACTIVE')
+                    """)
                     for r in cur.fetchall():
                         portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"], "source": "ALERT"}
         except Exception as _pe:
