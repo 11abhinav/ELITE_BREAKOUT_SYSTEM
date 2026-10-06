@@ -5,7 +5,28 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional
 from fyers_apiv3 import fyersModel
-import config
+try:
+    import config
+except ImportError:
+    from app import config
+
+try:
+    from database import get_system_state, save_system_state, insert_notification
+except ImportError:
+    try:
+        from app.database import get_system_state, save_system_state, insert_notification
+    except ImportError:
+        get_system_state = None
+        save_system_state = None
+        insert_notification = None
+
+try:
+    from push_service import send_push_to_all
+except ImportError:
+    try:
+        from app.push_service import send_push_to_all
+    except ImportError:
+        send_push_to_all = None
 
 logger = logging.getLogger(__name__)
 
@@ -122,13 +143,13 @@ def save_access_token_direct(access_token: str) -> str:
         }
         
         # Save token to database to persist across container redeployments
-        try:
-            import json
-            from database import save_system_state
-            save_system_state("fyers_access_token", json.dumps(token_payload))
-            save_system_state("fyers_access_token_date", now_date_str)
-        except Exception as db_err:
-            logger.warning(f"Failed to save Fyers token to database: {db_err}")
+        if save_system_state is not None:
+            try:
+                import json
+                save_system_state("fyers_access_token", json.dumps(token_payload))
+                save_system_state("fyers_access_token_date", now_date_str)
+            except Exception as db_err:
+                logger.warning(f"Failed to save Fyers token to database: {db_err}")
         
         # Save token locally as fallback/cache
         token_path = config.FYERS_TOKEN_PATH
@@ -391,35 +412,35 @@ def auto_login() -> Optional[str]:
         now_ts = time.time()
         
         # Cross-process DB Check: See if a peer process JUST successfully updated the token while we were waiting for the lock.
-        try:
-            from database import get_system_state
-            from datetime import datetime
-            from zoneinfo import ZoneInfo
-            db_state = get_system_state("fyers_access_token")
-            if db_state:
-                parsed = None
-                import json
-                if isinstance(db_state, str) and db_state.startswith("{"):
-                    try:
-                        parsed = json.loads(db_state)
-                    except Exception:
-                        pass
-                elif isinstance(db_state, dict):
-                    parsed = db_state
-                    
-                if parsed and isinstance(parsed, dict) and "updated_at" in parsed:
-                    updated_at_dt = datetime.fromisoformat(parsed["updated_at"])
-                    if (datetime.now(ZoneInfo('Asia/Kolkata')) - updated_at_dt).total_seconds() < 300:
-                        logger.info("⚡ Another process successfully completed Fyers auto-login recently. Reusing token.")
-                        token = parsed.get("token")
-                        if token:
-                            global _token_date
-                            with _token_lock:
-                                _cached_token = token
-                                _token_date = str(datetime.now(ZoneInfo('Asia/Kolkata')).date())
-                            return token
-        except Exception as e:
-            logger.warning(f"Error checking recent token update in auto_login: {e}")
+        if get_system_state is not None:
+            try:
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                db_state = get_system_state("fyers_access_token")
+                if db_state:
+                    parsed = None
+                    import json
+                    if isinstance(db_state, str) and db_state.startswith("{"):
+                        try:
+                            parsed = json.loads(db_state)
+                        except Exception:
+                            pass
+                    elif isinstance(db_state, dict):
+                        parsed = db_state
+                        
+                    if parsed and isinstance(parsed, dict) and "updated_at" in parsed:
+                        updated_at_dt = datetime.fromisoformat(parsed["updated_at"])
+                        if (datetime.now(ZoneInfo('Asia/Kolkata')) - updated_at_dt).total_seconds() < 300:
+                            logger.info("⚡ Another process successfully completed Fyers auto-login recently. Reusing token.")
+                            token = parsed.get("token")
+                            if token:
+                                global _token_date
+                                with _token_lock:
+                                    _cached_token = token
+                                    _token_date = str(datetime.now(ZoneInfo('Asia/Kolkata')).date())
+                                return token
+            except Exception as e:
+                logger.warning(f"Error checking recent token update in auto_login: {e}")
 
         # Cooldown guard: Prevent sending repeated automated OTP requests within 300 seconds (5 mins)
         if now_ts - _last_auto_login_time < 300.0 and _last_auto_login_time > 0.0 and _cached_token:
@@ -665,24 +686,24 @@ def dispatch_fyers_reauth_notification(reason: str = "Fyers API access token is 
         msg = f"{reason} Click here to authenticate with 1 tap: {login_url}"
         
         # 1. Insert into global_notifications table for the Dashboard UI Bell 🔔
-        try:
-            from database import insert_notification
-            insert_notification("admin", "🔑 FYERS AUTH REQUIRED", msg)
-        except Exception as db_notif_err:
-            logger.warning(f"Failed to insert Fyers re-auth in-app notification: {db_notif_err}")
+        if insert_notification is not None:
+            try:
+                insert_notification("admin", "🔑 FYERS AUTH REQUIRED", msg)
+            except Exception as db_notif_err:
+                logger.warning(f"Failed to insert Fyers re-auth in-app notification: {db_notif_err}")
 
         # 2. Dispatch WebPush to mobile/desktop browsers
-        try:
-            from push_service import send_push_to_all
-            logger.info(f"🔔 Dispatching admin clickable push notification for Fyers re-authentication: {login_url}")
-            send_push_to_all(
-                "🔑 FYERS AUTH REQUIRED", 
-                f"{reason} Tap here to authenticate with 1 click.", 
-                url=login_url, 
-                bypass_throttle=True
-            )
-        except Exception as push_err:
-            logger.warning(f"Failed to dispatch Fyers re-auth push notification: {push_err}")
+        if send_push_to_all is not None:
+            try:
+                logger.info(f"🔔 Dispatching admin clickable push notification for Fyers re-authentication: {login_url}")
+                send_push_to_all(
+                    "🔑 FYERS AUTH REQUIRED", 
+                    f"{reason} Tap here to authenticate with 1 click.", 
+                    url=login_url, 
+                    bypass_throttle=True
+                )
+            except Exception as push_err:
+                logger.warning(f"Failed to dispatch Fyers re-auth push notification: {push_err}")
     except Exception as exc:
         logger.warning(f"Error in dispatch_fyers_reauth_notification: {exc}")
 
@@ -708,36 +729,36 @@ def get_access_token() -> str:
             return _cached_token
 
         # 1. Try fetching from DB
-        try:
-            from database import get_system_state
-            db_state = get_system_state("fyers_access_token")
-            saved_date = get_system_state("fyers_access_token_date")
-            token = None
-            if isinstance(db_state, dict):
-                token = db_state.get("token")
-                saved_date = db_state.get("date", saved_date)
-            elif isinstance(db_state, str) and db_state.strip():
-                if db_state.strip().startswith("{"):
-                    try:
-                        import json
-                        parsed = json.loads(db_state)
-                        if isinstance(parsed, dict):
-                            token = parsed.get("token")
-                            saved_date = parsed.get("date", saved_date)
-                        else:
+        if get_system_state is not None:
+            try:
+                db_state = get_system_state("fyers_access_token")
+                saved_date = get_system_state("fyers_access_token_date")
+                token = None
+                if isinstance(db_state, dict):
+                    token = db_state.get("token")
+                    saved_date = db_state.get("date", saved_date)
+                elif isinstance(db_state, str) and db_state.strip():
+                    if db_state.strip().startswith("{"):
+                        try:
+                            import json
+                            parsed = json.loads(db_state)
+                            if isinstance(parsed, dict):
+                                token = parsed.get("token")
+                                saved_date = parsed.get("date", saved_date)
+                            else:
+                                token = db_state.strip()
+                        except Exception:
                             token = db_state.strip()
-                    except Exception:
+                    else:
                         token = db_state.strip()
-                else:
-                    token = db_state.strip()
 
-            if token and (saved_date == now_date or not is_token_expired(token)):
-                logger.info(f"⚡ [DB CACHE HIT] Loaded active Fyers access token for today ({now_date}) from PostgreSQL!")
-                _cached_token = token
-                _token_date = now_date
-                return token
-        except Exception as e:
-            logger.warning(f"Error fetching Fyers token from DB: {e}")
+                if token and (saved_date == now_date or not is_token_expired(token)):
+                    logger.info(f"⚡ [DB CACHE HIT] Loaded active Fyers access token for today ({now_date}) from PostgreSQL!")
+                    _cached_token = token
+                    _token_date = now_date
+                    return token
+            except Exception as e:
+                logger.warning(f"Error fetching Fyers token from DB: {e}")
 
         # 2. Try fetching from local file
         token_path = config.FYERS_TOKEN_PATH
@@ -807,13 +828,13 @@ def clear_token(force: bool = False):
             except Exception:
                 pass
                 
-        try:
-            from database import save_system_state
-            save_system_state("fyers_access_token", "")
-            save_system_state("fyers_access_token_date", "")
-            logger.info("🗑️ Forced deletion of Fyers access token from DB and disk.")
-        except Exception as e:
-            logger.error(f"Failed to clear token from DB: {e}")
+        if save_system_state is not None:
+            try:
+                save_system_state("fyers_access_token", "")
+                save_system_state("fyers_access_token_date", "")
+                logger.info("🗑️ Forced deletion of Fyers access token from DB and disk.")
+            except Exception as e:
+                logger.error(f"Failed to clear token from DB: {e}")
         
 def get_fyers_client() -> fyersModel.FyersModel:
     """Initializes and returns an authenticated FyersModel client."""

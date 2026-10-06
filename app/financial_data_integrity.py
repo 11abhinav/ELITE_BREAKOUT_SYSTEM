@@ -3226,10 +3226,12 @@ class SharedFinancialSnapshot:
             "fundamental_category": self.fundamental_category,
             "is_value_trap": self.is_value_trap,
             "upstream_provider": "SHARED_CANONICAL_SNAPSHOT",
-            "provenance_status": self.provenance_status,
             "snapshot_status": self.snapshot_status,
             "pit_freshness_status": self.pit_freshness_status,
             "quality_source_basis": "ANNUAL",
+            "latest_annual_period": self.latest_annual_period,
+            "period_end": self.latest_annual_period,
+            "filing_date": self.as_of_date,
             "annual_filing_present": bool(self.latest_annual_period or (self.roce is not None)),
         }
 

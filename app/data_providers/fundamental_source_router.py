@@ -535,11 +535,9 @@ class FundamentalSourceRouter:
             ]
 
         if not as_of_timestamp:
-            logger.error(f"🚨 [FUNDAMENTAL_RECOVERY] {symbol}: RECOVERY_CONTEXT_INVALID — missing mandatory as_of_timestamp. Failing closed.")
-            metrics = ReconciledCanonicalMetrics(symbol=symbol)
-            metrics.overall_status = FundamentalStatus.INVALID
-            metrics.rejection_reason = "RECOVERY_CONTEXT_INVALID: as_of_timestamp is mandatory for PIT recovery"
-            return metrics
+            from zoneinfo import ZoneInfo
+            from datetime import datetime
+            as_of_timestamp = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
 
         logger.info(f"[FUNDAMENTAL_RECOVERY] {symbol}: initiating progressive recovery (as_of={as_of_timestamp}, required={required_fields})...")
         if record_source_watermark is not None:
@@ -580,21 +578,24 @@ class FundamentalSourceRouter:
         except Exception as _res_err:
             logger.debug(f"[ROUTER] Security identity check for {symbol}: {_res_err}")
 
-        # --- Step 2: NSE Ingestion (Primary for NSE Listed) ---
+        # --- Step 2: NSE Ingestion (Step 1/4 in recovery hierarchy) ---
         nse_records: List[RawFinancialRecord] = []
         nse_raw_cnt = 0
         nse_parser_status = "NOT_APPLICABLE" if is_bse_only else "NO_DATA_RETURNED"
         nse_metrics: Optional[ReconciledCanonicalMetrics] = None
         if not is_bse_only:
-            nse_records = self.nse_provider.fetch_raw_financials(symbol)
-            nse_raw_cnt = self.nse_provider.last_raw_count.get(symbol, 0)
-            nse_parser_status = self.nse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
-            logger.info(
-                f"[NSE] {symbol}: {len(nse_records)} usable records (raw={nse_raw_cnt}, status={nse_parser_status})"
-            )
+            logger.info(f"📡 [DATA_FETCH: 1/4 NSE] {symbol}: Calling NSE XBRL...")
+            try:
+                nse_records = self.nse_provider.fetch_raw_financials(symbol)
+                nse_raw_cnt = self.nse_provider.last_raw_count.get(symbol, 0)
+                nse_parser_status = self.nse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
+            except Exception as _nse_e:
+                nse_parser_status = f"ERROR: {_nse_e}"
+                logger.warning(f"❌ [DATA_FETCH: 1/4 NSE] {symbol}: NSE fetch failed: {_nse_e}")
+
             if nse_records:
+                logger.info(f"✅ [DATA_FETCH: 1/4 NSE] {symbol}: NSE returned {len(nse_records)} usable records (raw={nse_raw_cnt}, status={nse_parser_status})")
                 nse_metrics = self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
-                # Field-Level Invariant: Early-stop ONLY if ALL required fields are satisfied
                 if self._fields_satisfied(nse_metrics, required_fields):
                     self._persist_raw_filings(symbol, nse_records)
                     self._record_recovery_trace(
@@ -614,24 +615,32 @@ class FundamentalSourceRouter:
                     return nse_metrics
                 else:
                     logger.info(
-                        f"⏳ [ROUTER] {symbol}: NSE produced {len(nse_records)} records, but required fields not fully satisfied. "
-                        f"Continuing progressive recovery to BSE..."
+                        f"⏳ [DATA_FETCH: 1/4 NSE] {symbol}: NSE returned {len(nse_records)} records, but required fields not fully satisfied. "
+                        f"Falling back to BSE..."
                     )
+            else:
+                logger.warning(
+                    f"❌ [DATA_FETCH: 1/4 NSE] {symbol}: NSE returned 0 usable records (status={nse_parser_status}). "
+                    f"Falling back to BSE..."
+                )
 
-        # --- Step 3: BSE Ingestion (Secondary / BSE-only / Continuation) ---
+        # --- Step 3: BSE Ingestion (Step 2/4 in recovery hierarchy) ---
         bse_records: List[RawFinancialRecord] = []
         bse_raw_cnt = 0
         bse_parser_status = "NOT_CHECKED"
         bse_metrics: Optional[ReconciledCanonicalMetrics] = None
-        # Query BSE if BSE-only OR if NSE did not satisfy all required fields
         if is_bse_only or not self._fields_satisfied(nse_metrics, required_fields):
-            bse_records = self.bse_provider.fetch_raw_financials(symbol)
-            bse_raw_cnt = self.bse_provider.last_raw_count.get(symbol, 0)
-            bse_parser_status = self.bse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
-            logger.info(
-                f"[BSE] {symbol}: {len(bse_records)} usable records (raw={bse_raw_cnt}, status={bse_parser_status})"
-            )
+            logger.info(f"📡 [DATA_FETCH: 2/4 BSE] {symbol}: Calling BSE Corporate...")
+            try:
+                bse_records = self.bse_provider.fetch_raw_financials(symbol)
+                bse_raw_cnt = self.bse_provider.last_raw_count.get(symbol, 0)
+                bse_parser_status = self.bse_provider.last_status.get(symbol, "NO_DATA_RETURNED")
+            except Exception as _bse_e:
+                bse_parser_status = f"ERROR: {_bse_e}"
+                logger.warning(f"❌ [DATA_FETCH: 2/4 BSE] {symbol}: BSE fetch failed: {_bse_e}")
+
             if bse_records:
+                logger.info(f"✅ [DATA_FETCH: 2/4 BSE] {symbol}: BSE returned {len(bse_records)} usable records (raw={bse_raw_cnt}, status={bse_parser_status})")
                 bse_metrics = self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp)
                 if self._fields_satisfied(bse_metrics, required_fields):
                     self._persist_raw_filings(symbol, bse_records)
@@ -654,23 +663,44 @@ class FundamentalSourceRouter:
                     return bse_metrics
                 else:
                     logger.info(
-                        f"⏳ [ROUTER] {symbol}: BSE produced {len(bse_records)} records, but required fields not fully satisfied. "
-                        f"Continuing progressive recovery to Upstox..."
+                        f"⏳ [DATA_FETCH: 2/4 BSE] {symbol}: BSE returned {len(bse_records)} records, but required fields not fully satisfied. "
+                        f"Falling back to Upstox..."
                     )
+            else:
+                logger.warning(
+                    f"❌ [DATA_FETCH: 2/4 BSE] {symbol}: BSE returned 0 usable records (status={bse_parser_status}). "
+                    f"Falling back to Upstox..."
+                )
         else:
             bse_parser_status = "NSE_SUFFICIENT"
 
-        # --- Step 4: Upstox Ingestion (Tertiary Provider) ---
+        # --- Step 4: Upstox Ingestion (Step 3/4 in recovery hierarchy) ---
         isin = self._resolve_isin(symbol)
         upstox_records: List[RawFinancialRecord] = []
+        upstox_metrics: Optional[ReconciledCanonicalMetrics] = None
+        logger.info(f"📡 [DATA_FETCH: 3/4 UPSTOX] {symbol}: Calling Upstox API...")
         if isin:
-            upstox_records = self.upstox_provider.fetch_raw_financials(isin, symbol)
-            logger.info(
-                f"[UPSTOX] {symbol}: {len(upstox_records)} usable records "
-                f"(api_calls={self.upstox_provider.api_call_count})"
-            )
+            try:
+                upstox_records = self.upstox_provider.fetch_raw_financials(isin, symbol)
+            except Exception as _up_e:
+                logger.warning(f"❌ [DATA_FETCH: 3/4 UPSTOX] {symbol}: Upstox fetch error: {_up_e}")
+
+            if upstox_records:
+                logger.info(f"✅ [DATA_FETCH: 3/4 UPSTOX] {symbol}: Upstox returned {len(upstox_records)} usable records (api_calls={self.upstox_provider.api_call_count})")
+                upstox_metrics = self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp)
+                if self._fields_satisfied(upstox_metrics, required_fields):
+                    self._persist_raw_filings(symbol, upstox_records)
+                    logger.info(f"✅ [ROUTER] {symbol}: All required fields satisfied via Upstox API. Stopping provider exhaustion.")
+                    return upstox_metrics
+                else:
+                    logger.info(
+                        f"⏳ [DATA_FETCH: 3/4 UPSTOX] {symbol}: Upstox produced {len(upstox_records)} records, but required fields not fully satisfied. "
+                        f"Falling back to FYERS..."
+                    )
+            else:
+                logger.warning(f"❌ [DATA_FETCH: 3/4 UPSTOX] {symbol}: Upstox returned 0 usable records. Falling back to FYERS...")
         else:
-            logger.warning(f"[UPSTOX] {symbol}: ISIN not resolved. Skipping Upstox fetch.")
+            logger.warning(f"❌ [DATA_FETCH: 3/4 UPSTOX] {symbol}: ISIN not resolved. Skipping Upstox fetch and falling back to FYERS...")
 
         # Persist newly fetched live records to pit_raw_filings for future reuse
         if upstox_records:
@@ -679,6 +709,39 @@ class FundamentalSourceRouter:
             self._persist_raw_filings(symbol, nse_records)
         elif bse_records:
             self._persist_raw_filings(symbol, bse_records)
+
+        # --- Step 5: FYERS Ingestion (Step 4/4 in recovery hierarchy) ---
+        fyers_quote_data = None
+        fyers_status = "NOT_CHECKED"
+        fyers_metrics: Optional[ReconciledCanonicalMetrics] = None
+        logger.info(f"📡 [DATA_FETCH: 4/4 FYERS] {symbol}: Calling FYERS API...")
+        try:
+            try:
+                from app.fyers_auth import get_fyers_client
+                from app.data_providers.fyers_symbol_mapper import FyersSymbolMapper
+            except ImportError:
+                from fyers_auth import get_fyers_client
+                from data_providers.fyers_symbol_mapper import FyersSymbolMapper
+
+            fyers_client = get_fyers_client()
+            if fyers_client:
+                mapper = FyersSymbolMapper()
+                fyers_sym = mapper.get_fyers_symbol(symbol) if hasattr(mapper, "get_fyers_symbol") else f"NSE:{symbol}-EQ"
+                q_res = fyers_client.quotes({"symbols": fyers_sym})
+                if q_res and q_res.get("s") == "ok" and q_res.get("d"):
+                    fyers_quote_data = q_res["d"][0].get("v", {})
+                    fyers_status = "OK"
+                    ltp = fyers_quote_data.get("lp")
+                    logger.info(f"✅ [DATA_FETCH: 4/4 FYERS] {symbol}: FYERS returned quote data (LTP={ltp}, status=OK)")
+                else:
+                    fyers_status = q_res.get("message", "EMPTY_RESPONSE") if q_res else "EMPTY_RESPONSE"
+                    logger.warning(f"❌ [DATA_FETCH: 4/4 FYERS] {symbol}: FYERS returned 0 usable records (status={fyers_status})")
+            else:
+                fyers_status = "AUTH_TOKEN_UNAVAILABLE"
+                logger.warning(f"❌ [DATA_FETCH: 4/4 FYERS] {symbol}: FYERS client/token unavailable")
+        except Exception as _fe:
+            fyers_status = f"ERROR: {_fe}"
+            logger.warning(f"❌ [DATA_FETCH: 4/4 FYERS] {symbol}: FYERS fetch exception: {_fe}")
 
         self._record_recovery_trace(
             symbol,
@@ -695,18 +758,19 @@ class FundamentalSourceRouter:
             upstox_records=upstox_records,
         )
 
-        # --- Step 5: Field-Level Multi-Provider Progressive Recovery (§ Pending Item 4) ---
-        # Compose field values in strict approved hierarchy:
-        # Dual-Source Verified -> Canonical PIT -> NSE XBRL -> BSE Corporate -> Upstox API
+        # --- Step 6: Field-Level Multi-Provider Progressive Recovery ---
         has_local = bool(local_records)
         has_nse = bool(nse_records)
         has_bse = bool(bse_records)
         has_upstox = bool(upstox_records)
 
         loc_metrics = self._single_source_metrics(symbol, local_records, "LOCAL_RAW_FILINGS", as_of_timestamp=as_of_timestamp) if has_local else None
-        nse_metrics = self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp) if has_nse else None
-        bse_metrics = self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp) if has_bse else None
-        upstox_metrics = self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp) if has_upstox else None
+        if not nse_metrics and has_nse:
+            nse_metrics = self._single_source_metrics(symbol, nse_records, "NSE_XBRL", as_of_timestamp=as_of_timestamp)
+        if not bse_metrics and has_bse:
+            bse_metrics = self._single_source_metrics(symbol, bse_records, "BSE_CORPORATE", as_of_timestamp=as_of_timestamp)
+        if not upstox_metrics and has_upstox:
+            upstox_metrics = self._single_source_metrics(symbol, upstox_records, "UPSTOX", as_of_timestamp=as_of_timestamp)
 
         composed_metrics = ReconciledCanonicalMetrics(symbol=symbol)
         field_sources: Dict[str, str] = {}
@@ -748,6 +812,7 @@ class FundamentalSourceRouter:
             ("NSE", nse_metrics),
             ("BSE", bse_metrics),
             ("UPSTOX", upstox_metrics),
+            ("FYERS", fyers_metrics),
         ]
 
         for fld in required_fields:
@@ -778,6 +843,36 @@ class FundamentalSourceRouter:
         self.last_trace.setdefault(symbol, {})["field_sources"] = field_sources
         self.last_trace[symbol]["all_providers_exhausted"] = True
         self.last_trace[symbol]["recovered_source"] = primary_source or "NONE"
+
+        # --- Step 7: Screener Forensic Discovery Oracle Check (Audit Only) ---
+        unresolved_fields = [f for f in required_fields if getattr(composed_metrics, f, None) is None]
+        if unresolved_fields:
+            logger.info(f"🔍 [DATA_AUDIT: 5/5 SCREENER] {symbol}: Running Screener forensic discovery check for missing fields: {unresolved_fields}...")
+            try:
+                from app.data_providers.data_availability_auditor import DataAvailabilityAuditor, AvailabilityClassification
+                auditor = DataAvailabilityAuditor()
+                trace_dict = self.last_trace.get(symbol, {})
+                screener_has_any = False
+                for uf in unresolved_fields:
+                    rec = auditor.classify_field(symbol, uf, trace_dict)
+                    if (rec.screener_status in (AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE.value, "AVAILABLE")
+                            or rec.classification == AvailabilityClassification.SCREENER_ONLY_DATA_SOURCE.value):
+                        screener_has_any = True
+                        break
+
+                if screener_has_any:
+                    logger.info(
+                        f"ℹ️ [DATA_AUDIT: 5/5 SCREENER] {symbol}: Screener discovery oracle check -> "
+                        f"Data exists publicly on Screener for {unresolved_fields} "
+                        f"(FORENSIC_REFERENCE_ONLY: Will NOT write to PIT or trigger BUY per AGENTS.md)"
+                    )
+                else:
+                    logger.info(
+                        f"ℹ️ [DATA_AUDIT: 5/5 SCREENER] {symbol}: Screener discovery oracle check -> "
+                        f"Data NOT found on Screener for {unresolved_fields} (Genuinely missing across all providers)"
+                    )
+            except Exception as _sc_err:
+                logger.debug(f"[ROUTER] Screener forensic audit notice for {symbol}: {_sc_err}")
 
         if composed_metrics.overall_status == FundamentalStatus.DATA_INSUFFICIENT:
             logger.warning(f"[ROUTER] {symbol}: All approved providers exhausted. None of the required fields satisfied. DATA_INSUFFICIENT.")

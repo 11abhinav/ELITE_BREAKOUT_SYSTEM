@@ -1227,6 +1227,9 @@ class DailyBuilderFundamentalProvider:
                 "prior_eps": p_eps,
                 "upstream_provider": "DAILY_BUILDER_2.0",
                 "quality_source_basis": "ANNUAL",
+                "latest_annual_period": str(r.get("latest_annual_period") or r.get("period_end") or ""),
+                "period_end": str(r.get("latest_annual_period") or r.get("period_end") or ""),
+                "filing_date": str(r.get("as_of_date") or r.get("filing_date") or ""),
                 "annual_filing_present": True,
                 "provenance_status": str(meta.get("provenance_status", "CERTIFIED_LOCAL_DAILY_BUILDER")),
                 "snapshot_status": "FRESH" if meta.get("freshness_status") == "FRESH" else "CERTIFIED",
@@ -2662,25 +2665,25 @@ class LiveFundamentalBuyScanner:
                             "roce": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="roce",
                                 value_used=m.get("roce"), unit="PERCENT", basis="CONSOLIDATED",
-                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
                                 source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
                             ),
                             "roe": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="roe",
                                 value_used=m.get("roe"), unit="PERCENT", basis="CONSOLIDATED",
-                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
                                 source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
                             ),
                             "operating_cash_flow": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="operating_cash_flow",
                                 value_used=m.get("operating_cash_flow"), unit="INR_CRORE", basis="CONSOLIDATED",
-                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
                                 source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
                             ),
                             "debt_equity": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="debt_equity",
                                 value_used=m.get("debt_equity"), unit="RATIO", basis="CONSOLIDATED",
-                                period_end=str(funds.get("period_end") or funds.get("filing_date") or "2025-03-31"),
+                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
                                 source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
                             ),
                         },
@@ -2974,12 +2977,14 @@ class LiveFundamentalBuyScanner:
 
             if upsert_scanner_health is not None:
                 try:
-                    di = funnel.get("data_insufficient_count", 0)
-                    dm = funnel.get("data_missing_count", 0)
-                    pf = funnel.get("provider_failure_count", 0)
+                    total_data_issues = (
+                        funnel.get("data_insufficient_count", 0) +
+                        funnel.get("data_missing_count", 0) +
+                        funnel.get("provider_failure_count", 0)
+                    )
                     total_symbols_cnt = len(target_symbols)
+                    data_fail_ratio = total_data_issues / max(1, total_symbols_cnt)
 
-                    total_data_issues = di + dm + pf
                     is_crashed = funnel["scanned_count"] < total_symbols_cnt
                     context_failed = (ctx is not None and getattr(ctx, "lifecycle_status", "") in ("FAILED", "STOPPED"))
 
@@ -2992,22 +2997,19 @@ class LiveFundamentalBuyScanner:
                         except Exception as _tel_err:
                             logger.debug(f"Telemetry check notice: {_tel_err}")
 
-                    fail_ratio = total_data_issues / max(1, total_symbols_cnt)
-                    is_down = is_crashed or fail_ratio > 0.25
-                    is_degraded = is_down or (total_data_issues > 0) or context_failed or telemetry_failed
-                    if is_down:
+                    if is_crashed or context_failed or data_fail_ratio > 0.25:
                         health_status = "DOWN"
                         health_outcome = "FAILED"
                         gap_msg = (
                             f"DATA_DOWN: {total_data_issues}/{total_symbols_cnt} stocks "
-                            f"({round(fail_ratio * 100, 1)}% > 25% threshold) incomplete/missing data failures"
+                            f"({round(data_fail_ratio * 100, 1)}% > 25% threshold) incomplete/missing data failures"
                         )
-                    elif is_degraded:
+                    elif data_fail_ratio > 0.10 or telemetry_failed:
                         health_status = "DEGRADED"
                         health_outcome = "PARTIAL"
                         gap_msg = (
                             f"DATA_DEGRADED: {total_data_issues}/{total_symbols_cnt} stocks "
-                            f"({round(fail_ratio * 100, 1)}%) data gaps/failures"
+                            f"({round(data_fail_ratio * 100, 1)}% > 10% threshold) incomplete/stale data gaps"
                         )
                     else:
                         health_status = "OK"
