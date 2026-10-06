@@ -36,6 +36,7 @@ data/*
 !data/pattern_confluence_golden_dataset.json
 *.parquet
 !data/exchange_watermarks.json
+!data/bse_security_master.json
 # ── Certified PIT datasets required by V2_FINAL scanner at runtime ──
 !data/canonical_pit_rebuilt.parquet
 !data/canonical_pit_rebuilt_meta.json

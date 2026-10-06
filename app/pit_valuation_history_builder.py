@@ -381,10 +381,10 @@ def build_pit_valuation_history(
     if save_cache or upload_db:
         current_cache_both_complete, current_cache_path = _load_current_cache_completeness()
         if current_cache_both_complete > 0 and both_complete_count < current_cache_both_complete:
-            logger.error(
-                f"❌ [VALUATION_BUILDER] NEVER_DOWNGRADE_BLOCKED: rebuild produced "
+            logger.info(
+                f"🛡️ [VALUATION_BUILDER] NEVER_DOWNGRADE_PRESERVED: rebuild produced "
                 f"both_complete={both_complete_count} (symbols with EV+PE medians), "
-                f"which is LESS THAN current cache baseline "
+                f"which is less than current cache baseline "
                 f"both_complete={current_cache_both_complete} from '{current_cache_path}'. "
                 f"Active cache preserved unchanged. "
                 f"Returning incomplete rebuild for diagnostics only — NOT for production use."

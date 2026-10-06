@@ -3722,6 +3722,8 @@ class QualityCompounderValueV2Scanner:
         if not isinstance(industry_str, str):
             return False
         ind_upper = industry_str.upper()
+        if "CAPITAL GOODS" in ind_upper:
+            return False
         financial_keywords = [
             "BANK", "FINANCE", "FINANCIAL", "HOUSING FINANCE", "NBFC",
             "INSURANCE", "INVESTMENT", "CAPITAL", "SECURITIES", "LEASING", "AMC"
@@ -7377,6 +7379,14 @@ class QualityValueRecoveryScanner:
                 except Exception as e_run_err:
                     logger.debug(f"start_scanner_execution_run for {self.strategy_id} non-fatal: {e_run_err}")
 
+                _scan_start = time.monotonic()
+                start_ts = datetime.now(IST)
+                queued_at = time.time()
+                try:
+                    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
+                except ImportError:
+                    from app.lock_utils import print_scanner_start_banner, print_scanner_end_banner
+
                 try:
                     pit_df = self.load_pit_dataset()
                     if pit_df is None or pit_df.empty:
@@ -7387,6 +7397,27 @@ class QualityValueRecoveryScanner:
                     approved_univ = sorted(list(self.universe_registry.approved_symbols))
                     pit_records_map = {str(r['symbol']).strip().upper(): r for r in pit_df.to_dict(orient="records")}
 
+                    # Resolve 1D historical price data directory
+                    candidate_1d_dirs = [
+                        os.path.join(DATA_DIR, "history", "1d"),
+                        os.path.join(BASE_DIR, "data", "history", "1d"),
+                        os.path.join(os.getcwd(), "data", "history", "1d"),
+                        os.path.abspath("data/history/1d"),
+                        "/app/data/history/1d",
+                        "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/history/1d",
+                    ]
+                    resolved_1d_dir = None
+                    for c_dir in candidate_1d_dirs:
+                        if c_dir and os.path.isdir(c_dir) and glob.glob(os.path.join(c_dir, "*.parquet")):
+                            resolved_1d_dir = c_dir
+                            break
+
+                    print_scanner_start_banner(self.strategy_id, queued_at=queued_at, run_id=getattr(exec_run_ctx, "run_id", None))
+                    logger.info(
+                        f"🚀 [SCAN_START: {self.strategy_id}] run_id={getattr(exec_run_ctx, 'run_id', 'MANUAL')} | "
+                        f"universe={len(approved_univ)} approved stocks | 1D_history_dir={resolved_1d_dir or 'NOT_FOUND'}"
+                    )
+
                     live_prices_map = {}
                     try:
                         from app.live_prices import get_live_prices
@@ -7396,16 +7427,40 @@ class QualityValueRecoveryScanner:
 
                     candidates = []
                     candidates_inserted = 0
+                    rejection_counts: Dict[str, int] = {}
+                    evaluated_count = 0
+
                     for sym in approved_univ:
                         row = pit_records_map.get(sym)
                         if not row:
                             continue
+
+                        df_px = None
+                        if resolved_1d_dir:
+                            p_file = os.path.join(resolved_1d_dir, f"{sym}.parquet")
+                            if os.path.isfile(p_file):
+                                try:
+                                    df_px = pd.read_parquet(p_file)
+                                except Exception:
+                                    pass
+
                         cmp_price = float(live_prices_map.get(sym, 0.0) or 0.0)
+                        if cmp_price <= 0 and df_px is not None and not df_px.empty:
+                            c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
+                            if c_col and len(df_px[c_col]) > 0:
+                                cmp_price = float(df_px[c_col].iloc[-1])
                         if cmp_price <= 0 and os.environ.get("PYTEST_CURRENT_TEST"):
                             cmp_price = float(row.get('current_price') or 100.0)
 
-                        passed, rejection_reasons, metrics = self.evaluate_symbol_recovery(sym, row, cmp_price)
+                        passed, rejection_reasons, metrics = self.evaluate_symbol_recovery(sym, row, cmp_price, df_px=df_px)
+                        evaluated_count += 1
+
                         if passed:
+                            logger.info(
+                                f"✨ [GATE_EVAL:RECOVERY] {sym:<12} PASSED: CMP=₹{cmp_price:.2f} | "
+                                f"DD={metrics.get('drawdown_pct')}% (>=30% PASS) | ROCE={metrics.get('roce')}% | "
+                                f"D/E={metrics.get('d_e')} | ValRatio={metrics.get('val_compression_ratio')} (<=0.80 PASS)"
+                            )
                             cand = {
                                 "symbol": sym,
                                 "entry_price": cmp_price,
@@ -7454,6 +7509,30 @@ class QualityValueRecoveryScanner:
                                 logger.info(
                                     f"🚀 [BUY_ALERT: {self.strategy_id}] {sym:<12} | CMP=₹{cmp_price:<8.2f} | Status={msg}"
                                 )
+                        else:
+                            for r in rejection_reasons:
+                                rejection_counts[r] = rejection_counts.get(r, 0) + 1
+                            if evaluated_count <= 15 or evaluated_count % 100 == 0:
+                                logger.info(
+                                    f"🔍 [GATE_EVAL:RECOVERY] {sym:<12} REJECTED: {','.join(rejection_reasons)} | "
+                                    f"DD={metrics.get('drawdown_pct', 0.0)}% | ROCE={metrics.get('roce', 0.0)}% | "
+                                    f"D/E={metrics.get('d_e', 0.0)} | ValRatio={metrics.get('val_compression_ratio', 1.0)}"
+                                )
+
+                    logger.info(
+                        f"📊 [SCAN_SUMMARY: {self.strategy_id}] Evaluated={evaluated_count} symbols | "
+                        f"Passed={len(candidates)} | Inserted={candidates_inserted} | Rejections={rejection_counts}"
+                    )
+                    try:
+                        print_scanner_end_banner(
+                            self.strategy_id,
+                            start_mono=_scan_start,
+                            run_id=getattr(exec_run_ctx, "run_id", None),
+                            override_status="OK",
+                            start_wall_ts=start_ts
+                        )
+                    except Exception as _b_err:
+                        logger.debug(f"Recovery end banner notice: {_b_err}")
 
                     if exec_run_ctx:
                         try:

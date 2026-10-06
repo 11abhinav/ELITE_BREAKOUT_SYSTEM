@@ -86,22 +86,36 @@ def _safe_float(val) -> Optional[float]:
 
 
 def _normalize_upstox_period(period_str: str) -> str:
-    """Convert 'Mar 2026' -> '2026-03-31', 'Dec 2025' -> '2025-12-31', etc."""
+    """Convert 'Mar 2026' -> '2026-03-31', '31-Mar-2025' -> '2025-03-31', etc."""
     if not period_str:
         return ""
-    parts = period_str.strip().split()
+    p_str = period_str.strip()
+    month_map = {
+        "jan": ("01", "31"), "feb": ("02", "28"), "mar": ("03", "31"),
+        "apr": ("04", "30"), "may": ("05", "31"), "jun": ("06", "30"),
+        "jul": ("07", "31"), "aug": ("08", "31"), "sep": ("09", "30"),
+        "oct": ("10", "31"), "nov": ("11", "30"), "dec": ("12", "31"),
+    }
+    # Pattern 1: 'Mar 2026' or 'March 2026'
+    parts = p_str.split()
     if len(parts) == 2:
         month_str, year_str = parts[0].lower(), parts[1]
-        month_map = {
-            "jan": ("01", "31"), "feb": ("02", "28"), "mar": ("03", "31"),
-            "apr": ("04", "30"), "may": ("05", "31"), "jun": ("06", "30"),
-            "jul": ("07", "31"), "aug": ("08", "31"), "sep": ("09", "30"),
-            "oct": ("10", "31"), "nov": ("11", "30"), "dec": ("12", "31"),
-        }
         if month_str[:3] in month_map:
             m, d = month_map[month_str[:3]]
             return f"{year_str}-{m}-{d}"
-    return period_str
+    # Pattern 2: '31-Mar-2025' or '31/Mar/2025' or '2025-03-31'
+    for sep in ("-", "/", " "):
+        if sep in p_str:
+            sub = p_str.split(sep)
+            if len(sub) == 3:
+                # day, month, year e.g. 31, Mar, 2025
+                if sub[1].lower()[:3] in month_map and len(sub[2]) == 4:
+                    m, d = month_map[sub[1].lower()[:3]]
+                    return f"{sub[2]}-{m}-{sub[0].zfill(2)}"
+                # year, month, day e.g. 2025, 03, 31
+                elif len(sub[0]) == 4 and sub[1].isdigit() and sub[2].isdigit():
+                    return f"{sub[0]}-{sub[1].zfill(2)}-{sub[2].zfill(2)}"
+    return p_str
 
 
 class UpstoxFundamentalsProvider:
@@ -318,7 +332,65 @@ class UpstoxFundamentalsProvider:
 
         data = data_resp.get("data", data_resp) if isinstance(data_resp, dict) else data_resp
 
-        # Format A: Real Upstox API dict schema: {"type": ..., "time_period": ..., "history": [...]}
+        # Format A1: Real Upstox API category list schema: {"type": ..., "balance_sheet": [{"category": ..., "history": [...]}]}
+        bs_list = None
+        if isinstance(data, dict):
+            for k in ("balance_sheet", "balance_sheets", "balanceSheets"):
+                if k in data and isinstance(data[k], list):
+                    bs_list = data[k]
+                    break
+
+        if bs_list is not None:
+            period_bs_map: Dict[str, dict] = {}
+            for cat_item in bs_list:
+                cat_name = str(cat_item.get("category", "")).lower()
+                for h in cat_item.get("history", []):
+                    p_norm = _normalize_upstox_period(h.get("period", ""))
+                    if not p_norm:
+                        continue
+                    if p_norm not in period_bs_map:
+                        period_bs_map[p_norm] = {
+                            "total_assets": None,
+                            "total_liabilities": None,
+                            "total_debt": None,
+                            "total_equity": None,
+                            "cash": None,
+                        }
+                    val = _safe_float(h.get("value"))
+                    if any(k in cat_name for k in ("total debt", "borrowings", "debt", "total_debt", "long term borrowings", "short term borrowings")):
+                        if period_bs_map[p_norm]["total_debt"] is None or "total" in cat_name:
+                            period_bs_map[p_norm]["total_debt"] = val
+                    elif any(k in cat_name for k in ("shareholders' equity", "shareholders equity", "total equity", "equity", "net worth", "share capital")):
+                        if period_bs_map[p_norm]["total_equity"] is None or "total" in cat_name:
+                            period_bs_map[p_norm]["total_equity"] = val
+                    elif any(k in cat_name for k in ("total assets", "total asset", "assets")):
+                        if period_bs_map[p_norm]["total_assets"] is None or "total" in cat_name:
+                            period_bs_map[p_norm]["total_assets"] = val
+                    elif any(k in cat_name for k in ("total liabilities", "total current liabilities", "liabilities")):
+                        if period_bs_map[p_norm]["total_liabilities"] is None or "total" in cat_name:
+                            period_bs_map[p_norm]["total_liabilities"] = val
+                    elif any(k in cat_name for k in ("cash and cash equivalents", "cash & cash equivalents", "cash")):
+                        period_bs_map[p_norm]["cash"] = val
+
+            for p_norm, bs_vals in period_bs_map.items():
+                t_assets = bs_vals["total_assets"]
+                t_liab = bs_vals["total_liabilities"]
+                t_debt = bs_vals["total_debt"]
+                t_eq = bs_vals["total_equity"]
+                if t_eq is None and t_assets is not None and t_liab is not None:
+                    t_eq = t_assets - t_liab
+                cap_emp = None
+                if t_assets is not None and t_liab is not None:
+                    cap_emp = t_assets - t_liab
+
+                for rec in income_records:
+                    if rec.period_end_date == p_norm:
+                        rec.total_debt = t_debt
+                        rec.total_equity = t_eq
+                        rec.capital_employed = cap_emp
+            return income_records
+
+        # Format A2: Root history list schema: {"type": ..., "time_period": ..., "history": [...]}
         if isinstance(data, dict) and "history" in data and isinstance(data["history"], list):
             for row in data["history"]:
                 p_norm = _normalize_upstox_period(row.get("period", ""))
