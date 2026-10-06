@@ -383,7 +383,16 @@ class DataAvailabilityAuditor:
             int(trace.get("local_annual", 0) or 0),
         )
         min_needed = _MIN_ANNUAL_PERIODS.get(fld)
-        primary_has_enough = min_needed is not None and max_annual >= min_needed
+        # Check if the missing metric is a balance-sheet metric but providers only provided income-statement
+        is_bs_metric = fld in ("debt", "debt_to_equity", "d/e")
+        has_bs_records = (
+            int(trace.get("nse_records", 0) or 0) > 0
+            or int(trace.get("bse_records", 0) or 0) > 0
+            or int(trace.get("local_records", 0) or 0) > 0
+            or int(trace.get("upstox_bs_records", 0) or 0) > 0
+        )
+        provider_omitted_statement = bool(is_bs_metric and not has_bs_records and trace.get("parser_error") is None)
+        primary_has_enough = min_needed is not None and max_annual >= min_needed and not provider_omitted_statement
 
         raw_records = max(
             int(trace.get("nse_records", 0) or 0),
@@ -401,7 +410,7 @@ class DataAvailabilityAuditor:
         # Scenario: Provider returned HTTP 200 & raw records, but 0 usable fields were extracted
         is_parser_failure = (
             parser_error is not None
-            or (http_ok and raw_records > 0 and (usable_fields == 0 or usable_fields is None))
+            or (http_ok and raw_records > 0 and (usable_fields == 0 or usable_fields is None) and not provider_omitted_statement)
             or (trace.get("nse_parser_status") == "PARSER_OR_FIELD_MAPPING_FAILURE")
             or (trace.get("bse_status") == "BSE_PARSE_FAILURE")
         )
@@ -441,6 +450,10 @@ class DataAvailabilityAuditor:
         elif has_filing_gap:
             cls = AvailabilityClassification.HISTORICAL_FILING_GAP
             action = f"HISTORICAL_FILING_GAP_BLOCKING_{fld.upper()}"
+        elif screener_avail and (is_parser_failure or trace.get("exhausted") or trace.get("all_providers_exhausted")):
+            # User acceptance case: full provider exhaustion with Screener reference available
+            cls = AvailabilityClassification.REFERENCE_ONLY_AVAILABLE
+            action = "INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING_REFERENCE_FOUND_ON_SCREENER"
         elif max_annual > 0 and min_needed is not None and max_annual < min_needed:
             cls = AvailabilityClassification.INSUFFICIENT_HISTORICAL_DEPTH
             action = f"CONFIRMED_SHORT_HISTORY (has {max_annual} annual periods, requires {min_needed})"
@@ -454,10 +467,6 @@ class DataAvailabilityAuditor:
             else:
                 cls = AvailabilityClassification.SYMBOL_MAPPING_FAILURE
                 action = "RESOLVE_SECURITY_ISIN_OR_SYMBOL_MAPPING"
-        elif screener_avail and (is_parser_failure or trace.get("exhausted") or trace.get("all_providers_exhausted")):
-            # User acceptance case: full provider exhaustion with Screener reference available
-            cls = AvailabilityClassification.REFERENCE_ONLY_AVAILABLE
-            action = "INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING_REFERENCE_FOUND_ON_SCREENER"
         elif is_parser_failure:
             cls = AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE
             action = f"INVESTIGATE_UPSTREAM_PARSER_OR_MAPPING (HTTP 200 raw filings present ({raw_records} records), but 0 usable fields extracted)"

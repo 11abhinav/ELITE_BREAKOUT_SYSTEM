@@ -484,6 +484,7 @@ class FundamentalSourceRouter:
             "bse_status": bse_status,
             "upstox_records": len(up_recs),
             "upstox_annual": _ann(up_recs),
+            "upstox_bs_records": sum(1 for r in up_recs if getattr(r, "total_debt", None) is not None or getattr(r, "total_equity", None) is not None),
             "fyers_api_classification": "UNSUPPORTED_FIELD",
             "fyers_status": "UNSUPPORTED_FIELD",
             "fyers_api_reason": (
