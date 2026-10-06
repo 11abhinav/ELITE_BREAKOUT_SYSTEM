@@ -568,6 +568,12 @@ class NseXbrlProvider:
                 if attempt < _MAX_RETRIES - 1:
                     time.sleep(1.5)
             except Exception as e:
+                self.retry_count += 1
+                if attempt < _MAX_RETRIES - 1:
+                    logger.warning(f"[NSE] {symbol}: Request error on attempt {attempt+1}/{_MAX_RETRIES} ({e}). Re-initializing session...")
+                    self._init_session()
+                    time.sleep(1.0)
+                    continue
                 logger.error(f"[NSE] {symbol}: Request error: {e}")
                 return None
 
