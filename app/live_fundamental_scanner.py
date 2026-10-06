@@ -7489,9 +7489,11 @@ class QualityValueRecoveryScanner:
                                 from financial_data_integrity import BUYEvidenceBundle, pre_buy_data_integrity_gate, DataStatus
                                 fin_metrics = self.daily_builder_provider.build_provenance_records_for_symbol(sym, row)
                                 c_bundle = BUYEvidenceBundle(
-                                    symbol=sym,
+                                    scan_run_id=getattr(exec_run_ctx, "run_id", "RECOVERY_RUN") if exec_run_ctx else "RECOVERY_RUN",
                                     scanner=self.strategy_id,
-                                    required_metrics=list(fin_metrics.keys()),
+                                    symbol=sym,
+                                    cmp=cmp_price,
+                                    strategy_score=90.0,
                                     gate_results={"QUALITY": True, "VALUATION": True},
                                     financial_metrics=fin_metrics,
                                     data_integrity_status=DataStatus.VALID,
