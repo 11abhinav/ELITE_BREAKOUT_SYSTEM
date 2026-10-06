@@ -6702,39 +6702,44 @@ def get_all_data_fetch_health() -> list:
 # ── Manual Portfolio Tracker ──────────────────────────────────────────────────
 
 def get_manual_portfolio():
-    """Retrieve all manual portfolio entries."""
+    """Retrieve all active open wealth portfolio entries from canonical alerts table."""
     init_db()
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT mp.id, mp.symbol, mp.entry_date::TEXT, mp.entry_price, mp.quantity,
+                SELECT id, symbol, alert_date::TEXT AS entry_date, COALESCE(entry_price, current_price) AS entry_price, 1 AS quantity,
                        FALSE                                                            AS earnings_flag,
                        999                                                              AS days_to_earnings,
                        NULL::DATE                                                       AS earnings_date,
                        'NONE'::TEXT                                                     AS earnings_severity,
                        ''                                                               AS warning_msg
-                FROM manual_portfolio mp
-                ORDER BY mp.added_at DESC
+                FROM alerts
+                WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                  AND record_type = 'ALERT_EVENT'
+                  AND status IN ('OPEN', 'ACTIVE')
+                ORDER BY alert_time DESC
             """)
             return cur.fetchall()
 
 def add_portfolio_entry(symbol: str, entry_date: str, entry_price: float, quantity: int):
-    """Add a new stock to the manual portfolio."""
+    """Add a new stock entry into canonical alerts table."""
     init_db()
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO manual_portfolio (symbol, entry_date, entry_price, quantity)
-                VALUES (%s, %s, %s, %s)
-            """, (symbol.upper(), entry_date, entry_price, quantity))
-        conn.commit()
+    save_alert_if_new(
+        symbol=symbol.upper(),
+        breakout_type="MANUAL_PORTFOLIO_ENTRY",
+        scanner="QUALITY_COMPOUNDER",
+        category="WEALTH",
+        entry_price=entry_price,
+        current_price=entry_price,
+        status="OPEN"
+    )
 
 def remove_portfolio_entry(entry_id: int):
-    """Remove a stock from the manual portfolio by ID."""
+    """Remove/close a position from canonical alerts table by ID."""
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM manual_portfolio WHERE id = %s", (entry_id,))
+            cur.execute("UPDATE alerts SET status = 'CLOSED', closed_at = NOW() WHERE id = %s", (entry_id,))
         conn.commit()
 
 def get_sector_momentum(days=7):
@@ -7800,199 +7805,76 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                         momentum_score: int = None, momentum_confidence: str = None,
                         data_quality: str = None, fallback_timestamp: str = None,
                         engine_version: str = None, config_version: str = None) -> bool:
-    """Save BUY alert to wealth_buy_alert with position sizing. Deduplicates by (symbol, alert_date, breakout_type)."""
-
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    now_ist = datetime.now(ZoneInfo('Asia/Kolkata'))
-    ist_today = now_ist.strftime('%Y-%m-%d')
-    ist_time = now_ist.strftime('%H:%M:%S')
-
-    # [FIX] Force fetch live price for accurate entry price in wealth engine
-    try:
-        from live_prices import get_live_prices
-        prices = get_live_prices([symbol], purpose="ALERT_PERSISTENCE")
-        if symbol in prices and prices[symbol] is not None:
-            alert_price = float(prices[symbol])
-    except Exception:
-        pass
-
-
-    # Safety: Do not persist wealth BUY alerts when the input data is stale.
-    # Callers pass `data_quality` and/or `fallback_timestamp` when using cached data.
-    try:
-        from datetime import timedelta
-        is_weekend = now_ist.weekday() in (5, 6)
-
-        stale_indicators = ["MISSING_PARTIAL"]
-        if not is_weekend:
-            stale_indicators.extend(["CACHED_PREV_DAY", "CACHED_MULTI_DAY"])
-
-        if data_quality and str(data_quality).upper() in stale_indicators:
-            logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} due to data_quality={data_quality}")
-            if not is_weekend:
-                insert_notification('warning', 'Stale Data Warning', f"Suppressed BUY for {symbol} due to stale data ({data_quality})", symbol)
-            return False
-
-        import pandas as pd
-        if fallback_timestamp is not None:
-            if pd.isna(fallback_timestamp):
-                fallback_timestamp = None
-            else:
-                try:
-                    ts = pd.to_datetime(fallback_timestamp)
-                    if ts.tzinfo is None:
-                        ts = ts.tz_localize("Asia/Kolkata")
-                    else:
-                        ts = ts.tz_convert("Asia/Kolkata")
-
-                    is_valid = False
-                    if ts.date() == now_ist.date():
-                        is_valid = True
-                    elif now_ist.weekday() == 5 and ts.date() == (now_ist.date() - timedelta(days=1)):
-                        is_valid = True # Saturday using Friday data
-                    elif now_ist.weekday() == 6 and ts.date() == (now_ist.date() - timedelta(days=2)):
-                        is_valid = True # Sunday using Friday data
-
-                    if not is_valid:
-                        logger.warning(f"🛡️ save_wealth_buy_alert: Suppressing wealth BUY for {symbol} because fallback_timestamp={fallback_timestamp} is not valid for today")
-                        if not is_weekend:
-                            insert_notification('warning', 'Stale Data Warning', f"Suppressed BUY for {symbol} because fallback timestamp ({ts.date()}) is older than today", symbol)
-                        return False
-
-                    fallback_timestamp = ts
-
-                except Exception as e:
-                    # If parsing fails, be conservative and suppress
-                    logger.warning(f"🛡️ save_wealth_buy_alert: Could not parse fallback_timestamp for {symbol} ({type(e).__name__}); suppressing buy")
-                    return False
-    except Exception:
-        logger.exception("⚠️ save_wealth_buy_alert: stale-data guard check failed unexpectedly — allowing insert")
-
-    with _DB_WRITE_LOCK:
-        try:
-            with get_connection() as conn:
-                success = False
-                try:
-                    with conn.cursor() as cur:
-                        # Avoid duplicating alerts if the stock already has an ACTIVE position in ANY wealth bucket alerted today
-                        cur.execute("""
-                            SELECT 1 FROM wealth_buy_alert
-                            WHERE symbol = %s
-                            AND status = 'ACTIVE'
-                            AND is_closed = FALSE
-                            AND alert_date = %s
-                        """, (symbol, ist_today))
-                        if cur.fetchone():
-                            logger.info(f"⏭️  BUY alert skipped for {symbol}: Already has an active position alerted today ({ist_today}).")
-                            return False
-
-                        # New alert - insert it with position sizing data and explicit IST time (Atomic DO NOTHING)
-                        cur.execute("""
-                            INSERT INTO wealth_buy_alert
-                            (symbol, alert_price, breakout_type, fm_score, status, notes, alert_date, alert_time,
-                            position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, current_price, current_score,
-                            engine_version, config_version)
-                            VALUES (%s, %s, %s, %s, 'ACTIVE', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT ON CONSTRAINT uq_wealth_symbol_date_type
-                            DO UPDATE SET
-                                fm_score = EXCLUDED.fm_score,
-                                current_price = COALESCE(wealth_buy_alert.current_price, EXCLUDED.current_price),
-                                current_score = COALESCE(wealth_buy_alert.current_score, EXCLUDED.current_score),
-                                updated_at = NOW()
-                        """, (symbol, alert_price, breakout_type or '', fm_score, notes, ist_today, datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S.%f%z'),
-                            position_pct, position_amount, position_shares, portfolio_bucket, valuation_score,
-                            momentum_score, momentum_confidence, data_quality, fallback_timestamp, alert_price, fm_score,
-                            engine_version, config_version))
-
-                        if cur.rowcount == 0:
-                            logger.info(f"⏭️  BUY alert already saved today: {symbol} {breakout_type}")
-                            return False  # Duplicate, skip
-
-                        elif cur.rowcount == 1 and getattr(cur, 'statusmessage', 'INSERT 0 1') == 'INSERT 0 1':
-                            pass # Normal insert
-                        else:
-                            pass # Was an update
-
-                        insert_notification('buy', 'New Wealth Buy Alert', f'Wealth alert triggered for {symbol} at ₹{alert_price} ({breakout_type})', symbol)
-
-                        conn.commit()
-                        success = True
-                finally:
-                    if not success:
-                        conn.rollback()
-
-            msg = f"✅ BUY alert saved: {symbol} @ ₹{alert_price} ({breakout_type}) | Score: {fm_score}"
-            if position_pct:
-                msg += f" | Size: {position_pct}% (₹{int(position_amount or 0)})"
-            logger.info(msg)
-            return True
-        except Exception as e:
-            logger.exception(f"❌ Failed to save wealth buy alert")
-            return False
+    """Save BUY alert to canonical alerts table."""
+    return save_alert_if_new(
+        symbol=symbol.upper(),
+        breakout_type=breakout_type or "QUALITY_COMPOUNDER",
+        scanner="QUALITY_COMPOUNDER",
+        category="WEALTH",
+        entry_price=alert_price,
+        current_price=alert_price,
+        score=fm_score,
+        status="OPEN"
+    )
 
 
 def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date: str = None, days_back: int = None) -> list:
-    """Unified internal helper for fetching wealth_buy_alert records."""
+    """Unified internal helper for fetching wealth records from canonical alerts table."""
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Earnings Calendar removed — earnings badge via decorate_events split map only
                 query = """
-                    SELECT w.*,
-                        FALSE                                                        AS earnings_flag,
-                        999                                                          AS days_to_earnings,
-                        NULL::DATE                                                   AS ec_earnings_date,
-                        'NONE'::TEXT                                                 AS earnings_severity,
-                        ''                                                           AS warning_msg
-                    FROM wealth_buy_alert w
-                    WHERE 1=1
+                    SELECT id, symbol, scanner, breakout_type,
+                           COALESCE(entry_price, current_price) AS alert_price,
+                           COALESCE(entry_price, current_price) AS entry_price,
+                           alert_date, alert_time, status,
+                           current_price, score AS fm_score, score AS current_score,
+                           exit_price, closed_at AS exit_time, closed_at::date AS exit_date,
+                           exit_signal, exit_reason, pnl_pct, pnl_rs,
+                           (status NOT IN ('OPEN', 'ACTIVE')) AS is_closed,
+                           FALSE AS earnings_flag, 999 AS days_to_earnings, NULL::DATE AS ec_earnings_date,
+                           'NONE'::TEXT AS earnings_severity, '' AS warning_msg
+                    FROM alerts
+                    WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                      AND record_type = 'ALERT_EVENT'
                 """
                 params = []
 
-                if is_closed is not None:
-                    query += " AND w.is_closed = %s"
-                    params.append(is_closed)
+                if is_closed is True:
+                    query += " AND status NOT IN ('OPEN', 'ACTIVE')"
+                elif is_closed is False:
+                    query += " AND status IN ('OPEN', 'ACTIVE')"
 
                 if symbol:
-                    query += " AND w.symbol = %s"
+                    query += " AND symbol = %s"
                     params.append(symbol)
 
                 if trade_date:
-                    query += " AND w.alert_date = %s"
+                    query += " AND alert_date = %s"
                     params.append(trade_date)
                 elif days_back is not None:
                     from datetime import timedelta
                     cutoff_str = (datetime.now(IST).date() - timedelta(days=int(days_back))).isoformat()
-                    if is_closed is True:
-                        query += " AND (w.exit_date >= %s OR w.exit_date IS NULL)"
-                    else:
-                        query += " AND w.alert_date >= %s"
+                    query += " AND alert_date >= %s"
                     params.append(cutoff_str)
 
-                if is_closed is True:
-                    query += " ORDER BY w.exit_date DESC, w.exit_time DESC"
-                else:
-                    query += " ORDER BY w.alert_date DESC, w.alert_time DESC"
+                query += " ORDER BY alert_time DESC"
 
                 cur.execute(query, tuple(params))
                 rows = [dict(row) for row in cur.fetchall()]
 
-                # Coalesce dynamic display fields uniformly
                 for row in rows:
                     if row.get('current_price') is None:
                         row['current_price'] = row.get('alert_price')
                     if row.get('current_score') is None:
                         row['current_score'] = row.get('fm_score')
-                    # Normalise ec_earnings_date alias → earnings_date (avoid key collision with w.*)
                     if 'ec_earnings_date' in row:
                         ec_ed = row.pop('ec_earnings_date')
                         if row.get('earnings_date') is None:
                             row['earnings_date'] = ec_ed.isoformat() if hasattr(ec_ed, 'isoformat') else ec_ed
                 return rows
     except Exception as e:
-        logger.exception(f"❌ Failed to fetch wealth positions from _get_wealth_positions")
+        logger.exception(f"❌ Failed to fetch wealth positions from alerts table: {e}")
         return []
 
 def get_multibagger_alerts() -> list:
@@ -8004,17 +7886,13 @@ def get_wealth_buy_alerts(symbol: str = None, days_back: int = 30) -> list:
     return _get_wealth_positions(is_closed=False, symbol=symbol, days_back=days_back)
 
 def update_wealth_alert_status(alert_id: int, status: str, current_price: float = None) -> bool:
-    """
-    [LEGACY] Update the string status of a wealth buy alert.
-    NOTE: This is a metadata-only operation and does NOT control lifecycle (is_closed).
-    Use close_position() for actual exits.
-    """
+    """Update string status of a wealth alert in canonical alerts table."""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE wealth_buy_alert
-                    SET status = %s, current_price = COALESCE(%s, current_price), status_updated_at = NOW()
+                    UPDATE alerts
+                    SET status = %s, current_price = COALESCE(%s, current_price)
                     WHERE id = %s
                 """, (status, current_price, alert_id))
                 conn.commit()
@@ -8129,21 +8007,12 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                         updated = cur.rowcount >= 1
                     else:
                         now = datetime.now(IST)
-                        from market_utils import is_market_open
-                        from datetime import time as time_cls
-                        if is_market_open(now):
-                            exit_date = now.date()
-                            exit_time = now
-                        else:
-                            from trading_calendar import get_latest_trading_date
-                            last_d = get_latest_trading_date()
-                            exit_date = last_d
-                            exit_time = datetime.combine(last_d, time_cls(15, 30)).replace(tzinfo=IST)
-
-                        # Determine PnL outcome (WIN vs LOSS)
                         cur.execute("""
-                            SELECT alert_price, alert_date FROM wealth_buy_alert
-                            WHERE symbol = %s AND is_closed = FALSE
+                            SELECT COALESCE(entry_price, current_price), alert_date FROM alerts
+                            WHERE symbol = %s
+                              AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                              AND record_type = 'ALERT_EVENT'
+                              AND status IN ('OPEN', 'ACTIVE')
                         """, (symbol,))
                         r_row = cur.fetchone()
                         alert_p = float(r_row[0]) if (r_row and r_row[0] is not None) else None
@@ -8159,8 +8028,6 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                                 logger.debug(f"close_position_atomic corporate action adjustment warning: {_ca_err}")
 
                         final_st = "WIN"
-                        # RCA: calc_ret was computed only for WIN/LOSS label; pnl_rs/pnl_pct
-                        # were never persisted, leaving those columns NULL (shown as ₹0/0%).
                         pnl_rs  = None
                         pnl_pct = None
                         if alert_p and alert_p > 0 and exit_price is not None:
@@ -8170,18 +8037,19 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                             pnl_pct  = round(calc_ret, 4)
 
                         cur.execute("""
-                            UPDATE wealth_buy_alert
-                            SET is_closed = TRUE,
+                            UPDATE alerts
+                            SET status     = %s,
                                 exit_price = %s,
-                                exit_date  = %s,
-                                exit_time  = %s,
+                                closed_at  = %s,
                                 exit_signal = %s,
+                                exit_reason = %s,
                                 pnl_rs     = %s,
-                                pnl_pct    = %s,
-                                status     = %s
-                            WHERE symbol = %s AND is_closed = FALSE
-                        """, (exit_price, exit_date, exit_time, exit_reason,
-                               pnl_rs, pnl_pct, final_st, symbol))
+                                pnl_pct    = %s
+                            WHERE symbol = %s
+                              AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                              AND record_type = 'ALERT_EVENT'
+                              AND status IN ('OPEN', 'ACTIVE')
+                        """, (final_st, exit_price, now, exit_reason, exit_reason, pnl_rs, pnl_pct, symbol))
                         updated = cur.rowcount >= 1
                     conn.commit()
                     if updated:
@@ -8194,13 +8062,14 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
 
 
 def get_open_symbols() -> list:
-    """Get list of symbols with open positions."""
+    """Get list of symbols with open positions from canonical alerts table."""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT DISTINCT symbol FROM wealth_buy_alert
-                    WHERE is_closed = FALSE
+                    SELECT DISTINCT symbol FROM alerts
+                    WHERE status IN ('OPEN', 'ACTIVE')
+                      AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                     ORDER BY symbol
                 """)
                 return [row[0] for row in cur.fetchall()]
@@ -8210,14 +8079,14 @@ def get_open_symbols() -> list:
 
 
 def update_position_current_price(symbol: str, current_price: float) -> bool:
-    """Update current_price for all open positions of a symbol."""
+    """Update current_price for all open positions of a symbol in canonical alerts table."""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE wealth_buy_alert
-                    SET current_price = %s, status_updated_at = NOW()
-                    WHERE symbol = %s AND is_closed = FALSE
+                    UPDATE alerts
+                    SET current_price = %s
+                    WHERE symbol = %s AND status IN ('OPEN', 'ACTIVE')
                 """, (current_price, symbol))
                 conn.commit()
         return True
@@ -8227,14 +8096,7 @@ def update_position_current_price(symbol: str, current_price: float) -> bool:
 
 
 def update_position_real_time_prices(symbols_metrics: dict) -> int:
-    """Batch update current_price and current_score for open positions.
-
-    Args:
-        symbols_metrics: Dict of {symbol: {"price": float, "score": float}}
-
-    Returns:
-        Count of updated positions
-    """
+    """Batch update current_price and score for open positions in canonical alerts table."""
     with _DB_WRITE_LOCK:
         updated_count = 0
         try:
@@ -8248,9 +8110,9 @@ def update_position_real_time_prices(symbols_metrics: dict) -> int:
 
                             if symbol and price is not None and price > 0:
                                 cur.execute("""
-                                    UPDATE wealth_buy_alert
-                                    SET current_price = %s, current_score = %s, status_updated_at = NOW()
-                                    WHERE symbol = %s AND is_closed = FALSE
+                                    UPDATE alerts
+                                    SET current_price = %s, score = COALESCE(%s, score)
+                                    WHERE symbol = %s AND status IN ('OPEN', 'ACTIVE')
                                 """, (price, score, symbol))
                                 updated_count += cur.rowcount
                         conn.commit()

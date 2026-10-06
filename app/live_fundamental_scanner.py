@@ -2900,19 +2900,6 @@ class LiveFundamentalBuyScanner:
                         )
                     except Exception as wm_err:
                         logger.warning(f"Registration with live wealth monitor failed for {sym}: {wm_err}")
-
-                    # Persist alert to wealth_buy_alert table for wealth monitors
-                    if save_wealth_buy_alert is not None:
-                        try:
-                            save_wealth_buy_alert(
-                                symbol=sym,
-                                alert_price=cmp_price,
-                                breakout_type="20D_BREAKOUT_FUNDAMENTAL",
-                                fm_score=95.0,
-                                notes="Passed Mandatory Fundamental Quality + Growth + 20D Breakout (Open Target / WEALTH_EXIT_V1)"
-                            )
-                        except Exception as al_err:
-                            logger.debug(f"Save alert warning for {sym}: {al_err}")
                 else:
                     rej_set = set(res["rejection_reasons"])
                     is_price_insuff = bool(
