@@ -1227,9 +1227,9 @@ class DailyBuilderFundamentalProvider:
                 "prior_eps": p_eps,
                 "upstream_provider": "DAILY_BUILDER_2.0",
                 "quality_source_basis": "ANNUAL",
-                "latest_annual_period": str(r.get("latest_annual_period") or r.get("period_end") or ""),
-                "period_end": str(r.get("latest_annual_period") or r.get("period_end") or ""),
-                "filing_date": str(r.get("as_of_date") or r.get("filing_date") or ""),
+                "latest_annual_period": str(r.get("latest_annual_period") or r.get("period_end") or "").strip() or None,
+                "period_end": str(r.get("latest_annual_period") or r.get("period_end") or "").strip() or None,
+                "filing_date": str(r.get("as_of_date") or r.get("filing_date") or "").strip() or None,
                 "annual_filing_present": True,
                 "provenance_status": str(meta.get("provenance_status", "CERTIFIED_LOCAL_DAILY_BUILDER")),
                 "snapshot_status": "FRESH" if meta.get("freshness_status") == "FRESH" else "CERTIFIED",
@@ -1268,6 +1268,8 @@ class DailyBuilderFundamentalProvider:
                                     except (ValueError, TypeError):
                                         pass
 
+                            c_ann_period = str(cr.get("latest_annual_period") or cr.get("period_end") or cr.get("period_end_date") or "").strip() or None
+                            c_as_of = str(cr.get("as_of_date") or cr.get("filing_date") or "").strip() or None
                             if c_sym not in funds_map:
                                 c_debt_v = float(c_debt) if (c_debt is not None and not pd.isna(c_debt)) else None
                                 c_ocf_v = None
@@ -1301,6 +1303,9 @@ class DailyBuilderFundamentalProvider:
                                     "prior_eps": None,
                                     "upstream_provider": "CANONICAL_PIT",
                                     "quality_source_basis": "ANNUAL",
+                                    "latest_annual_period": c_ann_period,
+                                    "period_end": c_ann_period,
+                                    "filing_date": c_as_of,
                                     "annual_filing_present": True,
                                     "provenance_status": "CERTIFIED_CANONICAL_PIT",
                                     "snapshot_status": "CERTIFIED",
@@ -1319,6 +1324,10 @@ class DailyBuilderFundamentalProvider:
                                         f_item["operating_cash_flow"] = round(v / 1e7, 2) if abs(v) > 1e6 else round(v, 2)
                                     except (ValueError, TypeError):
                                         pass
+                                if not f_item.get("latest_annual_period") and c_ann_period:
+                                    f_item["latest_annual_period"] = c_ann_period
+                                if not f_item.get("period_end") and c_ann_period:
+                                    f_item["period_end"] = c_ann_period
                 except Exception as _canon_err:
                     logger.debug(f"Canonical PIT fallback notice: {_canon_err}")
 
@@ -1338,25 +1347,34 @@ class DailyBuilderFundamentalProvider:
         except ImportError:
             from financial_data_integrity import FieldProvenance
 
-        period_end = str(row.get("latest_annual_period") or row.get("period_end_date") or "2025-03-31")
+        p_end = (
+            str(row.get("latest_annual_period") or "").strip()
+            or str(row.get("period_end") or "").strip()
+            or str(row.get("period_end_date") or "").strip()
+            or None
+        )
+        val_status = "PASSED" if p_end else "FAILED"
+        val_reason = "" if p_end else "PROVENANCE_PERIOD_MISSING"
+        p_end_val = p_end or "PROVENANCE_PERIOD_MISSING"
+
         return {
             "roce_5y_avg": FieldProvenance(
                 symbol=symbol, scanner="QUALITY_VALUE_RECOVERY", field="roce_5y_avg",
                 value_used=float(row.get("roce_5y_avg") or row.get("roce") or row.get("ROCE") or 0.0),
-                unit="PERCENT", period_end=period_end, basis="CONSOLIDATED",
-                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                unit="PERCENT", period_end=p_end_val, basis="CONSOLIDATED",
+                source_used="PIT_FUNDAMENTALS", validation_status=val_status, validation_reason=val_reason
             ),
             "debt_to_equity": FieldProvenance(
                 symbol=symbol, scanner="QUALITY_VALUE_RECOVERY", field="debt_to_equity",
                 value_used=float(row.get("debt_to_equity") or row.get("d_e") or row.get("debt") or 0.0),
-                unit="RATIO", period_end=period_end, basis="CONSOLIDATED",
-                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                unit="RATIO", period_end=p_end_val, basis="CONSOLIDATED",
+                source_used="PIT_FUNDAMENTALS", validation_status=val_status, validation_reason=val_reason
             ),
             "cfo_pat_5y_ratio": FieldProvenance(
                 symbol=symbol, scanner="QUALITY_VALUE_RECOVERY", field="cfo_pat_5y_ratio",
                 value_used=float(row.get("cfo_pat_5y_ratio") or row.get("cfo_pat") or row.get("cfo_pat_ratio") or 1.0),
-                unit="RATIO", period_end=period_end, basis="CONSOLIDATED",
-                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                unit="RATIO", period_end=p_end_val, basis="CONSOLIDATED",
+                source_used="PIT_FUNDAMENTALS", validation_status=val_status, validation_reason=val_reason
             ),
         }
 
@@ -2147,6 +2165,8 @@ class LiveFundamentalBuyScanner:
                         funds["snapshot_status"] = snap.snapshot_status
                         funds["provenance_status"] = snap.provenance_status
                         funds["latest_annual_period"] = getattr(snap, "latest_annual_period", None)
+                        funds["period_end"] = getattr(snap, "latest_annual_period", None)
+                        funds["filing_date"] = getattr(snap, "as_of_date", None)
 
                 # ── DATA RECOVERY AUDIT: FUNDAMENTAL SCANNER ───────────────────────
                 _fund_missing = (
@@ -2646,6 +2666,33 @@ class LiveFundamentalBuyScanner:
                     # Pre-BUY Data Integrity Gate (C18 / C39: Mandatory Fail-Closed Contract)
                     is_stale = funds.get("pit_freshness_status") == "PIT_DATA_STALE"
                     provenance_valid = bool(m.get("roce") is not None and m.get("operating_cash_flow") is not None and m.get("roe") is not None)
+
+                    resolved_period_end = (
+                        str(funds.get("latest_annual_period") or "").strip()
+                        or str(funds.get("period_end") or "").strip()
+                        or (str(getattr(snap, "latest_annual_period", "") or "").strip() if snap else "")
+                        or str(funds.get("filing_date") or "").strip()
+                        or None
+                    )
+                    if not resolved_period_end:
+                        prov_val_status = "FAILED"
+                        prov_val_reason = "PROVENANCE_PERIOD_MISSING"
+                        prov_p_end = "PROVENANCE_PERIOD_MISSING"
+                        logger.error(
+                            f"🚨 [PROVENANCE_CHECK] {sym.upper()}: No valid period_end found in funds or snap! "
+                            f"Failing closed as PROVENANCE_PERIOD_MISSING."
+                        )
+                    else:
+                        prov_val_status = "PASSED"
+                        prov_val_reason = ""
+                        prov_p_end = resolved_period_end
+                        logger.info(
+                            f"✅ [PROVENANCE_CHECK] {sym.upper()}: Resolved period_end={prov_p_end} "
+                            f"(funds.latest_annual_period={funds.get('latest_annual_period')}, "
+                            f"funds.period_end={funds.get('period_end')}, "
+                            f"snap.latest_annual_period={getattr(snap, 'latest_annual_period', None) if snap else None})"
+                        )
+
                     bundle = BUYEvidenceBundle(
                         scan_run_id=getattr(ctx, "run_id", "LIVE_FUNDAMENTAL_RUN") if ctx else "LIVE_FUNDAMENTAL_RUN",
                         scanner="FUNDAMENTAL",
@@ -2665,26 +2712,26 @@ class LiveFundamentalBuyScanner:
                             "roce": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="roce",
                                 value_used=m.get("roce"), unit="PERCENT", basis="CONSOLIDATED",
-                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
-                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                                period_end=prov_p_end, validation_status=prov_val_status, validation_reason=prov_val_reason,
+                                source_used="PIT_FUNDAMENTALS"
                             ),
                             "roe": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="roe",
                                 value_used=m.get("roe"), unit="PERCENT", basis="CONSOLIDATED",
-                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
-                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                                period_end=prov_p_end, validation_status=prov_val_status, validation_reason=prov_val_reason,
+                                source_used="PIT_FUNDAMENTALS"
                             ),
                             "operating_cash_flow": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="operating_cash_flow",
                                 value_used=m.get("operating_cash_flow"), unit="INR_CRORE", basis="CONSOLIDATED",
-                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
-                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                                period_end=prov_p_end, validation_status=prov_val_status, validation_reason=prov_val_reason,
+                                source_used="PIT_FUNDAMENTALS"
                             ),
                             "debt_equity": FieldProvenance(
                                 symbol=sym.upper(), scanner="FUNDAMENTAL", field="debt_equity",
                                 value_used=m.get("debt_equity"), unit="RATIO", basis="CONSOLIDATED",
-                                period_end=str(funds.get("latest_annual_period") or funds.get("period_end") or funds.get("filing_date") or (getattr(snap, "latest_annual_period", None) if snap else None) or "2025-03-31"),
-                                source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                                period_end=prov_p_end, validation_status=prov_val_status, validation_reason=prov_val_reason,
+                                source_used="PIT_FUNDAMENTALS"
                             ),
                         },
                         pit_timestamp=str(funds.get("pit_eligible_from") or funds.get("filing_date") or ""),
@@ -6217,44 +6264,56 @@ class QualityCompounderValueV2Scanner:
             else:
                 for cand in candidate_records:
                     # Pre-BUY Data Integrity Gate (C18 / C39)
+                    ctx = cand.get("context", {})
+                    qc_period = (
+                        str(ctx.get("latest_annual_period") or "").strip()
+                        or str(ctx.get("period_end") or "").strip()
+                        or None
+                    )
+                    qc_val_status = "PASSED" if qc_period else "FAILED"
+                    qc_val_reason = "" if qc_period else "PROVENANCE_PERIOD_MISSING"
+                    qc_p_end = qc_period or "PROVENANCE_PERIOD_MISSING"
+                    if not qc_period:
+                        logger.error(
+                            f"🚨 [QC_PROVENANCE_CHECK] {cand['symbol']}: Period missing in context! "
+                            f"Failing closed as PROVENANCE_PERIOD_MISSING."
+                        )
+                    else:
+                        logger.info(f"✅ [QC_PROVENANCE_CHECK] {cand['symbol']}: Resolved period_end={qc_p_end}")
+
                     fin_metrics = {
                         "roce_5y_avg": FieldProvenance(
                             symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="roce_5y_avg",
-                            value_used=cand.get("context", {}).get("roce_5y_avg"), unit="PERCENT",
-                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                            basis="CONSOLIDATED",
-                            source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            value_used=ctx.get("roce_5y_avg"), unit="PERCENT",
+                            period_end=qc_p_end, validation_status=qc_val_status, validation_reason=qc_val_reason,
+                            basis="CONSOLIDATED", source_used="PIT_FUNDAMENTALS"
                         ),
                         "cfo_pat_5y_ratio": FieldProvenance(
                             symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="cfo_pat_5y_ratio",
-                            value_used=cand.get("context", {}).get("cfo_pat_5y_ratio"), unit="RATIO",
-                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                            basis="CONSOLIDATED",
-                            source_used="PIT_FUNDAMENTALS", validation_status="PASSED"
+                            value_used=ctx.get("cfo_pat_5y_ratio"), unit="RATIO",
+                            period_end=qc_p_end, validation_status=qc_val_status, validation_reason=qc_val_reason,
+                            basis="CONSOLIDATED", source_used="PIT_FUNDAMENTALS"
                         ),
                         "current_ev_ebitda": FieldProvenance(
                             symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="current_ev_ebitda",
-                            value_used=cand.get("context", {}).get("current_ev_ebitda"), unit="RATIO",
-                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                            basis="CONSOLIDATED",
-                            source_used="STATEMENT_FILINGS", validation_status="PASSED"
+                            value_used=ctx.get("current_ev_ebitda"), unit="RATIO",
+                            period_end=qc_p_end, validation_status=qc_val_status, validation_reason=qc_val_reason,
+                            basis="CONSOLIDATED", source_used="STATEMENT_FILINGS"
                         ),
                     }
-                    if cand.get("context", {}).get("cash_and_equivalents") is not None:
+                    if ctx.get("cash_and_equivalents") is not None:
                         fin_metrics["cash_and_equivalents"] = FieldProvenance(
                             symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="cash_and_equivalents",
-                            value_used=cand.get("context", {}).get("cash_and_equivalents"), unit="INR_CRORE",
-                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                            basis="CONSOLIDATED",
-                            source_used="EXCHANGE_FILINGS", validation_status="PASSED"
+                            value_used=ctx.get("cash_and_equivalents"), unit="INR_CRORE",
+                            period_end=qc_p_end, validation_status=qc_val_status, validation_reason=qc_val_reason,
+                            basis="CONSOLIDATED", source_used="EXCHANGE_FILINGS"
                         )
-                    if cand.get("context", {}).get("shares_outstanding") is not None:
+                    if ctx.get("shares_outstanding") is not None:
                         fin_metrics["shares_outstanding"] = FieldProvenance(
                             symbol=cand["symbol"], scanner="QUALITY_COMPOUNDER", field="shares_outstanding",
-                            value_used=cand.get("context", {}).get("shares_outstanding"), unit="NUMBER",
-                            period_end=str(cand.get("context", {}).get("latest_annual_period") or "2025-03-31"),
-                            basis="CONSOLIDATED",
-                            source_used="EXCHANGE_FILINGS", validation_status="PASSED"
+                            value_used=ctx.get("shares_outstanding"), unit="NUMBER",
+                            period_end=qc_p_end, validation_status=qc_val_status, validation_reason=qc_val_reason,
+                            basis="CONSOLIDATED", source_used="EXCHANGE_FILINGS"
                         )
 
                     c_bundle = BUYEvidenceBundle(

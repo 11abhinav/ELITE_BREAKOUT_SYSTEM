@@ -2035,6 +2035,17 @@ def check_pre_buy_source_freshness_fence(
         data_dir = os.path.join(base_dir, "data")
         state_file = os.path.join(data_dir, "filing_watcher_state.json")
 
+        # 0. Zero-Fallback Canonical Period Gate:
+        # A missing period must fail-closed as PROVENANCE_PERIOD_MISSING.
+        if not canonical_period_end or str(canonical_period_end).strip() in ("", "None", "PROVENANCE_PERIOD_MISSING"):
+            logger.error(f"🚨 [PRE_BUY_FENCE] {sym_clean}: Blocked — canonical_period_end is missing or invalid ({canonical_period_end}). Failing closed.")
+            return False, "PROVENANCE_PERIOD_MISSING: Canonical period end is missing or null"
+
+        logger.info(
+            f"🔍 [PRE_BUY_FENCE_TRACE] {sym_clean}: canonical_period_end={canonical_period_end}, "
+            f"canonical_filing_timestamp={canonical_filing_timestamp}"
+        )
+
         # 1. FEED_HEARTBEAT_SLA: Multi-source feed operational liveness (NSE + BSE)
         wm = get_multi_source_exchange_watermark(sym_clean, max_sla_seconds=max_sla_seconds)
         if not wm["valid"] and wm.get("failure_reason"):
@@ -2116,8 +2127,16 @@ def check_pre_buy_source_freshness_fence(
                         if not is_verified_annual_filing_record(r):
                             continue
                         r_period = str(r.get("period_end_date") or "")[:10]
+                        logger.info(
+                            f"🔍 [PRE_BUY_FENCE_CHECK] {sym_clean}: raw filing r_period={r_period} vs "
+                            f"canonical_period_end={canonical_period_end}"
+                        )
                         if r_period and canonical_period_end and r_period > str(canonical_period_end):
                             _mark_update_pending(sym_clean, state_file)
+                            logger.warning(
+                                f"🚨 [PRE_BUY_FENCE_BLOCKED] {sym_clean}: UNPROCESSED_RAW_FILING detected! "
+                                f"raw filing {r_period} > canonical {canonical_period_end}"
+                            )
                             return False, f"UNPROCESSED_RAW_FILING: Newly acquired filing {r_period} > canonical {canonical_period_end}"
             except Exception:
                 pass
@@ -2209,7 +2228,10 @@ def commit_buy_alert_atomic(
         return False, f"RACE_CONDITION_NEWER_FILING: {fence_reason}"
 
     # 4. Construct Deterministic Alert Record
-    alert_id = f"{bundle.scanner}_{bundle.symbol}_{bundle.scan_run_id}_{bundle.evidence_hash[:16]}"
+    ev_hash = str(bundle.evidence_hash or "0" * 32)[:16]
+    snap_ver = str(bundle.snapshot_version or "v1.0")
+    snap_sha = str(bundle.snapshot_sha256 or "0" * 64)
+    alert_id = f"{bundle.scanner}_{bundle.symbol}_{bundle.scan_run_id}_{ev_hash}"
     now_iso = datetime.now().isoformat()
     alert_record = {
         "alert_id": alert_id,
@@ -2219,9 +2241,9 @@ def commit_buy_alert_atomic(
         "alert_timestamp": now_iso,
         "cmp": bundle.cmp,
         "strategy_score": bundle.strategy_score,
-        "snapshot_version": bundle.snapshot_version,
-        "snapshot_sha256": bundle.snapshot_sha256,
-        "evidence_hash": bundle.evidence_hash,
+        "snapshot_version": snap_ver,
+        "snapshot_sha256": snap_sha,
+        "evidence_hash": bundle.evidence_hash or ev_hash,
         "status": "COMMITTED",
     }
 
@@ -2246,7 +2268,7 @@ def commit_buy_alert_atomic(
         """, (
             alert_id, bundle.symbol, bundle.scanner, bundle.scan_run_id,
             now_iso, bundle.cmp, bundle.strategy_score,
-            bundle.snapshot_version, bundle.snapshot_sha256, bundle.evidence_hash,
+            snap_ver, snap_sha, bundle.evidence_hash or ev_hash,
             now_iso,
         ))
         conn.commit()
