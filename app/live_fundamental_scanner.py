@@ -3008,23 +3008,25 @@ class LiveFundamentalBuyScanner:
                         except Exception as _tel_err:
                             logger.debug(f"Telemetry check notice: {_tel_err}")
 
-                    fail_cnt = di + dm + pf
-                    fail_ratio = fail_cnt / max(1, total_symbols_cnt)
+                    # Systemic data failure count excludes strategy-level filter rejections (di):
+                    # Systemic failures = missing files (dm) + broker API failures (pf) + missing OHLCV price history
+                    systemic_fail_cnt = dm + pf + funnel.get("price_data_insufficient_count", 0)
+                    fail_ratio = systemic_fail_cnt / max(1, total_symbols_cnt)
                     is_down = is_crashed or fail_ratio > 0.25
                     is_degraded = is_down or data_gap or telemetry_failed
                     if is_down:
                         health_status = "DOWN"
                         health_outcome = "FAILED"
                         gap_msg = (
-                            f"DATA_DOWN: {fail_cnt}/{total_symbols_cnt} stocks "
-                            f"({round(fail_ratio * 100, 1)}% > 25% threshold) incomplete/stale data failures"
+                            f"DATA_DOWN: {systemic_fail_cnt}/{total_symbols_cnt} stocks "
+                            f"({round(fail_ratio * 100, 1)}% > 25% threshold) systemic data failures"
                         )
                     elif is_degraded:
                         health_status = "DEGRADED"
                         health_outcome = "PARTIAL"
                         gap_msg = (
-                            f"DATA_DEGRADED: {fail_cnt}/{total_symbols_cnt} stocks "
-                            f"({round(fail_ratio * 100, 1)}%) data gaps/failures"
+                            f"DATA_DEGRADED: {systemic_fail_cnt}/{total_symbols_cnt} stocks "
+                            f"({round(fail_ratio * 100, 1)}%) systemic data gaps"
                         )
                     else:
                         health_status = "OK"
