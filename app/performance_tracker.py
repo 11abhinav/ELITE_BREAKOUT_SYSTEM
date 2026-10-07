@@ -336,19 +336,28 @@ def _calc_shares_to_sell(shares_bought: int, rem_shares: int, target_idx: int, e
 def is_long_term_compounder_trade(record: dict) -> bool:
     """
     Returns True if the trade belongs to a long-term compounder / wealth strategy
-    (FUNDAMENTAL, MULTIBAGGER, WEALTH) whose exits are managed exclusively by
-    long-term structural monitors (WEALTH_EXIT_V1) rather than swing SL / targets / 20D expiry.
+    (FUNDAMENTAL, MULTIBAGGER, WEALTH, QUALITY_COMPOUNDER, QUALITY_VALUE_RECOVERY)
+    whose exits are managed exclusively by long-term structural monitors (WEALTH_EXIT_V1)
+    rather than swing SL / targets / 20D expiry.
     """
     if not isinstance(record, dict):
         return False
     sc = str(record.get("scanner") or "").upper().strip()
     bt = str(record.get("breakout_type") or "").upper().strip()
+    cat = str(record.get("category") or "").upper().strip()
     if (
-        sc in ("MULTIBAGGER", "WEALTH", "WEALTH ENGINE", "FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY")
+        sc in ("MULTIBAGGER", "WEALTH", "WEALTH ENGINE", "FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY",
+               "QUALITY_COMPOUNDER", "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
+               "QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1")
         or "FUNDAMENTAL" in sc
         or "FUNDAMENTAL" in bt
         or "MULTIBAGGER" in sc
         or "WEALTH" in sc
+        or "COMPOUNDER" in sc
+        or "COMPOUNDER" in bt
+        or "RECOVERY" in sc
+        or "RECOVERY" in bt
+        or "WEALTH_EXIT" in cat
     ):
         return True
     return False

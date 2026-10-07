@@ -1390,49 +1390,54 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
             sma200_t = float(sma200_series[-1])
             sma200_t_prev = float(sma200_series[-2]) if len(sma200_series) > 1 else sma200_t
 
+            sc_name = al.get("scanner", "")
+            ctx = al.get("context") or {}
+            if isinstance(ctx, str):
+                try: ctx = json.loads(ctx)
+                except Exception: ctx = {}
+
             # Intraday 15:15 IST Pre-Close Check
             if check_type == "PRE_CLOSE":
-                if close_t < sma200_t:
+                is_recovery = sc_name in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1")
+                entry_price = float(al.get("entry_price") or al.get("alert_price") or close_t)
+                
+                # Recovery stocks enter below SMA200, so evaluate 10% hard stop instead of SMA200
+                pre_close_breached = (entry_price > 0 and close_t <= 0.90 * entry_price) if is_recovery else (close_t < sma200_t)
+
+                if pre_close_breached:
                     warnings_count += 1
+                    warn_reason = "INTRADAY_STOP_LOSS_10PCT_WARNING" if is_recovery else "INTRADAY_SMA200_BREACH_WARNING"
                     save_v2_exit_event(
                         symbol=sym,
                         event_type="EXIT_CHECK_PRE_CLOSE",
                         new_watchlist_state="ORANGE",
-                        exit_reason="INTRADAY_SMA200_BREACH_WARNING",
+                        exit_reason=warn_reason,
                         exit_price=close_t,
-                        context_update={"close_1515": close_t, "sma200": sma200_t}
+                        context_update={"close_1515": close_t, "sma200": sma200_t, "entry_price": entry_price}
                     )
-                    logger.info(f"⚠️ [V2 15:15 WARNING] {sym} price ₹{close_t:.2f} < SMA200 ₹{sma200_t:.2f} -> ORANGE state set")
+                    logger.info(f"⚠️ [V2 15:15 WARNING] {sym} ({sc_name}) breach detected -> ORANGE state set ({warn_reason})")
                 else:
-                    # [STATE RECOVERY]: If price recovers above SMA200 and was previously flagged ORANGE, restore state to GREEN
+                    # [STATE RECOVERY]: If conditions clear and was previously flagged ORANGE, restore state to GREEN
                     curr_state = str(al.get("watchlist_state") or "GREEN").upper()
                     if curr_state == "ORANGE":
                         save_v2_exit_event(
                             symbol=sym,
                             event_type="PRE_CLOSE_RECOVERY",
                             new_watchlist_state="GREEN",
-                            exit_reason="INTRADAY_SMA200_RECOVERY",
+                            exit_reason="INTRADAY_CONDITIONS_RECOVERED",
                             exit_price=close_t,
                             context_update={"close_1515": close_t, "sma200": sma200_t}
                         )
-                        logger.info(f"🟢 [V2 15:15 RECOVERY] {sym} price ₹{close_t:.2f} >= SMA200 ₹{sma200_t:.2f} -> GREEN state restored (removed from SELL_REVIEW)")
+                        logger.info(f"🟢 [V2 15:15 RECOVERY] {sym} healthy -> GREEN state restored (removed from SELL_REVIEW)")
             # Definitive 18:30 IST EOD Check
             else:
-                sc_name = al.get("scanner", "")
-                ctx = al.get("context") or {}
-                if isinstance(ctx, str):
-                    try: ctx = json.loads(ctx)
-                    except Exception: ctx = {}
-
                 exit_reasons = []
                 sma200_exit_confirmed = (close_t < sma200_t) and (close_t_prev < sma200_t_prev)
 
                 if sc_name in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
-                    # ── MODEL E3 EXIT LOGIC FOR RECOVERY ──
-                    # 1. Technical SMA200 Break or Hard Stop Loss
+                    # ── MODEL E3 EXIT LOGIC FOR RECOVERY (NO SMA200 BREAK) ──
+                    # 1. Hard Stop Loss: 10% below entry
                     entry_price = float(al.get("entry_price") or al.get("alert_price") or close_t)
-                    if sma200_exit_confirmed:
-                        exit_reasons.append("SMA200_BREAK")
                     if entry_price > 0 and close_t <= 0.90 * entry_price:
                         exit_reasons.append("STOP_LOSS_10PCT_HIT")
 

@@ -1488,6 +1488,111 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                     pass
             return r
 
+        p_info = portfolio_dict.get(sym, {}) if isinstance(portfolio_dict, dict) else {}
+        scanner = str(r.get("scanner") or r.get("scanner_name") or p_info.get("scanner") or "").upper()
+        raw_ctx = r.get("context") or p_info.get("context") or {}
+        if isinstance(raw_ctx, str):
+            try:
+                import json
+                raw_ctx = json.loads(raw_ctx)
+            except Exception:
+                raw_ctx = {}
+        if not isinstance(raw_ctx, dict):
+            raw_ctx = {}
+
+        is_recovery = scanner in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1")
+
+        if is_recovery:
+            # =========================================================================
+            # PATH 1: QUALITY_VALUE_RECOVERY (Model D & Model E3 Certified Exits)
+            # Governed strictly by Model D & Model E3 rules. ZERO 200 SMA breakdown,
+            # ZERO catastrophic trend collapse, ZERO Hold Score / RS breakdown stops!
+            # =========================================================================
+            r["Hold_Score"] = 90
+            r["hold_trend"] = "Stable"
+
+            drawdown_pct = 0.0
+            if entry_price > 0 and cmp > 0:
+                drawdown_pct = ((entry_price - cmp) / entry_price) * 100.0
+
+            exit_code = ""
+            exit_reason = ""
+
+            # 1. Hard Stop Loss: 10% max loss from entry (cmp <= 0.90 * entry_price)
+            if entry_price > 0 and cmp <= 0.90 * entry_price:
+                exit_code = "SELL"
+                exit_reason = f"Hard Stop Loss Hit: -{drawdown_pct:.1f}% (<= 10.0% max loss threshold)"
+
+            # 2. Valuation Mean-Reversion Target Reached (EV/EBITDA or PE closes discount vs 3Y Median)
+            if not exit_code:
+                curr_ev = r.get("current_ev_ebitda") or raw_ctx.get("current_ev_ebitda") or (raw_ctx.get("metrics", {}).get("current_ev_ebitda"))
+                med_ev = r.get("ev_ebitda_3y_median") or raw_ctx.get("ev_ebitda_3y_median") or (raw_ctx.get("metrics", {}).get("ev_ebitda_3y_median"))
+                curr_pe = r.get("current_pe") or raw_ctx.get("current_pe") or (raw_ctx.get("metrics", {}).get("current_pe"))
+                med_pe = r.get("pe_3y_median") or raw_ctx.get("pe_3y_median") or (raw_ctx.get("metrics", {}).get("pe_3y_median"))
+
+                if curr_ev is not None and med_ev is not None:
+                    try:
+                        c_ev_f = float(curr_ev)
+                        m_ev_f = float(med_ev)
+                        if m_ev_f > 0 and c_ev_f >= m_ev_f:
+                            exit_code = "SELL"
+                            exit_reason = f"Valuation Mean-Reversion Target Reached (EV/EBITDA {c_ev_f:.1f}x >= 3Y Median {m_ev_f:.1f}x)"
+                    except (ValueError, TypeError):
+                        pass
+
+                if not exit_code and curr_pe is not None and med_pe is not None:
+                    try:
+                        c_pe_f = float(curr_pe)
+                        m_pe_f = float(med_pe)
+                        if m_pe_f > 0 and c_pe_f >= m_pe_f:
+                            exit_code = "SELL"
+                            exit_reason = f"Valuation Mean-Reversion Target Reached (PE {c_pe_f:.1f}x >= 3Y Median {m_pe_f:.1f}x)"
+                    except (ValueError, TypeError):
+                        pass
+
+            # 3. Model E3 Fundamental Exit (Margin collapse > 30%, Debt > 1.25, 3 profit drops)
+            if not exit_code:
+                try:
+                    from live_wealth_monitor import CanonicalRecoveryE3ExitEvaluator
+                    eb_m = float(r.get("ebitda_margin") or r.get("op_margin_latest") or r.get("operating_margin") or raw_ctx.get("ebitda_margin") or raw_ctx.get("metrics", {}).get("ebitda_margin") or 0.20)
+                    eb_m_init = float(r.get("entry_ebitda_margin") or r.get("op_margin_3y_median") or r.get("operating_margin_3y_median") or raw_ctx.get("entry_ebitda_margin") or raw_ctx.get("metrics", {}).get("entry_ebitda_margin") or eb_m)
+                    de_val = float(r.get("debt_to_equity") or r.get("d_e") or raw_ctx.get("debt_to_equity") or raw_ctx.get("metrics", {}).get("d_e") or 0.0)
+                    yoy_drops = int(r.get("yoy_profit_drops") or r.get("consecutive_profit_declines") or raw_ctx.get("yoy_profit_drops") or 0)
+
+                    e3_res = CanonicalRecoveryE3ExitEvaluator.evaluate(eb_m, eb_m_init, de_val, yoy_drops)
+                    if e3_res.get("exit_signal"):
+                        exit_code = "SELL"
+                        exit_reason = f"Model E3 Fundamental Exit: {e3_res.get('reason')}"
+                except Exception as _e3_err:
+                    logger.debug(f"Recovery E3 evaluation notice for {sym}: {_e3_err}")
+
+            # 4. PAT Deceleration Check
+            if not exit_code:
+                pat_growth_3q = raw_ctx.get("pat_growth_trailing_3q") or r.get("pat_growth_trailing_3q")
+                if pat_growth_3q is not None:
+                    try:
+                        if float(pat_growth_3q) < 0.0:
+                            exit_code = "SELL"
+                            exit_reason = f"PAT Deceleration (Trailing 3Q Growth {float(pat_growth_3q):.1f}% < 0%)"
+                    except (ValueError, TypeError):
+                        pass
+
+            # 5. Holding Period Window (Max 10 trading sessions / ~14 calendar days)
+            if not exit_code:
+                entry_date_val = _coerce_to_date(r.get("entry_date") or r.get("alert_date") or p_info.get("entry_date"))
+                if entry_date_val:
+                    days_held = (datetime.now(IST).date() - entry_date_val).days
+                    if days_held >= 14:
+                        exit_code = "SELL"
+                        exit_reason = f"Max Holding Period Expired ({days_held} days >= 10 trading sessions limit)"
+
+            r["Exit_Code"] = exit_code
+            r["Exit_Reason"] = exit_reason
+            return r
+
+        # =========================================================================
+        # PATH 2: QUALITY COMPOUNDER (Trend-Following & Capital Preservation)
+        # =========================================================================
         import pandas as pd
         if pd.isna(r.get("FM_Score")) or pd.isna(r.get("RS_Rating")):
             r["Hold_Score"] = base_hold_score
@@ -1505,16 +1610,8 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 
         if entry_price > 0 and drawdown_pct >= 20.0:
             # [VERSION: SPLIT_GUARD_v2.0] Before firing the hard drawdown stop, verify if a corporate action occurred.
-            #
-            # RCA: A stock split (e.g. 1:2) halves the market price mechanically. If we just compare DB entry_price
-            # to current market price, it falsely triggers a hard stop.
-            # Architecture: Hard drawdown detected -> Corporate-action check -> Confirmed split -> SPLIT_ADJUSTED -> NO SELL
             _split_detected = False
             try:
-                # [RULE 67 CHANGE-RATIONALE]:
-                # Use local RAM pre-loaded split map (get_bulk_split_factor) instead of making slow yfinance network HTTP requests.
-                # Previously, calling yf.Ticker(sym).splits for 50+ positions created 70+ seconds of synchronous network blocking,
-                # holding global_scanner_lock for 110s and delaying MULTI_TF scans.
                 from corporate_actions import get_bulk_split_factor
                 entry_date_obj = _coerce_to_date(r.get("entry_date"))
                 cum_factor = get_bulk_split_factor(sym, entry_date=entry_date_obj)
@@ -1546,11 +1643,6 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                 logger.warning(f"⚠️ [SPLIT_GUARD] Corporate action check failed for {sym}: {_split_err}")
 
             if not _split_detected:
-                # [VERSION: SPLIT_GUARD_DELAYED_DATA_v1.0]
-                # If yfinance hasn't updated its splits array yet (common on the morning of ex-date),
-                # the hard stop would normally trigger. We can detect a retroactive historical adjustment
-                # by checking if Yahoo's returned prev_close is already > 19.5% below our entry price!
-                # If it is, and we didn't sell it yesterday, history was rewritten overnight!
                 historical_drawdown_pct = ((entry_price - prev_close) / entry_price) * 100.0 if (entry_price > 0 and prev_close is not None) else 0.0
 
                 if historical_drawdown_pct >= 19.5:
@@ -1619,15 +1711,13 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         exit_code = ""
         exit_reason = ""
 
-        # Correct Priority Order:
-        # 1. RS Exit (with confirmed weakness)
-        # 2. Catastrophic Trend Collapse (cmp < 0.75 * sma)
-        # 3. Hold Score Degradation (< 45)
-        # 4. Hold Trend Warnings
-        # 5. Tax Loss Harvesting
-        if rs_exit_triggered and sma > 0 and cmp < sma:
+        # WINNING TRADE GUARD:
+        # A winning/profitable trade (cmp > entry_price) must NEVER be closed on catastrophic trend breakdown or RS loss stops!
+        is_winning_trade = (entry_price > 0 and cmp > entry_price)
+
+        if not is_winning_trade and rs_exit_triggered and sma > 0 and cmp < sma:
             exit_code, exit_reason = "SELL", f"Confirmed RS Breakdown [{macro_regime}] (RS: {rs:.1f} < {rs_threshold} & CMP < 200SMA)"
-        elif sma > 0 and cmp < (0.75 * sma):
+        elif not is_winning_trade and sma > 0 and cmp < (0.75 * sma):
             exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse (CMP < 75% 200SMA)"
         elif "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
             exit_code, exit_reason = "SELL_REVIEW", hold_trend
@@ -1823,14 +1913,20 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
-                        SELECT symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date
+                        SELECT symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date, scanner, context
                         FROM alerts
-                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                        WHERE scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                           AND record_type = 'ALERT_EVENT'
                           AND status IN ('OPEN', 'ACTIVE')
                     """)
                     for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
+                        portfolio_dict[r["symbol"]] = {
+                            "entry_price": r["entry_price"],
+                            "entry_date": r["entry_date"],
+                            "scanner": r.get("scanner"),
+                            "context": r.get("context"),
+                            "source": "ALERT"
+                        }
         except Exception as e:
             logger.warning(f"Failed to load active portfolio prices: {e}")
 
@@ -2595,6 +2691,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     row["orphan_enrichment_failed"] = True
             row["entry_price"] = p_info["entry_price"]
             row["entry_date"] = p_info["entry_date"]
+            row["scanner"] = p_info.get("scanner")
+            row["context"] = p_info.get("context")
+            row["position_source"] = p_info.get("source", "ALERT")
 
             # INJECT REAL-TIME PRICE SO EXIT MONITOR SEES LIVE CRASHES
             if sym in realtime_metrics:
@@ -2927,14 +3026,20 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
-                        SELECT symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date
+                        SELECT symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date, scanner, context
                         FROM alerts
-                        WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                        WHERE scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                           AND record_type = 'ALERT_EVENT'
                           AND status IN ('OPEN', 'ACTIVE')
                     """)
                     for r in cur.fetchall():
-                        portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"], "source": "ALERT"}
+                        portfolio_dict[r["symbol"]] = {
+                            "entry_price": r["entry_price"],
+                            "entry_date": r["entry_date"],
+                            "scanner": r.get("scanner"),
+                            "context": r.get("context"),
+                            "source": "ALERT"
+                        }
         except Exception as _pe:
             logger.warning(f"Failed to load open portfolio: {_pe}")
 
@@ -2986,6 +3091,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                     row["orphan_enrichment_failed"] = True
             row["entry_price"] = p_info["entry_price"]
             row["entry_date"] = p_info["entry_date"]
+            row["scanner"] = p_info.get("scanner")
+            row["context"] = p_info.get("context")
             row["position_source"] = p_info.get("source", "ALERT")
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]

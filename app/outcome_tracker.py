@@ -40,9 +40,11 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT id, symbol, scanner, breakout_type, alert_date, entry_price, stop_loss, target_1, target_2,
-                           score, bayesian_regime, alert_time
+                           score, bayesian_regime, alert_time, category
                     FROM alerts
                     WHERE status = 'OPEN' AND is_rejected = FALSE
+                      AND scanner NOT IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1', 'MULTIBAGGER', 'WEALTH')
+                      AND (category IS NULL OR category NOT LIKE '%WEALTH_EXIT%')
                 """)
                 open_alerts = cur.fetchall()
     except Exception as dbe:
@@ -68,7 +70,22 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
     closed_count = 0
 
     for alert in open_alerts:
-        alert_id, symbol, scanner, breakout_type, alert_date_val, entry, sl, t1, t2, score, regime, alert_time = alert
+        alert_id, symbol, scanner, breakout_type, alert_date_val, entry, sl, t1, t2, score, regime, alert_time, cat_val = alert
+        sc_upper = str(scanner or "").upper()
+        bt_upper = str(breakout_type or "").upper()
+        cat_upper = str(cat_val or "").upper()
+
+        # Guard: Fundamental / Compounder / Wealth trades are strictly excluded from swing horizon exit tracking
+        if (
+            sc_upper in ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1', 'MULTIBAGGER', 'WEALTH')
+            or "WEALTH" in sc_upper or "WEALTH" in cat_upper
+            or "COMPOUNDER" in sc_upper or "COMPOUNDER" in bt_upper
+            or "RECOVERY" in sc_upper or "RECOVERY" in bt_upper
+            or "FUNDAMENTAL" in sc_upper or "FUNDAMENTAL" in bt_upper
+            or not sl or not t1 or float(sl) <= 0 or float(t1) <= 0
+        ):
+            continue
+
         df_sym = historical_dict.get(symbol)
         if df_sym is None or df_sym.empty:
             continue
@@ -144,9 +161,10 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
                             SET status = %s,
                                 exit_price = COALESCE(exit_price, %s),
                                 exit_signal = COALESCE(exit_signal, %s),
+                                exit_reason = COALESCE(exit_reason, exit_signal, %s),
                                 closed_at = %s
                             WHERE id = %s
-                        """, (db_status, calc_exit_price, exit_reason, clean_closed_at, alert_id))
+                        """, (db_status, calc_exit_price, exit_reason, exit_reason, clean_closed_at, alert_id))
 
                         # Ensure exit_history is populated if null so closed trades never show 'No exit events yet'
                         exit_evt = json.dumps([{"type": exit_reason, "price": calc_exit_price, "time": clean_closed_at}])

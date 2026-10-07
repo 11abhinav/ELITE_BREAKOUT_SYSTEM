@@ -2318,6 +2318,29 @@ def init_db():
                         pass
                     logger.warning(f"[STARTUP] Scanner state reset warning: {t_err}")
 
+                try:
+                    # Self-heal falsely closed positions from Catastrophic Trend Collapse or missing outcome exit reasons
+                    cur.execute("""
+                        UPDATE alerts
+                        SET status = 'OPEN',
+                            exit_price = NULL,
+                            closed_at = NULL,
+                            exit_signal = NULL,
+                            exit_reason = NULL,
+                            pnl_rs = NULL,
+                            pnl_pct = NULL,
+                            remaining_shares = shares_bought
+                        WHERE status IN ('WIN', 'LOSS', 'CLOSED')
+                          AND (
+                            exit_reason LIKE '%Catastrophic Trend Collapse%'
+                            OR (scanner = 'FUNDAMENTAL' AND (exit_reason IS NULL OR exit_signal = 'T1_HIT') AND category = 'OPEN_TARGET / WEALTH_EXIT_V1')
+                          )
+                    """)
+                    if cur.rowcount and cur.rowcount > 0:
+                        logger.info(f"🔄 [SELF-HEALING] Restored {cur.rowcount} falsely closed long-term positions back to OPEN status.")
+                except Exception as heal_err:
+                    logger.debug(f"[STARTUP] Self-healing notice: {heal_err}")
+
                 # 41. Validate schema integrity against PostgreSQL catalog
                 if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):
                     validate_schema(cur)
@@ -3686,7 +3709,8 @@ def update_alert_outcome(
     exit_signal: Optional[str] = None,
     execution_state: str = None,
     exit_history: list = None,
-    notify: bool = True
+    notify: bool = True,
+    exit_reason: Optional[str] = None
 ) -> None:
     """
     Lock in the final outcome of a trade once SL or Target is hit.
@@ -3728,6 +3752,7 @@ def update_alert_outcome(
                             pnl_rs = round((pnl_pct / 100.0) * cap, 2)
 
                     hist_json = json.dumps(exit_history, default=str) if exit_history is not None else None
+                    eff_reason = exit_reason or exit_signal or status
 
                     # Note: We allow overwriting OPEN or any PARTIAL_WIN_x
                     if execution_state:
@@ -3739,12 +3764,13 @@ def update_alert_outcome(
                                 pnl_rs      = %s,
                                 closed_at   = %s,
                                 exit_signal = %s,
+                                exit_reason = COALESCE(alerts.exit_reason, %s),
                                 remaining_shares = 0,
                                 execution_state = %s,
                                 exit_history = COALESCE(%s::jsonb, exit_history)
                             WHERE id = %s
                             AND status NOT IN ('WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'REJECTED')
-                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, execution_state, hist_json, alert_id))
+                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, eff_reason, execution_state, hist_json, alert_id))
                     else:
                         cur.execute("""
                             UPDATE alerts
@@ -3754,11 +3780,12 @@ def update_alert_outcome(
                                 pnl_rs      = %s,
                                 closed_at   = %s,
                                 exit_signal = %s,
+                                exit_reason = COALESCE(alerts.exit_reason, %s),
                                 remaining_shares = 0,
                                 exit_history = COALESCE(%s::jsonb, exit_history)
                             WHERE id = %s
                             AND status NOT IN ('WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'REJECTED')
-                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, hist_json, alert_id))
+                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, eff_reason, hist_json, alert_id))
 
                     if cur.rowcount:
                         new_state = {"status": status, "exit_price": exit_price, "pnl_pct": pnl_pct, "pnl_rs": pnl_rs, "exit_history": exit_history}
@@ -8056,6 +8083,9 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                         pnl_pct = None
                         if alert_p and alert_p > 0 and exit_price is not None:
                             calc_ret = ((exit_price - alert_p) / alert_p) * 100.0
+                            if calc_ret >= 0 and "Catastrophic Trend Collapse" in (exit_reason or ""):
+                                logger.warning(f"🚫 [SAFEGUARD] Refusing to close winning position {symbol} (+{calc_ret:.2f}%) on Catastrophic Trend Collapse!")
+                                return False
                             final_st = "WIN" if calc_ret >= 0 else "LOSS"
                             pnl_rs   = round(exit_price - alert_p, 4)
                             pnl_pct  = round(calc_ret, 4)
