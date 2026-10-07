@@ -524,6 +524,19 @@ def check_pit_freshness(
             f"{staleness_years:.1f} years before scan_date={scan_date}. "
             f"BLOCKING (max={max_staleness_years}Y). Expected: {expected_latest_fy_end}."
         )
+        try:
+            try:
+                from database import add_symbol_to_cooloff
+            except ImportError:
+                from app.database import add_symbol_to_cooloff
+            add_symbol_to_cooloff(
+                symbol=symbol,
+                reason=f"PIT_STALENESS_{round(staleness_years, 1)}Y_EXCEEDS_{max_staleness_years}Y",
+                scanner="ALL",
+                duration_days=7
+            )
+        except Exception:
+            pass
         return IntegrityResult(
             status=DataStatus.DATA_STALE,
             reason=(

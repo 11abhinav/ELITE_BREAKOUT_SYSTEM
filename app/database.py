@@ -27,6 +27,12 @@
 import os
 import time
 import json
+import sys
+if __name__ == "app.database":
+    sys.modules.setdefault("database", sys.modules[__name__])
+elif __name__ == "database":
+    sys.modules.setdefault("app.database", sys.modules[__name__])
+
 import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple, Union

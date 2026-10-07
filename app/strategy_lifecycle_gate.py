@@ -91,8 +91,12 @@ class PersistentStrategyLifecycleGate:
                 )
                 row = cur.fetchone()
                 if row:
-                    return dict(row)
+                    res = dict(row)
+                    res["last_exit_reason_code"] = res.get("exit_reason_code")
+                    return res
                 return None
+
+    get_lifecycle = get_lifecycle_status
 
     def evaluate_buy_eligibility(
         self,

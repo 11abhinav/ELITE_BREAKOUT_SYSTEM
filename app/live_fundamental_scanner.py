@@ -1887,7 +1887,7 @@ class LiveFundamentalBuyScanner:
             # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
             try:
                 from database import get_active_cooloff_symbols
-                db_cooloff = get_active_cooloff_symbols("FUNDAMENTAL")
+                db_cooloff = get_active_cooloff_symbols("FUNDAMENTAL") | get_active_cooloff_symbols("ALL")
             except Exception:
                 db_cooloff = set()
 
@@ -2538,13 +2538,25 @@ class LiveFundamentalBuyScanner:
                         final_action="STOCK_SKIPPED",
                     )
                 # ── 7-DAY DATA FAILURE COOL-OFF DISPATCH ──────────
-                if (_fund_missing and prov_pit_result == "NOT_AVAILABLE") or (_bars_missing and sym not in market_data_map):
+                is_stale_or_invalid = (
+                    is_data_stale
+                    or funds.get("snapshot_status") in ("STALE", "INVALID", "DATA_INSUFFICIENT", "DATA_UNAVAILABLE")
+                    or funds.get("upstream_provider") in ("DATA_UNAVAILABLE", "DATA_INSUFFICIENT")
+                    or (_fund_missing and prov_pit_result == "NOT_AVAILABLE")
+                    or (_bars_missing and sym not in market_data_map)
+                )
+                if is_stale_or_invalid:
                     try:
                         from database import add_symbol_to_cooloff
+                        reason_code = "PIT_DATA_STALE" if is_data_stale else (
+                            "APPROVED_PROVIDERS_EXHAUSTED" if (_fund_missing and prov_pit_result == "NOT_AVAILABLE") else (
+                                "PRICE_HISTORY_UNAVAILABLE" if (_bars_missing and sym not in market_data_map) else "FUNDAMENTAL_DATA_INSUFFICIENT"
+                            )
+                        )
                         add_symbol_to_cooloff(
                             symbol=sym,
-                            reason="APPROVED_PROVIDERS_EXHAUSTED",
-                            scanner="FUNDAMENTAL",
+                            reason=reason_code,
+                            scanner="ALL",
                             duration_days=7
                         )
                     except Exception as _ce:
@@ -4375,7 +4387,7 @@ class QualityCompounderValueV2Scanner:
         # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
         try:
             from database import get_active_cooloff_symbols
-            db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
+            db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER") | get_active_cooloff_symbols("ALL")
         except Exception:
             db_cooloff_qc = set()
 
@@ -7467,6 +7479,32 @@ class QualityValueRecoveryScanner:
                         return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
 
                     approved_univ = sorted(list(self.universe_registry.approved_symbols))
+                    try:
+                        from database import get_active_cooloff_symbols
+                        db_cooloff_qvr = get_active_cooloff_symbols(self.strategy_id) | get_active_cooloff_symbols("ALL")
+                    except Exception:
+                        try:
+                            from app.database import get_active_cooloff_symbols
+                            db_cooloff_qvr = get_active_cooloff_symbols(self.strategy_id) | get_active_cooloff_symbols("ALL")
+                        except Exception:
+                            db_cooloff_qvr = set()
+
+                    try:
+                        from pit_recovery_cache import get_pit_recovery_cache
+                        _q_cache = get_pit_recovery_cache()
+                        quarantined_qvr = set(s for s in approved_univ if _q_cache.is_quarantined_for_scanner(s, self.strategy_id)) | db_cooloff_qvr
+                    except Exception:
+                        quarantined_qvr = db_cooloff_qvr
+
+                    if quarantined_qvr:
+                        orig_cnt_qvr = len(approved_univ)
+                        approved_univ = [s for s in approved_univ if s not in quarantined_qvr]
+                        new_cnt_qvr = len(approved_univ)
+                        logger.info(
+                            f"🛡️ [SCANNER_PRE_FILTER: {self.strategy_id}] Excluding {orig_cnt_qvr - new_cnt_qvr} stocks under active 7-day data cool-off. "
+                            f"Target universe count reduced from {orig_cnt_qvr} to {new_cnt_qvr}."
+                        )
+
                     pit_records_map = {str(r['symbol']).strip().upper(): r for r in pit_df.to_dict(orient="records")}
 
                     # Resolve 1D historical price data directory
@@ -7519,6 +7557,19 @@ class QualityValueRecoveryScanner:
                                 f"❌ [STOCK_TELEMETRY:RECOVERY] {sym:<12} | Status=REJECTED | FailedAt=PIT_DATA_MISSING | "
                                 f"Rejections=['PIT_DATA_MISSING'] | Funnel=[fun:FAIL dd:FAIL qual:FAIL val:FAIL safety:FAIL] | Metrics=[]"
                             )
+                            try:
+                                try:
+                                    from database import add_symbol_to_cooloff
+                                except ImportError:
+                                    from app.database import add_symbol_to_cooloff
+                                add_symbol_to_cooloff(
+                                    symbol=sym,
+                                    reason="PIT_DATA_MISSING",
+                                    scanner="ALL",
+                                    duration_days=7
+                                )
+                            except Exception:
+                                pass
                             continue
 
                         df_px = None

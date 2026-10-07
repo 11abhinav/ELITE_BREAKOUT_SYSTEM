@@ -794,6 +794,19 @@ class FundamentalSourceRouter:
         for dual_met, dual_src in dual_candidates:
             if dual_met and dual_met.overall_status == FundamentalStatus.DATA_CONFLICT:
                 logger.error(f"🚨 [ROUTER] {symbol}: Unresolved DATA_CONFLICT (>25% divergence) in {dual_src}. Hard blocking recovery.")
+                try:
+                    try:
+                        from database import add_symbol_to_cooloff
+                    except ImportError:
+                        from app.database import add_symbol_to_cooloff
+                    add_symbol_to_cooloff(
+                        symbol=symbol,
+                        reason=f"DATA_CONFLICT_ACROSS_{dual_src}",
+                        scanner="ALL",
+                        duration_days=7
+                    )
+                except Exception:
+                    pass
                 composed_metrics.overall_status = FundamentalStatus.DATA_CONFLICT
                 composed_metrics.rejection_reason = f"DATA_CONFLICT (>25% divergence) between {dual_src}"
                 return composed_metrics

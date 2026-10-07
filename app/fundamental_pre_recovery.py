@@ -271,6 +271,19 @@ class FundamentalPreRecoveryEngine:
                             staleness_years = (now_date - dt).days / 365.25
                             if staleness_years > 2.0:
                                 field_map.setdefault(sym, []).append("pit_staleness")
+                                try:
+                                    try:
+                                        from database import add_symbol_to_cooloff
+                                    except ImportError:
+                                        from app.database import add_symbol_to_cooloff
+                                    add_symbol_to_cooloff(
+                                        symbol=sym,
+                                        reason=f"PIT_STALENESS_{round(staleness_years, 1)}Y_EXCEEDS_2.0Y",
+                                        scanner="ALL",
+                                        duration_days=7
+                                    )
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
             except Exception as st_err:
@@ -470,6 +483,23 @@ class FundamentalPreRecoveryEngine:
                 f"⚠️ [SCANNER: {self.scanner_name}] Pre-recovery schema validation flagged issues: {schema_audit['critical_issues']}."
             )
 
+        try:
+            try:
+                from database import get_active_cooloff_symbols
+            except ImportError:
+                from app.database import get_active_cooloff_symbols
+            active_cooloff = get_active_cooloff_symbols(self.scanner_name) | get_active_cooloff_symbols("ALL")
+        except Exception:
+            active_cooloff = set()
+
+        if active_cooloff and "symbol" in df.columns:
+            orig_total = total_universe
+            df = df[~df["symbol"].astype(str).str.strip().str.upper().isin(active_cooloff)].copy()
+            total_universe = len(df)
+            logger.info(
+                f"🛡️ [PRE_RECOVERY_COOLOFF] Excluded {orig_total - total_universe} symbols under active 7-day cool-off from pre-recovery sweep. Active universe reduced from {orig_total} to {total_universe}."
+            )
+
         incomplete_symbols, field_map = self.identify_incomplete_symbols(df)
         complete_count = total_universe - len(incomplete_symbols)
 
@@ -559,6 +589,25 @@ class FundamentalPreRecoveryEngine:
                     )
                 except Exception as _rec_err:
                     logger.debug(f"[PRE_RECOVERY] Store recording notice for {symbol}: {_rec_err}")
+
+                try:
+                    try:
+                        from database import add_symbol_to_cooloff
+                    except ImportError:
+                        from app.database import add_symbol_to_cooloff
+                    reason_desc = (
+                        f"DATA_CONFLICT_ACROSS_PROVIDERS: {missing_fields}"
+                        if metrics.overall_status == FundamentalStatus.DATA_CONFLICT
+                        else f"RECOVERY_UNAVAILABLE: {missing_fields}"
+                    )
+                    add_symbol_to_cooloff(
+                        symbol=symbol,
+                        reason=reason_desc,
+                        scanner="ALL",
+                        duration_days=7
+                    )
+                except Exception:
+                    pass
 
         published = False
         if promoted_count > 0:
