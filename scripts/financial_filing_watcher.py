@@ -412,9 +412,7 @@ class FinancialFilingWatcher:
         Returns: FRESH, UPDATE_PENDING, STALE, or INVALID.
         """
         if os.path.exists(self.state_file):
-            disk_state = self._load_state()
-            disk_state.update(self.state)
-            self.state = disk_state
+            self.state = self._load_state()
         sym = symbol.strip().upper()
         entry = self.state.get(sym)
         if not entry:
@@ -547,6 +545,18 @@ class FinancialFilingWatcher:
                 error_msg=None,
                 run_id=run_ctx.run_id if run_ctx else None,
             )
+
+            # 5b. Multi-source feed operational heartbeat update (NSE + BSE)
+            try:
+                try:
+                    from app.financial_data_integrity import record_source_watermark
+                except ImportError:
+                    from financial_data_integrity import record_source_watermark
+                record_source_watermark("NSE", last_successful_check_at=now_ist.isoformat())
+                record_source_watermark("BSE", last_successful_check_at=now_ist.isoformat())
+            except Exception as _wm_err:
+                logger.warning(f"[filling scanner] Failed to record exchange watermarks: {_wm_err}")
+
 
             # 6. Complete scanner_execution_history
             if run_ctx:

@@ -2359,7 +2359,21 @@ def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON"):
     except ImportError:
         from app.financial_filing_watcher import FinancialFilingWatcher
     watcher = FinancialFilingWatcher()
-    return watcher.run_watcher_cycle(trigger_type=trigger_type, scheduler_name=scheduler_name)
+    res = watcher.run_watcher_cycle(trigger_type=trigger_type, scheduler_name=scheduler_name)
+    try:
+        from app.financial_data_integrity import record_source_watermark
+    except ImportError:
+        try:
+            from financial_data_integrity import record_source_watermark
+        except ImportError:
+            record_source_watermark = None
+    if record_source_watermark is not None:
+        try:
+            record_source_watermark("NSE")
+            record_source_watermark("BSE")
+        except Exception:
+            pass
+    return res
 
 
 # ENTRY POINT

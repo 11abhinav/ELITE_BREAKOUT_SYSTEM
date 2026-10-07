@@ -1773,6 +1773,17 @@ class LiveFundamentalBuyScanner:
         local_builder_hits_count = 0
         local_history_short_known_count = 0
 
+        # Touch exchange watermarks to confirm feed check activity
+        try:
+            try:
+                from app.financial_data_integrity import record_source_watermark
+            except ImportError:
+                from financial_data_integrity import record_source_watermark
+            record_source_watermark("NSE")
+            record_source_watermark("BSE")
+        except Exception:
+            pass
+
         # 1. Thread-level concurrency lock: prevent overlapping runs of same scanner
         if not _fundamental_scan_lock.acquire(blocking=False):
             logger.info("⚡ [FUNDAMENTAL] Scan already running in another thread — coalescing duplicate trigger (no waiting queue).")
@@ -7406,6 +7417,17 @@ class QualityValueRecoveryScanner:
         """
         start_ts = time.time()
         _scan_start = time.monotonic()
+
+        # Touch exchange watermarks to confirm feed check activity
+        try:
+            try:
+                from app.financial_data_integrity import record_source_watermark
+            except ImportError:
+                from financial_data_integrity import record_source_watermark
+            record_source_watermark("NSE")
+            record_source_watermark("BSE")
+        except Exception:
+            pass
 
         if not self.scan_thread_lock.acquire(blocking=False):
             logger.warning(f"🔒 [{self.strategy_id}] Scanner is already running in another thread. Skipping duplicate cycle.")

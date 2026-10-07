@@ -37,6 +37,7 @@ from scripts.financial_filing_watcher import (
 from app.financial_data_integrity import (
     pre_buy_integrity_gate,
     FieldProvenance,
+    record_source_watermark,
 )
 
 def run_test_1_universe_expansion():
@@ -384,6 +385,8 @@ def run_test_4_pre_buy_source_freshness_fence():
     print("=" * 80)
 
     TEST_SYM = "FENCE_TEST_STOCK"
+    record_source_watermark("NSE", last_successful_check_at=datetime.now().isoformat())
+    record_source_watermark("BSE", last_successful_check_at=datetime.now().isoformat())
     watcher = FinancialFilingWatcher()
 
     # 1. State in Watcher says FRESH based on FY2025
@@ -507,8 +510,9 @@ def run_test_6_freshness_to_buy_commit_race():
     # -------------------------------------------------------------------------
     print("  [Part A: Concurrency Race Condition Rejection]")
     # T0: Canonical snapshot is fresh, watcher is FRESH, feed watermarks are valid
-    record_source_watermark("NSE", last_successful_check_at="2026-10-03T22:30:00+05:30")
-    record_source_watermark("BSE", last_successful_check_at="2026-10-03T22:30:00+05:30")
+    now_fresh = datetime.now().isoformat()
+    record_source_watermark("NSE", last_successful_check_at=now_fresh)
+    record_source_watermark("BSE", last_successful_check_at=now_fresh)
     watcher.state[RACE_SYM] = {
         "filings": {"F_2025": {"period_end_date": "2025-03-31", "source_hash": "hash2025"}},
         "latest_filing_date": "2025-03-31",

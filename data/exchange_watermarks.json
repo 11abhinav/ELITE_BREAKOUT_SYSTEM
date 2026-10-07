@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-10-05T12:07:41.347341",
+    "last_successful_check_at": "2026-10-07T13:56:17.206524",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -50,7 +50,7 @@
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-10-05T12:07:41.350960",
+    "last_successful_check_at": "2026-10-07T13:56:17.211819",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
