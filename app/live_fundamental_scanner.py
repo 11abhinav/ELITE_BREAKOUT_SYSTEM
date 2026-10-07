@@ -1875,14 +1875,23 @@ class LiveFundamentalBuyScanner:
             # Stocks under active 7-day quarantine (data genuinely missing everywhere, e.g. CONFIRMED_NO_DATA_ANYWHERE)
             # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
             try:
-                from app.pit_recovery_cache import get_pit_recovery_cache
+                from database import get_active_cooloff_symbols
+                db_cooloff = get_active_cooloff_symbols("FUNDAMENTAL")
+            except Exception:
+                db_cooloff = set()
+
+            try:
+                from pit_recovery_cache import get_pit_recovery_cache
                 _q_cache = get_pit_recovery_cache()
-                quarantined_syms = [s for s in target_symbols if _q_cache.is_quarantined_for_scanner(s, "FUNDAMENTAL")]
+                quarantined_syms = set(s for s in target_symbols if _q_cache.is_quarantined_for_scanner(s, "FUNDAMENTAL")) | db_cooloff
                 if quarantined_syms:
+                    orig_cnt = len(target_symbols)
+                    target_symbols = [s for s in target_symbols if s not in quarantined_syms]
+                    new_cnt = len(target_symbols)
                     logger.info(
-                        f"🛡️ [SCANNER_PRE_FILTER: FUNDAMENTAL] Excluding {len(quarantined_syms)} stocks under active 7-day quarantine: {quarantined_syms[:10]}..."
+                        f"🛡️ [SCANNER_PRE_FILTER: FUNDAMENTAL] Excluding {orig_cnt - new_cnt} stocks under active 7-day data cool-off. "
+                        f"Target universe count reduced from {orig_cnt} to {new_cnt}."
                     )
-                    target_symbols = [s for s in target_symbols if s not in set(quarantined_syms)]
             except Exception as _q_err:
                 logger.debug(f"Quarantine pre-filter notice: {_q_err}")
 
@@ -2517,6 +2526,18 @@ class LiveFundamentalBuyScanner:
                         validation_reason=f"INSUFFICIENT_LOOKBACK_{len(df_bars)}_CANDLES",
                         final_action="STOCK_SKIPPED",
                     )
+                # ── 7-DAY DATA FAILURE COOL-OFF DISPATCH ──────────
+                if (_fund_missing and prov_pit_result == "NOT_AVAILABLE") or (_bars_missing and sym not in market_data_map):
+                    try:
+                        from database import add_symbol_to_cooloff
+                        add_symbol_to_cooloff(
+                            symbol=sym,
+                            reason="APPROVED_PROVIDERS_EXHAUSTED",
+                            scanner="FUNDAMENTAL",
+                            duration_days=7
+                        )
+                    except Exception as _ce:
+                        logger.debug(f"Cool-off dispatch notice for {sym}: {_ce}")
                 # ── END DATA RECOVERY AUDIT ─────────────────────────────────────────
 
                 # Track SLA fundamental hits
@@ -4342,14 +4363,23 @@ class QualityCompounderValueV2Scanner:
         # Stocks under active 7-day quarantine (data genuinely missing everywhere, e.g. CONFIRMED_NO_DATA_ANYWHERE)
         # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
         try:
-            from app.pit_recovery_cache import get_pit_recovery_cache
+            from database import get_active_cooloff_symbols
+            db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
+        except Exception:
+            db_cooloff_qc = set()
+
+        try:
+            from pit_recovery_cache import get_pit_recovery_cache
             _q_cache = get_pit_recovery_cache()
-            quarantined_qc = [s for s in universe_symbols if _q_cache.is_quarantined_for_scanner(s, "QUALITY_COMPOUNDER")]
+            quarantined_qc = set(s for s in universe_symbols if _q_cache.is_quarantined_for_scanner(s, "QUALITY_COMPOUNDER")) | db_cooloff_qc
             if quarantined_qc:
+                orig_cnt_qc = len(universe_symbols)
+                universe_symbols = [s for s in universe_symbols if s not in quarantined_qc]
+                new_cnt_qc = len(universe_symbols)
                 logger.info(
-                    f"🛡️ [SCANNER_PRE_FILTER: QUALITY_COMPOUNDER] Excluding {len(quarantined_qc)} stocks under active 7-day quarantine: {quarantined_qc[:10]}..."
+                    f"🛡️ [SCANNER_PRE_FILTER: QUALITY_COMPOUNDER] Excluding {orig_cnt_qc - new_cnt_qc} stocks under active 7-day data cool-off. "
+                    f"Target universe count reduced from {orig_cnt_qc} to {new_cnt_qc}."
                 )
-                universe_symbols = [s for s in universe_symbols if s not in set(quarantined_qc)]
         except Exception as _q_err:
             logger.debug(f"Quarantine pre-filter notice: {_q_err}")
 

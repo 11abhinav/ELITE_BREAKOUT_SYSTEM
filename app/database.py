@@ -1777,6 +1777,24 @@ def init_db():
                     );
                 """)
 
+                # 37b. symbol_cooloff_journal (7-Day Data Failure Cool-off Journal)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS symbol_cooloff_journal (
+                        id SERIAL PRIMARY KEY,
+                        symbol VARCHAR(50) NOT NULL,
+                        reason TEXT NOT NULL,
+                        scanner VARCHAR(50) NOT NULL DEFAULT 'ALL',
+                        cooloff_start_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        cooloff_until TIMESTAMPTZ NOT NULL,
+                        provider_failures TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        UNIQUE(symbol, scanner)
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_sym_scanner ON symbol_cooloff_journal(symbol, scanner)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_until ON symbol_cooloff_journal(cooloff_until)")
+
                 # 38. stock_analysis_master
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stock_analysis_master (
@@ -2339,7 +2357,7 @@ def validate_schema(cur):
         "user_watchlists", "stock_analysis_master", "watchlist",
         "scanner_execution_history",
         "scanner_candidates", "candidate_snapshots", "near_miss_outcomes",
-        "alert_events"
+        "alert_events", "symbol_cooloff_journal"
     ]
 
     missing_tables = [t for t in REQUIRED_TABLES if t not in existing_tables]
@@ -8779,7 +8797,182 @@ def get_elite_watchlist() -> list:
             return sorted(wl["Stock"].dropna().unique().tolist())
     except Exception as e2:
         logger.error(f"Failed to fetch elite watchlist fallback from cache: {e2}")
-    return []
+    # ─────────────────────────────────────────────────────────────────────────────
+# 🛡️ 7-DAY DATA FAILURE COOL-OFF JOURNAL API
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LOCAL_COOLOFF_CACHE: dict = {}
+_LOCAL_COOLOFF_LOCK = threading.Lock()
+
+def add_symbol_to_cooloff(
+    symbol: str,
+    reason: str,
+    scanner: str = "ALL",
+    duration_days: int = 7,
+    provider_failures: Optional[Any] = None
+) -> bool:
+    """
+    [7-DAY DATA FAILURE COOL-OFF GATE]
+    Puts a stock whose required data is missing/invalid across all validated providers into a 7-day cool-off.
+    Active cool-off stocks are excluded at universe initialization on subsequent runs, reducing scanned_count.
+    """
+    if not symbol or not isinstance(symbol, str):
+        return False
+    sym = symbol.strip().upper()
+    scan = str(scanner or "ALL").strip().upper()
+    reason_clean = str(reason or "APPROVED_PROVIDERS_EXHAUSTED").strip()
+    
+    pf_str = None
+    if provider_failures is not None:
+        try:
+            pf_str = json.dumps(provider_failures, default=str)
+        except Exception:
+            pf_str = str(provider_failures)
+
+    from datetime import datetime, timedelta
+    now_dt = datetime.now(IST)
+    until_dt = now_dt + timedelta(days=duration_days)
+
+    with _LOCAL_COOLOFF_LOCK:
+        _LOCAL_COOLOFF_CACHE[(sym, scan)] = {
+            "symbol": sym,
+            "reason": reason_clean,
+            "scanner": scan,
+            "cooloff_start_at": now_dt,
+            "cooloff_until": until_dt,
+            "provider_failures": pf_str
+        }
+
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO symbol_cooloff_journal (
+                            symbol, reason, scanner, cooloff_start_at, cooloff_until, provider_failures, created_at, updated_at
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (symbol, scanner) DO UPDATE SET
+                            reason = EXCLUDED.reason,
+                            cooloff_start_at = EXCLUDED.cooloff_start_at,
+                            cooloff_until = EXCLUDED.cooloff_until,
+                            provider_failures = EXCLUDED.provider_failures,
+                            updated_at = EXCLUDED.updated_at
+                    """, (
+                        sym, reason_clean, scan, now_dt, until_dt, pf_str, now_dt, now_dt
+                    ))
+    except Exception as e:
+        logger.debug(f"Cool-off DB insertion notice: {e}")
+
+    logger.info(
+        f"🛡️ [DATA_COOLOFF] Added {sym} to {duration_days}-day cool-off for scanner '{scan}' "
+        f"(Cool-off active until {until_dt.strftime('%Y-%m-%d %H:%M:%S IST')}): {reason_clean}"
+    )
+
+    try:
+        from pit_recovery_cache import get_pit_recovery_store
+        get_pit_recovery_store().mark_negative_cache(
+            symbol=sym,
+            field="ALL",
+            classification=reason_clean,
+            ttl_hours=duration_days * 24,
+            scanner_family=scan
+        )
+    except Exception:
+        pass
+
+    return True
+
+
+def get_active_cooloff_symbols(scanner: str = "ALL") -> set:
+    """
+    Returns a set of symbol strings currently under an active 7-day cool-off (cooloff_until > NOW()).
+    """
+    scan = str(scanner or "ALL").strip().upper()
+    active_syms = set()
+    from datetime import datetime
+    now_dt = datetime.now(IST)
+
+    with _LOCAL_COOLOFF_LOCK:
+        for (sym, s_fam), rec in list(_LOCAL_COOLOFF_CACHE.items()):
+            until = rec.get("cooloff_until")
+            if until and until <= now_dt:
+                del _LOCAL_COOLOFF_CACHE[(sym, s_fam)]
+                continue
+            if s_fam == "ALL" or scan == "ALL" or s_fam == scan:
+                active_syms.add(sym)
+
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT symbol FROM symbol_cooloff_journal
+                        WHERE cooloff_until > %s
+                          AND (UPPER(scanner) = %s OR UPPER(scanner) = 'ALL' OR %s = 'ALL')
+                    """, (now_dt, scan, scan))
+                    rows = cur.fetchall()
+                    for r in rows:
+                        if r and r[0]:
+                            active_syms.add(str(r[0]).strip().upper())
+    except Exception as e:
+        logger.debug(f"Cool-off DB lookup notice for scanner {scan}: {e}")
+
+    try:
+        from pit_recovery_cache import get_pit_recovery_store
+        dyn_q = get_pit_recovery_store().get_quarantined_symbols(scanner_family=scan)
+        if dyn_q:
+            active_syms.update(dyn_q)
+    except Exception:
+        pass
+
+    return active_syms
+
+
+def remove_symbol_from_cooloff(symbol: str, scanner: str = "ALL") -> bool:
+    """Manually removes a symbol from active cool-off."""
+    if not symbol:
+        return False
+    sym = symbol.strip().upper()
+    scan = str(scanner or "ALL").strip().upper()
+
+    with _LOCAL_COOLOFF_LOCK:
+        keys_to_del = [k for k in _LOCAL_COOLOFF_CACHE if k[0] == sym and (scan == "ALL" or k[1] in ("ALL", scan))]
+        for k in keys_to_del:
+            del _LOCAL_COOLOFF_CACHE[k]
+
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        DELETE FROM symbol_cooloff_journal
+                        WHERE symbol = %s
+                          AND (UPPER(scanner) = %s OR UPPER(scanner) = 'ALL' OR %s = 'ALL')
+                    """, (sym, scan, scan))
+        return True
+    except Exception as e:
+        logger.error(f"Failed to remove {sym} from symbol_cooloff_journal: {e}")
+        return False
+
+
+def cleanup_expired_cooloffs() -> int:
+    """Removes expired cool-off records from database."""
+    try:
+        from datetime import datetime
+        now_dt = datetime.now(IST)
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM symbol_cooloff_journal WHERE cooloff_until <= %s", (now_dt,))
+                    cnt = cur.rowcount
+                    if cnt and cnt > 0:
+                        logger.info(f"🧹 Evicted {cnt} expired entries from symbol_cooloff_journal.")
+                    return cnt or 0
+        return 0
+    except Exception as e:
+        logger.debug(f"Cleanup cooloffs notice: {e}")
+        return 0
+
 
 def get_active_breakout_watchlist() -> list:
     """
