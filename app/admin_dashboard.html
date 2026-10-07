@@ -2723,17 +2723,6 @@ function changeAdminPage(type, delta) {
           </select>
           <select id="filterStatus">
             <option value="">All status</option>
-            <option value="OPEN">Open (Active)</option>
-            <option value="PENDING_ENTRY">Pending Entry (Awaiting Breakout)</option>
-            <option value="WIN">Win (Full Profit)</option>
-            <option value="PARTIAL_WIN">Partial Win</option>
-            <option value="LOSS">Loss (Stopped Out)</option>
-            <option value="CLOSED_TODAY">Closed Today</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="SELL_REVIEW">Sell Review</option>
-            <option value="EXPIRED">Expired</option>
-            <option value="NEUTRAL">Neutral</option>
-            <option value="CLOSED">Closed (Other)</option>
           </select>
           <select id="filterTradeSort" onchange="renderTrades()">
             <option value="DEFAULT">Sort: Default (Newest First)</option>
@@ -6053,22 +6042,11 @@ function getEarningsBadgeHtml(item) {
       let filtered = ALL_TRADES.filter(t => {
         if (sc && t.scanner !== sc) return false;
         
-        if (st === 'CLOSED_TODAY') {
-            if (t.status !== 'WIN' && t.status !== 'LOSS') return false;
-            if (!t.closed_at) return false;
-            const cd = new Date(t.closed_at.replace(' ', 'T'));
-            if (cd < todayStart) return false;
-        } else if (st === 'PARTIAL_WIN') {
-            if (!t.status || !t.status.startsWith('PARTIAL_WIN')) return false;
-        } else if (st === 'PENDING_ENTRY') {
-            if (t.execution_state !== 'PENDING_ENTRY') return false;
-        } else if (st === 'OPEN') {
-            if (t.status !== 'OPEN' || t.execution_state === 'PENDING_ENTRY') return false;
-        } else if (st && t.status !== st) {
-            return false;
+        if (st) {
+          if ((t.status || '').trim().toUpperCase() !== st.toUpperCase()) return false;
+        } else {
+          if (t.status === 'REJECTED') return false; // Hide rejected trades by default unless explicitly selected
         }
-        
-        if (!st && t.status === 'REJECTED') return false; // Hide rejected trades by default
         if (sym && !t.symbol.includes(sym)) return false;
         if (dateFilt !== 'ALL') {
           const d = new Date((t.entry_date || '').replace(' ', 'T'));
@@ -6340,38 +6318,29 @@ function getEarningsBadgeHtml(item) {
     function populateFilters(trades) {
       const predefinedScanners = ['TECHNICAL', 'FUNDAMENTAL'];
       const scanners = [...new Set([...predefinedScanners, ...trades.map(t => t.scanner).filter(Boolean)])].sort();
-      
-      // Hardcode all possible status combinations so they are always filterable
-      const predefinedStatuses = [
-        { val: 'OPEN', label: 'Open (Active)' },
-        { val: 'PENDING_ENTRY', label: 'Pending Entry (Awaiting Breakout)' },
-        { val: 'WIN', label: 'Win (Full Profit)' },
-        { val: 'PARTIAL_WIN', label: 'Partial Win' },
-        { val: 'LOSS', label: 'Loss (Stopped Out)' },
-        { val: 'CLOSED_TODAY', label: 'Closed Today' },
-        { val: 'REJECTED', label: 'Rejected' },
-        { val: 'SELL_REVIEW', label: 'Sell Review' },
-        { val: 'EXPIRED', label: 'Expired' },
-        { val: 'NEUTRAL', label: 'Neutral' },
-        { val: 'CLOSED', label: 'Closed (Other)' }
-      ];
+      const distinctStatuses = [...new Set(trades.map(t => (t.status || '').trim()).filter(Boolean))].sort();
       
       const sEl = document.getElementById('filterScanner');
       const stEl = document.getElementById('filterStatus');
 
       // Keep the first default option, remove the rest
-      while (sEl.options.length > 1) sEl.remove(1);
-      if(stEl) while (stEl.options.length > 1) stEl.remove(1);
-
-      scanners.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sEl.appendChild(o); });
+      if (sEl) {
+        const curSc = sEl.value;
+        while (sEl.options.length > 1) sEl.remove(1);
+        scanners.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sEl.appendChild(o); });
+        if (curSc && scanners.includes(curSc)) sEl.value = curSc;
+      }
       
-      if(stEl) {
-        predefinedStatuses.forEach(st => { 
+      if (stEl) {
+        const curSt = stEl.value;
+        while (stEl.options.length > 1) stEl.remove(1);
+        distinctStatuses.forEach(st => { 
           const o = document.createElement('option'); 
-          o.value = st.val; 
-          o.textContent = st.label; 
+          o.value = st; 
+          o.textContent = st; 
           stEl.appendChild(o); 
         });
+        if (curSt && distinctStatuses.includes(curSt)) stEl.value = curSt;
       }
     }
 
