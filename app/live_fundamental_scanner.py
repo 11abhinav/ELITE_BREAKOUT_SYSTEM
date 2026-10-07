@@ -7411,7 +7411,7 @@ class QualityValueRecoveryScanner:
         passed = len(rejection_reasons) == 0
         return passed, rejection_reasons, metrics
 
-    def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
+    def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True, coalesce_if_busy: bool = False, *args, **kwargs) -> Dict[str, Any]:
         """
         Executes the QUALITY_VALUE_RECOVERY (RECOVERY-V01-MODEL-D-E3) scan run.
         """
@@ -7747,9 +7747,9 @@ def get_quality_value_recovery_scanner() -> QualityValueRecoveryScanner:
         _recovery_scanner_instance = QualityValueRecoveryScanner()
     return _recovery_scanner_instance
 
-def run_quality_value_recovery_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True, coalesce_if_busy: bool = False) -> Dict[str, Any]:
+def run_quality_value_recovery_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True, coalesce_if_busy: bool = False, *args, **kwargs) -> Dict[str, Any]:
     """Top-level invocation wrapper for QUALITY_VALUE_RECOVERY scanner."""
-    return get_quality_value_recovery_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence, coalesce_if_busy=coalesce_if_busy)
+    return get_quality_value_recovery_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence, coalesce_if_busy=coalesce_if_busy, *args, **kwargs)
 
 
 __all__ = [
