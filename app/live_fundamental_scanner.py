@@ -4052,7 +4052,7 @@ class QualityCompounderValueV2Scanner:
         })
         return None, None, providers_audit, "DATA_INSUFFICIENT_VALUATION"
 
-    def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
+    def scan_universe(self, trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True, coalesce_if_busy: bool = False) -> Dict[str, Any]:
         """
         Executes the frozen QUALITY_COMPOUNDER 17:00 IST daily scan run.
         Generates daily immutable SCAN_SNAPSHOT rows for ALL evaluated stocks and
@@ -4094,6 +4094,7 @@ class QualityCompounderValueV2Scanner:
             if coalesce_if_busy or trigger_type == "MANUAL" or scheduler_name == "MANUAL":
                 logger.info(f"⚡ [{self.strategy_id}] Global scanner lock busy (another main scanner running) — coalescing trigger without 6-minute lock wait.")
                 self.scan_thread_lock.release()
+                acquired_scan = False
                 return {"status": "COALESCED", "reason": "Global scanner lock busy (coalesced)", "candidate_count": 0, "buy_candidates": []}
             logger.info(f"⏳ [{self.strategy_id}] Global scanner lock busy (another main scanner is running) — waiting in queue until active scanner finishes...")
             try:
@@ -4123,6 +4124,7 @@ class QualityCompounderValueV2Scanner:
                     except Exception:
                         pass
                 self.scan_thread_lock.release()
+                acquired_scan = False
                 return {"status": "FAILED", "reason": "Lock acquisition failed"}
         else:
             acquired_global = True
@@ -7681,9 +7683,9 @@ def get_quality_compounder_v2_scanner() -> QualityCompounderValueV2Scanner:
         _v2_scanner_instance = QualityCompounderValueV2Scanner()
     return _v2_scanner_instance
 
-def run_quality_compounder_v2_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
+def run_quality_compounder_v2_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True, coalesce_if_busy: bool = False) -> Dict[str, Any]:
     """Top-level invocation wrapper for QUALITY_COMPOUNDER scanner."""
-    return get_quality_compounder_v2_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence)
+    return get_quality_compounder_v2_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence, coalesce_if_busy=coalesce_if_busy)
 
 _recovery_scanner_instance = None
 
@@ -7693,9 +7695,9 @@ def get_quality_value_recovery_scanner() -> QualityValueRecoveryScanner:
         _recovery_scanner_instance = QualityValueRecoveryScanner()
     return _recovery_scanner_instance
 
-def run_quality_value_recovery_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True) -> Dict[str, Any]:
+def run_quality_value_recovery_scan(trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON", record_full_evidence: bool = True, coalesce_if_busy: bool = False) -> Dict[str, Any]:
     """Top-level invocation wrapper for QUALITY_VALUE_RECOVERY scanner."""
-    return get_quality_value_recovery_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence)
+    return get_quality_value_recovery_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name, record_full_evidence=record_full_evidence, coalesce_if_busy=coalesce_if_busy)
 
 
 __all__ = [

@@ -1990,8 +1990,28 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     if lock_fn:
         try:
             lock = lock_fn()
-            if lock and hasattr(lock, "locked") and lock.locked():
-                return {"status": "error", "message": f"❌ {scanner_key} is already actively running!"}
+            if lock and hasattr(lock, "locked"):
+                if lock.locked():
+                    return {"status": "error", "message": f"❌ {scanner_key} is already actively running!"}
+                else:
+                    # In-memory lock is FREE: auto-heal any leftover orphaned DB RUNNING/QUEUED records from prior crashes
+                    try:
+                        from database import get_connection
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("""
+                                    UPDATE scanner_execution_history
+                                    SET completed_at = NOW(), lifecycle_status = 'CANCELLED', error_summary = 'Watchdog auto-cleaned orphaned run before manual trigger'
+                                    WHERE LOWER(scanner_name) IN (LOWER(%s), LOWER(%s)) AND lifecycle_status IN ('RUNNING', 'QUEUED');
+                                """, (scanner_key, norm_key))
+                                cur.execute("""
+                                    UPDATE scanner_health
+                                    SET status = 'IDLE', updated_at = NOW(), error_msg = NULL
+                                    WHERE LOWER(scanner_name) IN (LOWER(%s), LOWER(%s)) AND status IN ('RUNNING', 'QUEUED');
+                                """, (scanner_key, norm_key))
+                                conn.commit()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
