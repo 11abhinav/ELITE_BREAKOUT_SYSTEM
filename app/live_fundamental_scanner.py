@@ -2033,16 +2033,16 @@ class LiveFundamentalBuyScanner:
                         if lp and float(lp) > 0:
                             df_bar = df_bar.copy()
                             c_col = 'Close' if 'Close' in df_bar.columns else ('close' if 'close' in df_bar.columns else None)
-                        h_col = 'High' if 'High' in df_bar.columns else ('high' if 'high' in df_bar.columns else None)
-                        if c_col:
-                            if df_bar[c_col].dtype != 'float64':
-                                df_bar[c_col] = df_bar[c_col].astype(float)
-                            df_bar.loc[df_bar.index[-1], c_col] = float(lp)
-                        if h_col and float(lp) > float(df_bar[h_col].iloc[-1]):
-                            if df_bar[h_col].dtype != 'float64':
-                                df_bar[h_col] = df_bar[h_col].astype(float)
-                            df_bar.loc[df_bar.index[-1], h_col] = float(lp)
-                        market_data_map[sym] = df_bar
+                            h_col = 'High' if 'High' in df_bar.columns else ('high' if 'high' in df_bar.columns else None)
+                            if c_col:
+                                if df_bar[c_col].dtype != 'float64':
+                                    df_bar[c_col] = df_bar[c_col].astype(float)
+                                df_bar.loc[df_bar.index[-1], c_col] = float(lp)
+                            if h_col and float(lp) > float(df_bar[h_col].iloc[-1]):
+                                if df_bar[h_col].dtype != 'float64':
+                                    df_bar[h_col] = df_bar[h_col].astype(float)
+                                df_bar.loc[df_bar.index[-1], h_col] = float(lp)
+                            market_data_map[sym] = df_bar
 
             if benchmark_closes is None:
                 history_dir = os.path.join(DATA_DIR, "history", "1d")

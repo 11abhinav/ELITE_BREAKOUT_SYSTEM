@@ -82,7 +82,8 @@ def get_cached_live_price(symbol: str) -> Optional[float]:
 ALLOWED_SINGLE_SYMBOL_PURPOSES = {
     "TRADE_EXECUTION_VERIFY", 
     "MANUAL_USER_ANALYSIS", 
-    "ALERT_PERSISTENCE"
+    "ALERT_PERSISTENCE",
+    "ALERT_PRICE_SYNC"
 }
 
 _quote_access_metrics = {
