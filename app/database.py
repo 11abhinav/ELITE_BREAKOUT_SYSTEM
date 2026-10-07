@@ -6765,7 +6765,7 @@ def get_manual_portfolio():
                        'NONE'::TEXT                                                     AS earnings_severity,
                        ''                                                               AS warning_msg
                 FROM alerts
-                WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                WHERE scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                   AND record_type = 'ALERT_EVENT'
                   AND status IN ('OPEN', 'ACTIVE')
                 ORDER BY alert_time DESC
@@ -7886,7 +7886,7 @@ def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date
                            FALSE AS earnings_flag, 999 AS days_to_earnings, NULL::DATE AS ec_earnings_date,
                            'NONE'::TEXT AS earnings_severity, '' AS warning_msg
                     FROM alerts
-                    WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                    WHERE scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                       AND record_type = 'ALERT_EVENT'
                 """
                 params = []
@@ -8061,7 +8061,7 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                         cur.execute("""
                             SELECT COALESCE(entry_price, current_price), alert_date FROM alerts
                             WHERE symbol = %s
-                              AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                              AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                               AND record_type = 'ALERT_EVENT'
                               AND status IN ('OPEN', 'ACTIVE')
                         """, (symbol,))
@@ -8100,7 +8100,7 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                                 pnl_rs     = %s,
                                 pnl_pct    = %s
                             WHERE symbol = %s
-                              AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                              AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                               AND record_type = 'ALERT_EVENT'
                               AND status IN ('OPEN', 'ACTIVE')
                         """, (final_st, exit_price, now, exit_reason, exit_reason, pnl_rs, pnl_pct, symbol))
@@ -8123,7 +8123,7 @@ def get_open_symbols() -> list:
                 cur.execute("""
                     SELECT DISTINCT symbol FROM alerts
                     WHERE status IN ('OPEN', 'ACTIVE')
-                      AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                      AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                     ORDER BY symbol
                 """)
                 return [row[0] for row in cur.fetchall()]
@@ -12470,7 +12470,7 @@ def save_v2_exit_event(
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT id, status, watchlist_state, exit_history, context FROM alerts
-                WHERE symbol = %s AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                WHERE symbol = %s AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                   AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
                 ORDER BY alert_time DESC LIMIT 1
             """, (sym,))

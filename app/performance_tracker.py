@@ -132,13 +132,32 @@ def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
                         try:
                             df_cached = pd.read_parquet(fpath)
                             if not df_cached.empty and "Close" in df_cached.columns:
+                                # [RULE 67 CHANGE-RATIONALE: Enforce AGENTS.md Alert CMP & Market-Close Price Invariant]
+                                # Scanners are strictly forbidden from falling back to multi-day-old historical parquet candles.
+                                # Check that the cached bar is from the latest official market session.
+                                from trading_calendar import get_latest_trading_date
+                                latest_session_date = str(get_latest_trading_date())
+                                last_row_date = None
+                                if "Date" in df_cached.columns:
+                                    last_row_date = str(df_cached["Date"].iloc[-1])[:10]
+                                elif isinstance(df_cached.index, pd.DatetimeIndex):
+                                    last_row_date = str(df_cached.index[-1])[:10]
+
+                                is_latest_session = (last_row_date == latest_session_date) if last_row_date else False
+                                if not is_latest_session:
+                                    logger.warning(
+                                        f"🛑 [INVARIANT ENFORCED] {sym}: Disk parquet last bar ({last_row_date}) "
+                                        f"is STALE vs latest trading session ({latest_session_date}). "
+                                        f"Rejecting stale fallback per AGENTS.md invariant."
+                                    )
+                                    break
+
                                 last_close = float(df_cached["Close"].dropna().iloc[-1])
                                 if last_close > 0:
                                     prices[sym] = last_close
-                                    logger.warning(
-                                        f"⚠️ [PERF_TRACKER] {sym}: Live quote unavailable — "
-                                        f"using last-known close ₹{last_close:.2f} from disk parquet cache. "
-                                        f"Evaluation will proceed with stale price (safe — no false SL hit)."
+                                    logger.info(
+                                        f"ℹ️ [PERF_TRACKER] {sym}: Live quote unavailable — "
+                                        f"using verified latest session close ₹{last_close:.2f} ({latest_session_date})."
                                     )
                                     break
                         except Exception as read_err:

@@ -845,13 +845,15 @@ def run_all_seven_scanners_non_market_boot():
         except Exception as e:
             logger.warning(f"⚠️ [NON-MARKET BOOT] Cleanup warning: {e}")
 
+        # [RULE 67 CHANGE-RATIONALE: Purge decommissioned WEALTH_ENGINE from boot queue]
+        # Governance permanently decommissioned WEALTH_ENGINE in favor of certified
+        # production scanners QUALITY_COMPOUNDER and QUALITY_VALUE_RECOVERY.
         all_scanners = [
             ("DAILY_BUILDER", _trigger_daily_builder),
             ("TECHNICAL", _trigger_technical),
             ("FUNDAMENTAL", _trigger_fundamental),
             ("QUALITY_COMPOUNDER", _trigger_quality_compounder_v2),
             ("QUALITY_VALUE_RECOVERY", _trigger_quality_value_recovery),
-            ("WEALTH_ENGINE", _trigger_wealth_engine),
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
@@ -1652,15 +1654,17 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ FILING_WATCHER is STOPPED by Admin. Skipping 16:30 run.")
 
-            # 17:00 - Wealth Engine Full Daily Scan (Post-Market Valuation & DCF Review)
+            # 17:00 - Quality Compounder V2 Full Daily Scan (Post-Market 5Y Quality & 25% EV/EBITDA Valuation Review)
+            # [RULE 67 CHANGE-RATIONALE: Align 17:00 daily scan with certified QUALITY_COMPOUNDER]
+            # Wealth Engine was decommissioned; QUALITY_COMPOUNDER is the certified production strategy.
             if (now.hour > 17 or (now.hour == 17 and now.minute >= 0)) and last_wealth_daily_date != now.date():
                 last_wealth_daily_date = now.date()
-                if not is_scanner_stopped("Wealth Engine"):
-                    logger.info("🕒 SCHEDULER | [17:00] Triggering WEALTH ENGINE Full Daily Scan")
+                if not is_scanner_stopped("QUALITY_COMPOUNDER") and not is_scanner_stopped("QUALITY_COMPOUNDER_VALUE_V2_FINAL"):
+                    logger.info("🕒 SCHEDULER | [17:00] Triggering QUALITY_COMPOUNDER V2 Full Daily Scan")
                     import threading
-                    threading.Thread(target=_trigger_wealth_engine, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="WealthEngineDaily", daemon=True).start()
+                    threading.Thread(target=_trigger_quality_compounder_v2, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="QualityCompounderDaily", daemon=True).start()
                 else:
-                    logger.info("⏭️ Wealth Engine is STOPPED by Admin. Skipping 17:00 IST daily scan.")
+                    logger.info("⏭️ QUALITY_COMPOUNDER is STOPPED by Admin. Skipping 17:00 IST daily scan.")
 
             # 17:15 - Quality Value Recovery Daily Scan
             if (now.hour > 17 or (now.hour == 17 and now.minute >= 15)) and last_quality_recovery_date != now.date():
