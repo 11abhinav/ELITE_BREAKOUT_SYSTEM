@@ -114,19 +114,36 @@ Background operations are governed by an autonomous 24/7 scheduler loop (`run_sy
        │ └──────────────────────────────────────────────────────┘  │
  15:30 ── MARKET CLOSE (SessionContext → POST_MARKET)
        │
- 15:30 ┌────────────────────────────────────────────────────────────┐
-       │ POST-MARKET EARNINGS / RESULT CALENDAR REFRESH             │
-       │ Owner: EarningsCalendarService (app/earnings_calendar.py)  │
-       │ Window: 15:30 - 18:00 IST (Post-market close window)       │
-       │ Priority 1: Stocks with results expected TODAY re-checked  │
-       │ Priority 2: Rest of universe (45d TTL known, 7d TTL missing)│
- 18:00 └────────────────────────────────────────────────────────────┘
+ 16:30 ┌────────────────────────────────────────────────────────────┐
+       │ POST-MARKET EARNINGS & FILING SWEEP                        │
+       │ Owner: FilingWatcherService (app/main.py)                  │
+       │ Action: Pre-17:00 corporate filing and earnings sweep      │
+ 16:45 └────────────────────────────────────────────────────────────┘
        │
- 19:00 ┌────────────────────────────────────────────────────────────┐
-       │ MULTIBAGGER DAILY SCANNER RUN                              │
-       │ Owner: Multibagger Engine (app/multibagger.py)             │
-       │ Output: DB alerts + candidate ranking                      │
- 19:30 └────────────────────────────────────────────────────────────┘
+ 17:00 ┌────────────────────────────────────────────────────────────┐
+       │ QUALITY COMPOUNDER V2 FULL DAILY SCAN                      │
+       │ Owner: QualityCompounderValueV2Scanner (app/main.py)       │
+       │ Evaluates: 5Y Quality + 25% EV/EBITDA Valuation Discounts  │
+       │ *(Updated 2026-10-07: Aligned 17:00 CRON to Quality Compounder)*│
+ 17:10 └────────────────────────────────────────────────────────────┘
+       │
+ 17:15 ┌────────────────────────────────────────────────────────────┐
+       │ QUALITY VALUE RECOVERY FULL DAILY SCAN                     │
+       │ Owner: QualityValueRecoveryScanner (app/main.py)           │
+       │ Evaluates: Model D -30% 2Y Drawdown + Valuation Compression│
+ 17:25 └────────────────────────────────────────────────────────────┘
+       │
+ 18:15 ┌────────────────────────────────────────────────────────────┐
+       │ TECHNICAL BREAKOUT MULTI-PATTERN SCAN                      │
+       │ Owner: TechnicalBreakoutScanner (app/technical_scanner.py) │
+       │ Evaluates: Wyckoff Spring Type 2 & Technical Breakouts     │
+ 18:30 └────────────────────────────────────────────────────────────┘
+       │
+ 21:00 ┌────────────────────────────────────────────────────────────┐
+       │ CORPORATE FILING WATCHER NIGHT SWEEP                       │
+       │ Owner: FilingWatcherService (app/main.py)                  │
+       │ Action: Night filings and exchange disclosure ingestion    │
+ 21:15 └────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -749,6 +766,12 @@ Governed by `run_system_scheduler()` in `app/main.py`:
 
 # 15. ALERT LIFECYCLE, STATE MACHINE & EXIT MANAGEMENT
 
+> **Detailed Forensic Audit Reference:** See [`docs/SCANNER_AUDIT_BACKTEST_AND_EXIT_STRATEGY_REPORT.md`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/SCANNER_AUDIT_BACKTEST_AND_EXIT_STRATEGY_REPORT.md) for empirical backtest comparisons, mathematical proofs, and RCA documentation.
+
+The system implements **three distinct strategy-isolated exit engines**:
+
+### 15.1 Framework A: Technical Momentum Trailing State Machine (`TECHNICAL`)
+
 ```text
        [ SIGNAL GENERATED ]
                 │
@@ -787,9 +810,31 @@ Governed by `run_system_scheduler()` in `app/main.py`:
 - **Exit Conditions**:
   1. Stop Loss Hit: Candle Low $\le$ active `stop_loss`.
   2. Trailing Stop Hit: Reversal touches trailed stop loss.
-  3. Target Hit: Price touches T1, T2, or T3.
+  3. Target Hit: Price touches T1 (1.5R), T2 (3.0R), or T3 (5.0R).
   4. Time Expiry (`EXPIRED`): Trade fails to hit T1 within 20 trading days.
-- **Intrabar Precedence**: If a candle touches both Stop Loss and Target, **Stop Loss (`LOSS`) takes conservative precedence**.
+- **Intrabar Precedence**: If a candle touches both Stop Loss and Target, **Stop Loss (`LOSS`) takes conservative precedence** (`INTRABAR_AMBIGUITY_LOSS`).
+
+---
+
+### 15.2 Framework B: Dual Exit Architecture (`QUALITY_COMPOUNDER`)
+
+Evaluated continuously in `app/wealth_engine.py` (Path 2: `QualityCompounder`):
+1. **Hard Drawdown Stop**: Maximum capital loss stop set at **-20.0%** from entry price (`loss_stop = entry_price * 0.80`).
+2. **Fundamental Weakness**: Exits if annual ROCE drops below 12.0% or 2 consecutive quarterly PAT declines.
+3. **Structural Price Breakdown**: Exits if the stock closes below its 200-day SMA for **2 consecutive trading days** (`below_sma200_closes >= 2`).
+4. **Winning Trade Safeguard**: If `cmp > entry_price` (position is profitable), technical collapse rules and relative strength loss stops are strictly suppressed. A winning compounder is never terminated on transient technical momentum dips.
+
+---
+
+### 15.3 Framework C: Model E3 Fundamental Exit Engine (`QUALITY_VALUE_RECOVERY`)
+
+Evaluated in `app/wealth_engine.py` (Path 1: `check_quality_value_recovery_exit`):
+- Operates on the certified **Model E3 Compounder Preservation Strategy** (`reports/quality_value_recovery_model_E_exit_tournament.md`):
+  1. **Debt Deterioration**: $\text{Debt/Equity} > 1.25$.
+  2. **Margin Collapse**: Gross or operating margin contracts $> 30.0\%$ vs 3-year baseline.
+  3. **Consecutive Earnings Decay**: Three consecutive years of annual net profit declines.
+  4. **Time Horizon Expiry**: Position reaches 3-year maximum holding horizon.
+- **Zero SMA200 Technical Stop**: Model E3 does NOT exit on 200-SMA breaks. Deep-value multi-bagger recoveries routinely spend extended periods consolidating below long-term moving averages. Model E3 achieved a **+54.21% median return** in backtests while preserving over 98% of 5x/10x multi-bagger winners and eliminating 42 value traps.
 
 ---
 

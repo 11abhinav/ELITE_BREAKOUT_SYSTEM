@@ -93,57 +93,49 @@ The system operates strictly certified scanning engines reading configuration di
   10. **Composite Score Threshold**: Minimum score $\ge 82$ out of 100+.
   11. **Natural Risk-Reward**: Minimum $R:R \ge 2.0R$ to Target 1.
 
-## 2.3 Quality Compounder & Fundamental Wealth Engine (`app/wealth_engine.py`, `app/live_fundamental_scanner.py`)
-- **Market Objective**: Screens and allocates capital to high-conviction fundamental compounders across 4 deterministic buckets, enforcing strict Point-in-Time (PIT) integrity.
-- **Four Deterministic Fundamental Buckets**:
-  1. **Core Compounder**:
-     - Fundamental Score $\ge 65$, Market Cap $\ge ₹10,000\text{ Cr}$.
-     - Non-Financials: $\text{ROCE} \ge 20.0\%$, $\text{ROE} \ge 15.0\%$, $\text{Debt/Equity} \le 0.50$.
-     - Financials: $\text{ROE} \ge 15.0\%$, $\text{GNPA} \le 5.0\%$.
-  2. **Growth Multiplier**:
-     - Fundamental Score $\ge 60$, Market Cap $\ge ₹2,000\text{ Cr}$.
-     - YoY Sales CAGR $\ge 20.0\%$, YoY Profit CAGR $\ge 20.0\%$.
-     - Relative Strength vs Nifty ($RS_{6m}$) $\ge 0$, Distance to 52W High $\le 15.0\%$.
-  3. **Quality-On-Sale**:
-     - Fundamental Score $\ge 50$, Distance from 52W High $\ge 10.0\%$ (discounted quality).
-     - Non-Financials: $\text{ROCE} \ge 15.0\%$, $\text{Debt/Equity} \le 1.0$.
-     - Financials: $\text{ROE} \ge 15.0\%$.
-  4. **Opportunistic**:
-     - Fundamental Score $\ge 55$, YoY Profit CAGR $\ge 40.0\%$, $RS_{6m} \ge 15.0\%$.
-- **Hard-Kill Valuation Ceiling**:
-  - $\text{PEG} \le 3.0$ ceiling: Immediate disqualification for bubble valuations.
-- **Timing Gate**:
-  - Fundamental Quality Score $\ge 55$, Technical Momentum Score $\ge 25$, and $\text{Price} > \text{SMA}_{200}$.
-- **Never-Downgrade Gate & Source Freshness Fence**:
-  - Never allow older or lower-quality data to overwrite certified canonical PIT records.
-  - Pre-BUY Filing Freshness Fence enforces that no BUY alert may be committed if a newer filing was published on the exchange before transaction commit.
-- **Single-Point Provenance Certification Gate Invariant (Rule 65 / Rule 67 Clean Architecture)**:
-  - `prov_valid` starts strictly initialized to `False` (`prov_valid = False`).
-  - No earlier branch (shared canonical snapshot gate, initial cache defaults, or intermediate PIT recovery branches) is permitted to certify provenance or set `prov_valid = True`.
-  - Exactly ONE closed Boolean certification gate exists in the entire fundamental scanner pipeline:
-    ```python
-    prov_valid = False
-    # ... snapshot integration / PIT recovery / field derivations / normalization ...
-    prov_valid = compute_fundamental_provenance_valid(funds, is_data_stale=is_data_stale)
-    ```
-  - `compute_fundamental_provenance_valid` evaluates the final post-recovery candidate state against 5 mandatory criteria:
-    1. Complete 4-field quality gate inputs (`roce`, `roe`, `debt_equity`, `operating_cash_flow`).
-    2. Strict provider-provenance pair authorization (`VALID_PROVIDER_PROVENANCE_COMBINATIONS`).
-    3. Annual statement basis verification (`quality_source_basis == 'ANNUAL'` and `annual_filing_present is True`).
-    4. PIT snapshot freshness and non-staleness (`snapshot_status in {'FRESH', 'CERTIFIED'}` and `not is_data_stale`).
-    5. Verifiable PIT filing/period metadata.
-  - Zero premature certifications, zero if/elif branch state preservation, zero fallback leakage. Auditing requires inspecting only that single call site.
+## 2.3 Quality Compounder Scanner (`QUALITY_COMPOUNDER` / `app/live_fundamental_scanner.py`, `app/wealth_engine.py`)
+- **Market Objective**: Screens and allocates capital to high-conviction fundamental compounders trading at material valuation discounts, enforcing strict Point-in-Time (PIT) integrity.
+- **Audit Reference**: Detailed in [`docs/SCANNER_AUDIT_BACKTEST_AND_EXIT_STRATEGY_REPORT.md`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/SCANNER_AUDIT_BACKTEST_AND_EXIT_STRATEGY_REPORT.md) and certified in `research/quality_compounder_value_v2_final_forensic_report.md` (2015–2026, $N_{\text{obs}}=621$, $N_{\text{eff}}=82$, Win Rate = 58.3%, Expectancy = +0.64 R, PF = 1.92, Max DD = -18.7%).
+- **Core Quality & Valuation Gates**:
+  1. 5-Year Average ROCE $\ge 15.0\%$.
+  2. 5-Year Sales CAGR $\ge 10.0\%$.
+  3. 5-Year PAT CAGR $\ge 10.0\%$.
+  4. Operating Cash Flow to PAT Ratio ($\text{CFO}/\text{PAT}$) $\ge 0.80$.
+  5. Debt to Equity ($\text{D}/\text{E}$) $\le 0.50$.
+  6. 3-Year Equity Dilution $\le 10.0\%$.
+  7. **Historical Valuation Compression**: Current $\text{EV}/\text{EBITDA} \le 0.75 \times \text{3-Year Median EV/EBITDA}$ ($\ge 25.0\%$ valuation discount).
+- **SMA200 Entry Rule (Code-Verified Fact)**:
+  - **The scanner has ZERO 200-SMA requirement on entry.** Alerts can and do trigger when stocks trade below the 200-day SMA, allowing asymmetric capture of deep market corrections and valuation mispricings.
+- **Dual Exit Strategy**:
+  1. **Hard Drawdown Stop**: -20.0% capital protection stop from entry price (`loss_stop = entry_price * 0.80`).
+  2. **Fundamental Deterioration**: Annual ROCE drops below 12.0% or 2 consecutive quarterly PAT declines.
+  3. **Structural Price Breakdown**: 2 consecutive daily closes below 200-day SMA (`below_sma200_closes >= 2`).
+  4. **Winning Trade Safeguard**: Winning positions (`cmp > entry_price`) are strictly protected from trend collapse or RS loss stops.
 - **Execution Schedule**:
-  - Pre-market sweep at **02:00 AM IST**.
+  - Full post-market daily scan at **17:00 IST**.
   - Intraday 15-minute BUY alert scan during market hours (`09:15` to `15:30` IST).
   - Fast 5-minute CMP exit updates (<3.0s runtime).
 
-## 2.4 Quality-Value Recovery Scanner (`app/fundamental_wealth_engine.py`)
-- **Market Objective**: Evaluates certified fundamental compounders that have undergone severe market pullbacks to identify high-margin-of-safety value entries.
-- **Eligibility Gates**:
-  - Verified Tier-1 fundamental certification (ROCE $\ge 15\%$, positive CFO/PAT).
-  - Drawdown from 52-week high between 15% and 35%.
-  - Technical stabilization: RSI divergence or bullish candle reclaim of $\text{EMA}_{20}$.
+## 2.4 Quality Value Recovery Scanner (`QUALITY_VALUE_RECOVERY` / `app/quality_value_recovery_scanner.py`, `app/wealth_engine.py`)
+- **Market Objective**: Captures high-quality compounding companies undergoing steep market drawdowns ($\ge 30\%$) with verified fundamental improvements and historical valuation compression (Model D).
+- **Audit Reference**: Certified in `reports/quality_value_recovery_master_certification.md`, `model_D_report.md`, and `model_E_exit_tournament.md` (3Y Median Return = +71.6%, Win Rate = 80.6% vs 56.5% placebo, 5Y Median = +187.4%).
+- **Key Empirical Finding (Model A vs Model C)**:
+  - Backtests prove that waiting for technical SMA50 reclaim (Model C) degrades win rate and returns relative to immediate entry upon a 30% drop (Model A), because waiting forfeits the first 15–25% of explosive V-shaped recoveries.
+- **Eligibility & Valuation Gates (Model D)**:
+  1. Investable Universe: Non-financial listed equities, Market Cap $\ge ₹500\text{ Cr}$, Price $\ge ₹50$.
+  2. Fundamental Quality Floor: Latest ROCE $\ge 15.0\%$ and Net Profit $> 0$.
+  3. Fundamental Improvement: Latest ROCE $>$ 3Y Rolling Median ROCE and Latest Net Profit $>$ 3Y Rolling Median Net Profit.
+  4. 2-Year Trailing Drawdown: Price drawdown from 2-year peak $\ge 30.0\%$ (`drawdown_2y <= -0.30`).
+  5. Valuation Compression: Current PE or EV/EBITDA $\le 80\%$ of its own 3-year median valuation.
+- **Exit Strategy (Model E3 Champion Engine)**:
+  - Evaluated in `app/wealth_engine.py` (Path 1: `check_quality_value_recovery_exit`):
+    1. Debt-to-Equity exceeds 1.25 (`de_ratio > 1.25`).
+    2. Gross / Operating margin collapses $> 30\%$ relative to 3-year baseline.
+    3. Three consecutive years of annual profit declines.
+    4. Time horizon: Maximum 3-year holding window.
+  - **Zero SMA200 Technical Stop**: Model E3 does not stop out on moving average breaks, allowing compounders to complete multi-year recoveries without premature noise exits.
+- **Execution Schedule**:
+  - Daily scheduled run at **17:15 IST** (post-market close).
 
 ## 2.5 Multibagger Engine (`app/multibagger.py`)
 - **Market Objective**: Screens multi-year compounders combining capital efficiency, promoter skin-in-the-game, and financial health.
