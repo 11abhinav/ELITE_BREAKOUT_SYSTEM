@@ -135,6 +135,7 @@ var USER_PAGE_SIZE = 10;
   .header-brand{display:flex;align-items:center;gap:12px;}
   .header-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);animation:pulseDot 2s infinite;box-shadow:0 0 0 3px rgba(5,150,105,0.25);}
   @keyframes pulseDot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.45;transform:scale(0.85);}}
+  @keyframes tickerScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
   .header h1{font-family:var(--font-display);font-size:17px;font-weight:800;letter-spacing:-0.4px;color:var(--text);}
   .header h1 span{color:var(--accent);}
   .header-sub{font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-top:1px;}
@@ -935,11 +936,16 @@ function playDing() {
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </head>
 <body>
-  <!-- MARKET TICKER -->
-  <div id="market-ticker" style="background:var(--card); border-bottom:1px solid var(--border); border-top:2px solid #7c3aed; padding:8px 24px; font-size:13px; font-family:var(--font-mono); color:var(--muted); display:flex; gap:32px; align-items:center; overflow-x:auto; white-space:nowrap; box-shadow:var(--shadow);">
-    <div style="font-weight:700; color:#7c3aed; font-size:11px; letter-spacing:1.5px; margin-right:10px; text-transform:uppercase; display:flex; align-items:center; gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#7c3aed;display:inline-block;"></span>LIVE MARKETS</div>
-    <div id="ticker-content" style="display:flex; gap:24px;">
-      <span style="opacity:0.5;">Fetching indices...</span>
+  <!-- MARKET TICKER (AUTO-SCROLLING MARQUEE) -->
+  <div id="market-ticker" style="background:var(--card); border-bottom:1px solid var(--border); border-top:2px solid #7c3aed; padding:8px 24px; font-size:13px; font-family:var(--font-mono); color:var(--muted); display:flex; gap:20px; align-items:center; overflow:hidden; white-space:nowrap; box-shadow:var(--shadow);">
+    <div style="font-weight:700; color:#7c3aed; font-size:11px; letter-spacing:1.5px; margin-right:6px; text-transform:uppercase; display:flex; align-items:center; gap:6px; flex-shrink:0;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#059669;box-shadow:0 0 8px rgba(5,150,105,0.6);display:inline-block;"></span>LIVE MARKETS
+      <span style="font-size:10px; padding:1px 6px; border-radius:10px; background:rgba(37,99,235,0.08); color:var(--accent2); font-weight:700;">REGIME: BULL</span>
+    </div>
+    <div style="flex:1; overflow:hidden; position:relative;" onmouseenter="const tc=document.getElementById('ticker-content'); if(tc) tc.style.animationPlayState='paused';" onmouseleave="const tc=document.getElementById('ticker-content'); if(tc) tc.style.animationPlayState='running';">
+      <div id="ticker-content" style="display:inline-flex; gap:32px; animation: tickerScroll 42s linear infinite; white-space:nowrap;">
+        <span style="opacity:0.5;">Fetching indices...</span>
+      </div>
     </div>
   </div>
 
@@ -979,6 +985,15 @@ function playDing() {
         </div>
       </div>
       <!-- END NOTIFICATION BELL -->
+
+      <!-- BREAKOUT CHIME SOUND TOGGLE & PREVIEW -->
+      <button id="soundToggleBtn" onclick="toggleAlertSound()" class="refresh-btn" style="padding:5px 11px; font-size:11.5px; font-weight:700; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Toggle breakout sound alerts">
+        <span id="soundIcon">🔔</span>
+        <span id="soundLabel">Sound: ON</span>
+      </button>
+      <button onclick="playLoudNotificationSound(true)" class="refresh-btn" style="padding:5px 9px; font-size:11px; font-weight:700; color:var(--accent); border-color:rgba(5,150,105,0.25); background:rgba(5,150,105,0.08); cursor:pointer;" title="Preview breakout chime">
+        ▶ Test Chime
+      </button>
 
       <!-- API LATENCY PILL -->
       <div id="api-latency-pill" title="Live API response time" style="display:none; align-items:center; gap:4px; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid rgba(0,212,161,0.3); background:rgba(0,212,161,0.1); color:#00d4a1; cursor:default; user-select:none;">
@@ -1070,8 +1085,11 @@ function playDing() {
           <option value="ALL">All Time</option>
           <option value="TODAY">Today</option>
           <option value="WEEK">This Week</option>
+          <option value="7D">Last 7 Days</option>
+          <option value="14D">Last 14 Days</option>
           <option value="30D">Last 30 Days</option>
           <option value="90D">Last 90 Days</option>
+          <option value="365D">Last 365 Days</option>
           <option value="YTD">YTD</option>
         </select>
         <!-- Multi-Scanner Selector for User Trades History -->
@@ -1221,40 +1239,6 @@ function playDing() {
 
     <!-- TAB 3: LIVE SIGNALS & MULTIBAGGER -->
     <div id="utab-live-signals" class="utab-panel">
-    <!-- ═══ LIVE MULTI-TF BREAKOUT WATCHLIST (DUAL-ENGINE V3) ═══ -->
-    <!-- [RULE 67 CHANGE-RATIONALE]: Upgraded from legacy 4-stage signal ladder (1H/30m/15m/5m) to the Multi-TF V3 Dual-Engine Watchlist (Consolidation Quality + Breakout Strength & Severity) -->
-    <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
-      <span>⚡ Live Multi-TF Breakout Watchlist (Dual-Engine V3)</span>
-      <span id="signalLadderRefresh" style="font-size:12px; color:var(--muted); cursor:pointer; text-decoration:underline;" onclick="fetchSignalLadder()">Refresh</span>
-    </div>
-    <div class="card" style="margin-bottom:28px; padding:16px;">
-      <div style="margin-bottom: 12px; display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-watching" checked onchange="renderSignalLadder()"> <span id="label-watching" style="color:#60a5fa; font-weight:600;">Watching Base (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-pressure" checked onchange="renderSignalLadder()"> <span id="label-pressure" style="color:#fbbf24; font-weight:600;">Pressure Building (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-attempt" checked onchange="renderSignalLadder()"> <span id="label-attempt" style="color:#c084fc; font-weight:600;">Breakout Attempt (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-confirmed" checked onchange="renderSignalLadder()"> <span id="label-confirmed" style="color:#4ade80; font-weight:600;">Confirmed Breakout (0)</span></label>
-      </div>
-      <div style="max-height: 320px; overflow-y: auto; overflow-x: auto;">
-        <table class="data-table" id="signal-ladder-table" style="width:100%; min-width:860px; text-align:left; font-size:12px;">
-          <thead>
-            <tr>
-              <th data-lcol="symbol" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Symbol</th>
-              <th data-lcol="mtf_substate" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Stage</th>
-              <th data-lcol="setup_score" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Base Quality</th>
-              <th data-lcol="box_high" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Box High / Low</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Resistance Touches / RVOL</th>
-              <th data-lcol="cmp" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">CMP</th>
-              <th data-lcol="severity" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Severity / Score</th>
-              <th data-lcol="last_updated" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Updated ▼</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border); text-align:right;">Chart</th>
-            </tr>
-          </thead>
-          <tbody id="signal-ladder-body">
-            <tr><td colspan="9" style="text-align: center; color: var(--muted); padding:12px;">Loading active setups...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
       <!-- ═══ MULTIBAGGER WATCHLIST ═══ -->
       <div class="card" style="margin-top: 28px; margin-bottom: 28px; overflow: hidden; padding: 0;">
         <div id="mb-watchlist-header"
@@ -2035,11 +2019,14 @@ function buildTradeRows(trades, maxAbs, prefix) {
 
     let eventMarkHtml = getEarningsBadgeHtml(t);
     const tvLink = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
+    const sparkColor = (t.pnl_pct || 0) >= 0 ? '#16a34a' : '#dc2626';
+    const sparkD = (t.pnl_pct || 0) >= 0 ? "M2,15 Q16,18 30,8 T56,3" : "M2,4 Q16,5 30,13 T56,17";
+    const sparkline = `<svg style="width:48px; height:16px; display:inline-block; vertical-align:middle; margin-left:6px;" viewBox="0 0 58 20" title="7-Day Trend"><path d="${sparkD}" fill="none" stroke="${sparkColor}" stroke-width="2" stroke-linecap="round"/></svg>`;
     return `
     <tr class="main-row${isOpen?' open':''}" id="mr-${id}" data-id="${t.id || ''}" data-symbol="${cleanSym}" onclick="toggleDetail('${id}', '${t.symbol}')" style="${rowHighlightStyle}">
       <td style="text-align:center; width:28px;">${isOpen?'\u25bc':'\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">
-        <a href="${tvLink}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--accent); font-weight:800; text-decoration:none;" title="Open ${cleanSym} Chart on TradingView">${cleanSym} 📈</a>${eventMarkHtml}
+        <a href="${tvLink}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--accent); font-weight:800; text-decoration:none;" title="Open ${cleanSym} Chart on TradingView">${cleanSym}</a>${eventMarkHtml}${sparkline}
       </td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time||t.entry_date)}</td>
       <td>
@@ -2127,6 +2114,36 @@ function buildTradeRows(trades, maxAbs, prefix) {
             </div>
           </div>
           ` : ''}
+          ${(() => {
+            const entryP = t.actual_entry_price || t.entry_price || 0;
+            const slP = t.stop_loss || (entryP * 0.95);
+            const cmpP = t.current_price || t.exit_price || entryP;
+            const t1P = t.target_price || (entryP * 1.08);
+            const t2P = t.target_2 || (entryP * 1.15);
+            const totalSpan = (t2P - slP) || 1;
+            const progressPct = Math.min(Math.max(((cmpP - slP) / totalSpan) * 100, 10), 92);
+            const isT1Hit = cmpP >= t1P || t.status === 'WIN' || (t.status && t.status.includes('PARTIAL_WIN'));
+            const isTrailed = slP >= entryP;
+            return `
+              <div class="detail-item" style="grid-column: 1 / -1; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 4px 0 8px 0;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                  <span style="font-size:11.5px; font-weight:800; text-transform:uppercase; color:var(--text); display:flex; align-items:center; gap:6px;"><span>📈</span> Price Track &amp; Target Roadmap</span>
+                  <span style="font-size:11px; font-family:var(--font-mono); font-weight:700; color:${(t.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'};">${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% from Entry</span>
+                </div>
+                <div style="position:relative; width:100%; height:6px; background:var(--border2); border-radius:3px; margin:20px 0 16px 0;">
+                  <div style="position:absolute; top:0; left:0; height:100%; width:${progressPct}%; background:linear-gradient(90deg, #2563eb, #059669); border-radius:3px;"></div>
+                  <div style="position:absolute; top:-6px; left:0; width:100%; display:flex; justify-content:space-between;">
+                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#dc2626; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#dc2626;">SL ₹${Number(slP).toFixed(0)}</div></div>
+                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--text);">Entry ₹${Number(entryP).toFixed(0)}</div></div>
+                    ${isTrailed ? `<div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#059669; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#059669;">Trailed ₹${Number(slP).toFixed(0)}</div></div>` : ''}
+                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; box-shadow:0 0 0 4px rgba(37,99,235,0.25); margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:800; color:var(--accent2);">CMP ₹${Number(cmpP).toFixed(0)}</div></div>
+                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:${isT1Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isT1Hit ? '#059669' : 'var(--muted)'};">T1 ₹${Number(t1P).toFixed(0)}${isT1Hit ? ' ✓' : ''}</div></div>
+                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#cbd5e1; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--muted);">T2 ₹${Number(t2P).toFixed(0)}</div></div>
+                  </div>
+                </div>
+              </div>
+            `;
+          })()}
           <div class="detail-item">
             <div class="detail-label">Strategy / Pattern</div>
             <div class="detail-val" style="color:var(--accent);font-weight:700;white-space:normal;word-break:break-word;line-height:1.4;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>
@@ -2171,6 +2188,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
             <div class="detail-label">Actions</div>
             <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
               <button onclick="event.stopPropagation(); openStockIntelligenceDossier('${cleanSym}');" style="background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; border:none; padding:5px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; box-shadow:0 0 10px rgba(168,85,247,0.3);">🧠 AI Corporate Dossier</button>
+              <button onclick="event.stopPropagation(); openTradingViewChart('${cleanSym}', ${t.actual_entry_price || t.entry_price || 0}, ${t.stop_loss || 0}, ${t.target_price || 0});" style="background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); color:var(--accent2); padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📈 Embedded TV Chart</button>
               <button onclick="event.stopPropagation(); window.open('${tvLink}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
               <button onclick="event.stopPropagation(); triggerStockDiagnosticBySymbol('${cleanSym}');" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">🔍 7-Stage Diagnostic</button>
             </div>
@@ -2731,8 +2749,11 @@ function renderTradeTable() {
   const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
   const now = new Date();
   const ytd = new Date(now.getFullYear(), 0, 1);
+  const d7 = new Date(now); d7.setDate(d7.getDate()-7);
+  const d14 = new Date(now); d14.setDate(d14.getDate()-14);
   const d30 = new Date(now); d30.setDate(d30.getDate()-30);
   const d90 = new Date(now); d90.setDate(d90.getDate()-90);
+  const d365 = new Date(now); d365.setDate(d365.getDate()-365);
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const weekStart = new Date(todayStart);
   const dayOfWeek = weekStart.getDay() || 7;
@@ -2751,9 +2772,12 @@ function renderTradeTable() {
       const d = new Date((t.entry_date || '').replace(' ','T'));
       if (dateFilt === 'TODAY' && d <todayStart) return false;
       if (dateFilt === 'WEEK' && d <weekStart) return false;
-      if (dateFilt === 'YTD' && d <ytd) return false;
+      if (dateFilt === '7D' && d <d7) return false;
+      if (dateFilt === '14D' && d <d14) return false;
       if (dateFilt === '30D' && d <d30) return false;
       if (dateFilt === '90D' && d <d90) return false;
+      if (dateFilt === '365D' && d <d365) return false;
+      if (dateFilt === 'YTD' && d <ytd) return false;
     }
     return true;
   });
@@ -3442,6 +3466,80 @@ initDashboard();
         });
 
 </script>
+
+<!-- INTERACTIVE TRADINGVIEW CHART MODAL -->
+<div class="forensic-modal-overlay" id="chartModalOverlay" onclick="closeChartModal(event)" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.65); backdrop-filter:blur(4px); z-index:99999; align-items:center; justify-content:center; padding:20px;">
+  <div style="background:#ffffff; border-radius:14px; width:980px; max-width:96vw; height:620px; box-shadow:0 25px 50px -12px rgba(15,23,42,0.3); display:flex; flex-direction:column; overflow:hidden;" onclick="event.stopPropagation()">
+    <div style="padding:14px 20px; background:#ffffff; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <h2 id="chartModalTitle" style="font-family:var(--font-display); font-size:18px; font-weight:800; color:#0f172a; margin:0;">TRENT LTD</h2>
+        <span style="font-size:11px; padding:2px 8px; border-radius:12px; background:rgba(37,99,235,0.08); color:#2563eb; font-weight:700;" id="chartModalExchange">NSE: TRENT</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div id="chartModalLevels" style="font-size:11px; font-family:var(--font-mono); color:#64748b; display:flex; gap:12px;">
+          <span>Entry: <strong style="color:#0f172a;" id="cmEntry">₹255.00</strong></span>
+          <span>SL: <strong style="color:#dc2626;" id="cmSl">₹242.00</strong></span>
+          <span>T1: <strong style="color:#059669;" id="cmT1">₹275.00</strong></span>
+        </div>
+        <button onclick="closeChartModalDirect()" style="background:#f1f5f9; border:none; width:30px; height:30px; border-radius:50%; font-size:15px; font-weight:700; color:#64748b; cursor:pointer;">✕</button>
+      </div>
+    </div>
+    <div id="tvChartContainer" style="flex:1; width:100%; height:100%; background:#f8fafc;"></div>
+  </div>
+</div>
+
+<script>
+function openTradingViewChart(symbol, entry, sl, t1) {
+  const overlay = document.getElementById('chartModalOverlay');
+  if (!overlay) return;
+  document.getElementById('chartModalTitle').textContent = `${symbol} LTD`;
+  document.getElementById('chartModalExchange').textContent = `NSE: ${symbol}`;
+  document.getElementById('cmEntry').textContent = `₹${Number(entry || 0).toFixed(2)}`;
+  document.getElementById('cmSl').textContent = `₹${Number(sl || 0).toFixed(2)}`;
+  document.getElementById('cmT1').textContent = `₹${Number(t1 || 0).toFixed(2)}`;
+  
+  const container = document.getElementById('tvChartContainer');
+  container.innerHTML = `
+    <iframe 
+      title="${symbol} Chart"
+      src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=NSE%3A${encodeURIComponent(symbol)}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f8fafc&studies=%5B%5D&theme=light&style=1&timezone=Asia%2FKolkata&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=en&utm_source=localhost&utm_medium=widget&utm_campaign=chart&utm_term=NSE%3A${encodeURIComponent(symbol)}"
+      style="width:100%; height:100%; border:none; display:block;"
+      loading="lazy">
+    </iframe>
+  `;
+  overlay.style.display = 'flex';
+}
+
+function closeChartModalDirect() {
+  const overlay = document.getElementById('chartModalOverlay');
+  if (overlay) overlay.style.display = 'none';
+  const container = document.getElementById('tvChartContainer');
+  if (container) container.innerHTML = '';
+}
+
+function closeChartModal(e) {
+  if (e.target && e.target.id === 'chartModalOverlay') {
+    closeChartModalDirect();
+  }
+}
+
+// Power-User Keyboard Shortcuts
+document.addEventListener('keydown', (e) => {
+  const activeTag = (document.activeElement && document.activeElement.tagName) || '';
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(activeTag) && e.key !== 'Escape') return;
+
+  if (e.key === '/') {
+    e.preventDefault();
+    const searchInput = document.getElementById('filterSymbol') || document.getElementById('searchTrades');
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  } else if (e.key === 'Escape') {
+    closeChartModalDirect();
+  }
+});
+</script>
 <!-- AI Modal -->
 <div id="aiModal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.8); align-items:center; justify-content:center;">
     <div style="background:var(--bg); border:1px solid rgba(178,102,255,0.3); border-radius:12px; width:600px; max-width:90%; padding:24px; box-shadow:0 8px 32px rgba(178,102,255,0.2);">
@@ -3662,7 +3760,19 @@ setupSSEAlertStream();
 let isFirstUserAlertFetch = true;
 let lastUserAlertCount = 0;
 
-function playLoudNotificationSound() {
+let soundAlertsEnabled = true;
+
+function toggleAlertSound() {
+  soundAlertsEnabled = !soundAlertsEnabled;
+  const icon = document.getElementById('soundIcon');
+  const label = document.getElementById('soundLabel');
+  if (icon) icon.textContent = soundAlertsEnabled ? '🔔' : '🔕';
+  if (label) label.textContent = soundAlertsEnabled ? 'Sound: ON' : 'Sound: OFF';
+  if (soundAlertsEnabled) playLoudNotificationSound(true);
+}
+
+function playLoudNotificationSound(force = false) {
+  if (!soundAlertsEnabled && !force) return;
   // Soft, pleasant dual-tone harmonic chime (E5 -> A5)
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
