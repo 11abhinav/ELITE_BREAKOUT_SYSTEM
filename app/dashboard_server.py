@@ -4725,11 +4725,11 @@ def _get_fallback_indices() -> dict:
 
     # Safety baselines only if all files missing on fresh machine
     if "NIFTY 50" not in fallback:
-        fallback["NIFTY 50"] = {"price": 22603.05, "pct_change": -0.76, "point_change": -173.05, "prev_close": 22776.10}
+        fallback["NIFTY 50"] = {"price": 22231.80, "pct_change": -1.64, "point_change": -371.25, "prev_close": 22603.05}
     if "BANKNIFTY" not in fallback:
-        fallback["BANKNIFTY"] = {"price": 51987.02, "pct_change": -0.76, "point_change": -398.01, "prev_close": 52385.03}
+        fallback["BANKNIFTY"] = {"price": 54515.05, "pct_change": -0.98, "point_change": -540.50, "prev_close": 55055.55}
     if "SENSEX" not in fallback:
-        fallback["SENSEX"] = {"price": 74138.00, "pct_change": -0.76, "point_change": -567.61, "prev_close": 74705.61}
+        fallback["SENSEX"] = {"price": 71593.24, "pct_change": -1.44, "point_change": -1045.46, "prev_close": 72638.70}
 
     # Sector leaders
     try:

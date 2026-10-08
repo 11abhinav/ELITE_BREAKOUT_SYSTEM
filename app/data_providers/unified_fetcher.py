@@ -169,6 +169,9 @@ class UnifiedFetcher:
                 self.registry.register_consumer(dataset_id, consumer)
                 
             providers = self.selector.get_providers(dataset_id, fetch_type="live_quotes")
+            # Ensure Upstox is primary for exchange indices per AGENTS.md real data rules
+            if "upstox" in providers and (consumer == "dashboard_indices" or any(s in ("NIFTY 50", "BANKNIFTY", "SENSEX") for s in symbols)):
+                providers = ["upstox"] + [p for p in providers if p != "upstox"]
             results: Dict[str, dict] = {}
             pending = set(symbols)
             results_lock = threading.Lock()
@@ -183,13 +186,22 @@ class UnifiedFetcher:
 
                     def _extract_cmd_dict(v_dict: dict) -> dict:
                         val = v_dict.get("lp") if "lp" in v_dict else v_dict.get("c")
-                        pc = v_dict.get("prev_close_price") or v_dict.get("pc")
                         ch = v_dict.get("ch")
                         chp = v_dict.get("chp")
                         val_flt = float(val) if val is not None else None
-                        pc_flt = float(pc) if pc is not None else None
-                        ch_flt = float(ch) if ch is not None else ((round(val_flt - pc_flt, 2)) if (val_flt is not None and pc_flt is not None) else None)
-                        chp_flt = float(chp) if chp is not None else ((round(((val_flt - pc_flt) / pc_flt) * 100, 2)) if (val_flt is not None and pc_flt and pc_flt > 0) else None)
+                        ch_flt = float(ch) if ch is not None else None
+                        chp_flt = float(chp) if chp is not None else None
+                        if val_flt is not None and ch_flt is not None:
+                            pc_flt = round(val_flt - ch_flt, 2)
+                            if chp_flt is None and pc_flt > 0:
+                                chp_flt = round((ch_flt / pc_flt) * 100, 2)
+                        else:
+                            pc = v_dict.get("prev_close_price") or v_dict.get("pc")
+                            pc_flt = float(pc) if pc is not None else None
+                            if ch_flt is None and val_flt is not None and pc_flt is not None:
+                                ch_flt = round(val_flt - pc_flt, 2)
+                            if chp_flt is None and val_flt is not None and pc_flt and pc_flt > 0:
+                                chp_flt = round(((val_flt - pc_flt) / pc_flt) * 100, 2)
                         return {"c": val_flt, "pc": pc_flt, "ch": ch_flt, "chp": chp_flt}
 
                     def fetch_fyers_chunk(chunk):
@@ -342,27 +354,36 @@ class UnifiedFetcher:
                                                 val = quote_data["ohlc"].get("close") or quote_data["ohlc"].get("open")
                                             if val is not None and float(val) > 0:
                                                 val_flt = float(val)
-                                                pc_val = None
-                                                if "ohlc" in quote_data and isinstance(quote_data["ohlc"], dict):
-                                                    pc_val = quote_data["ohlc"].get("close")
-                                                if pc_val is None:
-                                                    pc_val = quote_data.get("prev_close_price") or quote_data.get("pc") or quote_data.get("cp")
-                                                try:
-                                                    pc_flt = float(pc_val) if pc_val is not None else None
-                                                except Exception:
-                                                    pc_flt = None
-
                                                 ch_val = quote_data.get("net_change") or quote_data.get("ch")
                                                 try:
-                                                    ch_flt = float(ch_val) if ch_val is not None else ((round(val_flt - pc_flt, 2)) if (pc_flt is not None) else None)
+                                                    ch_flt = float(ch_val) if ch_val is not None else None
                                                 except Exception:
                                                     ch_flt = None
 
                                                 chp_val = quote_data.get("chp")
                                                 try:
-                                                    chp_flt = float(chp_val) if chp_val is not None else ((round(((val_flt - pc_flt) / pc_flt) * 100, 2)) if (pc_flt and pc_flt > 0) else None)
+                                                    chp_flt = float(chp_val) if chp_val is not None else None
                                                 except Exception:
                                                     chp_flt = None
+
+                                                if ch_flt is not None and val_flt is not None:
+                                                    pc_flt = round(val_flt - ch_flt, 2)
+                                                    if chp_flt is None and pc_flt > 0:
+                                                        chp_flt = round((ch_flt / pc_flt) * 100, 2)
+                                                else:
+                                                    pc_val = None
+                                                    if "ohlc" in quote_data and isinstance(quote_data["ohlc"], dict):
+                                                        pc_val = quote_data["ohlc"].get("close")
+                                                    if pc_val is None:
+                                                        pc_val = quote_data.get("prev_close_price") or quote_data.get("pc") or quote_data.get("cp")
+                                                    try:
+                                                        pc_flt = float(pc_val) if pc_val is not None else None
+                                                    except Exception:
+                                                        pc_flt = None
+                                                    if ch_flt is None and val_flt is not None and pc_flt is not None:
+                                                        ch_flt = round(val_flt - pc_flt, 2)
+                                                    if chp_flt is None and val_flt is not None and pc_flt and pc_flt > 0:
+                                                        chp_flt = round(((val_flt - pc_flt) / pc_flt) * 100, 2)
 
                                                 cmd_data = {"c": val_flt, "pc": pc_flt, "ch": ch_flt, "chp": chp_flt}
                                                 results[orig] = {"v": {"cmd": cmd_data}}
