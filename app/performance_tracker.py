@@ -1251,6 +1251,11 @@ def _row_to_trade_dict(row: dict) -> dict:
         exec_state = "OPEN"
 
     # [RULE 67 CHANGE-RATIONALE: Expose Company Fundamentals in API Payload for User Dashboard]
+    # Rationale: Historical and real-time scanner contexts store fundamental metrics in nested dictionaries
+    # (e.g. context['metrics'], context['fundamental_metrics'], context['growth_metrics']) or scanner-specific
+    # keys (e.g. roce_5y_avg, sales_cagr_5y, ev_ebitda_discount_pct, val_compression_ratio).
+    # Previous top-level-only extraction caused 100% of trades to return None in /data/performance_data.json.
+    # This enhanced extractor checks nested containers and provides clean, uniform string formatting.
     ctx_raw = row.get("context")
     ctx = {}
     if isinstance(ctx_raw, dict):
@@ -1262,10 +1267,40 @@ def _row_to_trade_dict(row: dict) -> dict:
         except Exception:
             ctx = {}
 
-    roce_val = ctx.get("roce") or ctx.get("roce_5y") or row.get("roce")
-    sales_cagr_val = ctx.get("sales_cagr") or ctx.get("sales_cagr_3y") or row.get("sales_cagr")
-    de_val = ctx.get("debt_to_equity") or ctx.get("de") or row.get("debt_to_equity")
-    discount_val = ctx.get("valuation_discount") or ctx.get("discount") or row.get("valuation_discount")
+    _m = ctx.get("metrics") if isinstance(ctx.get("metrics"), dict) else {}
+    _fm = ctx.get("fundamental_metrics") if isinstance(ctx.get("fundamental_metrics"), dict) else {}
+    _gm = ctx.get("growth_metrics") if isinstance(ctx.get("growth_metrics"), dict) else {}
+
+    roce_val = (
+        ctx.get("roce") or ctx.get("roce_5y_avg") or ctx.get("roce_5y") or
+        _m.get("roce") or _fm.get("roce") or row.get("roce")
+    )
+    sales_cagr_val = (
+        ctx.get("sales_cagr") or ctx.get("sales_cagr_5y") or ctx.get("sales_cagr_3y") or
+        _gm.get("rev_yoy_latest") or _m.get("rev_yoy_latest") or row.get("sales_cagr")
+    )
+    de_val = (
+        ctx.get("debt_to_equity") or ctx.get("de") or
+        _m.get("d_e") or _m.get("debt_equity") or _fm.get("debt_equity") or row.get("debt_to_equity")
+    )
+    discount_val = (
+        ctx.get("valuation_discount") or ctx.get("ev_ebitda_discount_pct") or ctx.get("pe_discount_pct") or
+        _m.get("val_compression_ratio") or ctx.get("discount") or row.get("valuation_discount")
+    )
+
+    # Format values consistently for UI consumption
+    roce_str = f"{round(float(roce_val), 1)}%" if isinstance(roce_val, (int, float)) else (str(roce_val) if roce_val else None)
+    sales_str = f"{round(float(sales_cagr_val), 1)}%" if isinstance(sales_cagr_val, (int, float)) else (str(sales_cagr_val) if sales_cagr_val else None)
+    de_str = f"{round(float(de_val), 2)}" if isinstance(de_val, (int, float)) else (str(de_val) if de_val is not None else None)
+    if isinstance(discount_val, (int, float)):
+        if 0 < discount_val <= 1.0:
+            disc_str = f"{round(float(discount_val) * 100, 1)}% compression"
+        else:
+            disc_str = f"{round(float(discount_val), 1)}% discount"
+    elif discount_val:
+        disc_str = str(discount_val)
+    else:
+        disc_str = None
 
     return {
         "id":            row["id"],          # needed for write-back
@@ -1313,10 +1348,10 @@ def _row_to_trade_dict(row: dict) -> dict:
         "confirmation_quality": row.get("confirmation_quality", "INITIAL"),
         "last_event_type": row.get("last_event_type", "NEW_ENTRY"),
         "last_event_date": str(row.get("last_event_date") or ""),
-        "roce":            f"{roce_val}%" if isinstance(roce_val, (int, float)) else (str(roce_val) if roce_val else None),
-        "sales_cagr":      f"{sales_cagr_val}%" if isinstance(sales_cagr_val, (int, float)) else (str(sales_cagr_val) if sales_cagr_val else None),
-        "debt_to_equity":  de_val,
-        "valuation_discount": discount_val,
+        "roce":            roce_str,
+        "sales_cagr":      sales_str,
+        "debt_to_equity":  de_str,
+        "valuation_discount": disc_str,
         "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
     }
 
