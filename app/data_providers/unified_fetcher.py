@@ -181,6 +181,17 @@ class UnifiedFetcher:
                     logger.info(f"🔄 [Fyers] Fetching live quotes for {len(pending)} symbols...")
                     import concurrent.futures
 
+                    def _extract_cmd_dict(v_dict: dict) -> dict:
+                        val = v_dict.get("lp") if "lp" in v_dict else v_dict.get("c")
+                        pc = v_dict.get("prev_close_price") or v_dict.get("pc")
+                        ch = v_dict.get("ch")
+                        chp = v_dict.get("chp")
+                        val_flt = float(val) if val is not None else None
+                        pc_flt = float(pc) if pc is not None else None
+                        ch_flt = float(ch) if ch is not None else ((round(val_flt - pc_flt, 2)) if (val_flt is not None and pc_flt is not None) else None)
+                        chp_flt = float(chp) if chp is not None else ((round(((val_flt - pc_flt) / pc_flt) * 100, 2)) if (val_flt is not None and pc_flt and pc_flt > 0) else None)
+                        return {"c": val_flt, "pc": pc_flt, "ch": ch_flt, "chp": chp_flt}
+
                     def fetch_fyers_chunk(chunk):
                         fyers_map = {}
                         for orig in chunk:
@@ -205,21 +216,22 @@ class UnifiedFetcher:
                                             sym_name = item.get("n")
                                             orig = fyers_map.get(sym_name)
                                             if orig:
-                                                val = item["v"]["lp"]
+                                                cmd_data = _extract_cmd_dict(item["v"])
+                                                val = cmd_data["c"]
                                                 clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                                 with results_lock:
-                                                    results[orig] = {"v": {"cmd": {"c": val}}}
-                                                    results[clean_orig] = {"v": {"cmd": {"c": val}}}
-                                                    results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                    results[orig] = {"v": {"cmd": cmd_data}}
+                                                    results[clean_orig] = {"v": {"cmd": cmd_data}}
+                                                    results[clean_orig + ".NS"] = {"v": {"cmd": cmd_data}}
                                                     for alias_k, alias_v in CORPORATE_ACTION_ALIASES.items():
                                                         if alias_v == clean_orig:
-                                                            results[alias_k] = {"v": {"cmd": {"c": val}}}
-                                                            results[alias_k + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                            results[alias_k] = {"v": {"cmd": cmd_data}}
+                                                            results[alias_k + ".NS"] = {"v": {"cmd": cmd_data}}
                                                             pending.discard(alias_k)
                                                             pending.discard(alias_k + ".NS")
                                                         elif alias_k == clean_orig:
-                                                            results[alias_v] = {"v": {"cmd": {"c": val}}}
-                                                            results[alias_v + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                            results[alias_v] = {"v": {"cmd": cmd_data}}
+                                                            results[alias_v + ".NS"] = {"v": {"cmd": cmd_data}}
                                                             pending.discard(alias_v)
                                                             pending.discard(alias_v + ".NS")
                                                     pending.discard(orig)
@@ -260,21 +272,22 @@ class UnifiedFetcher:
                                                         sym_name = item.get("n")
                                                         orig = fyers_map.get(sym_name)
                                                         if orig:
-                                                            val = item["v"]["lp"]
+                                                            cmd_data = _extract_cmd_dict(item["v"])
+                                                            val = cmd_data["c"]
                                                             clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                                             with results_lock:
-                                                                results[orig] = {"v": {"cmd": {"c": val}}}
-                                                                results[clean_orig] = {"v": {"cmd": {"c": val}}}
-                                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                                results[orig] = {"v": {"cmd": cmd_data}}
+                                                                results[clean_orig] = {"v": {"cmd": cmd_data}}
+                                                                results[clean_orig + ".NS"] = {"v": {"cmd": cmd_data}}
                                                                 for alias_k, alias_v in CORPORATE_ACTION_ALIASES.items():
                                                                     if alias_v == clean_orig:
-                                                                        results[alias_k] = {"v": {"cmd": {"c": val}}}
-                                                                        results[alias_k + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                                        results[alias_k] = {"v": {"cmd": cmd_data}}
+                                                                        results[alias_k + ".NS"] = {"v": {"cmd": cmd_data}}
                                                                         pending.discard(alias_k)
                                                                         pending.discard(alias_k + ".NS")
                                                                     elif alias_k == clean_orig:
-                                                                        results[alias_v] = {"v": {"cmd": {"c": val}}}
-                                                                        results[alias_v + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                                        results[alias_v] = {"v": {"cmd": cmd_data}}
+                                                                        results[alias_v + ".NS"] = {"v": {"cmd": cmd_data}}
                                                                         pending.discard(alias_v)
                                                                         pending.discard(alias_v + ".NS")
                                                                 pending.discard(orig)
@@ -329,15 +342,38 @@ class UnifiedFetcher:
                                                 val = quote_data["ohlc"].get("close") or quote_data["ohlc"].get("open")
                                             if val is not None and float(val) > 0:
                                                 val_flt = float(val)
-                                                results[orig] = {"v": {"cmd": {"c": val_flt}}}
-                                                results[clean_orig] = {"v": {"cmd": {"c": val_flt}}}
-                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
+                                                pc_val = None
+                                                if "ohlc" in quote_data and isinstance(quote_data["ohlc"], dict):
+                                                    pc_val = quote_data["ohlc"].get("close")
+                                                if pc_val is None:
+                                                    pc_val = quote_data.get("prev_close_price") or quote_data.get("pc") or quote_data.get("cp")
+                                                try:
+                                                    pc_flt = float(pc_val) if pc_val is not None else None
+                                                except Exception:
+                                                    pc_flt = None
+
+                                                ch_val = quote_data.get("net_change") or quote_data.get("ch")
+                                                try:
+                                                    ch_flt = float(ch_val) if ch_val is not None else ((round(val_flt - pc_flt, 2)) if (pc_flt is not None) else None)
+                                                except Exception:
+                                                    ch_flt = None
+
+                                                chp_val = quote_data.get("chp")
+                                                try:
+                                                    chp_flt = float(chp_val) if chp_val is not None else ((round(((val_flt - pc_flt) / pc_flt) * 100, 2)) if (pc_flt and pc_flt > 0) else None)
+                                                except Exception:
+                                                    chp_flt = None
+
+                                                cmd_data = {"c": val_flt, "pc": pc_flt, "ch": ch_flt, "chp": chp_flt}
+                                                results[orig] = {"v": {"cmd": cmd_data}}
+                                                results[clean_orig] = {"v": {"cmd": cmd_data}}
+                                                results[clean_orig + ".NS"] = {"v": {"cmd": cmd_data}}
                                                 for ak, av in CORPORATE_ACTION_ALIASES.items():
                                                     if ak == clean_orig or av == clean_orig:
-                                                        results[ak] = {"v": {"cmd": {"c": val_flt}}}
-                                                        results[av] = {"v": {"cmd": {"c": val_flt}}}
-                                                        results[ak + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
-                                                        results[av + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
+                                                        results[ak] = {"v": {"cmd": cmd_data}}
+                                                        results[av] = {"v": {"cmd": cmd_data}}
+                                                        results[ak + ".NS"] = {"v": {"cmd": cmd_data}}
+                                                        results[av + ".NS"] = {"v": {"cmd": cmd_data}}
                                                         pending.discard(ak)
                                                         pending.discard(av)
                                                         pending.discard(ak + ".NS")

@@ -2097,6 +2097,7 @@ function changeAdminPage(type, delta) {
     .ticker-val { font-weight: 700; color: var(--text); }
     .ticker-pct.pos { color: var(--win); font-weight: 800; }
     .ticker-pct.neg { color: var(--loss); font-weight: 800; }
+    .ticker-pct.neutral { color: var(--muted); font-weight: 700; }
 
     /* ── [ELEVATED FINANCIAL SUMMARY CARDS] Rule 67: Wireframe Hero Financial Summary ── */
     .kpi-grid {
@@ -8697,109 +8698,135 @@ initDashboard();
 
 
 
-      // Fetch indices
-      fetch('/api/indices')
-        .then(r => r.json())
-        .then(data => {
-          window._lastIndicesData = data;
-          const trackEl = document.getElementById('globalTickerTrack');
-          const badgeEl = document.getElementById('tickerRegimeBadge');
-          const tc = document.getElementById('ticker-content');
-          if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
-            if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
-              trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+      function updateIndicesTicker() {
+        fetch('/api/indices')
+          .then(r => r.json())
+          .then(data => {
+            window._lastIndicesData = data;
+            const trackEl = document.getElementById('globalTickerTrack');
+            const badgeEl = document.getElementById('tickerRegimeBadge');
+            const tc = document.getElementById('ticker-content');
+            if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
+              if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
+                trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+              }
+              return;
             }
-            return;
-          }
 
-          // Macro Regime Indicator
-          const regimeData = data._regime || data.regime;
-          if (regimeData) {
-            window._currentRegime = regimeData;
-            const regName = (typeof regimeData === 'string' ? regimeData : (regimeData.regime || 'BULL')).toUpperCase();
-            const regDetail = (typeof regimeData === 'object' && regimeData.detail) ? ` (${regimeData.detail})` : '';
-            if (badgeEl) {
-              badgeEl.textContent = `● ${regName} REGIME${regDetail}`;
-              if (regName === 'BULL') {
-                badgeEl.style.background = 'rgba(16, 185, 129, 0.1)';
-                badgeEl.style.color = '#10b981';
-                badgeEl.style.borderColor = 'rgba(16, 185, 129, 0.25)';
-              } else if (regName === 'BEAR') {
-                badgeEl.style.background = 'rgba(239, 68, 68, 0.1)';
-                badgeEl.style.color = '#ef4444';
-                badgeEl.style.borderColor = 'rgba(239, 68, 68, 0.25)';
-              } else {
-                badgeEl.style.background = 'rgba(245, 158, 11, 0.1)';
-                badgeEl.style.color = '#f59e0b';
-                badgeEl.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+            // Macro Regime Indicator
+            const regimeData = data._regime || data.regime;
+            if (regimeData) {
+              window._currentRegime = regimeData;
+              const regName = (typeof regimeData === 'string' ? regimeData : (regimeData.regime || 'BULL')).toUpperCase();
+              const regDetail = (typeof regimeData === 'object' && regimeData.detail) ? ` (${regimeData.detail})` : '';
+              if (badgeEl) {
+                badgeEl.textContent = `● ${regName} REGIME${regDetail}`;
+                if (regName === 'BULL') {
+                  badgeEl.style.background = 'rgba(16, 185, 129, 0.1)';
+                  badgeEl.style.color = '#10b981';
+                  badgeEl.style.borderColor = 'rgba(16, 185, 129, 0.25)';
+                } else if (regName === 'BEAR') {
+                  badgeEl.style.background = 'rgba(239, 68, 68, 0.1)';
+                  badgeEl.style.color = '#ef4444';
+                  badgeEl.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                } else {
+                  badgeEl.style.background = 'rgba(245, 158, 11, 0.1)';
+                  badgeEl.style.color = '#f59e0b';
+                  badgeEl.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+                }
+              }
+
+              // Also update macro regime hero KPI card
+              const kpiRegimeEl = document.getElementById('kpi-card-regime');
+              const kpiRegimeSubEl = document.getElementById('kpi-card-regime-sub');
+              if (kpiRegimeEl) {
+                kpiRegimeEl.textContent = `${regName} REGIME`;
+                kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : 'var(--amber, #f59e0b)');
+              }
+              if (kpiRegimeSubEl && typeof regimeData === 'object' && regimeData.detail) {
+                kpiRegimeSubEl.textContent = regimeData.detail;
               }
             }
 
-            // Also update macro regime hero KPI card
-            const kpiRegimeEl = document.getElementById('kpi-card-regime');
-            const kpiRegimeSubEl = document.getElementById('kpi-card-regime-sub');
-            if (kpiRegimeEl) {
-              kpiRegimeEl.textContent = `${regName} REGIME`;
-              kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : 'var(--amber, #f59e0b)');
+            let singleCycleHtml = '';
+            for (const [name, info] of Object.entries(data)) {
+              if (name.startsWith('_') || typeof info !== 'object' || info === null || Array.isArray(info)) continue;
+              if (info.price === undefined || info.price === null) continue;
+
+              const pct = Number(info.pct_change != null ? info.pct_change : 0);
+              let ptChg = null;
+              if (info.point_change != null && !isNaN(info.point_change)) {
+                ptChg = Number(info.point_change);
+              } else if (info.prev_close && Number(info.prev_close) > 0) {
+                ptChg = Number(info.price) - Number(info.prev_close);
+              }
+
+              const isNeg = pct < -0.001 || (ptChg !== null && ptChg < -0.001);
+              const isPos = pct > 0.001 || (ptChg !== null && ptChg > 0.001);
+              const colorClass = isNeg ? 'neg' : (isPos ? 'pos' : 'neutral');
+              const arrow = isNeg ? '▼' : (isPos ? '▲' : '—');
+              const ptSign = (ptChg !== null && ptChg > 0) ? '+' : '';
+              const pctSign = pct > 0 ? '+' : '';
+              const priceStr = Number(info.price).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+              let changeText = '';
+              if (ptChg !== null) {
+                changeText = `${ptSign}${ptChg.toFixed(2)} pts (${pctSign}${pct.toFixed(2)}%) ${arrow}`;
+              } else {
+                changeText = `${pctSign}${pct.toFixed(2)}% ${arrow}`;
+              }
+
+              singleCycleHtml += `<div class="ticker-item">
+                <span class="ticker-name">${escapeHTML(name)}</span>
+                <span class="ticker-val">${priceStr}</span>
+                <span class="ticker-pct ${colorClass}">${changeText}</span>
+              </div>`;
             }
-            if (kpiRegimeSubEl && typeof regimeData === 'object' && regimeData.detail) {
-              kpiRegimeSubEl.textContent = regimeData.detail;
+
+            // Strong Sectors
+            const strongSectors = data._strong_sectors || data.strong_sectors;
+            if (strongSectors && strongSectors.length > 0) {
+              const strongChips = strongSectors.map(s => {
+                const sign = (s.pct || 0) >= 0 ? '+' : '';
+                return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
+              }).join(' · ');
+              singleCycleHtml += `<div class="ticker-item sector-strong">
+                <span class="sector-badge">🔥 STRONG:</span> ${strongChips}
+              </div>`;
             }
-          }
 
-          let singleCycleHtml = '';
-          for (const [name, info] of Object.entries(data)) {
-            if (name.startsWith('_') || typeof info !== 'object' || info === null || Array.isArray(info)) continue;
-            if (info.price === undefined || info.price === null) continue;
-            const isPos = (info.pct_change || 0) >= 0;
-            const sign = isPos ? '+' : '';
-            const priceStr = Number(info.price).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-            singleCycleHtml += `<div class="ticker-item">
-              <span class="ticker-name">${escapeHTML(name)}</span>
-              <span class="ticker-val">${priceStr}</span>
-              <span class="ticker-pct ${isPos ? 'pos' : 'neg'}">${sign}${info.pct_change}% ${isPos ? '▲' : '▼'}</span>
-            </div>`;
-          }
-
-          // Strong Sectors
-          const strongSectors = data._strong_sectors || data.strong_sectors;
-          if (strongSectors && strongSectors.length > 0) {
-            const strongChips = strongSectors.map(s => {
-              const sign = (s.pct || 0) >= 0 ? '+' : '';
-              return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
-            }).join(' · ');
-            singleCycleHtml += `<div class="ticker-item sector-strong">
-              <span class="sector-badge">🔥 STRONG:</span> ${strongChips}
-            </div>`;
-          }
-
-          // Weak Sectors
-          const weakSectors = data._weak_sectors || data.weak_sectors;
-          if (weakSectors && weakSectors.length > 0) {
-            const weakChips = weakSectors.map(s => {
-              const sign = (s.pct || 0) >= 0 ? '+' : '';
-              return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
-            }).join(' · ');
-            singleCycleHtml += `<div class="ticker-item sector-weak">
-              <span class="sector-badge">❄️ WEAK:</span> ${weakChips}
-            </div>`;
-          }
-
-          if (trackEl && singleCycleHtml) {
-            // Duplicate 2x for infinite seamless marquee loop
-            trackEl.innerHTML = singleCycleHtml + singleCycleHtml;
-          }
-          if (tc && singleCycleHtml) {
-            tc.innerHTML = singleCycleHtml;
-          }
-        })
-        .catch(err => {
-            console.error("Failed to load indices", err);
-            const trackEl = document.getElementById('globalTickerTrack');
-            if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
-              trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+            // Weak Sectors
+            const weakSectors = data._weak_sectors || data.weak_sectors;
+            if (weakSectors && weakSectors.length > 0) {
+              const weakChips = weakSectors.map(s => {
+                const sign = (s.pct || 0) >= 0 ? '+' : '';
+                return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
+              }).join(' · ');
+              singleCycleHtml += `<div class="ticker-item sector-weak">
+                <span class="sector-badge">❄️ WEAK:</span> ${weakChips}
+              </div>`;
             }
-        });
+
+            if (trackEl && singleCycleHtml) {
+              // Duplicate 2x for infinite seamless marquee loop
+              trackEl.innerHTML = singleCycleHtml + singleCycleHtml;
+            }
+            if (tc && singleCycleHtml) {
+              tc.innerHTML = singleCycleHtml;
+            }
+          })
+          .catch(err => {
+              console.error("Failed to load indices", err);
+              const trackEl = document.getElementById('globalTickerTrack');
+              if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
+                trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+              }
+          });
+      }
+
+      // Initial fetch + 60s periodic refresh
+      updateIndicesTicker();
+      setInterval(updateIndicesTicker, 60000);
 
   </script>
   <!-- AI Modal -->

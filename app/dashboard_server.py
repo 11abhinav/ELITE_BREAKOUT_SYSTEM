@@ -4665,8 +4665,8 @@ def _get_fallback_indices() -> dict:
     fallback = {}
     candidates = {
         "NIFTY 50": ["data/history/1d/NIFTY 50.parquet", "data/history/1d/^NSEI.parquet"],
-        "BANKNIFTY": ["data/history/1d/^NSEBANK.parquet", "data/history/1d/BANKBEES.NS.parquet"],
-        "SENSEX": ["data/history/1d/SENSEX.parquet", "data/history/1d/BSE.parquet"]
+        "BANKNIFTY": ["data/history/1d/^NSEBANK.parquet", "data/history/1d/BANKNIFTY.parquet"],
+        "SENSEX": ["data/history/1d/SENSEX.parquet", "data/history/1d/^BSESN.parquet"]
     }
     for canon, paths in candidates.items():
         for p in paths:
@@ -4677,11 +4677,20 @@ def _get_fallback_indices() -> dict:
                     if not df.empty:
                         last = df.iloc[-1]
                         prev = df.iloc[-2] if len(df) > 1 else last
-                        c = float(last.get("close", 0) or 0)
-                        pc = float(prev.get("close", 0) or c)
-                        pct = round(((c - pc) / pc) * 100, 2) if pc else 0.0
+                        c = float(last.get("Close", last.get("close", 0)) or 0)
+                        pc = float(prev.get("Close", prev.get("close", 0)) or c)
                         if c > 0:
-                            fallback[canon] = {"price": round(c, 2), "pct_change": pct}
+                            if canon == "BANKNIFTY" and "BANKBEES" in p:
+                                c = c * 100.0
+                                pc = pc * 100.0
+                            point_change = round(c - pc, 2)
+                            pct = round(((c - pc) / pc) * 100, 2) if pc > 0 else 0.0
+                            fallback[canon] = {
+                                "price": round(c, 2),
+                                "pct_change": pct,
+                                "point_change": point_change,
+                                "prev_close": round(pc, 2)
+                            }
                             break
                 except Exception:
                     pass
@@ -4690,15 +4699,37 @@ def _get_fallback_indices() -> dict:
     if "NIFTY 50" in fallback and "SENSEX" not in fallback:
         n_pct = fallback["NIFTY 50"]["pct_change"]
         n_price = fallback["NIFTY 50"]["price"]
-        fallback["SENSEX"] = {"price": round(n_price * 3.28, 2), "pct_change": n_pct}
+        n_pc = fallback["NIFTY 50"].get("prev_close", n_price)
+        s_price = round(n_price * 3.28, 2)
+        s_pc = round(n_pc * 3.28, 2)
+        fallback["SENSEX"] = {
+            "price": s_price,
+            "pct_change": n_pct,
+            "point_change": round(s_price - s_pc, 2),
+            "prev_close": s_pc
+        }
 
-    # Hardcoded safety baselines if files missing on fresh machine
+    # If BANKNIFTY is missing from fallback, extrapolate from NIFTY 50 with reasonable Bank Nifty multiplier
+    if "NIFTY 50" in fallback and "BANKNIFTY" not in fallback:
+        n_pct = fallback["NIFTY 50"]["pct_change"]
+        n_price = fallback["NIFTY 50"]["price"]
+        n_pc = fallback["NIFTY 50"].get("prev_close", n_price)
+        b_price = round(n_price * 2.30, 2)
+        b_pc = round(n_pc * 2.30, 2)
+        fallback["BANKNIFTY"] = {
+            "price": b_price,
+            "pct_change": n_pct,
+            "point_change": round(b_price - b_pc, 2),
+            "prev_close": b_pc
+        }
+
+    # Safety baselines only if all files missing on fresh machine
     if "NIFTY 50" not in fallback:
-        fallback["NIFTY 50"] = {"price": 25415.80, "pct_change": 0.42}
+        fallback["NIFTY 50"] = {"price": 22603.05, "pct_change": -0.76, "point_change": -173.05, "prev_close": 22776.10}
     if "BANKNIFTY" not in fallback:
-        fallback["BANKNIFTY"] = {"price": 52180.50, "pct_change": 0.35}
+        fallback["BANKNIFTY"] = {"price": 51987.02, "pct_change": -0.76, "point_change": -398.01, "prev_close": 52385.03}
     if "SENSEX" not in fallback:
-        fallback["SENSEX"] = {"price": 83184.80, "pct_change": 0.40}
+        fallback["SENSEX"] = {"price": 74138.00, "pct_change": -0.76, "point_change": -567.61, "prev_close": 74705.61}
 
     # Sector leaders
     try:
@@ -4781,11 +4812,28 @@ def api_indices():
                     continue
                 if "v" in quote and "cmd" in quote["v"]:
                     lp = quote["v"]["cmd"]["c"]
-                    prev_close = quote["v"]["cmd"].get("pc", lp)
+                    prev_close = quote["v"]["cmd"].get("pc")
+                    ch = quote["v"]["cmd"].get("ch")
+                    chp = quote["v"]["cmd"].get("chp")
+
                     pct_change = 0.0
-                    if lp and prev_close:
-                        pct_change = round(((lp - prev_close) / prev_close) * 100, 2)
-                    bg_data[canon_name] = {"price": lp, "pct_change": pct_change}
+                    if chp is not None:
+                        pct_change = round(float(chp), 2)
+                    elif lp and prev_close and float(prev_close) > 0:
+                        pct_change = round(((float(lp) - float(prev_close)) / float(prev_close)) * 100, 2)
+
+                    point_change = 0.0
+                    if ch is not None:
+                        point_change = round(float(ch), 2)
+                    elif lp and prev_close and float(prev_close) > 0:
+                        point_change = round(float(lp) - float(prev_close), 2)
+
+                    bg_data[canon_name] = {
+                        "price": lp,
+                        "pct_change": pct_change,
+                        "point_change": point_change,
+                        "prev_close": prev_close
+                    }
         except Exception as e:
             logger.error(f"Error fetching indices via UnifiedFetcher (bg): {e}")
 
@@ -4829,6 +4877,11 @@ def api_indices():
         for k, v in fallback_data.items():
             if k not in bg_data:
                 bg_data[k] = v
+            else:
+                if bg_data[k].get("point_change") is None and v.get("point_change") is not None:
+                    bg_data[k]["point_change"] = v["point_change"]
+                if bg_data[k].get("prev_close") is None and v.get("prev_close") is not None:
+                    bg_data[k]["prev_close"] = v["prev_close"]
 
         if bg_data:
             with _indices_lock:
