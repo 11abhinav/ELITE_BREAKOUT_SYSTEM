@@ -60,3 +60,271 @@
   border: 1px solid rgba(148, 163, 184, 0.3);
   font-weight: 600;
 }
+
+/* =====================================================================================
+ * INSTITUTIONAL GLASSMORPHISM DESIGN SYSTEM & MICRO-ANIMATIONS
+ * Inspired by complete_glassmorphism_dashboard.html
+ * ===================================================================================== */
+
+:root {
+  --glass-panel: rgba(15, 23, 42, 0.68);
+  --glass-panel-hover: rgba(22, 34, 60, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-border-hover: rgba(255, 255, 255, 0.22);
+  --glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.02) 60%, rgba(255, 255, 255, 0) 100%);
+  --glass-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.55), inset 0 1px 1px 0 rgba(255, 255, 255, 0.1);
+  
+  --neon-cyan: #06b6d4;
+  --neon-cyan-glow: rgba(6, 182, 212, 0.35);
+  --neon-emerald: #10b981;
+  --neon-emerald-glow: rgba(16, 185, 129, 0.35);
+  --neon-violet: #8b5cf6;
+  --neon-violet-glow: rgba(139, 92, 246, 0.35);
+  --neon-amber: #f59e0b;
+  --neon-amber-glow: rgba(245, 158, 11, 0.35);
+}
+
+[data-theme="dark"] body {
+  background-color: #070b14 !important;
+  background-image: radial-gradient(circle at 50% 0%, #111a2e 0%, #070b14 75%) !important;
+  background-attachment: fixed !important;
+}
+
+/* Ambient Aurora Refraction Spheres */
+.ambient-aurora {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(140px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.15;
+  animation: float-aurora-shared 22s infinite alternate ease-in-out;
+}
+.aurora-top-left {
+  width: 650px;
+  height: 650px;
+  top: -180px;
+  left: -80px;
+  background: radial-gradient(circle, var(--neon-cyan), #2563eb);
+}
+.aurora-top-right {
+  width: 550px;
+  height: 550px;
+  top: -120px;
+  right: -80px;
+  background: radial-gradient(circle, var(--neon-emerald), #059669);
+  animation-duration: 26s;
+}
+
+@keyframes float-aurora-shared {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(50px, 25px) scale(1.06); }
+  100% { transform: translate(-30px, 40px) scale(0.96); }
+}
+
+/* Glassmorphism Header */
+[data-theme="dark"] .header {
+  background: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Glassmorphism Master Tabs Bar */
+[data-theme="dark"] .admin-tabs-bar,
+[data-theme="dark"] .user-tabs-bar {
+  background: var(--glass-panel) !important;
+  backdrop-filter: blur(18px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(180%) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Glassmorphism Hero KPI Cards */
+[data-theme="dark"] .kpi-card {
+  background: var(--glass-panel) !important;
+  backdrop-filter: blur(20px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 16px !important;
+  padding: 20px 22px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.35s ease,
+              background 0.35s ease !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Specular Rim Light */
+[data-theme="dark"] .kpi-card::before {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: 16px !important;
+  padding: 1px !important;
+  background: var(--glass-specular) !important;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+  -webkit-mask-composite: xor !important;
+  mask-composite: exclude !important;
+  pointer-events: none !important;
+  height: auto !important;
+}
+
+/* Radial Underglow */
+[data-theme="dark"] .kpi-card::after {
+  content: '' !important;
+  position: absolute !important;
+  top: -45px !important;
+  right: -45px !important;
+  width: 145px !important;
+  height: 145px !important;
+  border-radius: 50% !important;
+  filter: blur(50px) !important;
+  opacity: 0.18 !important;
+  pointer-events: none !important;
+  transition: opacity 0.35s ease, transform 0.35s ease !important;
+}
+
+[data-theme="dark"] .kpi-card:hover {
+  transform: translateY(-5px) scale(1.01) !important;
+  border-color: var(--glass-border-hover) !important;
+  background: var(--glass-panel-hover) !important;
+}
+[data-theme="dark"] .kpi-card:hover::after {
+  opacity: 0.42 !important;
+  transform: scale(1.25) !important;
+}
+
+/* Color Accents for Cards */
+[data-theme="dark"] #kpi-card-capital-box::after,
+[data-theme="dark"] .kpi-card:not(.green):not(.purple):not(.amber)::after {
+  background: var(--neon-cyan) !important;
+}
+[data-theme="dark"] #kpi-card-capital-box:hover,
+[data-theme="dark"] .kpi-card:not(.green):not(.purple):not(.amber):hover {
+  box-shadow: 0 20px 45px -10px var(--neon-cyan-glow) !important;
+}
+
+[data-theme="dark"] .kpi-card.green::after,
+[data-theme="dark"] #kpi-card-pnl-box::after {
+  background: var(--neon-emerald) !important;
+}
+[data-theme="dark"] .kpi-card.green:hover,
+[data-theme="dark"] #kpi-card-pnl-box:hover {
+  box-shadow: 0 20px 45px -10px var(--neon-emerald-glow) !important;
+}
+
+[data-theme="dark"] .kpi-card.purple::after,
+[data-theme="dark"] #kpi-card-wr-box::after {
+  background: var(--neon-violet) !important;
+}
+[data-theme="dark"] .kpi-card.purple:hover,
+[data-theme="dark"] #kpi-card-wr-box:hover {
+  box-shadow: 0 20px 45px -10px var(--neon-violet-glow) !important;
+}
+
+[data-theme="dark"] .kpi-card.amber::after,
+[data-theme="dark"] #kpi-card-regime-box::after {
+  background: var(--neon-amber) !important;
+}
+[data-theme="dark"] .kpi-card.amber:hover,
+[data-theme="dark"] #kpi-card-regime-box:hover {
+  box-shadow: 0 20px 45px -10px var(--neon-amber-glow) !important;
+}
+
+/* Glassmorphism Exposure Bar */
+[data-theme="dark"] .exposure-meter-card {
+  background: var(--glass-panel) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Glassmorphism Small Tiles Grid */
+[data-theme="dark"] .small-tile {
+  background: var(--glass-panel) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 12px !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+[data-theme="dark"] .small-tile:hover {
+  background: var(--glass-panel-hover) !important;
+  border-color: var(--glass-border-hover) !important;
+  transform: translateY(-3px) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Glassmorphism Cards & Panels */
+[data-theme="dark"] .card {
+  background: var(--glass-panel) !important;
+  backdrop-filter: blur(22px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(190%) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Frosted Glass Tables */
+[data-theme="dark"] .tbl-wrap table thead th {
+  background: rgba(15, 23, 42, 0.88) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  border-bottom: 1px solid var(--glass-border) !important;
+}
+[data-theme="dark"] .tbl-wrap table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  transition: background 0.2s ease !important;
+}
+[data-theme="dark"] .tbl-wrap table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Frosted Glass Scanner Chips & Status Pills */
+[data-theme="dark"] .scanner-chip {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(10px) !important;
+  border: 1px solid var(--glass-border) !important;
+  transition: all 0.22s ease !important;
+}
+[data-theme="dark"] .scanner-chip:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: var(--glass-border-hover) !important;
+  transform: translateY(-2px) !important;
+}
+[data-theme="dark"] .scanner-chip.active {
+  background: rgba(6, 182, 212, 0.16) !important;
+  border-color: rgba(6, 182, 212, 0.45) !important;
+  box-shadow: 0 0 14px var(--neon-cyan-glow) !important;
+}
+
+[data-theme="dark"] .status-pill {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--glass-border) !important;
+}
+[data-theme="dark"] .status-pill:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+}
+[data-theme="dark"] .status-pill.active {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Micro-Animation: Live Tick Pulse */
+@keyframes tick-highlight-pulse {
+  0% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.05); filter: brightness(1.7); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+.tick-flash {
+  display: inline-block;
+  animation: tick-highlight-pulse 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+

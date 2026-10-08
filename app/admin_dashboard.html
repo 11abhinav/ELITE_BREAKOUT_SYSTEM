@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 
 <head>
 <script>
@@ -2695,7 +2695,7 @@ function changeAdminPage(type, delta) {
       return response;
     };
 
-    const savedTheme = localStorage.getItem('theme') || 'light';
+    const savedTheme = localStorage.getItem('theme') || 'dark';
     document.documentElement.setAttribute('data-theme', savedTheme);
 
     let _audioCtx = null;
@@ -3082,6 +3082,10 @@ function changeAdminPage(type, delta) {
 </head>
 
 <body>
+  <!-- Ambient Aurora Refractions for Glassmorphism -->
+  <div class="ambient-aurora aurora-top-left"></div>
+  <div class="ambient-aurora aurora-top-right"></div>
+
   <!-- ── 2. LIVE MARKET TICKER TAPE (AUTO-SCROLLING MARQUEE) ── -->
   <div class="market-ticker-ribbon" id="marketTickerRibbon">
     <div class="ticker-lead">
