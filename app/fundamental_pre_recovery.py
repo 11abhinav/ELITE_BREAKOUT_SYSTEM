@@ -550,10 +550,30 @@ class FundamentalPreRecoveryEngine:
                 promoted_count += 1
                 logger.info(f"✅ [PRE_RECOVERY] {symbol}: recovery_status=SUCCESS | promotion_status=PROMOTED | fields={list(metrics.recovered_fields.keys())}")
             elif metrics.overall_status == FundamentalStatus.PARTIAL_RECOVERY or has_recovered:
-                logger.info(
-                    f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=PARTIAL_SUCCESS | promotion_status=BLOCKED | "
-                    f"promotion_reason=VALIDATION_INCOMPLETE | recovered_fields={list(metrics.recovered_fields.keys())}"
-                )
+                unrecovered = [f for f in missing_fields if f not in (metrics.recovered_fields or {})]
+                if unrecovered:
+                    logger.info(
+                        f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=PARTIAL_SUCCESS | promotion_status=BLOCKED | "
+                        f"unrecovered_fields={unrecovered} | recovered_fields={list((metrics.recovered_fields or {}).keys())}"
+                    )
+                    try:
+                        try:
+                            from database import add_symbol_to_cooloff
+                        except ImportError:
+                            from app.database import add_symbol_to_cooloff
+                        add_symbol_to_cooloff(
+                            symbol=symbol,
+                            reason=f"PARTIAL_RECOVERY_UNRESOLVED: {unrecovered}",
+                            scanner="ALL",
+                            duration_days=7
+                        )
+                    except Exception as _c_err:
+                        logger.debug(f"Cool-off notice for {symbol}: {_c_err}")
+                else:
+                    logger.info(
+                        f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=PARTIAL_SUCCESS | promotion_status=BLOCKED | "
+                        f"promotion_reason=VALIDATION_INCOMPLETE | recovered_fields={list((metrics.recovered_fields or {}).keys())}"
+                    )
             else:
                 audit_reason = metrics.rejection_reason or metrics.overall_status.value
                 logger.info(

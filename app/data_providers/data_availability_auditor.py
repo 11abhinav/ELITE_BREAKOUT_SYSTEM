@@ -597,7 +597,8 @@ class DataAvailabilityAuditor:
             availability_status = "REFERENCE_ONLY"
             production_eligibility = "INELIGIBLE"
             block_reason = "SCREENER_REFERENCE_ONLY_GOVERNANCE_BLOCKED"
-            quarantine_action = "NONE"
+            quarantine_action = "7_DAY_QUARANTINE"
+            quarantine_until = (datetime.now(IST) + timedelta(days=7)).isoformat()
         elif cls == AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE:
             source_of_truth = "NONE"
             availability_status = "PARSER_FAILURE"
@@ -715,11 +716,6 @@ class DataAvailabilityAuditor:
                 raise AssertionError(
                     f"Contradictory telemetry for {record.symbol}.{record.field}: "
                     f"REFERENCE_ONLY cannot be production ELIGIBLE or written to production"
-                )
-            if record.quarantine_action != "NONE":
-                raise AssertionError(
-                    f"Contradictory telemetry for {record.symbol}.{record.field}: "
-                    f"REFERENCE_ONLY must have quarantine=NONE"
                 )
 
 
@@ -856,6 +852,30 @@ class DataAvailabilityAuditor:
                               rec.local_cache_status, rec.fyers_status, rec.screener_status, rec.classification,
                               rec.severity, rec.upstox_key_ratios, rec.admin_action, rec.production_value_written,
                               rec.buy_allowed, rec.admin_alert_generated, run_id))
+
+                        # [RULE 67 CHANGE-RATIONALE: Auto-enroll stock in 7-day cool-off journal when data unavailable]
+                        if rec.quarantine_action == "7_DAY_QUARANTINE":
+                            try:
+                                try:
+                                    from database import add_symbol_to_cooloff
+                                except ImportError:
+                                    from app.database import add_symbol_to_cooloff
+                                add_symbol_to_cooloff(
+                                    symbol=rec.symbol,
+                                    reason=f"{rec.classification}: {rec.field} unavailable across primary sources",
+                                    scanner=rec.scanner or "ALL",
+                                    duration_days=7,
+                                    provider_failures={
+                                        "field": rec.field,
+                                        "classification": rec.classification,
+                                        "upstox": rec.upstox_status,
+                                        "nse": rec.nse_status,
+                                        "bse": rec.bse_status,
+                                        "screener": rec.screener_status,
+                                    }
+                                )
+                            except Exception as _q_err:
+                                logger.debug(f"[DATA_AVAILABILITY_AUDIT] Failed to register 7-day cooloff for {rec.symbol}: {_q_err}")
                 conn.commit()
         except Exception as e:
             logger.warning(f"[DATA_AVAILABILITY_AUDIT] DB persist failed (diagnostic only): {e}")
@@ -930,7 +950,7 @@ class DataAvailabilityAuditor:
                         with get_connection() as conn:
                             with conn.cursor() as cur:
                                 cur.execute(
-                                    "SELECT 1 FROM global_notifications WHERE symbol = %s AND title = %s AND created_at > NOW() - INTERVAL '24 hours' LIMIT 1",
+                                    "SELECT 1 FROM global_notifications WHERE symbol = %s AND title = %s AND created_at > NOW() - INTERVAL '7 days' LIMIT 1",
                                     (rec.symbol, title)
                                 )
                                 if cur.fetchone():

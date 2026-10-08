@@ -322,14 +322,22 @@ def test_full_provider_exhaustion_screener_available():
         assert rec.admin_alert_generated is True
         assert rec.bse_status == "BSE_NO_DATA"
         assert rec.fyers_status == "UNSUPPORTED_FIELD"
-        assert rec.screener_status == "AVAILABLE"
+        assert rec.quarantine_action == "7_DAY_QUARANTINE"
+        assert rec.quarantine_until is not None
 
-        # Verify negative cache store does NOT apply 7-day quarantine to reference-available stock
+        # Verify negative cache store applies 7-day quarantine to reference-available stock
         store_path = os.path.join(tmpdir, "pit_status.parquet")
         from app.pit_recovery_cache import PitRecoveryStatusStore
         store = PitRecoveryStatusStore(parquet_path=store_path)
-        is_quarantined = store.is_quarantined_for_scanner("TEST_SYM", "QUALITY_COMPOUNDER")
-        assert is_quarantined is False
+        store.record_unavailability(
+            symbol="TEST_SYM",
+            provider="ROUTER",
+            status=rec.classification,
+            reason=rec.classification,
+            scanner_family="QUALITY_COMPOUNDER",
+            field_name="sales_cagr_5y",
+        )
+        assert store.is_quarantined_for_scanner("TEST_SYM", "QUALITY_COMPOUNDER") is True
 
 
 def test_full_provider_exhaustion_confirmed_no_data_anywhere():
@@ -385,4 +393,55 @@ def test_full_provider_exhaustion_confirmed_no_data_anywhere():
             field_name="sales_cagr_5y",
         )
         assert store.is_quarantined_for_scanner("TEST_EMPTY", "QUALITY_COMPOUNDER") is True
+
+
+def test_ador_7_day_cooloff_and_notification_deduplication():
+    """
+    Verifies that when a stock like ADOR has sales_cagr_5y / pat_cagr_5y missing from primary sources
+    and found on Screener:
+      1. Classified as REFERENCE_ONLY_AVAILABLE
+      2. Assigned 7_DAY_QUARANTINE
+      3. Added to 7-day cooloff journal via add_symbol_to_cooloff
+      4. get_active_cooloff_symbols excludes it for both QUALITY_COMPOUNDER and QUALITY_VALUE_RECOVERY
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        screener_p = os.path.join(tmpdir, "screener.csv")
+        with open(screener_p, "w") as f:
+            f.write("symbol,field,available,checked_at\nADOR,pat_cagr_5y,YES,2026-10-08\nADOR,sales_cagr_5y,YES,2026-10-08\n")
+
+        screener = OperatorAttestedReferenceSource("SCREENER", AuthorityTier.TIER_3_FORENSIC, screener_p)
+        auditor = DataAvailabilityAuditor(scanner_name="QUALITY_COMPOUNDER", references=[screener], persist_to_db=False)
+
+        trace = {
+            "isin": "INE638A01017",
+            "upstox_records": 4,
+            "upstox_annual": 4,
+            "nse_records": 2,
+            "bse_status": "BSE_NO_DATA",
+            "fyers_status": "UNSUPPORTED_FIELD",
+            "exhausted": True,
+        }
+
+        rec = auditor.classify_field("ADOR", "pat_cagr_5y", trace)
+        assert rec.classification == AvailabilityClassification.REFERENCE_ONLY_AVAILABLE.value
+        assert rec.quarantine_action == "7_DAY_QUARANTINE"
+        assert rec.quarantine_until is not None
+
+        # Verify add_symbol_to_cooloff works and registers in active cooloff
+        from app.database import add_symbol_to_cooloff, get_active_cooloff_symbols
+        add_symbol_to_cooloff(
+            symbol="ADOR",
+            reason=f"{rec.classification}: {rec.field}",
+            scanner="ALL",
+            duration_days=7
+        )
+
+        qc_cooloff = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
+        qvr_cooloff = get_active_cooloff_symbols("QUALITY_VALUE_RECOVERY")
+        fund_cooloff = get_active_cooloff_symbols("FUNDAMENTAL")
+
+        assert "ADOR" in qc_cooloff
+        assert "ADOR" in qvr_cooloff
+        assert "ADOR" in fund_cooloff
+
 

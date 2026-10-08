@@ -78,6 +78,8 @@ REASON_SPECIFIC_TTLS: Dict[str, timedelta] = {
     "HISTORICAL_FILING_GAP": timedelta(days=7),
     "CONFIRMED_HISTORICAL_GAP": timedelta(days=7),
     "NOT_REPORTED": timedelta(days=21),            # Filing not yet published by exchange (tied to LODR deadline)
+    "REFERENCE_ONLY_AVAILABLE": timedelta(days=7),
+    "SCREENER_ONLY_DATA_SOURCE": timedelta(days=7),
 }
 
 COLUMNS = [
@@ -143,6 +145,8 @@ _QUARANTINE_REASONS = {
     "DATA_UNAVAILABLE",
     "NOT_REPORTED",
     "FIELD_ABSENT",
+    "REFERENCE_ONLY_AVAILABLE",
+    "SCREENER_ONLY_DATA_SOURCE",
 }
 
 
