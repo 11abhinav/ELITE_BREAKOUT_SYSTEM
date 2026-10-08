@@ -1251,8 +1251,8 @@ def api_get_near_misses():
                     SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                            nm.threshold_value, nm.delta_pct, nm.score,
                            nm.entry_price,
-                           COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
-                           COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
+                           nm.stop_loss,
+                           nm.target_1,
                            nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
                            COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
                            nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
@@ -5570,13 +5570,18 @@ def get_multibagger_watchlist():
                                     cmp_val = None
                                 raw_score = r.get("Fundamental Score") or r.get("FM_Score")
                                 try:
-                                    fm_score = float(raw_score) if raw_score is not None and str(raw_score) != "nan" else 80.0
+                                    fm_score = float(raw_score) if raw_score is not None and str(raw_score) != "nan" else None
                                 except (ValueError, TypeError):
-                                    fm_score = 80.0
+                                    fm_score = None
+                                raw_bzh = r.get("buy_zone_high")
+                                try:
+                                    bzh_val = float(raw_bzh) if raw_bzh is not None and str(raw_bzh) != "nan" else None
+                                except (ValueError, TypeError):
+                                    bzh_val = None
                                 csv_rows.append({
                                     "symbol": str(r.get("Stock", "")).strip().upper(),
                                     "buy_zone_low": cmp_val,
-                                    "buy_zone_high": round(cmp_val * 1.1, 2) if cmp_val else None,
+                                    "buy_zone_high": bzh_val,
                                     "latest_price": cmp_val,
                                     "total_score": fm_score,
                                     "growth_score": fm_score,

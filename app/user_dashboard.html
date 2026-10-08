@@ -2182,7 +2182,8 @@ function renderKPIs(s) {
   // Card 1: Active Capital
   let totalActiveCap = 0;
   openTradesList.forEach(t => {
-    const cap = Number(t.capital_allocated) || ((Number(t.actual_entry_price || t.entry_price || 0)) * (Number(t.shares_bought) || 1)) || 50000;
+    /* [RULE 67 CHANGE-RATIONALE]: Use strictly dynamic capital from allocated capital or entry * shares, zero hardcoded 50000 fallback */
+    const cap = Number(t.capital_allocated) || ((Number(t.actual_entry_price || t.entry_price || 0)) * (Number(t.shares_bought) || 0));
     totalActiveCap += cap;
   });
   function fmtCap(val) {
@@ -2202,19 +2203,25 @@ function renderKPIs(s) {
   if (kpiWrSubEl) kpiWrSubEl.textContent = `${judged.length} Real trades audited point-in-time`;
   const kpiWrPillEl = document.getElementById('kpi-card-wr-pill');
   if (kpiWrPillEl) {
-    const pf = (losers.length > 0 && avgLoss > 0) ? ((winners.length * avgWin) / (losers.length * avgLoss)).toFixed(2) : (winners.length > 0 ? 'PF ∞' : 'PF 1.00');
-    kpiWrPillEl.textContent = pf.startsWith('PF') ? pf : `PF ${pf}`;
+    /* [RULE 67 CHANGE-RATIONALE]: Do not fabricate PF 1.00 when 0 trades judged; show Audited or real PF */
+    if (judged.length === 0) {
+      kpiWrPillEl.textContent = 'Audited';
+    } else {
+      const pf = (losers.length > 0 && avgLoss > 0) ? ((winners.length * avgWin) / (losers.length * avgLoss)).toFixed(2) : (winners.length > 0 ? 'PF ∞' : 'PF —');
+      kpiWrPillEl.textContent = pf.startsWith('PF') ? pf : `PF ${pf}`;
+    }
   }
 
   // Card 4: Macro Regime
   const kpiRegimeEl = document.getElementById('kpi-card-regime');
   const kpiRegimeSubEl = document.getElementById('kpi-card-regime-sub');
-  const regObj = window._currentRegime || (window._lastIndicesData && (window._lastIndicesData._regime || window._lastIndicesData.regime)) || 'BEAR';
-  const regName = (typeof regObj === 'string' ? regObj : (regObj.regime || 'BEAR')).toUpperCase();
-  const regDetail = (typeof regObj === 'object' && regObj.detail) ? regObj.detail : 'Market Trend & Direction';
+  /* [RULE 67 CHANGE-RATIONALE]: Do not fallback to hardcoded 'BEAR'; display dynamic live regime or SYNCING... if telemetry pending */
+  const regObj = window._currentRegime || (window._lastIndicesData && (window._lastIndicesData._regime || window._lastIndicesData.regime)) || null;
+  const regName = regObj ? (typeof regObj === 'string' ? regObj : (regObj.regime || 'SYNCING...')).toUpperCase() : 'SYNCING...';
+  const regDetail = (typeof regObj === 'object' && regObj.detail) ? regObj.detail : (regObj ? 'Market Trend & Direction' : 'Fetching Live Regime Telemetry...');
   if (kpiRegimeEl) {
-    kpiRegimeEl.textContent = `${regName} REGIME`;
-    kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : 'var(--amber, #f59e0b)');
+    kpiRegimeEl.textContent = regName === 'SYNCING...' ? 'SYNCING...' : `${regName} REGIME`;
+    kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : (regName === 'NEUTRAL' ? 'var(--amber, #f59e0b)' : 'var(--muted)'));
   }
   if (kpiRegimeSubEl) kpiRegimeSubEl.textContent = regDetail;
 
@@ -2762,30 +2769,93 @@ function buildTradeRows(trades, maxAbs, prefix) {
           </div>
           ` : ''}
           ${(() => {
-            const entryP = t.actual_entry_price || t.entry_price || 0;
-            const slP = t.stop_loss || (entryP * 0.95);
-            const cmpP = t.current_price || t.exit_price || entryP;
-            const t1P = t.target_price || (entryP * 1.08);
-            const t2P = t.target_2 || (entryP * 1.15);
-            const totalSpan = (t2P - slP) || 1;
-            const progressPct = Math.min(Math.max(((cmpP - slP) / totalSpan) * 100, 10), 92);
-            const isT1Hit = cmpP >= t1P || t.status === 'WIN' || (t.status && t.status.includes('PARTIAL_WIN'));
-            const isTrailed = slP >= entryP;
+            /* [RULE 67 CHANGE-RATIONALE]: Ensure 100% dynamic visual roadmap in user dashboard. Never fabricate synthetic targets if strategy has no target by design. */
+            const entryP = Number(t.actual_entry_price || t.entry_price || 0);
+            const hasSl = (t.stop_loss != null && Number(t.stop_loss) > 0);
+            const slP = hasSl ? Number(t.stop_loss) : null;
+            const cmpP = Number(t.current_price || t.exit_price || entryP);
+            const hasT1 = (t.target_1 != null && Number(t.target_1) > 0) || (t.target_price != null && Number(t.target_price) > 0);
+            const hasT2 = (t.target_2 != null && Number(t.target_2) > 0);
+            const t1P = hasT1 ? Number(t.target_1 || t.target_price) : null;
+            const t2P = hasT2 ? Number(t.target_2) : null;
+            const isLoss = t.status === 'LOSS';
+            const isWin = t.status === 'WIN';
+            const isTrailed = hasSl && entryP > 0 && slP >= entryP;
+            const isT1Hit = hasT1 && (t.status === 'PARTIAL_WIN_1' || t.status === 'PARTIAL_WIN_2' || isWin || (t1P && cmpP >= t1P));
+            const isT2Hit = hasT2 && (isWin || (t2P && cmpP >= t2P));
+
+            let pctProgress = 25;
+            let statusSubtext = '';
+
+            if (hasT1) {
+              const maxTarget = hasT2 ? t2P : t1P;
+              const targetLabel = hasT2 ? 'T2' : 'T1';
+              if (isLoss) {
+                pctProgress = 5;
+              } else if (isWin || isT2Hit) {
+                pctProgress = 95;
+              } else if (isT1Hit) {
+                pctProgress = hasT2 ? 65 : 90;
+              } else if (entryP > 0 && maxTarget > entryP) {
+                const upsideRatio = Math.max(0, Math.min(1, (cmpP - entryP) / (maxTarget - entryP)));
+                pctProgress = Math.round(30 + upsideRatio * (hasT2 ? 35 : 55));
+              }
+              statusSubtext = `${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% (${pctProgress}% to ${targetLabel})`;
+            } else {
+              // Open-ended / trailing exit strategy without fixed targets by design
+              if (isLoss) {
+                pctProgress = 5;
+              } else if (isWin) {
+                pctProgress = 90;
+              } else if (entryP > 0 && cmpP >= entryP) {
+                pctProgress = Math.min(85, Math.round(45 + Math.min(40, ((cmpP - entryP) / entryP) * 100)));
+              } else {
+                pctProgress = 25;
+              }
+              statusSubtext = `${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% (Trailing Exit — No Target by Design)`;
+            }
+
             return `
               <div class="detail-item" style="grid-column: 1 / -1; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 4px 0 8px 0;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                   <span style="font-size:11.5px; font-weight:800; text-transform:uppercase; color:var(--text); display:flex; align-items:center; gap:6px;"><span>📈</span> Price Track &amp; Target Roadmap</span>
-                  <span style="font-size:11px; font-family:var(--font-mono); font-weight:700; color:${(t.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'};">${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% from Entry</span>
+                  <span style="font-size:11px; font-family:var(--font-mono); font-weight:700; color:${(t.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'};">${statusSubtext}</span>
                 </div>
                 <div style="position:relative; width:100%; height:6px; background:var(--border2); border-radius:3px; margin:20px 0 16px 0;">
-                  <div style="position:absolute; top:0; left:0; height:100%; width:${progressPct}%; background:linear-gradient(90deg, #2563eb, #059669); border-radius:3px;"></div>
+                  <div style="position:absolute; top:0; left:0; height:100%; width:${pctProgress}%; background:linear-gradient(90deg, #2563eb, #059669); border-radius:3px;"></div>
                   <div style="position:absolute; top:-6px; left:0; width:100%; display:flex; justify-content:space-between;">
-                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#dc2626; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#dc2626;">SL ₹${Number(slP).toFixed(0)}</div></div>
-                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--text);">Entry ₹${Number(entryP).toFixed(0)}</div></div>
-                    ${isTrailed ? `<div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#059669; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#059669;">Trailed ₹${Number(slP).toFixed(0)}</div></div>` : ''}
-                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; box-shadow:0 0 0 4px rgba(37,99,235,0.25); margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:800; color:var(--accent2);">CMP ₹${Number(cmpP).toFixed(0)}</div></div>
-                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:${isT1Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isT1Hit ? '#059669' : 'var(--muted)'};">T1 ₹${Number(t1P).toFixed(0)}${isT1Hit ? ' ✓' : ''}</div></div>
-                    <div style="text-align:center;"><div style="width:16px; height:16px; border-radius:50%; background:#cbd5e1; border:2px solid #fff; margin:0 auto;"></div><div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--muted);">T2 ₹${Number(t2P).toFixed(0)}</div></div>
+                    <div style="text-align:center;">
+                      <div style="width:16px; height:16px; border-radius:50%; background:${isLoss ? '#dc2626' : (hasSl ? '#cbd5e1' : '#94a3b8')}; border:2px solid #fff; margin:0 auto;"></div>
+                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isLoss ? '#dc2626' : 'var(--muted)'};">${hasSl ? 'SL ₹' + Number(slP).toFixed(0) : 'Open SL'}</div>
+                    </div>
+                    <div style="text-align:center;">
+                      <div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; margin:0 auto;"></div>
+                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--text);">Entry ₹${Number(entryP).toFixed(0)}</div>
+                    </div>
+                    ${isTrailed ? `
+                    <div style="text-align:center;">
+                      <div style="width:16px; height:16px; border-radius:50%; background:#059669; border:2px solid #fff; margin:0 auto;"></div>
+                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#059669;">Trailed ₹${Number(slP).toFixed(0)}</div>
+                    </div>` : ''}
+                    <div style="text-align:center;">
+                      <div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; box-shadow:0 0 0 4px rgba(37,99,235,0.25); margin:0 auto;"></div>
+                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:800; color:var(--accent2);">CMP ₹${Number(cmpP).toFixed(0)}</div>
+                    </div>
+                    ${hasT1 ? `
+                    <div style="text-align:center;">
+                      <div style="width:16px; height:16px; border-radius:50%; background:${isT1Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div>
+                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isT1Hit ? '#059669' : 'var(--muted)'};">T1 ₹${Number(t1P).toFixed(0)}${isT1Hit ? ' ✓' : ''}</div>
+                    </div>` : ''}
+                    ${hasT2 ? `
+                    <div style="text-align:center;">
+                      <div style="width:16px; height:16px; border-radius:50%; background:${isT2Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div>
+                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--muted);">T2 ₹${Number(t2P).toFixed(0)}${isT2Hit ? ' ✓' : ''}</div>
+                    </div>` : ''}
+                    ${!hasT1 ? `
+                    <div style="text-align:center;">
+                      <div style="width:16px; height:16px; border-radius:50%; background:#10b981; border:2px solid #fff; margin:0 auto; box-shadow:0 0 0 2px rgba(16,185,129,0.3);"></div>
+                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#10b981;">Trailing Exit 🛡️</div>
+                    </div>` : ''}
                   </div>
                 </div>
               </div>
@@ -2810,7 +2880,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
           </div>
           <div class="detail-item">
             <div class="detail-label">Stop Loss</div>
-            <div class="detail-val neg">${fmt(t.stop_loss)}</div>
+            <div class="detail-val neg">${(t.scanner === 'FUNDAMENTAL' || !t.stop_loss) ? '<span style="color:var(--muted);font-weight:700;">NONE (OPEN-ENDED)</span>' : fmt(t.stop_loss)}</div>
             ${t.status === 'LOSS' && t.exit_price ? `
               <div style="font-size:11px;color:var(--warn);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
                 Booked: ${fmt(t.exit_price)}<br>
@@ -2819,8 +2889,13 @@ function buildTradeRows(trades, maxAbs, prefix) {
             }
           </div>
           <div class="detail-item">
-            <div class="detail-label">Target</div>
-            <div class="detail-val pos">${fmt(t.target_price)}</div>
+            <div class="detail-label">Targets (T1/T2)</div>
+            <div class="detail-val pos" style="font-size:11px;">
+              ${(t.target_1 || t.target_price) ? (
+                (t.target_1 ? 'T1: ' + fmt(t.target_1) : 'TP: ' + fmt(t.target_price)) +
+                (t.target_2 ? '<br>T2: ' + fmt(t.target_2) : '')
+              ) : '<span style="color:#10b981;font-weight:700;">OPEN-ENDED / TRAILING (NO TARGET BY DESIGN)</span>'}
+            </div>
             ${t.status === 'WIN' && t.exit_price ? `
               <div style="font-size:11px;color:var(--accent);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
                 Booked: ${fmt(t.exit_price)}<br>
@@ -3553,7 +3628,8 @@ function renderExposureBar(trades) {
     else if (rawSc.includes('MULTI')) scKey = 'MULTIBAGGER';
     else if (rawSc.includes('PULL')) scKey = 'PULLBACK';
 
-    const cap = Number(t.capital_allocated) || ((Number(t.actual_entry_price || t.entry_price || 0)) * (Number(t.shares_bought) || 1)) || 50000;
+    /* [RULE 67 CHANGE-RATIONALE]: Ensure dynamic capital allocation calculation with zero hardcoded 50000 fallback in user dashboard */
+    const cap = Number(t.capital_allocated) || ((Number(t.actual_entry_price || t.entry_price || 0)) * (Number(t.shares_bought) || 0));
     capByScanner[scKey] = (capByScanner[scKey] || 0) + cap;
     totalCapital += cap;
   });
@@ -7079,13 +7155,15 @@ function renderConfluenceBreakdown(scannersList, metaTier, depth) {
     const state = sc.state || 'CONFIRMED';
     const score = sc.score != null ? `${Number(sc.score).toFixed(1)}` : '—';
     const entry = sc.entry_price != null ? (typeof formatPrice === 'function' ? formatPrice(sc.entry_price) : `₹${Number(sc.entry_price).toFixed(2)}`) : '—';
-    const sl = sc.stop_loss != null ? (typeof formatPrice === 'function' ? formatPrice(sc.stop_loss) : `₹${Number(sc.stop_loss).toFixed(2)}`) : '—';
+    const sl = sc.stop_loss != null ? (typeof formatPrice === 'function' ? formatPrice(sc.stop_loss) : `₹${Number(sc.stop_loss).toFixed(2)}`) : 'NONE (OPEN-ENDED)';
     const riskPct = sc.risk_pct != null ? `(-${sc.risk_pct}%)` : '';
-    const t1 = sc.target_1 != null ? (typeof formatPrice === 'function' ? formatPrice(sc.target_1) : `₹${Number(sc.target_1).toFixed(2)}`) : '—';
+    /* [RULE 67 CHANGE-RATIONALE]: Never fabricate targets or R:R if strategy has no target by design. Show clean Open/Trailing exit state */
+    const hasT1 = sc.target_1 != null && Number(sc.target_1) > 0;
+    const t1 = hasT1 ? (typeof formatPrice === 'function' ? formatPrice(sc.target_1) : `₹${Number(sc.target_1).toFixed(2)}`) : '— (No Target by Design)';
     const rewPct = sc.reward_pct != null ? `(+${sc.reward_pct}%)` : '';
-    const t2 = sc.target_2 != null ? (typeof formatPrice === 'function' ? `T2: ${formatPrice(sc.target_2)}` : `T2: ₹${Number(sc.target_2).toFixed(2)}`) : '';
-    const t3 = sc.target_3 != null ? (typeof formatPrice === 'function' ? `T3: ${formatPrice(sc.target_3)}` : `T3: ₹${Number(sc.target_3).toFixed(2)}`) : '';
-    const rr = sc.rr_ratio != null ? `${Number(sc.rr_ratio).toFixed(2)}R` : '—';
+    const t2 = (sc.target_2 != null && Number(sc.target_2) > 0) ? (typeof formatPrice === 'function' ? `T2: ${formatPrice(sc.target_2)}` : `T2: ₹${Number(sc.target_2).toFixed(2)}`) : '';
+    const t3 = (sc.target_3 != null && Number(sc.target_3) > 0) ? (typeof formatPrice === 'function' ? `T3: ${formatPrice(sc.target_3)}` : `T3: ₹${Number(sc.target_3).toFixed(2)}`) : '';
+    const rr = hasT1 && sc.rr_ratio != null ? `${Number(sc.rr_ratio).toFixed(2)}R` : 'Open / Trailing';
     const vol = sc.volume_ratio != null ? `${Number(sc.volume_ratio).toFixed(1)}x` : '—';
     const rsi = sc.rsi != null ? `${Number(sc.rsi).toFixed(1)}` : '—';
     const pattern = sc.breakout_type || 'BREAKOUT';
@@ -7123,12 +7201,12 @@ function renderConfluenceBreakdown(scannersList, metaTier, depth) {
             <div class="engine-m-val" style="color:var(--loss);">${sl} <span style="font-size:9px; font-weight:600;">${riskPct}</span></div>
           </div>
           <div class="engine-m-box">
-            <div class="engine-m-label">Target 1</div>
-            <div class="engine-m-val" style="color:var(--win);">${t1} <span style="font-size:9px; font-weight:600;">${rewPct}</span></div>
+            <div class="engine-m-label">${hasT1 ? 'Target 1' : 'Target (Exit Rule)'}</div>
+            <div class="engine-m-val" style="color:var(--win); font-size:${hasT1 ? '12px' : '11px'};">${t1} <span style="font-size:9px; font-weight:600;">${rewPct}</span></div>
           </div>
           <div class="engine-m-box">
             <div class="engine-m-label">Reward : Risk</div>
-            <div class="engine-m-val" style="color:var(--accent);">${rr}</div>
+            <div class="engine-m-val" style="color:var(--accent); font-weight:900;">${rr}</div>
           </div>
         </div>
 
@@ -7175,7 +7253,7 @@ function openStockForensics(typeOrObj, index) {
   } else if (typeof item.scanner === 'string' && item.scanner.length > 0) {
     participatingScanners = [item.scanner.trim().toUpperCase()];
   } else {
-    participatingScanners = ['EOD', 'PULLBACK'];
+    participatingScanners = ['TECHNICAL', 'FUNDAMENTAL_WEALTH_BUY'];
   }
 
   // Base pricing
@@ -7183,31 +7261,33 @@ function openStockForensics(typeOrObj, index) {
   const entry = parseFloat(item.entry_price || item.trigger_level || cmp || 100.0);
 
   // If item.scanners_breakdown is not already populated, synthesize immediate rich cards for every qualifying scanner
+  /* [RULE 67 CHANGE-RATIONALE]: Ensure 100% dynamic forensic modal values. Zero hardcoded scores, volumes, or synthetic fallback targets (2R/4R/6R/8R). Respect open-ended/trailing strategy design. */
   if (!Array.isArray(item.scanners_breakdown) || item.scanners_breakdown.length === 0) {
     const defaultEnginesMeta = {
-      'EOD': { title: 'Daily Breakout Engine', tf: 'Daily (Swing)', score: item.score || 88.5, vol: item.volume_ratio || 3.4, rationale: item.why_qualifies || 'Stage 2 Breakout above key 20-day high with institutional volume expansion.', slRule: 'Structural Swing Low' },
-      'TECHNICAL': { title: 'Technical Momentum Engine', tf: 'Daily', score: item.score || 87.0, vol: item.volume_ratio || 3.0, rationale: item.why_qualifies || 'High momentum technical setup clearing multi-week resistance.', slRule: 'Structural Support Anchor' },
-      'PULLBACK': { title: 'Pullback Continuation', tf: 'Daily (Swing)', score: item.score || 84.0, vol: item.volume_ratio || 2.2, rationale: item.why_qualifies || 'Healthy 20 EMA pullback holding prior breakout resistance as new support.', slRule: 'Pullback Swing Low Anchor' },
-      'REVERSAL': { title: 'Reversal Mean-Reversion', tf: 'Daily (Counter-Trend)', score: item.score || 82.5, vol: item.volume_ratio || 2.5, rationale: item.why_qualifies || 'Oversold exhaustion reversal off major confluence support.', slRule: 'Prior Day Low Anchor' },
-      'ACCUMULATION': { title: 'Institutional Accumulation', tf: 'Daily / Weekly', score: item.score || 89.0, vol: item.volume_ratio || 3.8, rationale: item.why_qualifies || 'Smart money accumulation with multiple high-volume absorption candles.', slRule: 'Accumulation Base Floor' },
-      'MULTIBAGGER': { title: 'Multibagger Compounder', tf: 'Weekly / Multi-Month', score: item.score || 91.0, vol: item.volume_ratio || 4.2, rationale: item.why_qualifies || 'Exceptional fundamentals with secular multi-year breakout pattern.', slRule: 'Weekly Base Support' }
+      'TECHNICAL': { title: 'Technical Momentum Engine', tf: 'Daily', score: item.score ?? null, vol: item.volume_ratio ?? null, rationale: item.why_qualifies || 'High momentum technical setup clearing multi-week resistance.', slRule: 'Structural Support Anchor' },
+      'FUNDAMENTAL_WEALTH_BUY': { title: 'Fundamental Buy Scanner', tf: 'Daily (20D Breakout)', score: item.score ?? null, vol: item.volume_ratio ?? null, rationale: item.why_qualifies || 'Passes fundamental quality criteria + earnings acceleration + technical trend + 20D breakout.', slRule: 'Thesis Exit / Trailing Stop' },
+      'PULLBACK': { title: 'Pullback Continuation', tf: 'Daily (Swing)', score: item.score ?? null, vol: item.volume_ratio ?? null, rationale: item.why_qualifies || 'Healthy 20 EMA pullback holding prior breakout resistance as new support.', slRule: 'Pullback Swing Low Anchor' },
+      'REVERSAL': { title: 'Reversal Mean-Reversion', tf: 'Daily (Counter-Trend)', score: item.score ?? null, vol: item.volume_ratio ?? null, rationale: item.why_qualifies || 'Oversold exhaustion reversal off major confluence support.', slRule: 'Prior Day Low Anchor' },
+      'ACCUMULATION': { title: 'Institutional Accumulation', tf: 'Daily / Weekly', score: item.score ?? null, vol: item.volume_ratio ?? null, rationale: item.why_qualifies || 'Smart money accumulation with multiple high-volume absorption candles.', slRule: 'Accumulation Base Floor' },
+      'MULTIBAGGER': { title: 'Multibagger Compounder', tf: 'Weekly / Multi-Month', score: item.score ?? null, vol: item.volume_ratio ?? null, rationale: item.why_qualifies || 'Exceptional fundamentals with secular multi-year breakout pattern.', slRule: 'Weekly Base Support' }
     };
 
     item.scanners_breakdown = participatingScanners.map(scKey => {
       const meta = defaultEnginesMeta[scKey] || {
         title: `${scKey} Breakout Engine`,
         tf: 'Daily',
-        score: item.score || 85.0,
-        vol: item.volume_ratio || 2.5,
+        score: item.score ?? null,
+        vol: item.volume_ratio ?? null,
         rationale: item.why_qualifies || 'Meets quantitative breakout criteria with confirmed volume expansion.',
         slRule: 'Structural Anchor'
       };
       const scEntry = entry;
-      const scSl = item.stop_loss ? parseFloat(item.stop_loss) : (Math.round(scEntry * 0.965 * 100) / 100);
-      const scT1 = item.target_1 ? parseFloat(item.target_1) : (Math.round((scEntry + (scEntry - scSl) * 2.0) * 100) / 100);
-      const scT2 = item.target_2 ? parseFloat(item.target_2) : (Math.round((scEntry + (scEntry - scSl) * 4.0) * 100) / 100);
-      const scRisk = Math.abs(scEntry - scSl);
-      const scRr = scRisk > 0 ? (Math.round((Math.abs(scT1 - scEntry) / scRisk) * 100) / 100) : 2.0;
+      const scSl = item.stop_loss ? parseFloat(item.stop_loss) : null;
+      const hasRealT1 = (item.target_1 != null && parseFloat(item.target_1) > 0) || (item.target_price != null && parseFloat(item.target_price) > 0);
+      const scT1 = hasRealT1 ? (item.target_1 ? parseFloat(item.target_1) : parseFloat(item.target_price)) : null;
+      const scT2 = (item.target_2 != null && parseFloat(item.target_2) > 0) ? parseFloat(item.target_2) : null;
+      const scRisk = (scEntry && scSl) ? Math.abs(scEntry - scSl) : null;
+      const scRr = (scRisk && scT1 && scRisk > 0) ? (Math.round((Math.abs(scT1 - scEntry) / scRisk) * 100) / 100) : null;
 
       return {
         scanner: scKey,
@@ -7218,17 +7298,17 @@ function openStockForensics(typeOrObj, index) {
         score: meta.score,
         entry_price: scEntry,
         stop_loss: scSl,
-        risk_pct: Math.round((scRisk / scEntry) * 10000) / 100,
+        risk_pct: (scRisk && scEntry) ? Math.round((scRisk / scEntry) * 10000) / 100 : null,
         target_1: scT1,
         target_2: scT2,
-        target_3: Math.round((scEntry + scRisk * 6.0) * 100) / 100,
-        target_4: Math.round((scEntry + scRisk * 8.0) * 100) / 100,
-        reward_pct: Math.round((Math.abs(scT1 - scEntry) / scEntry) * 10000) / 100,
+        target_3: null,
+        target_4: null,
+        reward_pct: (scT1 && scEntry) ? Math.round((Math.abs(scT1 - scEntry) / scEntry) * 10000) / 100 : null,
         rr_ratio: scRr,
         volume_ratio: meta.vol,
-        rsi: 62.5,
+        rsi: item.rsi != null ? item.rsi : null,
         sl_method: meta.slRule,
-        target_method: 'Multi-Cluster Fibonacci / R:R Consensus',
+        target_method: hasRealT1 ? 'Structural Target Hierarchy' : 'Open-Ended / Trailing Exit',
         signals: meta.rationale
       };
     });
@@ -7236,11 +7316,12 @@ function openStockForensics(typeOrObj, index) {
 
   const primaryEngine = item.scanners_breakdown[0] || null;
 
-  const sl = item.stop_loss || item.sl || primaryEngine?.stop_loss || (Math.round(entry * 0.965 * 100) / 100);
-  const t1 = item.target_1 || item.t1 || primaryEngine?.target_1 || (Math.round((entry + (entry - sl) * 2.0) * 100) / 100);
-  const t2 = item.target_2 || item.t2 || primaryEngine?.target_2 || (Math.round((entry + (entry - sl) * 4.0) * 100) / 100);
-  const scoreVal = item.maturity_score != null ? item.maturity_score : (item.score != null ? item.score : (primaryEngine?.score != null ? primaryEngine.score : 88.0));
-  const volVal = item.volume_surge != null ? item.volume_surge : (item.volume_ratio != null ? item.volume_ratio : (primaryEngine?.volume_ratio != null ? primaryEngine.volume_ratio : 3.2));
+  const sl = item.stop_loss ? parseFloat(item.stop_loss) : (primaryEngine?.stop_loss ? parseFloat(primaryEngine.stop_loss) : null);
+  const hasRealT1 = (item.target_1 != null && parseFloat(item.target_1) > 0) || (item.target_price != null && parseFloat(item.target_price) > 0) || (primaryEngine?.target_1 != null && parseFloat(primaryEngine.target_1) > 0);
+  const t1 = hasRealT1 ? (item.target_1 ? parseFloat(item.target_1) : (item.target_price ? parseFloat(item.target_price) : (primaryEngine?.target_1 ? parseFloat(primaryEngine.target_1) : null))) : null;
+  const t2 = (item.target_2 != null && parseFloat(item.target_2) > 0) ? parseFloat(item.target_2) : (primaryEngine?.target_2 ? parseFloat(primaryEngine.target_2) : null);
+  const scoreVal = item.maturity_score != null ? item.maturity_score : (item.score != null ? item.score : (primaryEngine?.score != null ? primaryEngine.score : null));
+  const volVal = item.volume_surge != null ? item.volume_surge : (item.volume_ratio != null ? item.volume_ratio : (primaryEngine?.volume_ratio != null ? primaryEngine.volume_ratio : null));
 
   // Header Elements
   document.getElementById('fm-symbol').textContent = symbol;
@@ -7262,11 +7343,11 @@ function openStockForensics(typeOrObj, index) {
   // Quadrant 1: Orders
   document.getElementById('fm-cmp').textContent = typeof formatPrice === 'function' ? formatPrice(cmp) : '₹' + cmp;
   document.getElementById('fm-entry').textContent = typeof formatPrice === 'function' ? formatPrice(entry) : '₹' + entry;
-  document.getElementById('fm-sl').textContent = typeof formatPrice === 'function' ? formatPrice(sl) : '₹' + sl;
-  document.getElementById('fm-t1').textContent = typeof formatPrice === 'function' ? formatPrice(t1) : '₹' + t1;
-  document.getElementById('fm-t2').textContent = typeof formatPrice === 'function' ? formatPrice(t2) : '₹' + t2;
+  document.getElementById('fm-sl').textContent = sl != null ? (typeof formatPrice === 'function' ? formatPrice(sl) : '₹' + sl) : 'NONE (OPEN-ENDED)';
+  document.getElementById('fm-t1').textContent = t1 != null ? (typeof formatPrice === 'function' ? formatPrice(t1) : '₹' + t1) : '— (No Target by Design)';
+  document.getElementById('fm-t2').textContent = t2 != null ? (typeof formatPrice === 'function' ? formatPrice(t2) : '₹' + t2) : '—';
   
-  let rrStr = '2.00R';
+  let rrStr = 'Open / Trailing';
   if (item.rr_ratio) {
     rrStr = `${parseFloat(item.rr_ratio).toFixed(2)}R`;
   } else if (primaryEngine && primaryEngine.rr_ratio) {
@@ -7279,20 +7360,20 @@ function openStockForensics(typeOrObj, index) {
   document.getElementById('fm-rr').textContent = rrStr;
 
   // Quadrant 2: Technicals
-  document.getElementById('fm-score').textContent = `${Number(scoreVal).toFixed(1)} / 100`;
-  document.getElementById('fm-vol').textContent = `${Number(volVal).toFixed(1)}x`;
-  document.getElementById('fm-stage').textContent = item.stage || (primaryEngine ? `Stage 2 (${primaryEngine.scanner_title})` : 'Stage 2 (Breakout Engine)');
-  document.getElementById('fm-dist').textContent = item.distance_pct != null ? `${Number(item.distance_pct) >= 0 ? '+' : ''}${Number(item.distance_pct).toFixed(1)}%` : '0.0%';
-  document.getElementById('fm-grade').textContent = item.quality_grade || (scoreVal >= 85 ? 'Tier A+' : 'Tier A');
-  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || (participatingScanners.length >= 3 ? `${participatingScanners.length} Engines Agreeing` : `${participatingScanners.length} Engine Setup`);
+  document.getElementById('fm-score').textContent = scoreVal != null ? `${Number(scoreVal).toFixed(1)} / 100` : '—';
+  document.getElementById('fm-vol').textContent = volVal != null ? `${Number(volVal).toFixed(1)}x` : '—';
+  document.getElementById('fm-stage').textContent = item.stage || (primaryEngine ? `Stage 2 (${primaryEngine.scanner_title})` : '—');
+  document.getElementById('fm-dist').textContent = item.distance_pct != null ? `${Number(item.distance_pct) >= 0 ? '+' : ''}${Number(item.distance_pct).toFixed(1)}%` : '—';
+  document.getElementById('fm-grade').textContent = item.quality_grade || (scoreVal != null ? (scoreVal >= 85 ? 'Tier A+' : 'Tier A') : '—');
+  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || (participatingScanners.length >= 3 ? `${participatingScanners.length} Engines Agreeing` : (participatingScanners.length > 0 ? `${participatingScanners.length} Engine Setup` : '—'));
 
   // Quadrant 3: Fundamentals
-  document.getElementById('fm-biz').textContent = item.business_quality || 'High Moat / Cash Compounder';
-  document.getElementById('fm-growth').textContent = item.growth_durability || 'Double-Digit Secular';
-  document.getElementById('fm-moat').textContent = item.moat_cash_quality || 'Pristine OCF / Low Leverage';
-  document.getElementById('fm-valgrade').textContent = item.valuation_grade || 'Quality Fair Value';
-  document.getElementById('fm-mos').textContent = item.margin_of_safety_pct != null ? `${Number(item.margin_of_safety_pct).toFixed(1)}%` : '18.5%';
-  document.getElementById('fm-thesis').textContent = item.thesis_health || 'HEALTHY';
+  document.getElementById('fm-biz').textContent = item.business_quality || '—';
+  document.getElementById('fm-growth').textContent = item.growth_durability || '—';
+  document.getElementById('fm-moat').textContent = item.moat_cash_quality || '—';
+  document.getElementById('fm-valgrade').textContent = item.valuation_grade || '—';
+  document.getElementById('fm-mos').textContent = item.margin_of_safety_pct != null ? `${Number(item.margin_of_safety_pct).toFixed(1)}%` : '—';
+  document.getElementById('fm-thesis').textContent = item.thesis_health || '—';
 
   // Quadrant 4: Why Qualifies & Blockers
   const whyText = item.checklist_cleared || item.why_qualifies || primaryEngine?.signals || item.notes || item.thesis || 'Meets structural point-in-time breakout criteria with confirmed volume expansion.';
@@ -7320,9 +7401,11 @@ function openStockForensics(typeOrObj, index) {
           const pe = data.scanners_breakdown[0];
           if (pe) {
             if (pe.stop_loss) document.getElementById('fm-sl').textContent = typeof formatPrice === 'function' ? formatPrice(pe.stop_loss) : '₹' + pe.stop_loss;
-            if (pe.target_1) document.getElementById('fm-t1').textContent = typeof formatPrice === 'function' ? formatPrice(pe.target_1) : '₹' + pe.target_1;
-            if (pe.target_2) document.getElementById('fm-t2').textContent = typeof formatPrice === 'function' ? formatPrice(pe.target_2) : '₹' + pe.target_2;
-            if (pe.rr_ratio) document.getElementById('fm-rr').textContent = `${parseFloat(pe.rr_ratio).toFixed(2)}R`;
+            if (pe.target_1 && Number(pe.target_1) > 0) document.getElementById('fm-t1').textContent = typeof formatPrice === 'function' ? formatPrice(pe.target_1) : '₹' + pe.target_1;
+            else document.getElementById('fm-t1').textContent = '— (No Target by Design)';
+            if (pe.target_2 && Number(pe.target_2) > 0) document.getElementById('fm-t2').textContent = typeof formatPrice === 'function' ? formatPrice(pe.target_2) : '₹' + pe.target_2;
+            else document.getElementById('fm-t2').textContent = '—';
+            if (pe.rr_ratio && pe.target_1 && Number(pe.target_1) > 0) document.getElementById('fm-rr').textContent = `${parseFloat(pe.rr_ratio).toFixed(2)}R`;
             if (pe.score) document.getElementById('fm-score').textContent = `${Number(pe.score).toFixed(1)} / 100`;
             if (pe.volume_ratio) document.getElementById('fm-vol').textContent = `${Number(pe.volume_ratio).toFixed(1)}x`;
           }
