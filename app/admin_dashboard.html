@@ -4214,18 +4214,23 @@ function changeAdminPage(type, delta) {
     // ── CONSTANTS
 
     // Format alert_time as "DD-MM HH:MM" (24h IST) for the table date column
+    const _istAlertTimeFormatter = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
     const fmtAlertTime = ts => {
       if (!ts) return '—';
       const d = parseToISTDate(ts);
-      if (!d) return String(ts);
-      return d.toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
+      if (!d || isNaN(d.getTime())) return String(ts);
+      try {
+        return _istAlertTimeFormatter.format(d);
+      } catch (e) {
+        return String(ts);
+      }
     };
 
     // Format closed_at ISO timestamp as "DD Mon HH:MM" (24h IST)
@@ -4678,7 +4683,7 @@ function changeAdminPage(type, delta) {
       /* [RULE 67 CHANGE-RATIONALE]: Do not fallback to hardcoded 'BEAR'; display dynamic live regime or SYNCING... if telemetry pending */
       const regObj = window._currentRegime || (window._lastIndicesData && (window._lastIndicesData._regime || window._lastIndicesData.regime)) || null;
       const regName = regObj ? (typeof regObj === 'string' ? regObj : (regObj.regime || 'SYNCING...')).toUpperCase() : 'SYNCING...';
-      const regDetail = (typeof regObj === 'object' && regObj.detail) ? regObj.detail : (regObj ? 'Market Trend & Direction' : 'Fetching Live Regime Telemetry...');
+      const regDetail = (regObj && typeof regObj === 'object' && regObj.detail) ? regObj.detail : (regObj ? 'Market Trend & Direction' : 'Fetching Live Regime Telemetry...');
       if (kpiRegimeEl) {
         kpiRegimeEl.textContent = regName === 'SYNCING...' ? 'SYNCING...' : `${regName} REGIME`;
         kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : (regName === 'NEUTRAL' ? 'var(--amber, #f59e0b)' : 'var(--muted)'));
@@ -5453,6 +5458,28 @@ function changeAdminPage(type, delta) {
       return n + 'th';
     }
 
+    function getEarningsBadgeHtml(item) {
+      if (!item) return '';
+      let html = '';
+      if (Array.isArray(item.event_badges)) {
+        for (const b of item.event_badges) {
+          if (b && b.type === 'corporate_action' && b.label) {
+            html += `<span class="badge" style="background:rgba(147,51,234,0.25); color:#c084fc; border:1px solid rgba(147,51,234,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${b.label}">🔀 ${b.label}</span>`;
+          }
+        }
+      }
+      const isStrongBear = item && (
+        item.bayesian_regime === 'STRONG_BEAR' ||
+        item.market_regime === 'STRONG_BEAR' ||
+        (item.context && (item.context.market_regime === 'STRONG_BEAR' || item.context.strong_bear_market || (typeof item.context.warning === 'string' && item.context.warning.includes('STRONG BEAR')))) ||
+        (Array.isArray(item.warnings) && item.warnings.some(w => typeof w === 'string' && (w.includes('STRONG_BEAR') || w.includes('STRONG BEAR'))))
+      );
+      if (isStrongBear) {
+        html += `<span class="strong-bear-badge" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid #ef4444; font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; animation: strongBearBlink 1s infinite; display:inline-block;" title="Alert raised during STRONG BEAR market regime">⚠️ STRONG BEAR MARKET</span>`;
+      }
+      return html;
+    }
+
     function getEvolutionBadgeHtml(t) {
       const state = t.trade_evolution_state || 'INITIAL';
       const evCount = t.evidence_count || 1;
@@ -5554,12 +5581,17 @@ function changeAdminPage(type, delta) {
       loadTradeJourney(alertId, 'modal-tj-content');
     }
 
+    let _lastIndexedTradesRef = null;
+    let _lastIndexedTradesLen = 0;
     function updateOpenAlertsIndex(tradesList) {
-      const map = {};
       if (!tradesList || !Array.isArray(tradesList)) {
-        window._OPEN_ALERTS_BY_SYMBOL = map;
-        return map;
+        window._OPEN_ALERTS_BY_SYMBOL = {};
+        return window._OPEN_ALERTS_BY_SYMBOL;
       }
+      if (tradesList === _lastIndexedTradesRef && tradesList.length === _lastIndexedTradesLen && window._OPEN_ALERTS_BY_SYMBOL) {
+        return window._OPEN_ALERTS_BY_SYMBOL;
+      }
+      const map = {};
       const closedStatuses = new Set(['WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED']);
       for (let i = 0; i < tradesList.length; i++) {
         const t = tradesList[i];
@@ -5581,6 +5613,8 @@ function changeAdminPage(type, delta) {
           score: t.score
         });
       }
+      _lastIndexedTradesRef = tradesList;
+      _lastIndexedTradesLen = tradesList.length;
       window._OPEN_ALERTS_BY_SYMBOL = map;
       return map;
     }
@@ -5632,9 +5666,13 @@ function changeAdminPage(type, delta) {
     }
 
     function buildTradeRows(trades, maxAbs, prefix) {
-      updateOpenAlertsIndex(typeof ALL_TRADES !== 'undefined' && ALL_TRADES && ALL_TRADES.length > 0 ? ALL_TRADES : trades);
+      if (!Array.isArray(trades)) return '';
+      try {
+        updateOpenAlertsIndex(typeof ALL_TRADES !== 'undefined' && ALL_TRADES && ALL_TRADES.length > 0 ? ALL_TRADES : trades);
+      } catch (idxErr) { console.warn("updateOpenAlertsIndex warning:", idxErr); }
       return trades.map((t, i) => {
-        const id = (prefix || 'tr-') + i;
+        try {
+          const id = (prefix || 'tr-') + i;
         const pnlData = calcFloatingPnl(t);
         const barW = pnlData.totalPct != null ? Math.min(100, Math.abs(pnlData.totalPct) / (maxAbs || 20) * 100).toFixed(1) : 0;
         const barColor = pnlData.totalPct == null ? C.muted : pnlData.totalPct >= 0 ? C.accent : C.warn;
@@ -6005,6 +6043,10 @@ function changeAdminPage(type, delta) {
         </div>
       </td>
     </tr>`;
+        } catch (rowErr) {
+          console.error("Error rendering trade row:", t, rowErr);
+          return `<tr class="main-row"><td colspan="14" style="color:var(--muted); font-size:11px; padding:10px 14px;">Error displaying trade ${(t && t.symbol) || i}</td></tr>`;
+        }
       }).join('');
     }
 
@@ -6947,215 +6989,227 @@ function changeAdminPage(type, delta) {
     function renderTradeTable() {
       // Prevent rendering the All Trades table when user is viewing other admin tabs (e.g., Scanner Health)
       if (typeof activeAdminTab !== 'undefined' && activeAdminTab !== 'signals-trades') return;
-      /* [RULE 67 CHANGE-RATIONALE]: Add safe optional chaining to prevent TypeError if filter elements are not yet mounted on page load */
-      const sc = document.getElementById('filterScanner')?.value || '';
-      const st = document.getElementById('filterStatus')?.value || '';
-      const sym = (document.getElementById('filterSymbol')?.value || '').trim().toUpperCase();
-      const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
-      
-      const now = new Date();
-      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
-      const todayStr = formatter.format(now);
-      const todayStart = new Date(todayStr + 'T00:00:00');
-      const yearStart = new Date(now.getFullYear(), 0, 1);
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      const d7 = new Date(now); d7.setDate(d7.getDate() - 7);
-      const d14 = new Date(now); d14.setDate(d14.getDate() - 14);
-      const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
-      const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
-      const d365 = new Date(now); d365.setDate(d365.getDate() - 365);
-      const weekStart = new Date(todayStart);
-      const dayOfWeek = weekStart.getDay() || 7;
-      weekStart.setDate(weekStart.getDate() - dayOfWeek + 1);
-
-      let filtered = ALL_TRADES.filter(t => {
-        if (sc && t.scanner !== sc) return false;
+      try {
+        /* [RULE 67 CHANGE-RATIONALE]: Add safe optional chaining to prevent TypeError if filter elements are not yet mounted on page load */
+        const sc = document.getElementById('filterScanner')?.value || '';
+        const st = document.getElementById('filterStatus')?.value || '';
+        const sym = (document.getElementById('filterSymbol')?.value || '').trim().toUpperCase();
+        const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
         
-        if (st) {
-          const tSt = (t.status || '').trim().toUpperCase();
-          const tExec = (t.execution_state || '').trim().toUpperCase();
-          const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
-          if (st === 'OPEN') {
-            if (tSt !== 'OPEN' && tExec !== 'OPEN' && tSt !== 'PENDING') return false;
-          } else if (st === 'TRAILING') {
-            if (tSt !== 'TRAILING' && tExec !== 'TRAILING' && !(tSt === 'OPEN' && t.trailing_active)) return false;
-          } else if (st === 'T1_HIT') {
-            if (tSt !== 'T1_HIT' && tSt !== 'PARTIAL_WIN_1' && tExec !== 'PARTIAL_WIN_1' && !t.t1_hit) return false;
-          } else if (st === 'WIN') {
-            if (tSt !== 'WIN' && tSt !== 'PROFIT' && !(tSt === 'CLOSED' && pnl != null && pnl >= 0)) return false;
-          } else if (st === 'LOSS') {
-            if (tSt !== 'LOSS' && tSt !== 'STOPPED' && !(tSt === 'CLOSED' && pnl != null && pnl < 0)) return false;
-          } else {
-            if (tSt !== st.toUpperCase()) return false;
-          }
-        } else {
-          if (t.status === 'REJECTED') return false; // Hide rejected trades by default unless explicitly selected
-        }
-        if (sym && !t.symbol.includes(sym)) return false;
-        if (dateFilt !== 'ALL') {
-          const d = new Date((t.entry_date || '').replace(' ', 'T'));
-          if (dateFilt === 'TODAY' && d < todayStart) return false;
-          if (dateFilt === 'WEEK' && d < weekStart) return false;
-          if (dateFilt === '7D' && d < d7) return false;
-          if (dateFilt === '14D' && d < d14) return false;
-          if (dateFilt === 'MONTH' && d < monthStart) return false;
-          if (dateFilt === 'QUARTER' && d < quarterStart) return false;
-          if (dateFilt === 'YEAR' && d < yearStart) return false;
-          if (dateFilt === '30D' && d < d30) return false;
-          if (dateFilt === '90D' && d < d90) return false;
-          if (dateFilt === '365D' && d < d365) return false;
-        }
-        return true;
-      });
-      
-      // Apply KPI Drilldown Filter
-      if (activeKpi && window._kpiDefs) {
-        const def = window._kpiDefs.find(d => d.id === activeKpi);
-        if (def && def.filter) {
-          filtered = filtered.filter(def.filter);
-        }
-      }
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const todayStr = formatter.format(now);
+        const todayStart = new Date(todayStr + 'T00:00:00');
+        const yearStart = new Date(now.getFullYear(), 0, 1);
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+        const d7 = new Date(now); d7.setDate(d7.getDate() - 7);
+        const d14 = new Date(now); d14.setDate(d14.getDate() - 14);
+        const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
+        const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
+        const d365 = new Date(now); d365.setDate(d365.getDate() - 365);
+        const weekStart = new Date(todayStart);
+        const dayOfWeek = weekStart.getDay() || 7;
+        weekStart.setDate(weekStart.getDate() - dayOfWeek + 1);
 
-      window._currentFilteredTrades = filtered;
-      const sortSel = document.getElementById('filterTradeSort')?.value || 'DEFAULT';
-      filtered = [...filtered].sort((a, b) => {
-        if (sortSel === 'PNL_DESC') return (b.pnl_pct || 0) - (a.pnl_pct || 0);
-        if (sortSel === 'PNL_ASC') return (a.pnl_pct || 0) - (b.pnl_pct || 0);
-        if (sortSel === 'SCORE_DESC') return (b.score || 0) - (a.score || 0);
-        if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
-        if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
-        if (sortCol === 'scanner_count') {
-          const cA = (getTradeConfluenceInfo(a).totalOpenScanners || 1);
-          const cB = (getTradeConfluenceInfo(b).totalOpenScanners || 1);
-          if (cA !== cB) return sortDir * (cA - cB);
-          const dA = a.alert_time || a.entry_date || '';
-          const dB = b.alert_time || b.entry_date || '';
-          return dB.localeCompare(dA);
-        }
-        if (sortCol === 'status') {
-          const p = { 'PENDING': -1, 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
-          const sA = (a.execution_state === 'PENDING_ENTRY') ? 'PENDING' : a.status;
-          const sB = (b.execution_state === 'PENDING_ENTRY') ? 'PENDING' : b.status;
-          const pA = p[sA] ?? 4;
-          const pB = p[sB] ?? 4;
-          if (pA !== pB) return sortDir * (pA - pB);
-          // Secondary sort by date (newest first)
-          const dA = a.alert_time || a.entry_date || '';
-          const dB = b.alert_time || b.entry_date || '';
-          return dB.localeCompare(dA);
-        }
-        let va = a[sortCol], vb = b[sortCol];
-        if (va == null) return 1; if (vb == null) return -1;
-        return sortDir * (va > vb ? 1 : va < vb ? -1 : 0);
-      });
-      
-      renderKPIs(window._kpiDefs ? window._kpiDefs.find(k => k.id === 'total') : { total_alerts: 0 });
-      renderCategoryStats();
-      const maxAbs = Math.max(...ALL_TRADES.map(t => Math.abs(t.pnl_pct || 0)), 1);
-      const tc = document.getElementById('tradeCount');
-      if (tc) tc.textContent = `${filtered.length} trade${filtered.length !== 1 ? 's' : ''}`;
-
-      const validRecalcTrades = filtered.filter(t => t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH');
-      const recalcFilteredCount = document.getElementById('recalcFilteredCount');
-      if (recalcFilteredCount) recalcFilteredCount.innerText = validRecalcTrades.length;
-      const recalcFilteredLabel = document.getElementById('recalcFilteredLabel');
-      if (recalcFilteredLabel) {
-        if (st === 'OPEN') recalcFilteredLabel.innerText = 'Recalculate All Open';
-        else if (st === 'PENDING_ENTRY') recalcFilteredLabel.innerText = 'Recalculate All Pending';
-        else if (st === 'WIN') recalcFilteredLabel.innerText = 'Recalculate All Win';
-        else if (st === 'LOSS') recalcFilteredLabel.innerText = 'Recalculate All Loss';
-        else if (st) recalcFilteredLabel.innerText = `Recalculate All ${st}`;
-        else recalcFilteredLabel.innerText = 'Recalculate All Filtered';
-      }
-
-      const selectAll = document.getElementById('selectAllTrades');
-      if (selectAll) {
-        selectAll.checked = validRecalcTrades.length > 0 && validRecalcTrades.every(t => SELECTED_TRADE_IDS.has(t.id));
-      }
-      
-      const body = document.getElementById('tradeBody');
-      const pInfo = document.getElementById('tradePaginationInfo');
-      if (!filtered.length) {
-        body.innerHTML = `<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
-        if (pInfo) pInfo.innerText = '';
-        return;
-      }
-      
-      const totalPages = Math.ceil(filtered.length / tradesPerPage);
-      if (currentTradePage > totalPages) currentTradePage = totalPages;
-      const startIdx = (currentTradePage - 1) * tradesPerPage;
-      const endIdx = startIdx + tradesPerPage;
-      const paginatedTrades = filtered.slice(startIdx, endIdx);
-      
-      body.innerHTML = buildTradeRows(paginatedTrades, maxAbs, 'main-');
-      
-      if (pInfo) {
-        pInfo.innerText = `Showing ${startIdx + 1}-${Math.min(endIdx, filtered.length)} of ${filtered.length} trades (Page ${currentTradePage} of ${totalPages})`;
-      }
-      const prevBtn = document.getElementById('tradePrevBtn');
-      const nextBtn = document.getElementById('tradeNextBtn');
-      if (prevBtn) prevBtn.disabled = currentTradePage <= 1;
-      if (nextBtn) nextBtn.disabled = currentTradePage >= totalPages;
-      
-      // Calculate and append summary if drilled down
-      if (activeKpi && activeKpi !== 'total' && filtered.length > 0) {
-        let best = -Infinity, worst = Infinity, closedCount = 0;
-        let winCount = 0, lossCount = 0;
-        filtered.forEach(t => {
-            if (t.status === 'WIN' || t.status === 'LOSS') {
-                closedCount++;
-                const p = t.pnl_pct || 0;
-                if (p > best) best = p;
-                if (p < worst) worst = p;
-                if (t.status === 'WIN') winCount++;
-                if (t.status === 'LOSS') lossCount++;
+        let filtered = (ALL_TRADES || []).filter(t => {
+          if (!t) return false;
+          if (sc && t.scanner !== sc) return false;
+          
+          if (st) {
+            const tSt = (t.status || '').trim().toUpperCase();
+            const tExec = (t.execution_state || '').trim().toUpperCase();
+            const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
+            if (st === 'OPEN') {
+              if (tSt !== 'OPEN' && tExec !== 'OPEN' && tSt !== 'PENDING') return false;
+            } else if (st === 'TRAILING') {
+              if (tSt !== 'TRAILING' && tExec !== 'TRAILING' && !(tSt === 'OPEN' && t.trailing_active)) return false;
+            } else if (st === 'T1_HIT') {
+              if (tSt !== 'T1_HIT' && tSt !== 'PARTIAL_WIN_1' && tExec !== 'PARTIAL_WIN_1' && !t.t1_hit) return false;
+            } else if (st === 'WIN') {
+              if (tSt !== 'WIN' && tSt !== 'PROFIT' && !(tSt === 'CLOSED' && pnl != null && pnl >= 0)) return false;
+            } else if (st === 'LOSS') {
+              if (tSt !== 'LOSS' && tSt !== 'STOPPED' && !(tSt === 'CLOSED' && pnl != null && pnl < 0)) return false;
+            } else {
+              if (tSt !== st.toUpperCase()) return false;
             }
+          } else {
+            if (t.status === 'REJECTED') return false; // Hide rejected trades by default unless explicitly selected
+          }
+          if (sym && !(t.symbol || '').includes(sym)) return false;
+          if (dateFilt !== 'ALL') {
+            const d = new Date((t.entry_date || '').replace(' ', 'T'));
+            if (dateFilt === 'TODAY' && d < todayStart) return false;
+            if (dateFilt === 'WEEK' && d < weekStart) return false;
+            if (dateFilt === '7D' && d < d7) return false;
+            if (dateFilt === '14D' && d < d14) return false;
+            if (dateFilt === 'MONTH' && d < monthStart) return false;
+            if (dateFilt === 'QUARTER' && d < quarterStart) return false;
+            if (dateFilt === 'YEAR' && d < yearStart) return false;
+            if (dateFilt === '30D' && d < d30) return false;
+            if (dateFilt === '90D' && d < d90) return false;
+            if (dateFilt === '365D' && d < d365) return false;
+          }
+          return true;
         });
         
-        if (closedCount > 0) {
-            const winRate = winCount / closedCount;
-            const lossRate = lossCount / closedCount;
-            const avgWin = winCount > 0 ? filtered.filter(t=>t.status==='WIN').reduce((s,t)=>s+(t.pnl_pct||0),0)/winCount : 0;
-            const avgLoss = lossCount > 0 ? Math.abs(filtered.filter(t=>t.status==='LOSS').reduce((s,t)=>s+(t.pnl_pct||0),0)/lossCount) : 0;
-            const expectancy = (winRate * avgWin) - (lossRate * avgLoss);
-            
-            const bestStr = best === -Infinity ? '—' : `+${best.toFixed(2)}%`;
-            const worstStr = worst === Infinity ? '—' : `${worst.toFixed(2)}%`;
-            const expStr = isNaN(expectancy) ? '—' : `${expectancy > 0 ? '+' : ''}${expectancy.toFixed(2)}%`;
-            const expColor = isNaN(expectancy) || expectancy === 0 ? 'var(--text)' : (expectancy > 0 ? 'var(--accent)' : 'var(--warn)');
-            
-            const summaryHtml = `
-            <tr style="background: var(--card2); border-top: 2px solid var(--border);">
-                <td colspan="15" style="padding: 20px 16px; text-align: center;">
-                    <div style="display: inline-flex; gap: 48px; font-size: 13px;">
-                        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
-                            <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Best Trade</span>
-                            <span style="color: var(--accent); font-weight: 700; font-family: var(--font-mono); font-size: 15px;">${bestStr}</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
-                            <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Worst Trade</span>
-                            <span style="color: var(--warn); font-weight: 700; font-family: var(--font-mono); font-size: 15px;">${worstStr}</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
-                            <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Expectancy</span>
-                            <span style="color: ${expColor}; font-weight: 700; font-family: var(--font-mono); font-size: 15px; padding: 2px 8px; border-radius: 4px; background: var(--border);">${expStr}</span>
-                        </div>
-                    </div>
-                </td>
-            </tr>
-            `;
-            body.innerHTML += summaryHtml;
+        // Apply KPI Drilldown Filter
+        if (activeKpi && window._kpiDefs) {
+          const def = window._kpiDefs.find(d => d.id === activeKpi);
+          if (def && def.filter) {
+            filtered = filtered.filter(def.filter);
+          }
+        }
+
+        window._currentFilteredTrades = filtered;
+        const sortSel = document.getElementById('filterTradeSort')?.value || 'DEFAULT';
+        filtered = [...filtered].sort((a, b) => {
+          if (sortSel === 'PNL_DESC') return (b.pnl_pct || 0) - (a.pnl_pct || 0);
+          if (sortSel === 'PNL_ASC') return (a.pnl_pct || 0) - (b.pnl_pct || 0);
+          if (sortSel === 'SCORE_DESC') return (b.score || 0) - (a.score || 0);
+          if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
+          if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
+          if (sortCol === 'scanner_count') {
+            const cA = (getTradeConfluenceInfo(a).totalOpenScanners || 1);
+            const cB = (getTradeConfluenceInfo(b).totalOpenScanners || 1);
+            if (cA !== cB) return sortDir * (cA - cB);
+            const dA = a.alert_time || a.entry_date || '';
+            const dB = b.alert_time || b.entry_date || '';
+            return dB.localeCompare(dA);
+          }
+          if (sortCol === 'status') {
+            const p = { 'PENDING': -1, 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
+            const sA = (a.execution_state === 'PENDING_ENTRY') ? 'PENDING' : a.status;
+            const sB = (b.execution_state === 'PENDING_ENTRY') ? 'PENDING' : b.status;
+            const pA = p[sA] ?? 4;
+            const pB = p[sB] ?? 4;
+            if (pA !== pB) return sortDir * (pA - pB);
+            // Secondary sort by date (newest first)
+            const dA = a.alert_time || a.entry_date || '';
+            const dB = b.alert_time || b.entry_date || '';
+            return dB.localeCompare(dA);
+          }
+          let va = a[sortCol], vb = b[sortCol];
+          if (va == null) return 1; if (vb == null) return -1;
+          return sortDir * (va > vb ? 1 : va < vb ? -1 : 0);
+        });
+        
+        const maxAbs = Math.max(...(ALL_TRADES || []).map(t => Math.abs(t.pnl_pct || 0)), 1);
+        const tc = document.getElementById('tradeCount');
+        if (tc) tc.textContent = `${filtered.length} trade${filtered.length !== 1 ? 's' : ''}`;
+
+        const validRecalcTrades = filtered.filter(t => t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH');
+        const recalcFilteredCount = document.getElementById('recalcFilteredCount');
+        if (recalcFilteredCount) recalcFilteredCount.innerText = validRecalcTrades.length;
+        const recalcFilteredLabel = document.getElementById('recalcFilteredLabel');
+        if (recalcFilteredLabel) {
+          if (st === 'OPEN') recalcFilteredLabel.innerText = 'Recalculate All Open';
+          else if (st === 'PENDING_ENTRY') recalcFilteredLabel.innerText = 'Recalculate All Pending';
+          else if (st === 'WIN') recalcFilteredLabel.innerText = 'Recalculate All Win';
+          else if (st === 'LOSS') recalcFilteredLabel.innerText = 'Recalculate All Loss';
+          else if (st) recalcFilteredLabel.innerText = `Recalculate All ${st}`;
+          else recalcFilteredLabel.innerText = 'Recalculate All Filtered';
+        }
+
+        const selectAll = document.getElementById('selectAllTrades');
+        if (selectAll) {
+          selectAll.checked = validRecalcTrades.length > 0 && validRecalcTrades.every(t => SELECTED_TRADE_IDS.has(t.id));
+        }
+        
+        const body = document.getElementById('tradeBody');
+        const pInfo = document.getElementById('tradePaginationInfo');
+        if (!body) return;
+
+        if (!filtered.length) {
+          body.innerHTML = `<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
+          if (pInfo) pInfo.innerText = '';
+          renderKPIs(window._kpiDefs ? window._kpiDefs.find(k => k.id === 'total') : { total_alerts: 0 });
+          renderCategoryStats();
+          return;
+        }
+        
+        const totalPages = Math.ceil(filtered.length / tradesPerPage);
+        if (currentTradePage > totalPages) currentTradePage = totalPages;
+        const startIdx = (currentTradePage - 1) * tradesPerPage;
+        const endIdx = startIdx + tradesPerPage;
+        const paginatedTrades = filtered.slice(startIdx, endIdx);
+        
+        body.innerHTML = buildTradeRows(paginatedTrades, maxAbs, 'main-');
+        
+        if (pInfo) {
+          pInfo.innerText = `Showing ${startIdx + 1}-${Math.min(endIdx, filtered.length)} of ${filtered.length} trades (Page ${currentTradePage} of ${totalPages})`;
+        }
+        const prevBtn = document.getElementById('tradePrevBtn');
+        const nextBtn = document.getElementById('tradeNextBtn');
+        if (prevBtn) prevBtn.disabled = currentTradePage <= 1;
+        if (nextBtn) nextBtn.disabled = currentTradePage >= totalPages;
+        
+        // Calculate and append summary if drilled down
+        if (activeKpi && activeKpi !== 'total' && filtered.length > 0) {
+          let best = -Infinity, worst = Infinity, closedCount = 0;
+          let winCount = 0, lossCount = 0;
+          filtered.forEach(t => {
+              if (t.status === 'WIN' || t.status === 'LOSS') {
+                  closedCount++;
+                  const p = t.pnl_pct || 0;
+                  if (p > best) best = p;
+                  if (p < worst) worst = p;
+                  if (t.status === 'WIN') winCount++;
+                  if (t.status === 'LOSS') lossCount++;
+              }
+          });
+          
+          if (closedCount > 0) {
+              const winRate = winCount / closedCount;
+              const lossRate = lossCount / closedCount;
+              const avgWin = winCount > 0 ? filtered.filter(t=>t.status==='WIN').reduce((s,t)=>s+(t.pnl_pct||0),0)/winCount : 0;
+              const avgLoss = lossCount > 0 ? Math.abs(filtered.filter(t=>t.status==='LOSS').reduce((s,t)=>s+(t.pnl_pct||0),0)/lossCount) : 0;
+              const expectancy = (winRate * avgWin) - (lossRate * avgLoss);
+              
+              const bestStr = best === -Infinity ? '—' : `+${best.toFixed(2)}%`;
+              const worstStr = worst === Infinity ? '—' : `${worst.toFixed(2)}%`;
+              const expStr = isNaN(expectancy) ? '—' : `${expectancy > 0 ? '+' : ''}${expectancy.toFixed(2)}%`;
+              const expColor = isNaN(expectancy) || expectancy === 0 ? 'var(--text)' : (expectancy > 0 ? 'var(--accent)' : 'var(--warn)');
+              
+              const summaryHtml = `
+              <tr style="background: var(--card2); border-top: 2px solid var(--border);">
+                  <td colspan="15" style="padding: 20px 16px; text-align: center;">
+                      <div style="display: inline-flex; gap: 48px; font-size: 13px;">
+                          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                              <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Best Trade</span>
+                              <span style="color: var(--accent); font-weight: 700; font-family: var(--font-mono); font-size: 15px;">${bestStr}</span>
+                          </div>
+                          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                              <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Worst Trade</span>
+                              <span style="color: var(--warn); font-weight: 700; font-family: var(--font-mono); font-size: 15px;">${worstStr}</span>
+                          </div>
+                          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+                              <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Expectancy</span>
+                              <span style="color: ${expColor}; font-weight: 700; font-family: var(--font-mono); font-size: 15px; padding: 2px 8px; border-radius: 4px; background: var(--border);">${expStr}</span>
+                          </div>
+                      </div>
+                  </td>
+              </tr>
+              `;
+              body.innerHTML += summaryHtml;
+          }
+        }
+
+        const entryDateTh = document.querySelector('th[data-col="entry_date"]');
+        if (entryDateTh) entryDateTh.textContent = 'Date & Time';
+        document.querySelectorAll('thead th[data-col]').forEach(th => {
+          th.classList.remove('sort-asc', 'sort-desc');
+          if (th.dataset.col === sortCol) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+        });
+        renderKPIs(window._kpiDefs ? window._kpiDefs.find(k => k.id === 'total') : { total_alerts: 0 });
+        renderCategoryStats();
+      } catch (err) {
+        console.error("Critical error in renderTradeTable:", err);
+        const body = document.getElementById('tradeBody');
+        if (body) {
+          body.innerHTML = `<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--warn)">Failed to display trades: ${escapeHTML(err.message || String(err))}</td></tr>`;
         }
       }
-
-      document.querySelector('th[data-col="entry_date"]').textContent = 'Date & Time';
-      document.querySelectorAll('thead th[data-col]').forEach(th => {
-        th.classList.remove('sort-asc', 'sort-desc');
-        if (th.dataset.col === sortCol) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
-      });
-      renderKPIs(window._kpiDefs ? window._kpiDefs.find(k => k.id === 'total') : { total_alerts: 0 });
-      renderCategoryStats();
     }
 
     let _adminTickersLoaded = false;
@@ -7673,7 +7727,10 @@ function changeAdminPage(type, delta) {
     }
 
     // Global click listener to dismiss
-    document.addEventListener('click', () => dismissAlert());
+    // [VERSION: CAPITAL_BUCKET_v2.0] Legacy compatibility stub to prevent ReferenceError
+    async function loadCapitalInfo() {
+      return Promise.resolve();
+    }
 
     async function doRefresh(isAuto = false) {
       const btn = document.getElementById('refreshBtn');
