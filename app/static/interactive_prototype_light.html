@@ -1,0 +1,2583 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elite Breakout System — Interactive Light Design Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700;800&family=Outfit:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base: #f8fafc;
+    --surface-card: #ffffff;
+    --surface-card-sub: #f1f5f9;
+    --surface-hover: #e2e8f0;
+    --border-light: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --border-focus: #3b82f6;
+
+    /* High Contrast Typography */
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #475569;
+    --text-faint: #64748b;
+
+    /* High-End Institutional Accents */
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-dim: rgba(37, 99, 235, 0.08);
+    --primary-border: rgba(37, 99, 235, 0.25);
+
+    --emerald-win: #059669;
+    --emerald-win-hover: #047857;
+    --emerald-dim: rgba(5, 150, 105, 0.09);
+    --emerald-border: rgba(5, 150, 105, 0.25);
+
+    --crimson-loss: #dc2626;
+    --crimson-dim: rgba(220, 38, 38, 0.08);
+    --crimson-border: rgba(220, 38, 38, 0.25);
+
+    --amber-warn: #d97706;
+    --amber-dim: rgba(217, 119, 6, 0.09);
+    --amber-border: rgba(217, 119, 6, 0.25);
+
+    --purple-val: #7c3aed;
+    --purple-dim: rgba(124, 58, 237, 0.08);
+    --purple-border: rgba(124, 58, 237, 0.25);
+
+    /* Shadows & Radii */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-pill: 9999px;
+
+    --shadow-subtle: 0 1px 3px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
+    --shadow-card: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+    --shadow-hover: 0 10px 20px -3px rgba(15, 23, 42, 0.09), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+    --shadow-modal: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+
+    --font-display: 'Outfit', -apple-system, sans-serif;
+    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER NAVIGATION ── */
+  .top-navbar {
+    background: var(--surface-card);
+    border-bottom: 1px solid var(--border-light);
+    height: 64px;
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: var(--shadow-subtle);
+  }
+  .brand-group {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand-logo-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 900;
+    font-family: var(--font-display);
+    font-size: 18px;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  }
+  .brand-name {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.4px;
+  }
+  .brand-name span { color: var(--primary); }
+
+  .live-market-beacon {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: var(--radius-pill);
+    background: var(--emerald-dim);
+    border: 1px solid var(--emerald-border);
+    color: var(--emerald-win);
+    font-size: 11.5px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+  }
+  .live-market-beacon .pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--emerald-win);
+    box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.7);
+    animation: pulseGlow 1.8s infinite;
+  }
+  @keyframes pulseGlow {
+    0% { box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.6); }
+    70% { box-shadow: 0 0 0 7px rgba(5, 150, 105, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(5, 150, 105, 0); }
+  }
+
+  .nav-right-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .telemetry-chip {
+    padding: 5px 11px;
+    border-radius: var(--radius-pill);
+    background: rgba(37, 99, 235, 0.07);
+    border: 1px solid rgba(37, 99, 235, 0.2);
+    color: var(--primary);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .user-profile-pill {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 12px 4px 6px;
+    background: var(--surface-card-sub);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-pill);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .avatar-circle {
+    width: 28px;
+    height: 28px;
+    background: #0f172a;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  /* ── LIVE MARKET TICKER TAPE (AUTO-SCROLLING MARQUEE) ── */
+  .market-ticker-ribbon {
+    background: #ffffff;
+    border-bottom: 1px solid var(--border-light);
+    border-top: 2px solid #7c3aed;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    height: 38px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  .ticker-lead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 18px 0 24px;
+    background: #ffffff;
+    z-index: 10;
+    box-shadow: 6px 0 12px rgba(15, 23, 42, 0.04);
+    height: 100%;
+    flex-shrink: 0;
+  }
+  .live-dot-pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #7c3aed;
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.7);
+    animation: pulseDot 2s infinite;
+  }
+  @keyframes pulseDot {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(124, 58, 237, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+  }
+  .ticker-regime-pill {
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+  }
+  .ticker-track-container {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+  }
+  .ticker-track {
+    display: inline-flex;
+    align-items: center;
+    gap: 20px;
+    animation: tickerGlide 30s linear infinite;
+    will-change: transform;
+    padding-left: 20px;
+  }
+  .ticker-track:hover {
+    animation-play-state: paused;
+  }
+  @keyframes tickerGlide {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: var(--surface-card-sub);
+    border: 1px solid var(--border-light);
+  }
+  .ticker-item.sector-strong {
+    background: rgba(22, 163, 74, 0.08);
+    border: 1px solid rgba(22, 163, 74, 0.25);
+    color: var(--emerald-win);
+    font-weight: 700;
+  }
+  .sector-badge {
+    font-weight: 800;
+    font-size: 10.5px;
+    letter-spacing: 0.5px;
+  }
+  .ticker-name { font-weight: 800; color: var(--text-secondary); }
+  .ticker-val { font-weight: 700; color: var(--text-primary); }
+  .ticker-pct.pos { color: var(--emerald-win); font-weight: 800; }
+  .ticker-pct.neg { color: var(--crimson-loss); font-weight: 800; }
+
+  /* ── MAIN CONTENT CONTAINER ── */
+  .app-container {
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: 24px 28px 48px;
+  }
+
+  /* ── KPI METRIC CARDS ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .kpi-card {
+    background: var(--surface-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 18px 20px;
+    box-shadow: var(--shadow-card);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--border-strong);
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--primary);
+  }
+  .kpi-card.green::before { background: var(--emerald-win); }
+  .kpi-card.purple::before { background: var(--purple-val); }
+  .kpi-card.amber::before { background: var(--amber-warn); }
+
+  .kpi-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .kpi-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+  }
+  .kpi-pill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: var(--radius-pill);
+    background: var(--surface-card-sub);
+    color: var(--text-secondary);
+  }
+  .kpi-value {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
+  .kpi-value.green { color: var(--emerald-win); }
+  .kpi-subtext {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+  }
+
+  /* ── 11 COMPACT PERFORMANCE KPI SMALL TILES (MATCHING USER SCREENSHOT) ── */
+  .small-kpis-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .small-tile {
+    background: var(--surface-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 72px;
+  }
+  .small-tile::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 3.5px;
+    background: var(--text-muted);
+  }
+  .small-tile.blue::before { background: var(--primary); }
+  .small-tile.green::before { background: var(--emerald-win); }
+  .small-tile.red::before { background: var(--rose-loss); }
+  .small-tile.slate::before { background: var(--text-muted); }
+  .small-tile.amber::before { background: var(--amber-warn); }
+
+  .small-tile:hover {
+    border-color: var(--border-medium);
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+    transform: translateY(-2px);
+  }
+  .small-tile.active {
+    border-color: var(--primary);
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.05) 0%, #ffffff 100%);
+    box-shadow: 0 0 0 2px var(--primary-border), 0 4px 12px rgba(37, 99, 235, 0.12);
+  }
+  .small-tile.active::after {
+    content: '▼';
+    position: absolute;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 8px;
+    color: var(--primary);
+    line-height: 1;
+  }
+
+  .st-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .st-val {
+    font-size: 19px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    line-height: 1.15;
+    margin-bottom: 4px;
+    letter-spacing: -0.4px;
+  }
+  .st-val.blue { color: var(--primary); }
+  .st-val.green { color: var(--emerald-win); }
+  .st-val.red { color: var(--rose-loss); }
+  .st-val.amber { color: var(--amber-warn); }
+
+  .st-sub {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: #64748b;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── MULTI-SCANNER SELECTOR BAR (HERO COMPONENT) ── */
+  .control-panel-card {
+    background: var(--surface-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    box-shadow: var(--shadow-card);
+    margin-bottom: 24px;
+  }
+  .control-row-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .row-title {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .multi-badge-counter {
+    background: var(--primary-dim);
+    color: var(--primary);
+    border: 1px solid var(--primary-border);
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+  }
+  .quick-selection-links {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  .quick-link {
+    color: var(--primary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .quick-link:hover { background: var(--primary-dim); }
+  .quick-link.clear { color: var(--crimson-loss); }
+  .quick-link.clear:hover { background: var(--crimson-dim); }
+
+  /* ── INTERACTIVE MULTI-SCANNER CHIPS ── */
+  .scanner-chips-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .scanner-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 16px;
+    border-radius: var(--radius-pill);
+    border: 1.5px solid var(--border-light);
+    background: var(--surface-card);
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .scanner-chip:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-card-sub);
+    transform: translateY(-1px);
+  }
+  .scanner-chip .check-circle {
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-strong);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    transition: all 0.15s;
+    color: transparent;
+  }
+  .scanner-chip .chip-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    background: var(--surface-card-sub);
+    color: var(--text-muted);
+  }
+
+  /* Active Scanner State */
+  .scanner-chip.active {
+    border-color: var(--primary);
+    background: var(--primary-dim);
+    color: var(--primary);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+  }
+  .scanner-chip.active .check-circle {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+  }
+  .scanner-chip.active .chip-count {
+    background: rgba(37, 99, 235, 0.2);
+    color: var(--primary);
+  }
+
+  /* Specific Scanner Theme Colors When Active */
+  .scanner-chip.compounder.active {
+    border-color: var(--emerald-win);
+    background: var(--emerald-dim);
+    color: var(--emerald-win);
+  }
+  .scanner-chip.compounder.active .check-circle { background: var(--emerald-win); border-color: var(--emerald-win); }
+  .scanner-chip.compounder.active .chip-count { background: rgba(5, 150, 105, 0.2); color: var(--emerald-win); }
+
+  .scanner-chip.recovery.active {
+    border-color: var(--purple-val);
+    background: var(--purple-dim);
+    color: var(--purple-val);
+  }
+  .scanner-chip.recovery.active .check-circle { background: var(--purple-val); border-color: var(--purple-val); }
+  .scanner-chip.recovery.active .chip-count { background: rgba(124, 58, 237, 0.2); color: var(--purple-val); }
+
+  /* ── SECONDARY CONTROLS (STATUS STRIP & SEARCH) ── */
+  .filter-secondary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--border-light);
+  }
+  .status-pills-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .status-pill {
+    padding: 6px 13px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    background: var(--surface-card);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-pill:hover {
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+  .status-pill.active {
+    background: #0f172a;
+    color: #ffffff;
+    border-color: #0f172a;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+  }
+  .status-pill .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  .search-export-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .search-input-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .search-input-box input {
+    background: var(--surface-card-sub);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 7px 12px 7px 32px;
+    font-size: 12.5px;
+    font-family: var(--font-body);
+    font-weight: 600;
+    color: var(--text-primary);
+    width: 220px;
+    outline: none;
+    transition: all 0.18s;
+  }
+  .search-input-box input:focus {
+    border-color: var(--primary);
+    background: #ffffff;
+    box-shadow: 0 0 0 3px var(--primary-dim);
+    width: 260px;
+  }
+  .search-icon {
+    position: absolute;
+    left: 10px;
+    color: var(--text-faint);
+    pointer-events: none;
+    font-size: 13px;
+  }
+
+  .export-btn {
+    padding: 7px 14px;
+    background: var(--surface-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .export-btn:hover {
+    background: var(--surface-card-sub);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  /* ── HIGH-DENSITY INTERACTIVE DATA TABLE ── */
+  .table-card {
+    background: var(--surface-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+  .table-responsive {
+    width: 100%;
+    overflow-x: auto;
+  }
+  table.ledger-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    text-align: left;
+  }
+  table.ledger-table thead th {
+    background: #f8fafc;
+    color: #1e293b;
+    font-weight: 800;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--border-strong);
+    white-space: nowrap;
+    user-select: none;
+  }
+  table.ledger-table thead th.sortable { cursor: pointer; }
+  table.ledger-table thead th.sortable:hover { color: var(--primary); }
+
+  table.ledger-table tbody tr.trade-row {
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  table.ledger-table tbody tr.trade-row:nth-child(even) {
+    background: #fafbfc;
+  }
+  table.ledger-table tbody tr.trade-row:hover {
+    background: rgba(37, 99, 235, 0.04) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  }
+  table.ledger-table tbody tr.trade-row.expanded {
+    background: rgba(37, 99, 235, 0.06) !important;
+    border-bottom-color: var(--primary-border);
+  }
+  table.ledger-table tbody td {
+    padding: 12px 16px;
+    color: var(--text-primary);
+    vertical-align: middle;
+  }
+
+  /* Ticker & Badges */
+  .symbol-stack {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .symbol-text {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text-primary);
+  }
+  .exchange-badge {
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    background: #e2e8f0;
+    color: #334155;
+  }
+  .event-pill {
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 800;
+    background: #f3e8ff;
+    color: #7e22ce;
+    border: 1px solid #d8b4fe;
+  }
+
+  .scanner-tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--surface-card-sub);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-light);
+  }
+  .scanner-tag-pill.qc { background: var(--emerald-dim); color: var(--emerald-win); border-color: var(--emerald-border); }
+  .scanner-tag-pill.tech { background: var(--primary-dim); color: var(--primary); border-color: var(--primary-border); }
+  .scanner-tag-pill.rec { background: var(--purple-dim); color: var(--purple-val); border-color: var(--purple-border); }
+
+  .status-tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+  }
+  .status-tag-pill.open { background: rgba(37, 99, 235, 0.1); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.3); }
+  .status-tag-pill.trailing { background: rgba(5, 150, 105, 0.1); color: #047857; border: 1px solid rgba(5, 150, 105, 0.3); }
+  .status-tag-pill.win { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+  .status-tag-pill.loss { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+
+  .price-cell {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .pnl-badge {
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pnl-badge.pos { color: var(--emerald-win); }
+  .pnl-badge.neg { color: var(--crimson-loss); }
+
+  .score-gauge-pill {
+    padding: 3px 8px;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+    font-weight: 800;
+    font-size: 11.5px;
+    background: #f1f5f9;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+  }
+  .score-gauge-pill.high { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+
+  /* ── EXPANDABLE INLINE DETAIL DRAWER ── */
+  .detail-drawer-row {
+    background: #f8fafc;
+    border-bottom: 2px solid var(--border-light);
+    display: none;
+  }
+  .detail-drawer-row.open {
+    display: table-row;
+    animation: drawerSlide 0.2s ease-out;
+  }
+  @keyframes drawerSlide {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .drawer-content-grid {
+    padding: 18px 24px;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 20px;
+  }
+  .drawer-box {
+    background: #ffffff;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-subtle);
+  }
+  .drawer-box-title {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .metric-inline-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 12px;
+  }
+  .metric-inline-row:last-child { border-bottom: none; }
+  .metric-inline-label { color: var(--text-muted); font-weight: 600; }
+  .metric-inline-val { font-family: var(--font-mono); font-weight: 700; color: var(--text-primary); }
+
+  /* ── INTERACTIVE FORENSIC MODAL POPUP ── */
+  .forensic-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(8px);
+    z-index: 99999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    animation: fadeIn 0.2s ease;
+  }
+  .forensic-modal-overlay.active { display: flex; }
+  .forensic-modal-card {
+    background: #ffffff;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-modal);
+    animation: popUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes popUp {
+    from { transform: scale(0.96) translateY(12px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+  }
+  .modal-head {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8fafc;
+  }
+  .modal-close-btn {
+    background: none;
+    border: none;
+    font-size: 22px;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+  .modal-close-btn:hover { background: #e2e8f0; color: #0f172a; }
+  .modal-body { padding: 24px; }
+
+  /* ── 1. PORTFOLIO & SCANNER EXPOSURE BAR ── */
+  .exposure-meter-card {
+    background: #ffffff;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 12px 18px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  .exposure-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .exposure-track {
+    height: 8px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    overflow: hidden;
+    display: flex;
+    margin-bottom: 8px;
+  }
+  .exp-seg {
+    height: 100%;
+    transition: width 0.3s ease;
+  }
+  .exp-seg.qc { background: #2563eb; }
+  .exp-seg.tech { background: #d97706; }
+  .exp-seg.rec { background: #7c3aed; }
+  .exp-seg.fund { background: #16a34a; }
+  .exposure-legend {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    font-family: var(--font-mono);
+  }
+  .exp-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .exp-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+  }
+
+  /* ── 2. VISUAL TRADE PROGRESS STEPPER ── */
+  .trade-stepper-box {
+    background: var(--surface-card-sub);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-top: 10px;
+  }
+  .stepper-header-label {
+    font-size: 10.5px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .stepper-track-line {
+    position: relative;
+    height: 4px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    margin: 16px 12px 28px;
+  }
+  .stepper-fill-active {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: linear-gradient(to right, #2563eb, #16a34a);
+    border-radius: 2px;
+  }
+  .stepper-nodes-row {
+    position: absolute;
+    top: -5px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  .step-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+  .step-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 3px solid #94a3b8;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    z-index: 2;
+  }
+  .step-node.active .step-dot {
+    background: #2563eb;
+    border-color: #ffffff;
+    box-shadow: 0 0 0 3px #2563eb;
+  }
+  .step-node.hit .step-dot {
+    background: #16a34a;
+    border-color: #ffffff;
+    box-shadow: 0 0 0 3px #16a34a;
+  }
+  .step-node.sl .step-dot {
+    border-color: #dc2626;
+  }
+  .step-label {
+    position: absolute;
+    top: 18px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    white-space: nowrap;
+    color: var(--text-secondary);
+  }
+  .step-node.active .step-label { color: #2563eb; font-weight: 800; }
+  .step-node.hit .step-label { color: #16a34a; }
+
+  /* ── 3. MINI MOMENTUM SPARKLINES ── */
+  .sparkline-svg {
+    width: 58px;
+    height: 20px;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+
+  /* ── 4. LIVE TICK FLASH EFFECT ── */
+  @keyframes tickFlashUp {
+    0% { background-color: rgba(16, 185, 129, 0.35); }
+    100% { background-color: transparent; }
+  }
+  @keyframes tickFlashDown {
+    0% { background-color: rgba(239, 68, 68, 0.35); }
+    100% { background-color: transparent; }
+  }
+  .flash-up { animation: tickFlashUp 1.2s ease; }
+  .flash-down { animation: tickFlashDown 1.2s ease; }
+
+  /* ── 5. EMBEDDED TRADINGVIEW CHART MODAL ── */
+  .chart-modal-card {
+    background: #ffffff;
+    border-radius: var(--radius-lg);
+    width: 960px;
+    max-width: 95vw;
+    height: 600px;
+    box-shadow: var(--shadow-modal);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .chart-widget-container {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── 6. FLOATING SHORTCUT BADGE ── */
+  .shortcuts-help-pill {
+    position: fixed;
+    bottom: 16px;
+    right: 20px;
+    background: #ffffff;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-pill);
+    padding: 6px 14px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 1000;
+  }
+  .key-kbd {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #334155;
+  }
+
+  /* ── COMPACT SCANNER HEALTH ROWS (1 SCANNER PER ROW) ── */
+  .scanner-rows-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .scanner-row {
+    background: #ffffff;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 12px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+    position: relative;
+    overflow: hidden;
+  }
+  .scanner-row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 3.5px;
+  }
+  .scanner-row.status-ok::before { background: var(--emerald-win); }
+  .scanner-row.status-running::before { background: var(--primary); }
+  .scanner-row.status-paused::before { background: var(--amber-warn); }
+  .scanner-row.status-down::before { background: var(--rose-loss); }
+
+  .scanner-row:hover {
+    border-color: var(--border-medium);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+    transform: translateY(-1px);
+  }
+
+  .scanner-col-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 340px;
+    flex: 1 1 340px;
+  }
+  .status-indicator-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .status-indicator-dot.ok {
+    background: var(--emerald-win);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  }
+  .status-indicator-dot.running {
+    background: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    animation: pulseDot 1.5s infinite;
+  }
+  .status-indicator-dot.paused {
+    background: var(--amber-warn);
+    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.2);
+  }
+  .status-indicator-dot.down {
+    background: var(--rose-loss);
+    box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.2);
+  }
+
+  .scanner-row-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .regime-tag-micro {
+    font-family: var(--font-sans);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .regime-tag-micro.compounder { background: var(--primary-dim); color: var(--primary); }
+  .regime-tag-micro.tech { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+  .regime-tag-micro.recovery { background: var(--purple-dim); color: var(--purple-val); }
+  .regime-tag-micro.fund { background: var(--emerald-dim); color: var(--emerald-win); }
+  .regime-tag-micro.builder { background: var(--surface-card-sub); color: var(--text-secondary); }
+  .regime-tag-micro.filing { background: rgba(14, 165, 233, 0.12); color: #0284c7; }
+
+  .scanner-row-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .scanner-col-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .stat-pill {
+    background: var(--surface-card-sub);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .stat-pill .lbl { color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+  .stat-pill .val { color: var(--text-primary); font-weight: 700; }
+  .stat-pill.highlight.green {
+    background: rgba(16, 185, 129, 0.08);
+    border-color: rgba(16, 185, 129, 0.25);
+  }
+  .stat-pill.highlight.green .val { color: var(--emerald-win); }
+
+  .scanner-col-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .scanner-action-btn {
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+  }
+  .scanner-action-btn.run {
+    background: var(--primary);
+    color: #ffffff;
+    border: none;
+  }
+  .scanner-action-btn.run:hover {
+    background: var(--primary-hover);
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+  }
+  .scanner-action-btn.pause {
+    background: var(--surface-card-sub);
+    border-color: var(--border-light);
+    color: var(--text-secondary);
+  }
+  .scanner-action-btn.pause:hover {
+    background: var(--amber-dim);
+    color: var(--amber-warn);
+    border-color: var(--amber-warn);
+  }
+  .scanner-action-btn.log {
+    background: var(--surface-card-sub);
+    border-color: var(--border-light);
+    color: var(--text-secondary);
+  }
+  .scanner-action-btn.log:hover {
+    background: var(--primary-dim);
+    color: var(--primary);
+    border-color: var(--primary-border);
+  }
+
+  /* ── 7. MULTI-SCANNER CONFLUENCE STYLES ── */
+  .confluence-pill-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(234, 88, 12, 0.08));
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #b45309;
+    font-size: 10.5px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    box-shadow: 0 1px 2px rgba(245, 158, 11, 0.08);
+    transition: all 0.18s ease;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .confluence-pill-tag:hover {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(234, 88, 12, 0.16));
+    border-color: rgba(245, 158, 11, 0.55);
+    transform: translateY(-1px);
+  }
+  .confluence-pill-tag .bolt {
+    font-size: 11px;
+    color: #d97706;
+  }
+
+  /* Confluence Drawer Panel */
+  .confluence-drawer-card {
+    grid-column: 1 / -1;
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    border: 1px solid #fde68a;
+    border-left: 4px solid #f59e0b;
+    border-radius: var(--radius-md);
+    padding: 14px 18px;
+    margin-bottom: 4px;
+    box-shadow: 0 2px 6px rgba(245, 158, 11, 0.06);
+  }
+  .confluence-drawer-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .confluence-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .confluence-title {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 800;
+    color: #92400e;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .confluence-subtitle {
+    font-size: 11.5px;
+    color: #b45309;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+  .confluence-counter-chip {
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    background: #ffffff;
+    border: 1px solid #fcd34d;
+    color: #b45309;
+    font-size: 11px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  .confluence-engines-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+  }
+  .confluence-engine-card {
+    background: #ffffff;
+    border: 1px solid #fef08a;
+    border-left: 3px solid #f59e0b;
+    border-radius: 8px;
+    padding: 11px 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .confluence-engine-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.12);
+  }
+  .cec-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .cec-scanner-badge {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 800;
+  }
+  .cec-status-tag {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+  }
+  .cec-stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11.5px;
+  }
+  .cec-label {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .cec-val {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── 1. TOP HEADER NAVIGATION ── -->
+  <header class="top-navbar">
+    <div class="brand-group">
+      <div class="brand-logo-icon">E</div>
+      <div>
+        <div class="brand-name">Elite Breakout <span>System</span></div>
+      </div>
+      <div class="live-market-beacon">
+        <span class="pulse-dot"></span>
+        <span>MARKET OPEN (NSE)</span>
+      </div>
+    </div>
+
+    <div class="nav-right-actions">
+      <!-- Audio Chime Alert Controls -->
+      <button id="soundToggleBtn" onclick="toggleAlertSound()" style="display:flex; align-items:center; gap:6px; padding:5px 12px; background:#ffffff; border:1px solid var(--border-light); border-radius:var(--radius-pill); font-size:11.5px; font-weight:700; color:var(--text-secondary); cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,0.04);" title="Toggle acoustic notification on new certified breakout alerts">
+        <span id="soundIcon">🔔</span>
+        <span id="soundLabel">Sound: ON</span>
+      </button>
+      <button onclick="playAlertChime(true)" style="padding:5px 10px; background:var(--primary-dim); border:1px solid var(--primary-border); border-radius:var(--radius-pill); font-size:11px; font-weight:700; color:var(--primary); cursor:pointer;" title="Preview the breakout chime">
+        ▶ Test Chime
+      </button>
+
+      <div class="telemetry-chip">
+        <span>⚡</span>
+        <span id="apiLatencyVal">28ms</span>
+      </div>
+      <div class="user-profile-pill">
+        <div class="avatar-circle">A</div>
+        <span>Abhinav</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── 2. LIVE MARKET TICKER TAPE (AUTO-SCROLLING MARQUEE) ── -->
+  <div class="market-ticker-ribbon">
+    <div class="ticker-lead">
+      <span class="live-dot-pulse"></span>
+      <span style="font-weight: 800; color: #7c3aed; font-size: 11px; letter-spacing: 1px;">LIVE MARKETS</span>
+      <span class="ticker-regime-pill">REGIME: BULL</span>
+    </div>
+    <div class="ticker-track-container">
+      <div class="ticker-track">
+        <div class="ticker-item"><span class="ticker-name">BANKNIFTY</span> <span class="ticker-val">52,180.50</span> <span class="ticker-pct pos">+0.35% ▲</span></div>
+        <div class="ticker-item"><span class="ticker-name">NIFTY 50</span> <span class="ticker-val">25,415.80</span> <span class="ticker-pct pos">+0.42% ▲</span></div>
+        <div class="ticker-item"><span class="ticker-name">SENSEX</span> <span class="ticker-val">83,184.80</span> <span class="ticker-pct pos">+0.40% ▲</span></div>
+        <div class="ticker-item"><span class="ticker-name">NIFTY MIDCAP 150</span> <span class="ticker-val">21,410.80</span> <span class="ticker-pct pos">+1.14% ▲</span></div>
+        <div class="ticker-item sector-strong"><span class="sector-badge">🔥 STRONG:</span> FMCG (+3.17%) · PSU Bank (+1.47%) · Auto (+0.88%)</div>
+        <div class="ticker-item"><span class="ticker-name">INDIA VIX</span> <span class="ticker-val">12.45</span> <span class="ticker-pct neg">-3.20% ▼</span></div>
+        <!-- Seamless duplicate loop -->
+        <div class="ticker-item"><span class="ticker-name">BANKNIFTY</span> <span class="ticker-val">52,180.50</span> <span class="ticker-pct pos">+0.35% ▲</span></div>
+        <div class="ticker-item"><span class="ticker-name">NIFTY 50</span> <span class="ticker-val">25,415.80</span> <span class="ticker-pct pos">+0.42% ▲</span></div>
+        <div class="ticker-item"><span class="ticker-name">SENSEX</span> <span class="ticker-val">83,184.80</span> <span class="ticker-pct pos">+0.40% ▲</span></div>
+        <div class="ticker-item"><span class="ticker-name">NIFTY MIDCAP 150</span> <span class="ticker-val">21,410.80</span> <span class="ticker-pct pos">+1.14% ▲</span></div>
+        <div class="ticker-item sector-strong"><span class="sector-badge">🔥 STRONG:</span> FMCG (+3.17%) · PSU Bank (+1.47%) · Auto (+0.88%)</div>
+        <div class="ticker-item"><span class="ticker-name">INDIA VIX</span> <span class="ticker-val">12.45</span> <span class="ticker-pct neg">-3.20% ▼</span></div>
+      </div>
+    </div>
+  </div>
+
+  <main class="app-container">
+
+    <!-- ── 3. ELEVATED FINANCIAL SUMMARY CARDS ── -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Active Capital</span>
+          <span class="kpi-pill">Capital</span>
+        </div>
+        <div class="kpi-value">₹18.50 Lakh</div>
+        <div class="kpi-subtext">8 Active positions deployed</div>
+      </div>
+
+      <div class="kpi-card green">
+        <div class="kpi-header">
+          <span class="kpi-label">Realized Net P&amp;L</span>
+          <span class="kpi-pill" style="background: var(--emerald-dim); color: var(--emerald-win);">+21.6%</span>
+        </div>
+        <div class="kpi-value green">+₹3.24 Lakh</div>
+        <div class="kpi-subtext"><span style="color:var(--emerald-win); font-weight:700;">▲ +₹28,400</span> booked today</div>
+      </div>
+
+      <div class="kpi-card purple">
+        <div class="kpi-header">
+          <span class="kpi-label">Certified Win Rate</span>
+          <span class="kpi-pill" style="background: var(--purple-dim); color: var(--purple-val);">PF 1.92</span>
+        </div>
+        <div class="kpi-value">58.3%</div>
+        <div class="kpi-subtext">621 Real trades audited point-in-time</div>
+      </div>
+
+      <div class="kpi-card amber">
+        <div class="kpi-header">
+          <span class="kpi-label">Market Macro Regime</span>
+          <span class="kpi-pill" style="background: var(--amber-dim); color: var(--amber-warn);">IST Asia/Kolkata</span>
+        </div>
+        <div class="kpi-value" style="color: var(--amber-warn);">BULL REGIME</div>
+        <div class="kpi-subtext">Nifty > 200 SMA &amp; 50 SMA > 200 SMA</div>
+      </div>
+    </section>
+
+    <!-- ── 3B. COMPACT PERFORMANCE KPI SMALL TILES (11 TILES FROM ORIGINAL SYSTEM) ── -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-secondary); display:flex; align-items:center; gap:8px;">
+        <span>📊 Trade Performance Analytics</span>
+        <span style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:none;">(Click any tile to drill down)</span>
+      </div>
+      <button onclick="resetKpiFilter()" id="kpiResetBtn" style="display:none; font-size:11px; font-weight:700; color:var(--primary); background:var(--primary-dim); border:1px solid var(--primary-border); padding:3px 8px; border-radius:4px; cursor:pointer;">✕ Reset Filter</button>
+    </div>
+
+    <section class="small-kpis-grid" id="smallKpiGrid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; margin-bottom:24px;">
+      <div class="small-tile blue" onclick="filterByKpi('today', this)">
+        <div class="st-label">Today's Alerts</div>
+        <div class="st-val blue" id="st-today">1</div>
+        <div class="st-sub">new today</div>
+      </div>
+      <div class="small-tile blue" onclick="filterByKpi('total', this)">
+        <div class="st-label">Total Alerts</div>
+        <div class="st-val" id="st-total">26</div>
+        <div class="st-sub">filtered</div>
+      </div>
+      <div class="small-tile slate" onclick="filterByKpi('judged', this)">
+        <div class="st-label">Judged</div>
+        <div class="st-val" id="st-judged">6</div>
+        <div class="st-sub">16 active open</div>
+      </div>
+      <div class="small-tile green" onclick="filterByKpi('winrate', this)">
+        <div class="st-label">Win Rate</div>
+        <div class="st-val green" id="st-winrate">66.7%</div>
+        <div class="st-sub">4W / 2L judged</div>
+      </div>
+      <div class="small-tile green" onclick="filterByKpi('avgret', this)">
+        <div class="st-label">Avg Return</div>
+        <div class="st-val green" id="st-avgret">+5.42%</div>
+        <div class="st-sub">per judged trade</div>
+      </div>
+      <div class="small-tile green" onclick="filterByKpi('avgwin', this)">
+        <div class="st-label">Avg Win</div>
+        <div class="st-val green" id="st-avgwin">+8.95%</div>
+        <div class="st-sub">winners only</div>
+      </div>
+      <div class="small-tile red" onclick="filterByKpi('avgloss', this)">
+        <div class="st-label">Avg Loss</div>
+        <div class="st-val red" id="st-avgloss">-1.64%</div>
+        <div class="st-sub">losers only</div>
+      </div>
+      <div class="small-tile green" onclick="filterByKpi('expectancy', this)">
+        <div class="st-label">Expectancy</div>
+        <div class="st-val green" id="st-expectancy">+5.42%</div>
+        <div class="st-sub">WR×avgW-(1-WR)×avgL</div>
+      </div>
+      <div class="small-tile green" onclick="filterByKpi('best', this)">
+        <div class="st-label">Best Trade</div>
+        <div class="st-val green" id="st-best">+10.52%</div>
+        <div class="st-sub">POLYCAB</div>
+      </div>
+      <div class="small-tile red" onclick="filterByKpi('worst', this)">
+        <div class="st-label">Worst Trade</div>
+        <div class="st-val red" id="st-worst">-4.71%</div>
+        <div class="st-sub">COFORGE</div>
+      </div>
+      <div class="small-tile blue" onclick="filterByKpi('open', this)">
+        <div class="st-label">Open</div>
+        <div class="st-val blue" id="st-open">16</div>
+        <div class="st-sub">active positions</div>
+      </div>
+    </section>
+
+    <!-- ── 3C. PORTFOLIO CAPITAL ALLOCATION & SCANNER EXPOSURE BAR ── -->
+    <div class="exposure-meter-card">
+      <div class="exposure-header">
+        <span>💼 Capital Allocation &amp; Scanner Risk Exposure</span>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); text-transform:none;">Total Active Risk: <strong>₹18.50 Lakh</strong> (8 Positions)</span>
+      </div>
+      <div class="exposure-track">
+        <div class="exp-seg qc" style="width: 42%;" title="Quality Compounder: ₹7.77L (42%)"></div>
+        <div class="exp-seg tech" style="width: 31%;" title="Technical Breakout: ₹5.73L (31%)"></div>
+        <div class="exp-seg rec" style="width: 19%;" title="Value Recovery: ₹3.51L (19%)"></div>
+        <div class="exp-seg fund" style="width: 8%;" title="Fundamental Breakout: ₹1.48L (8%)"></div>
+      </div>
+      <div class="exposure-legend">
+        <div class="exp-item"><span class="exp-dot" style="background:#2563eb;"></span> <span>💎 Compounder: <strong>42%</strong> (₹7.77L)</span></div>
+        <div class="exp-item"><span class="exp-dot" style="background:#d97706;"></span> <span>⚡ Technical: <strong>31%</strong> (₹5.73L)</span></div>
+        <div class="exp-item"><span class="exp-dot" style="background:#7c3aed;"></span> <span>🛡️ Recovery: <strong>19%</strong> (₹3.51L)</span></div>
+        <div class="exp-item"><span class="exp-dot" style="background:#16a34a;"></span> <span>📊 Fundamental: <strong>8%</strong> (₹1.48L)</span></div>
+      </div>
+    </div>
+
+    <!-- ── 4. DYNAMIC MULTI-SCANNER SELECTOR (HERO CONTROL PANEL) ── -->
+    <section class="control-panel-card">
+      <div class="control-row-label">
+        <div class="row-title">
+          <span>🎯 Select Scanners to Display</span>
+          <span class="multi-badge-counter" id="activeScannerCount">3 Active</span>
+        </div>
+        <div class="quick-selection-links">
+          <button class="quick-link" onclick="selectAllScanners()">Select All</button>
+          <span>|</span>
+          <button class="quick-link clear" onclick="clearAllScanners()">Clear</button>
+        </div>
+      </div>
+
+      <!-- MULTI-SELECTION CHIPS: Click to toggle multiple scanners on/off together -->
+      <div class="scanner-chips-row" id="scannerChipsContainer">
+        <div class="scanner-chip compounder active" data-scanner="QUALITY_COMPOUNDER" onclick="toggleScanner('QUALITY_COMPOUNDER')">
+          <div class="check-circle">✓</div>
+          <span>💎 Quality Compounder</span>
+          <span class="chip-count">11</span>
+        </div>
+
+        <div class="scanner-chip active" data-scanner="TECHNICAL" onclick="toggleScanner('TECHNICAL')">
+          <div class="check-circle">✓</div>
+          <span>⚡ Technical Breakout</span>
+          <span class="chip-count">8</span>
+        </div>
+
+        <div class="scanner-chip recovery active" data-scanner="QUALITY_VALUE_RECOVERY" onclick="toggleScanner('QUALITY_VALUE_RECOVERY')">
+          <div class="check-circle">✓</div>
+          <span>🛡️ Quality Value Recovery</span>
+          <span class="chip-count">4</span>
+        </div>
+
+        <div class="scanner-chip" data-scanner="FUNDAMENTAL" onclick="toggleScanner('FUNDAMENTAL')">
+          <div class="check-circle">✓</div>
+          <span>📊 Fundamental Breakout</span>
+          <span class="chip-count">3</span>
+        </div>
+      </div>
+
+      <!-- SECONDARY FILTER STRIP: Status Pills, Days Filter & Live Search -->
+      <div class="filter-secondary-row">
+        <div class="status-pills-group">
+          <span style="font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; margin-right: 4px;">Status:</span>
+          <div class="status-pill active" data-status="ALL" onclick="setStatusFilter('ALL')">All <span style="font-family:var(--font-mono); font-size:11px;">(26)</span></div>
+          <div class="status-pill" data-status="OPEN" onclick="setStatusFilter('OPEN')"><span class="status-dot" style="background:#2563eb;"></span> Open <span style="font-family:var(--font-mono); font-size:11px;">(9)</span></div>
+          <div class="status-pill" data-status="TRAILING" onclick="setStatusFilter('TRAILING')"><span class="status-dot" style="background:#059669;"></span> Trailing <span style="font-family:var(--font-mono); font-size:11px;">(8)</span></div>
+          <div class="status-pill" data-status="T1_HIT" onclick="setStatusFilter('T1_HIT')"><span class="status-dot" style="background:#7c3aed;"></span> Target 1 <span style="font-family:var(--font-mono); font-size:11px;">(5)</span></div>
+          <div class="status-pill" data-status="WIN" onclick="setStatusFilter('WIN')"><span class="status-dot" style="background:#15803d;"></span> Win <span style="font-family:var(--font-mono); font-size:11px;">(2)</span></div>
+          <div class="status-pill" data-status="LOSS" onclick="setStatusFilter('LOSS')"><span class="status-dot" style="background:#dc2626;"></span> Stopped <span style="font-family:var(--font-mono); font-size:11px;">(2)</span></div>
+        </div>
+
+        <div class="search-export-group">
+          <!-- DAYS / PERIOD FILTER -->
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size: 11px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Period:</span>
+            <select id="filterDatePeriod" onchange="setDatePeriodFilter(this.value)" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-light); background: #ffffff; color: var(--text-primary); font-size: 12px; font-weight: 700; cursor: pointer; outline: none; box-shadow:0 1px 2px rgba(0,0,0,0.04);">
+              <option value="ALL">All Time</option>
+              <option value="TODAY">Today Only</option>
+              <option value="7D">Last 7 Days</option>
+              <option value="14D">Last 14 Days</option>
+              <option value="30D">Last 30 Days</option>
+              <option value="90D">Last 90 Days</option>
+              <option value="365D">Last 365 Days</option>
+            </select>
+          </div>
+
+          <div class="search-input-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="symbolSearchInput" placeholder="Filter symbol (Press '/' to focus)..." oninput="applyFilters()">
+          </div>
+          <button class="export-btn" onclick="alert('Exporting certified trade data to CSV...')">
+            <span>📥</span> Export CSV
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 5. HIGH-DENSITY INTERACTIVE TRADES TABLE ── -->
+    <section class="table-card">
+      <div class="table-responsive">
+        <table class="ledger-table" id="tradeLedgerTable">
+          <thead>
+            <tr>
+              <th style="width: 28px; text-align: center;"></th>
+              <th class="sortable" onclick="sortTable('symbol')">Stock Symbol</th>
+              <th>Date &amp; Time (IST)</th>
+              <th>Scanner Origin</th>
+              <th>Execution Status</th>
+              <th style="text-align: right;">Entry Price</th>
+              <th style="text-align: right;">Current Market Price</th>
+              <th style="text-align: right;" class="sortable" onclick="sortTable('pnl')">Net P&amp;L %</th>
+              <th style="text-align: center;">Quality Score</th>
+              <th style="text-align: right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tradeTableBody">
+            <!-- Rendered Dynamically by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── 6. COMPACT SCANNER HEALTH & ORCHESTRATION (1 ROW PER SCANNER) ── -->
+    <section class="control-panel-card" style="margin-top: 24px;">
+      <div class="control-row-label" style="margin-bottom: 16px;">
+        <div class="row-title">
+          <span>🛡️ Scanner Health &amp; Automation Control</span>
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(16,185,129,0.1); color: var(--emerald-win); border: 1px solid rgba(16,185,129,0.25); font-weight: 700;">All Systems Operational</span>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button onclick="alert('All Scanners Resumed');" style="padding: 5px 12px; border-radius: 6px; background: rgba(16,185,129,0.12); color: var(--emerald-win); border: 1px solid rgba(16,185,129,0.3); font-size: 11px; font-weight: 700; cursor: pointer;">▶ Start All</button>
+          <button onclick="alert('All Scanners Paused');" style="padding: 5px 12px; border-radius: 6px; background: rgba(239,68,68,0.1); color: var(--rose-loss); border: 1px solid rgba(239,68,68,0.25); font-size: 11px; font-weight: 700; cursor: pointer;">⏸ Pause All</button>
+        </div>
+      </div>
+
+      <!-- Compact 1-Row Per Scanner Table -->
+      <div class="scanner-rows-list">
+        <!-- Row 1: QUALITY COMPOUNDER -->
+        <div class="scanner-row status-ok">
+          <div class="scanner-col-meta">
+            <span class="status-indicator-dot ok"></span>
+            <div>
+              <div class="scanner-row-name">
+                <span>QUALITY_COMPOUNDER</span>
+                <span class="regime-tag-micro compounder">💎 QUALITY FOCUS</span>
+              </div>
+              <div class="scanner-row-desc">High ROCE (>15%), CFO/PAT (>0.80), Low D/E (<0.5) compounders</div>
+            </div>
+          </div>
+          <div class="scanner-col-stats">
+            <div class="stat-pill"><span class="lbl">Last Run:</span> <span class="val">15:30 IST</span></div>
+            <div class="stat-pill"><span class="lbl">Scanned:</span> <span class="val">2,184</span></div>
+            <div class="stat-pill highlight green"><span class="lbl">Today's Alerts:</span> <span class="val">3 alerts</span></div>
+            <div class="stat-pill"><span class="lbl">Health:</span> <span class="val" style="color:var(--emerald-win);">0% Stale (Clean)</span></div>
+          </div>
+          <div class="scanner-col-actions">
+            <button class="scanner-action-btn run" onclick="alert('Running Quality Compounder scan...');">▶ Run Scan</button>
+            <button class="scanner-action-btn pause" onclick="alert('Paused Quality Compounder');">⏸ Pause</button>
+            <button class="scanner-action-btn log" onclick="alert('Viewing Quality Compounder logs...');">📜 Logs</button>
+          </div>
+        </div>
+
+        <!-- Row 2: TECHNICAL -->
+        <div class="scanner-row status-ok">
+          <div class="scanner-col-meta">
+            <span class="status-indicator-dot ok"></span>
+            <div>
+              <div class="scanner-row-name">
+                <span>TECHNICAL</span>
+                <span class="regime-tag-micro tech">⚡ BULL REGIME ONLY</span>
+              </div>
+              <div class="scanner-row-desc">52-week High Consolidation Breakout with RVOL &amp; Volume Expansion</div>
+            </div>
+          </div>
+          <div class="scanner-col-stats">
+            <div class="stat-pill"><span class="lbl">Last Run:</span> <span class="val">15:30 IST</span></div>
+            <div class="stat-pill"><span class="lbl">Scanned:</span> <span class="val">2,184</span></div>
+            <div class="stat-pill highlight green"><span class="lbl">Today's Alerts:</span> <span class="val">4 alerts</span></div>
+            <div class="stat-pill"><span class="lbl">Health:</span> <span class="val" style="color:var(--emerald-win);">0% Stale (Clean)</span></div>
+          </div>
+          <div class="scanner-col-actions">
+            <button class="scanner-action-btn run" onclick="alert('Running Technical scan...');">▶ Run Scan</button>
+            <button class="scanner-action-btn pause" onclick="alert('Paused Technical');">⏸ Pause</button>
+            <button class="scanner-action-btn log" onclick="alert('Viewing Technical logs...');">📜 Logs</button>
+          </div>
+        </div>
+
+        <!-- Row 3: QUALITY VALUE RECOVERY -->
+        <div class="scanner-row status-ok">
+          <div class="scanner-col-meta">
+            <span class="status-indicator-dot ok"></span>
+            <div>
+              <div class="scanner-row-name">
+                <span>QUALITY_VALUE_RECOVERY</span>
+                <span class="regime-tag-micro recovery">🛡️ VALUE RECOVERY</span>
+              </div>
+              <div class="scanner-row-desc">High Quality Businesses at Historical Valuation Disconnects (EV/EBITDA discount)</div>
+            </div>
+          </div>
+          <div class="scanner-col-stats">
+            <div class="stat-pill"><span class="lbl">Last Run:</span> <span class="val">15:30 IST</span></div>
+            <div class="stat-pill"><span class="lbl">Scanned:</span> <span class="val">2,184</span></div>
+            <div class="stat-pill highlight green"><span class="lbl">Today's Alerts:</span> <span class="val">2 alerts</span></div>
+            <div class="stat-pill"><span class="lbl">Health:</span> <span class="val" style="color:var(--emerald-win);">0% Stale (Clean)</span></div>
+          </div>
+          <div class="scanner-col-actions">
+            <button class="scanner-action-btn run" onclick="alert('Running Quality Value Recovery scan...');">▶ Run Scan</button>
+            <button class="scanner-action-btn pause" onclick="alert('Paused Quality Value Recovery');">⏸ Pause</button>
+            <button class="scanner-action-btn log" onclick="alert('Viewing Quality Value Recovery logs...');">📜 Logs</button>
+          </div>
+        </div>
+
+        <!-- Row 4: FUNDAMENTAL -->
+        <div class="scanner-row status-ok">
+          <div class="scanner-col-meta">
+            <span class="status-indicator-dot ok"></span>
+            <div>
+              <div class="scanner-row-name">
+                <span>FUNDAMENTAL</span>
+                <span class="regime-tag-micro fund">📊 ALL REGIMES</span>
+              </div>
+              <div class="scanner-row-desc">Fundamental Earnings Acceleration + Institutional Accumulation Footprint</div>
+            </div>
+          </div>
+          <div class="scanner-col-stats">
+            <div class="stat-pill"><span class="lbl">Last Run:</span> <span class="val">15:30 IST</span></div>
+            <div class="stat-pill"><span class="lbl">Scanned:</span> <span class="val">2,184</span></div>
+            <div class="stat-pill highlight green"><span class="lbl">Today's Alerts:</span> <span class="val">1 alert</span></div>
+            <div class="stat-pill"><span class="lbl">Health:</span> <span class="val" style="color:var(--emerald-win);">0% Stale (Clean)</span></div>
+          </div>
+          <div class="scanner-col-actions">
+            <button class="scanner-action-btn run" onclick="alert('Running Fundamental scan...');">▶ Run Scan</button>
+            <button class="scanner-action-btn pause" onclick="alert('Paused Fundamental');">⏸ Pause</button>
+            <button class="scanner-action-btn log" onclick="alert('Viewing Fundamental logs...');">📜 Logs</button>
+          </div>
+        </div>
+
+        <!-- Row 5: DAILY BUILDER -->
+        <div class="scanner-row status-ok">
+          <div class="scanner-col-meta">
+            <span class="status-indicator-dot ok"></span>
+            <div>
+              <div class="scanner-row-name">
+                <span>DAILY_BUILDER</span>
+                <span class="regime-tag-micro builder">🏗️ UPSTOX FEED</span>
+              </div>
+              <div class="scanner-row-desc">EOD Upstox Parquet Cache Ingestion &amp; Point-in-Time Schema Normalization</div>
+            </div>
+          </div>
+          <div class="scanner-col-stats">
+            <div class="stat-pill"><span class="lbl">Last Run:</span> <span class="val">16:15 IST</span></div>
+            <div class="stat-pill"><span class="lbl">Universe:</span> <span class="val">2,184 / 2,184</span></div>
+            <div class="stat-pill"><span class="lbl">Duration:</span> <span class="val">42.8s</span></div>
+            <div class="stat-pill"><span class="lbl">Integrity:</span> <span class="val" style="color:var(--emerald-win);">100% Verified</span></div>
+          </div>
+          <div class="scanner-col-actions">
+            <button class="scanner-action-btn run" onclick="alert('Running Daily Builder ingestion...');">▶ Run Ingestion</button>
+            <button class="scanner-action-btn log" onclick="alert('Viewing Daily Builder logs...');">📜 Logs</button>
+          </div>
+        </div>
+
+        <!-- Row 6: FILING WATCHER -->
+        <div class="scanner-row status-ok">
+          <div class="scanner-col-meta">
+            <span class="status-indicator-dot ok"></span>
+            <div>
+              <div class="scanner-row-name">
+                <span>FILING_WATCHER</span>
+                <span class="regime-tag-micro filing">📜 XBRL FENCE</span>
+              </div>
+              <div class="scanner-row-desc">Autonomous Exchange Filing Freshness Fence &amp; Disclosure Pre-Commit Gate</div>
+            </div>
+          </div>
+          <div class="scanner-col-stats">
+            <div class="stat-pill"><span class="lbl">Heartbeat:</span> <span class="val">Live (2s ago)</span></div>
+            <div class="stat-pill"><span class="lbl">Filings Audited:</span> <span class="val">142 today</span></div>
+            <div class="stat-pill"><span class="lbl">Pre-Buy Fence:</span> <span class="val" style="color:var(--emerald-win);">ACTIVE</span></div>
+          </div>
+          <div class="scanner-col-actions">
+            <button class="scanner-action-btn run" onclick="alert('Checking Exchange Filings...');">▶ Check Now</button>
+            <button class="scanner-action-btn log" onclick="alert('Viewing Filing Watcher logs...');">📜 Logs</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── 6. INTERACTIVE STOCK FORENSIC MODAL POPUP ── -->
+  <div class="forensic-modal-overlay" id="forensicModalOverlay" onclick="closeForensicModal(event)">
+    <div class="forensic-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <h2 id="modalSymbolTitle" style="font-family: var(--font-display); font-size: 22px; font-weight: 800; color: var(--text-primary);">TRENT LTD</h2>
+            <span class="exchange-badge">NSE: TRENT</span>
+            <span class="scanner-tag-pill qc" id="modalScannerTag">QUALITY COMPOUNDER</span>
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Verified PIT Financial Statements &amp; Real-Market Upstox Candles</div>
+        </div>
+        <button class="modal-close-btn" onclick="closeForensicModalDirect()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 20px;">
+          <!-- Fundamental Quality Scorecard -->
+          <div class="drawer-box">
+            <div class="drawer-box-title"><span>💎</span> Institutional Quality Scorecard</div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">5Y ROCE Baseline</span>
+              <span class="metric-inline-val" style="color:var(--emerald-win);">24.8% (Min 15%)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">5Y Sales CAGR</span>
+              <span class="metric-inline-val" style="color:var(--emerald-win);">28.2% (Min 10%)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">Cash Conversion (CFO / PAT)</span>
+              <span class="metric-inline-val" style="color:var(--emerald-win);">0.94x (Min 0.80x)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">Debt to Equity (D/E)</span>
+              <span class="metric-inline-val">0.12 (Max 0.50)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">EV/EBITDA Valuation Discount</span>
+              <span class="metric-inline-val" style="color:var(--purple-val);">-28.4% vs 3Y Median</span>
+            </div>
+          </div>
+
+          <!-- Technical & Risk Rules -->
+          <div class="drawer-box">
+            <div class="drawer-box-title"><span>🛡️</span> Risk &amp; Exit Management Rules</div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">Initial Stop Loss</span>
+              <span class="metric-inline-val">₹242.00 (Immutable)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">Active Trailing Stop</span>
+              <span class="metric-inline-val" style="color:var(--primary);">₹255.00 (Trailed to Breakeven)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">Profit Target 1 (1.5R)</span>
+              <span class="metric-inline-val" style="color:var(--emerald-win);">₹275.00 (ACHIEVED)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">Profit Target 2 (3.0R)</span>
+              <span class="metric-inline-val">₹295.00 (Pending)</span>
+            </div>
+            <div class="metric-inline-row">
+              <span class="metric-inline-label">Winning Trade Safeguard</span>
+              <span class="metric-inline-val" style="color:var(--emerald-win);">ACTIVE (CMP > Entry)</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--surface-card-sub); border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 14px; font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+          <strong>Governance Verification Notice:</strong> This position passed all PIT integrity audits, anti-fakeout filters, and regime gates. Stop trailing and exit evaluation execute sequentially every 5 minutes in accordance with Rule 71.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 7. INTERACTIVE TRADINGVIEW CHART MODAL ── -->
+  <div class="forensic-modal-overlay" id="chartModalOverlay" onclick="closeChartModal(event)">
+    <div class="chart-modal-card" onclick="event.stopPropagation()">
+      <div class="modal-head">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <h2 id="chartModalTitle" style="font-family:var(--font-display); font-size:20px; font-weight:800; color:var(--text-primary); margin:0;">TRENT LTD</h2>
+          <span class="exchange-badge" id="chartModalExchange">NSE: TRENT</span>
+          <span style="font-size:11px; padding:2px 8px; border-radius:12px; background:var(--primary-dim); color:var(--primary); font-weight:700;">Live Candle Chart</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px;">
+          <div id="chartModalLevels" style="font-size:11px; font-family:var(--font-mono); color:var(--text-muted); display:flex; gap:12px;">
+            <span>Entry: <strong style="color:var(--text-primary);" id="cmEntry">₹255.00</strong></span>
+            <span>SL: <strong style="color:var(--rose-loss);" id="cmSl">₹242.00</strong></span>
+            <span>T1: <strong style="color:var(--emerald-win);" id="cmT1">₹275.00</strong></span>
+          </div>
+          <button class="modal-close-btn" onclick="closeChartModalDirect()">✕</button>
+        </div>
+      </div>
+      <div class="chart-widget-container" id="tvChartContainer" style="background:#0f172a; display:flex; align-items:center; justify-content:center; color:#94a3b8; font-family:var(--font-mono); font-size:13px;">
+        <!-- Embedded Interactive Chart Canvas -->
+        <div style="text-align:center; padding:40px;">
+          <div style="font-size:32px; margin-bottom:12px;">📊</div>
+          <div style="font-size:16px; font-weight:700; color:#f8fafc; margin-bottom:6px;" id="cmTickerTitle">TradingView Real-Time Chart: NSE:TRENT</div>
+          <div style="font-size:12px; opacity:0.8; max-width:440px; margin:0 auto; line-height:1.5;">
+            Dynamic Upstox candle feed with pre-plotted Entry (₹255), Breakeven Trailed SL (₹255), and Target 1 (₹275).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 8. FLOATING POWER-USER SHORTCUT BADGE ── -->
+  <div class="shortcuts-help-pill" title="Keyboard Shortcuts for fast navigation">
+    <span>⌨️</span>
+    <span><span class="key-kbd">/</span> Search</span>
+    <span>•</span>
+    <span><span class="key-kbd">1-4</span> Scanners</span>
+    <span>•</span>
+    <span><span class="key-kbd">Esc</span> Reset</span>
+  </div>
+
+  <!-- ── 9. INTERACTIVE JAVASCRIPT STATE ENGINE ── -->
+  <script>
+    // Sample Real System Data
+    const TRADE_DATA = [
+      { 
+        id: 1, symbol: 'TRENT', exchange: 'NSE', event: 'E', date: '2026-10-06 14:15', scanner: 'QUALITY_COMPOUNDER', status: 'TRAILING', entry: 255.00, cmp: 278.40, pnl: 9.18, score: 92, roce: '24.8%', salesCagr: '28.2%', de: '0.12', discount: '-28.4%', sl: 255.00, t1: 275.00, t2: 295.00,
+        otherAlerts: [
+          { scanner: 'TECHNICAL', date: '2026-10-05 11:30', price: 251.50, status: 'OPEN', score: 88, thesis: '52W High Breakout with 2.8x Vol Expansion' },
+          { scanner: 'FUNDAMENTAL', date: '2026-10-04 09:45', price: 248.00, status: 'OPEN', score: 91, thesis: 'Q2 PAT Growth 42% YoY + Strong Operating Cash Flow' }
+        ]
+      },
+      { id: 2, symbol: 'DIXON', exchange: 'NSE', event: '', date: '2026-10-06 13:45', scanner: 'QUALITY_COMPOUNDER', status: 'OPEN', entry: 148.00, cmp: 154.20, pnl: 4.19, score: 88, roce: '26.4%', salesCagr: '31.0%', de: '0.22', discount: '-26.1%', sl: 141.00, t1: 158.00, t2: 172.00, otherAlerts: [] },
+      { 
+        id: 3, symbol: 'BEL', exchange: 'NSE', event: 'D', date: '2026-10-05 11:30', scanner: 'TECHNICAL', status: 'TRAILING', entry: 280.00, cmp: 304.50, pnl: 8.75, score: 86, roce: '27.1%', salesCagr: '19.4%', de: '0.00', discount: '-12.0%', sl: 280.00, t1: 300.00, t2: 320.00,
+        otherAlerts: [
+          { scanner: 'FUNDAMENTAL', date: '2026-10-04 11:00', price: 276.50, status: 'OPEN', score: 85, thesis: 'Defence Order Inflow Acceleration + Zero Net Debt' }
+        ]
+      },
+      { id: 4, symbol: 'HAL', exchange: 'NSE', event: '', date: '2026-10-05 10:15', scanner: 'TECHNICAL', status: 'OPEN', entry: 4320.00, cmp: 4410.00, pnl: 2.08, score: 84, roce: '29.5%', salesCagr: '14.8%', de: '0.00', discount: '-8.5%', sl: 4180.00, t1: 4500.00, t2: 4720.00, otherAlerts: [] },
+      { 
+        id: 5, symbol: 'POLYCAB', exchange: 'NSE', event: 'E', date: '2026-10-04 15:00', scanner: 'QUALITY_VALUE_RECOVERY', status: 'TRAILING', entry: 5800.00, cmp: 6410.00, pnl: 10.52, score: 94, roce: '28.0%', salesCagr: '21.5%', de: '0.04', discount: '-32.0%', sl: 5800.00, t1: 6300.00, t2: 6800.00,
+        otherAlerts: [
+          { scanner: 'QUALITY_COMPOUNDER', date: '2026-10-03 14:15', price: 5740.00, status: 'TRAILING', score: 93, thesis: '5Y ROCE 28% + Robust CFO/PAT 0.94' }
+        ]
+      },
+      { 
+        id: 6, symbol: 'PERSISTENT', exchange: 'NSE', event: '', date: '2026-10-04 14:00', scanner: 'QUALITY_VALUE_RECOVERY', status: 'OPEN', entry: 4950.00, cmp: 5080.00, pnl: 2.63, score: 90, roce: '23.8%', salesCagr: '24.2%', de: '0.10', discount: '-29.5%', sl: 4720.00, t1: 5250.00, t2: 5600.00,
+        otherAlerts: [
+          { scanner: 'TECHNICAL', date: '2026-10-03 13:20', price: 4920.00, status: 'OPEN', score: 87, thesis: 'Multi-week consolidation channel breakout above 20 EMA' }
+        ]
+      },
+      { id: 7, symbol: 'KAYNES', exchange: 'NSE', event: '', date: '2026-10-03 11:45', scanner: 'FUNDAMENTAL', status: 'OPEN', entry: 5400.00, cmp: 5490.00, pnl: 1.67, score: 82, roce: '20.2%', salesCagr: '42.0%', de: '0.35', discount: '-18.0%', sl: 5150.00, t1: 5750.00, t2: 6100.00, otherAlerts: [] },
+      { id: 8, symbol: 'ASTRAL', exchange: 'NSE', event: 'D', date: '2026-10-02 12:30', scanner: 'QUALITY_COMPOUNDER', status: 'T1_HIT', entry: 1820.00, cmp: 1970.00, pnl: 8.24, score: 89, roce: '22.4%', salesCagr: '17.8%', de: '0.02', discount: '-27.4%', sl: 1820.00, t1: 1960.00, t2: 2120.00, otherAlerts: [] },
+      { id: 9, symbol: 'TITAN', exchange: 'NSE', event: '', date: '2026-10-01 10:30', scanner: 'TECHNICAL', status: 'WIN', entry: 3450.00, cmp: 3720.00, pnl: 7.83, score: 85, roce: '25.0%', salesCagr: '22.0%', de: '0.45', discount: '-14.0%', sl: 3450.00, t1: 3650.00, t2: 3720.00, otherAlerts: [] },
+      { id: 10, symbol: 'COFORGE', exchange: 'NSE', event: '', date: '2026-09-29 14:30', scanner: 'FUNDAMENTAL', status: 'LOSS', entry: 6800.00, cmp: 6480.00, pnl: -4.71, score: 79, roce: '24.1%', salesCagr: '21.0%', de: '0.28', discount: '-15.2%', sl: 6500.00, t1: 7200.00, t2: 7600.00, otherAlerts: [] }
+    ];
+
+    // State
+    let activeScanners = new Set(['QUALITY_COMPOUNDER', 'TECHNICAL', 'QUALITY_VALUE_RECOVERY', 'FUNDAMENTAL']);
+    let activeStatus = 'ALL';
+    let activeKpi = null;
+    let activeDatePeriod = 'ALL';
+    let searchQuery = '';
+    let expandedRowId = null;
+    let soundAlertsEnabled = true;
+
+    function setDatePeriodFilter(val) {
+      activeDatePeriod = val;
+      renderTable();
+    }
+
+    function toggleAlertSound() {
+      soundAlertsEnabled = !soundAlertsEnabled;
+      const icon = document.getElementById('soundIcon');
+      const label = document.getElementById('soundLabel');
+      if (icon) icon.textContent = soundAlertsEnabled ? '🔔' : '🔕';
+      if (label) label.textContent = soundAlertsEnabled ? 'Sound: ON' : 'Sound: OFF';
+      if (soundAlertsEnabled) playAlertChime(true);
+    }
+
+    function playAlertChime(force = false) {
+      if (!soundAlertsEnabled && !force) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(880, ctx.currentTime);
+        osc1.frequency.exponentialRampToValueAtTime(1318.51, ctx.currentTime + 0.12);
+
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(1760, ctx.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(2637, ctx.currentTime + 0.15);
+
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc1.start();
+        osc2.start();
+        osc1.stop(ctx.currentTime + 0.55);
+        osc2.stop(ctx.currentTime + 0.55);
+      } catch (e) {
+        console.log('Audio chime error:', e);
+      }
+    }
+
+    function updateKpis(trades) {
+      const todayStr = '2026-10-07';
+      const todaysCount = trades.filter(t => (t.date || '').includes('Today') || (t.date || '').startsWith(todayStr)).length;
+      const judged = trades.filter(t => ['WIN', 'LOSS', 'CLOSED'].includes(t.status));
+      const winners = judged.filter(t => t.pnl > 0);
+      const losers = judged.filter(t => t.pnl < 0);
+      const winRate = judged.length > 0 ? (winners.length / judged.length * 100).toFixed(1) : '—';
+      const avgReturn = judged.length > 0 ? (judged.reduce((sum, t) => sum + t.pnl, 0) / judged.length).toFixed(2) : '—';
+      const avgWin = winners.length > 0 ? (winners.reduce((sum, t) => sum + t.pnl, 0) / winners.length).toFixed(2) : '—';
+      const avgLoss = losers.length > 0 ? (losers.reduce((sum, t) => sum + t.pnl, 0) / losers.length).toFixed(2) : '—';
+      
+      let expectancy = '—';
+      if (judged.length > 0 && winners.length > 0 && losers.length > 0) {
+        const wr = winners.length / judged.length;
+        const exp = (wr * parseFloat(avgWin)) + ((1 - wr) * parseFloat(avgLoss));
+        expectancy = (exp >= 0 ? '+' : '') + exp.toFixed(2) + '%';
+      }
+
+      const bestTrade = trades.length > 0 ? Math.max(...trades.map(t => t.pnl)) : null;
+      const worstTrade = trades.length > 0 ? Math.min(...trades.map(t => t.pnl)) : null;
+
+      const openTrades = trades.filter(t => ['OPEN', 'TRAILING', 'HOURLY_APPROVED', 'DAILY_APPROVED'].includes(t.status));
+
+      // Update DOM
+      const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setEl('st-today', todaysCount);
+      setEl('st-total', trades.length);
+      setEl('st-judged', judged.length);
+      setEl('st-winrate', winRate !== '—' ? `${winRate}%` : '—');
+      setEl('st-avgret', avgReturn !== '—' ? `${parseFloat(avgReturn) >= 0 ? '+' : ''}${avgReturn}%` : '—');
+      setEl('st-avgwin', avgWin !== '—' ? `+${avgWin}%` : '—');
+      setEl('st-avgloss', avgLoss !== '—' ? `${avgLoss}%` : '—');
+      setEl('st-expectancy', expectancy);
+      setEl('st-best', bestTrade !== null ? `${bestTrade >= 0 ? '+' : ''}${bestTrade.toFixed(2)}%` : '—');
+      setEl('st-worst', worstTrade !== null ? `${worstTrade.toFixed(2)}%` : '—');
+      setEl('st-open', openTrades.length);
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('tradeTableBody');
+      
+      // Base filtered trades by scanner, search, and days/period
+      const baseTrades = TRADE_DATA.filter(item => {
+        if (activeScanners.size > 0 && !activeScanners.has(item.scanner)) return false;
+        if (searchQuery && !item.symbol.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+        
+        // Days / Period Filter
+        if (activeDatePeriod !== 'ALL') {
+          const todayStr = '2026-10-07';
+          if (activeDatePeriod === 'TODAY' && !(item.date.includes('Today') || item.date.startsWith(todayStr))) return false;
+          if (activeDatePeriod === '7D' && item.date < '2026-09-30') return false;
+          if (activeDatePeriod === '14D' && item.date < '2026-09-23') return false;
+          if (activeDatePeriod === '30D' && item.date < '2026-09-07') return false;
+          if (activeDatePeriod === '90D' && item.date < '2026-07-07') return false;
+        }
+        return true;
+      });
+
+      // Update 11 KPI metrics dynamically
+      updateKpis(baseTrades);
+
+      const bestTradeVal = baseTrades.length > 0 ? Math.max(...baseTrades.map(t => t.pnl)) : null;
+      const worstTradeVal = baseTrades.length > 0 ? Math.min(...baseTrades.map(t => t.pnl)) : null;
+
+      // Filter further by activeStatus and activeKpi
+      const filtered = baseTrades.filter(item => {
+        // Status filter
+        if (activeStatus !== 'ALL' && item.status !== activeStatus) return false;
+        
+        // KPI drilldown filter
+        if (activeKpi) {
+          if (activeKpi === 'today') return (item.date || '').includes('Today') || (item.date || '').startsWith('2026-10-07');
+          if (activeKpi === 'judged') return ['WIN', 'LOSS', 'CLOSED'].includes(item.status);
+          if (activeKpi === 'winrate' || activeKpi === 'avgwin') return item.pnl > 0 && ['WIN', 'LOSS', 'CLOSED'].includes(item.status);
+          if (activeKpi === 'avgloss') return item.pnl < 0 && ['WIN', 'LOSS', 'CLOSED'].includes(item.status);
+          if (activeKpi === 'avgret' || activeKpi === 'expectancy') return ['WIN', 'LOSS', 'CLOSED'].includes(item.status);
+          if (activeKpi === 'best') return item.pnl === bestTradeVal;
+          if (activeKpi === 'worst') return item.pnl === worstTradeVal;
+          if (activeKpi === 'open') return ['OPEN', 'TRAILING'].includes(item.status);
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:36px; color:var(--text-muted); font-size:13px;">No matching trade signals found with the selected scanner/status/period filters.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(t => {
+        const isExp = expandedRowId === t.id;
+        const pnlCls = t.pnl >= 0 ? 'pos' : 'neg';
+        const pnlSign = t.pnl >= 0 ? '+' : '';
+        const scanCls = t.scanner === 'QUALITY_COMPOUNDER' ? 'qc' : (t.scanner === 'TECHNICAL' ? 'tech' : (t.scanner === 'QUALITY_VALUE_RECOVERY' ? 'rec' : ''));
+        const statCls = t.status.toLowerCase();
+
+        // Mini 7-Day Trend Sparkline
+        const sparkColor = t.pnl >= 0 ? '#16a34a' : '#dc2626';
+        const sparkD = t.pnl >= 0 ? "M2,15 Q16,18 30,8 T56,3" : "M2,4 Q16,5 30,13 T56,17";
+        const sparkline = `<svg class="sparkline-svg" viewBox="0 0 58 20" title="7-Day Momentum"><path d="${sparkD}" fill="none" stroke="${sparkColor}" stroke-width="2" stroke-linecap="round"/></svg>`;
+
+        // Visual Trade Progress Stepper
+        const totalSpan = (t.t2 - t.sl) || 1;
+        const progressPct = Math.min(Math.max(((t.cmp - t.sl) / totalSpan) * 100, 12), 92);
+        const isT1Hit = t.cmp >= t.t1 || t.status === 'T1_HIT' || t.status === 'WIN';
+        const isTrailed = t.sl >= t.entry;
+
+        const stepperHtml = `
+          <div class="trade-stepper-box">
+            <div class="stepper-header-label">
+              <span>📈 Live Price Track &amp; Target Roadmap</span>
+              <span style="color:${t.pnl >= 0 ? 'var(--emerald-win)' : 'var(--crimson-loss)'}; font-size:11px;">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}% from Entry</span>
+            </div>
+            <div class="stepper-track-line">
+              <div class="stepper-fill-active" style="width: ${progressPct}%;"></div>
+              <div class="stepper-nodes-row">
+                <div class="step-node sl">
+                  <div class="step-dot"></div>
+                  <div class="step-label">SL ₹${t.sl.toFixed(0)}</div>
+                </div>
+                <div class="step-node">
+                  <div class="step-dot"></div>
+                  <div class="step-label">Entry ₹${t.entry.toFixed(0)}</div>
+                </div>
+                ${isTrailed ? `
+                <div class="step-node active">
+                  <div class="step-dot" style="background:#059669; border-color:#fff;"></div>
+                  <div class="step-label" style="color:#059669;">Trailed ₹${t.sl.toFixed(0)}</div>
+                </div>` : ''}
+                <div class="step-node active">
+                  <div class="step-dot"></div>
+                  <div class="step-label">CMP ₹${t.cmp.toFixed(0)}</div>
+                </div>
+                <div class="step-node ${isT1Hit ? 'hit' : ''}">
+                  <div class="step-dot"></div>
+                  <div class="step-label">T1 ₹${t.t1.toFixed(0)}${isT1Hit ? ' ✓' : ''}</div>
+                </div>
+                <div class="step-node">
+                  <div class="step-dot"></div>
+                  <div class="step-label">T2 ₹${t.t2.toFixed(0)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const confluenceCount = (t.otherAlerts ? t.otherAlerts.length : 0) + 1;
+        const confluenceTag = confluenceCount > 1 
+          ? `<span class="confluence-pill-tag" title="Multi-Scanner Confluence: ${confluenceCount} Scanners triggered on ${t.symbol}"><span class="bolt">⚡</span> ${confluenceCount} Scanners</span>`
+          : '';
+
+        let confluenceBoxHtml = '';
+        if (t.otherAlerts && t.otherAlerts.length > 0) {
+          confluenceBoxHtml = `
+            <div class="confluence-drawer-card">
+              <div class="confluence-drawer-head">
+                <div class="confluence-title-wrap">
+                  <span style="font-size:18px;">🔥</span>
+                  <div>
+                    <div class="confluence-title">Multi-Scanner Confluence: ${confluenceCount} Scanners Have Active Signals on ${t.symbol}</div>
+                    <div class="confluence-subtitle">Primary System Alert: <strong>${t.scanner.replace(/_/g, ' ')}</strong> (${t.date} @ ₹${t.entry.toFixed(2)})</div>
+                  </div>
+                </div>
+                <div class="confluence-counter-chip">+${t.otherAlerts.length} Other Engine Alert${t.otherAlerts.length > 1 ? 's' : ''}</div>
+              </div>
+
+              <div class="confluence-engines-grid">
+                ${t.otherAlerts.map(oa => `
+                  <div class="confluence-engine-card">
+                    <div class="cec-header">
+                      <span class="cec-scanner-badge" style="color:${oa.scanner === 'TECHNICAL' ? '#d97706' : oa.scanner === 'QUALITY_COMPOUNDER' ? '#2563eb' : '#16a34a'};">
+                        ${oa.scanner === 'TECHNICAL' ? '⚡ TECHNICAL' : oa.scanner === 'QUALITY_COMPOUNDER' ? '💎 QUALITY COMPOUNDER' : '📊 FUNDAMENTAL'}
+                      </span>
+                      <span class="cec-status-tag" style="background:${oa.status === 'TRAILING' ? 'rgba(5,150,105,0.1)' : 'rgba(37,99,235,0.1)'}; color:${oa.status === 'TRAILING' ? '#059669' : '#2563eb'};">
+                        ${oa.status}
+                      </span>
+                    </div>
+                    <div class="cec-stats-row">
+                      <span class="cec-label">Alert Price:</span>
+                      <span class="cec-val">₹${oa.price.toFixed(2)}</span>
+                    </div>
+                    <div class="cec-stats-row">
+                      <span class="cec-label">Triggered At:</span>
+                      <span class="cec-val" style="font-size:11px; font-weight:600;">${oa.date}</span>
+                    </div>
+                    <div class="cec-stats-row" style="border-top:1px dashed var(--border-light); padding-top:4px; margin-top:2px;">
+                      <span class="cec-label">Signal Rationale:</span>
+                      <span style="font-size:11px; color:var(--text-secondary); text-align:right; font-weight:600;">${oa.thesis}</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <tr class="trade-row ${isExp ? 'expanded' : ''}" onclick="toggleRowDetail(${t.id})">
+            <td style="text-align:center; color:var(--text-faint); font-size:11px;">${isExp ? '▼' : '▶'}</td>
+            <td>
+              <div class="symbol-stack" style="display:flex; align-items:center;">
+                <div>
+                  <span class="symbol-text">${t.symbol}</span>
+                  <span class="exchange-badge">${t.exchange}</span>
+                  ${t.event ? `<span class="event-pill">${t.event}</span>` : ''}
+                  ${confluenceTag}
+                </div>
+                ${sparkline}
+              </div>
+            </td>
+            <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:12px;">${t.date}</td>
+            <td>
+              <span class="scanner-tag-pill ${scanCls}">
+                ${t.scanner === 'QUALITY_COMPOUNDER' ? '💎 Compounder' : (t.scanner === 'TECHNICAL' ? '⚡ Technical' : (t.scanner === 'QUALITY_VALUE_RECOVERY' ? '🛡️ Recovery' : '📊 Fundamental'))}
+              </span>
+            </td>
+            <td>
+              <span class="status-tag-pill ${statCls}">${t.status}</span>
+            </td>
+            <td style="text-align:right;" class="price-cell">₹${t.entry.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+            <td style="text-align:right;" class="price-cell flash-up">₹${t.cmp.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+            <td style="text-align:right;">
+              <span class="pnl-badge ${pnlCls}">${pnlSign}${t.pnl.toFixed(2)}%</span>
+            </td>
+            <td style="text-align:center;">
+              <span class="score-gauge-pill ${t.score >= 88 ? 'high' : ''}">${t.score}/100</span>
+            </td>
+            <td style="text-align:right; white-space:nowrap;">
+              <button onclick="openTradingViewChart('${t.symbol}', ${t.entry}, ${t.sl}, ${t.t1}); event.stopPropagation();" style="padding:4px 8px; background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); color:var(--primary); border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; margin-right:4px;" title="Open Real-Time Candlestick Chart">📈 Chart</button>
+              <button onclick="openForensicModal('${t.symbol}', '${t.scanner}'); event.stopPropagation();" style="padding:4px 8px; background:var(--primary-dim); border:1px solid var(--primary-border); color:var(--primary); border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="View PIT Forensic Audit">Inspect ↗</button>
+            </td>
+          </tr>
+          <tr class="detail-drawer-row ${isExp ? 'open' : ''}">
+            <td colspan="10" style="padding:0;">
+              <div class="drawer-content-grid">
+                ${confluenceBoxHtml}
+                <div class="drawer-box">
+                  <div class="drawer-box-title"><span>📊</span> Financial Quality Highlights</div>
+                  <div class="metric-inline-row">
+                    <span class="metric-inline-label">5Y ROCE</span>
+                    <span class="metric-inline-val" style="color:var(--emerald-win);">${t.roce}</span>
+                  </div>
+                  <div class="metric-inline-row">
+                    <span class="metric-inline-label">5Y Sales CAGR</span>
+                    <span class="metric-inline-val">${t.salesCagr}</span>
+                  </div>
+                  <div class="metric-inline-row">
+                    <span class="metric-inline-label">Debt / Equity</span>
+                    <span class="metric-inline-val">${t.de}</span>
+                  </div>
+                  <div class="metric-inline-row">
+                    <span class="metric-inline-label">EV/EBITDA Discount</span>
+                    <span class="metric-inline-val" style="color:var(--purple-val);">${t.discount}</span>
+                  </div>
+                </div>
+
+                <div class="drawer-box">
+                  <div class="drawer-box-title"><span>🎯</span> Execution &amp; Targets</div>
+                  <div class="metric-inline-row">
+                    <span class="metric-inline-label">Active Trailed Stop Loss</span>
+                    <span class="metric-inline-val" style="color:var(--crimson-loss);">₹${t.sl.toFixed(2)}</span>
+                  </div>
+                  <div class="metric-inline-row">
+                    <span class="metric-inline-label">Target 1 (1.5R)</span>
+                    <span class="metric-inline-val" style="color:var(--emerald-win);">₹${t.t1.toFixed(2)}</span>
+                  </div>
+                  <div class="metric-inline-row">
+                    <span class="metric-inline-label">Target 2 (3.0R)</span>
+                    <span class="metric-inline-val">₹${t.t2.toFixed(2)}</span>
+                  </div>
+                  ${stepperHtml}
+                </div>
+
+                <div class="drawer-box" style="display:flex; flex-direction:column; justify-content:space-between;">
+                  <div>
+                    <div class="drawer-box-title"><span>⚡</span> Quick Trade Actions</div>
+                    <div style="font-size:11.5px; color:var(--text-muted); line-height:1.4;">
+                      Sequential stop checks active. Profitable trades protected by Winning Trade Safeguard.
+                    </div>
+                  </div>
+                  <div style="display:flex; gap:8px; margin-top:10px;">
+                    <button onclick="openTradingViewChart('${t.symbol}', ${t.entry}, ${t.sl}, ${t.t1}); event.stopPropagation();" style="flex:1; padding:6px 10px; background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); color:var(--primary); border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">📈 View Chart</button>
+                    <button onclick="openForensicModal('${t.symbol}', '${t.scanner}'); event.stopPropagation();" style="flex:1; padding:6px 10px; background:var(--primary); color:white; border:none; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">Full Forensic ↗</button>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Toggle multi-scanner chip on/off
+    function toggleScanner(scannerName) {
+      if (activeScanners.has(scannerName)) {
+        activeScanners.delete(scannerName);
+      } else {
+        activeScanners.add(scannerName);
+      }
+      updateScannerChipsUI();
+      renderTable();
+    }
+
+    function selectAllScanners() {
+      activeScanners = new Set(['QUALITY_COMPOUNDER', 'TECHNICAL', 'QUALITY_VALUE_RECOVERY', 'FUNDAMENTAL']);
+      updateScannerChipsUI();
+      renderTable();
+    }
+
+    function clearAllScanners() {
+      activeScanners.clear();
+      updateScannerChipsUI();
+      renderTable();
+    }
+
+    function updateScannerChipsUI() {
+      document.querySelectorAll('.scanner-chip').forEach(chip => {
+        const sc = chip.getAttribute('data-scanner');
+        if (activeScanners.has(sc)) {
+          chip.classList.add('active');
+        } else {
+          chip.classList.remove('active');
+        }
+      });
+      document.getElementById('activeScannerCount').textContent = `${activeScanners.size} Active`;
+    }
+
+    function setStatusFilter(status) {
+      activeStatus = status;
+      document.querySelectorAll('.status-pill').forEach(pill => {
+        if (pill.getAttribute('data-status') === status) {
+          pill.classList.add('active');
+        } else {
+          pill.classList.remove('active');
+        }
+      });
+      renderTable();
+    }
+
+    function applyFilters() {
+      searchQuery = document.getElementById('symbolSearchInput').value.trim();
+      renderTable();
+    }
+
+    function toggleRowDetail(id) {
+      expandedRowId = expandedRowId === id ? null : id;
+      renderTable();
+    }
+
+    function openForensicModal(symbol, scanner) {
+      document.getElementById('modalSymbolTitle').textContent = `${symbol} LTD`;
+      document.getElementById('modalScannerTag').textContent = scanner.replace(/_/g, ' ');
+      document.getElementById('forensicModalOverlay').classList.add('active');
+    }
+
+    function closeForensicModalDirect() {
+      document.getElementById('forensicModalOverlay').classList.remove('active');
+    }
+
+    function closeForensicModal(e) {
+      if (e.target.id === 'forensicModalOverlay') {
+        closeForensicModalDirect();
+      }
+    }
+
+    function sortTable(col) {
+      alert(`Sorted by ${col}`);
+    }
+
+    function openTradingViewChart(symbol, entry, sl, t1) {
+      document.getElementById('chartModalTitle').textContent = `${symbol} LTD`;
+      document.getElementById('chartModalExchange').textContent = `NSE: ${symbol}`;
+      document.getElementById('cmEntry').textContent = `₹${Number(entry).toFixed(2)}`;
+      document.getElementById('cmSl').textContent = `₹${Number(sl).toFixed(2)}`;
+      document.getElementById('cmT1').textContent = `₹${Number(t1).toFixed(2)}`;
+      
+      const container = document.getElementById('tvChartContainer');
+      container.innerHTML = `
+        <iframe 
+          title="${symbol} Chart"
+          src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=NSE%3A${encodeURIComponent(symbol)}&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=f8fafc&studies=%5B%5D&theme=light&style=1&timezone=Asia%2FKolkata&studies_overrides=%7B%7D&overrides=%7B%7D&enabled_features=%5B%5D&disabled_features=%5B%5D&locale=en&utm_source=localhost&utm_medium=widget&utm_campaign=chart&utm_term=NSE%3A${encodeURIComponent(symbol)}"
+          style="width:100%; height:100%; border:none; display:block;"
+          loading="lazy">
+        </iframe>
+      `;
+      document.getElementById('chartModalOverlay').classList.add('active');
+    }
+
+    function closeChartModalDirect() {
+      const overlay = document.getElementById('chartModalOverlay');
+      if (overlay) overlay.classList.remove('active');
+      const container = document.getElementById('tvChartContainer');
+      if (container) container.innerHTML = '';
+    }
+
+    function closeChartModal(e) {
+      if (e.target.id === 'chartModalOverlay') {
+        closeChartModalDirect();
+      }
+    }
+
+    // Power-User Keyboard Shortcuts
+    document.addEventListener('keydown', (e) => {
+      const activeTag = (document.activeElement && document.activeElement.tagName) || '';
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(activeTag) && e.key !== 'Escape') {
+        return;
+      }
+
+      if (e.key === '/') {
+        e.preventDefault();
+        const searchInput = document.getElementById('symbolSearchInput');
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      } else if (e.key === 'Escape') {
+        closeForensicModalDirect();
+        closeChartModalDirect();
+        const searchInput = document.getElementById('symbolSearchInput');
+        if (document.activeElement === searchInput) {
+          searchInput.value = '';
+          applyFilters();
+          searchInput.blur();
+        }
+        resetKpiFilter();
+      } else if (e.key === '1') {
+        toggleScanner('QUALITY_COMPOUNDER');
+      } else if (e.key === '2') {
+        toggleScanner('TECHNICAL');
+      } else if (e.key === '3') {
+        toggleScanner('QUALITY_VALUE_RECOVERY');
+      } else if (e.key === '4') {
+        toggleScanner('FUNDAMENTAL');
+      }
+    });
+
+    function filterByKpi(kpiId, el) {
+      if (activeKpi === kpiId) {
+        resetKpiFilter();
+        return;
+      }
+      activeKpi = kpiId;
+      document.querySelectorAll('.small-tile').forEach(t => t.classList.remove('active'));
+      if (el) el.classList.add('active');
+      const resetBtn = document.getElementById('kpiResetBtn');
+      if (resetBtn) resetBtn.style.display = 'inline-block';
+      renderTable();
+    }
+
+    function resetKpiFilter() {
+      activeKpi = null;
+      document.querySelectorAll('.small-tile').forEach(t => t.classList.remove('active'));
+      const resetBtn = document.getElementById('kpiResetBtn');
+      if (resetBtn) resetBtn.style.display = 'none';
+      renderTable();
+    }
+
+    // Initial Render
+    renderTable();
+  </script>
+</body>
+</html>

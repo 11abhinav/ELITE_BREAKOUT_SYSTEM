@@ -2499,6 +2499,18 @@ function changeAdminPage(type, delta) {
           ⚡ <span id="api-latency-val" style="font-family:var(--font-mono); font-weight:700;">--ms</span>
         </div>
 
+        <!-- BREAKOUT CHIME SOUND TOGGLE & PREVIEW -->
+        <button id="soundToggleBtn" onclick="toggleAlertSound()" class="refresh-btn" style="padding:5px 11px; font-size:11.5px; font-weight:700; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Toggle breakout sound alerts">
+          <span id="soundIcon">🔔</span>
+          <span id="soundLabel">Sound: ON</span>
+        </button>
+        <button onclick="playLoudNotificationSound(true)" class="refresh-btn" style="padding:5px 9px; font-size:11px; font-weight:700; color:var(--accent); border-color:rgba(5,150,105,0.25); background:rgba(5,150,105,0.08); cursor:pointer;" title="Preview breakout chime">
+          ▶ Test Chime
+        </button>
+        <button onclick="window.open('/static/interactive_prototype_light.html', '_blank')" class="refresh-btn" style="padding:5px 9px; font-size:11px; font-weight:700; color:var(--text); border-color:var(--border); cursor:pointer;" title="Open interactive UI wireframe/prototype">
+          🎨 Wireframe ↗
+        </button>
+
         <button onclick="window.location.href='/user'" class="refresh-btn" style="color: #00d4a1; font-weight: 700; border-color: rgba(0,212,161,0.3); background: rgba(0,212,161,0.1);">
           👤 User View ↗
         </button>
@@ -2708,6 +2720,7 @@ function changeAdminPage(type, delta) {
             <option value="ALL">All Time</option>
             <option value="TODAY">Today</option>
             <option value="WEEK">This Week</option>
+            <option value="7D">Last 7 Days</option>
             <option value="14D">Last 14 Days</option>
             <option value="MONTH">This Month</option>
             <option value="30D">Last 30 Days</option>
@@ -6031,6 +6044,7 @@ function getEarningsBadgeHtml(item) {
       const yearStart = new Date(now.getFullYear(), 0, 1);
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      const d7 = new Date(now); d7.setDate(d7.getDate() - 7);
       const d14 = new Date(now); d14.setDate(d14.getDate() - 14);
       const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
       const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
@@ -6052,6 +6066,7 @@ function getEarningsBadgeHtml(item) {
           const d = new Date((t.entry_date || '').replace(' ', 'T'));
           if (dateFilt === 'TODAY' && d < todayStart) return false;
           if (dateFilt === 'WEEK' && d < weekStart) return false;
+          if (dateFilt === '7D' && d < d7) return false;
           if (dateFilt === '14D' && d < d14) return false;
           if (dateFilt === 'MONTH' && d < monthStart) return false;
           if (dateFilt === 'QUARTER' && d < quarterStart) return false;
@@ -8014,8 +8029,19 @@ const ALERT_FETCH_INTERVAL_ADMIN = 10 * 1000;
 
 let isFirstAdminAlertFetch = true;
 let lastAdminAlertIds = new Set();
+let soundAlertsEnabled = true;
 
-function playLoudNotificationSound() {
+function toggleAlertSound() {
+  soundAlertsEnabled = !soundAlertsEnabled;
+  const icon = document.getElementById('soundIcon');
+  const label = document.getElementById('soundLabel');
+  if (icon) icon.textContent = soundAlertsEnabled ? '🔔' : '🔕';
+  if (label) label.textContent = soundAlertsEnabled ? 'Sound: ON' : 'Sound: OFF';
+  if (soundAlertsEnabled) playLoudNotificationSound(true);
+}
+
+function playLoudNotificationSound(force = false) {
+  if (!soundAlertsEnabled && !force) return;
   // Soft, pleasant dual-tone harmonic chime (E5 -> A5)
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
