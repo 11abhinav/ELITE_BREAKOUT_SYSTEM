@@ -963,6 +963,279 @@ var USER_PAGE_SIZE = 10;
       box-shadow: var(--glow);
       transform: translateY(-1px);
     }
+
+    /* ── [LIVE MARKET TICKER TAPE RIBBON] Wireframe auto-scrolling marquee tape ── */
+    .market-ticker-ribbon {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      border-top: 2px solid #7c3aed;
+      display: flex;
+      align-items: center;
+      overflow: hidden;
+      position: relative;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      height: 38px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      width: 100%;
+    }
+    .ticker-lead {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px 0 20px;
+      background: var(--card);
+      z-index: 10;
+      box-shadow: 6px 0 12px rgba(15, 23, 42, 0.06);
+      height: 100%;
+      flex-shrink: 0;
+    }
+    .live-dot-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #7c3aed;
+      box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.7);
+      animation: pulseDot 2s infinite;
+    }
+    @keyframes pulseDot {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(124, 58, 237, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+    }
+    .ticker-regime-pill {
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: rgba(16, 185, 129, 0.1);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+    .ticker-track-container {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+    }
+    .ticker-track {
+      display: inline-flex;
+      align-items: center;
+      gap: 20px;
+      animation: tickerGlide 32s linear infinite;
+      will-change: transform;
+      padding-left: 20px;
+    }
+    .ticker-track:hover {
+      animation-play-state: paused;
+    }
+    @keyframes tickerGlide {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .ticker-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+      padding: 3px 10px;
+      border-radius: 6px;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      font-size: 11.5px;
+    }
+    .ticker-item.sector-strong {
+      background: rgba(22, 163, 74, 0.08);
+      border: 1px solid rgba(22, 163, 74, 0.25);
+      color: #10b981;
+      font-weight: 700;
+    }
+    .ticker-item.sector-weak {
+      background: rgba(220, 38, 38, 0.08);
+      border: 1px solid rgba(220, 38, 38, 0.25);
+      color: #ef4444;
+      font-weight: 700;
+    }
+    .sector-badge {
+      font-weight: 800;
+      font-size: 10.5px;
+      letter-spacing: 0.5px;
+    }
+    .ticker-name { font-weight: 800; color: var(--muted); }
+    .ticker-val { font-weight: 700; color: var(--text); }
+    .ticker-pct.pos { color: var(--win); font-weight: 800; }
+    .ticker-pct.neg { color: var(--loss); font-weight: 800; }
+
+    /* ── [ELEVATED FINANCIAL SUMMARY CARDS] Wireframe Hero Financial Summary ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md, 12px);
+      padding: 16px 20px;
+      box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.04);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px -3px rgba(15, 23, 42, 0.08);
+      border-color: var(--border2);
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: #2563eb;
+    }
+    .kpi-card.green::before { background: var(--win); }
+    .kpi-card.purple::before { background: #7c3aed; }
+    .kpi-card.amber::before { background: var(--amber); }
+
+    .kpi-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--muted);
+    }
+    .kpi-pill {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 9999px;
+      background: var(--card3);
+      color: var(--text);
+    }
+    .kpi-value {
+      font-family: var(--font-mono);
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+    .kpi-value.green { color: var(--win); }
+    .kpi-subtext {
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+    }
+
+    /* ── [11 COMPACT PERFORMANCE KPI SMALL TILES] Wireframe sleek KPI small tiles ── */
+    .small-kpis-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .small-tile {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md, 10px);
+      padding: 10px 12px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 72px;
+    }
+    .small-tile::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 3.5px;
+      background: var(--muted);
+    }
+    .small-tile.blue::before { background: #2563eb; }
+    .small-tile.green::before { background: var(--win); }
+    .small-tile.red::before { background: var(--loss); }
+    .small-tile.slate::before { background: var(--muted); }
+    .small-tile.amber::before { background: var(--amber); }
+
+    .small-tile:hover {
+      border-color: var(--border2);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+      transform: translateY(-2px);
+    }
+    .small-tile.active {
+      border-color: #2563eb;
+      background: var(--card2);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25), 0 4px 12px rgba(37, 99, 235, 0.12);
+    }
+    .small-tile.active::after {
+      content: '▼';
+      position: absolute;
+      bottom: -1px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 8px;
+      color: #2563eb;
+      line-height: 1;
+    }
+
+    .st-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .st-val {
+      font-size: 18px;
+      font-weight: 800;
+      font-family: var(--font-mono);
+      color: var(--text);
+      line-height: 1.15;
+      margin-bottom: 4px;
+      letter-spacing: -0.4px;
+    }
+    .st-val.blue { color: #2563eb; }
+    .st-val.green { color: var(--win); }
+    .st-val.red { color: var(--loss); }
+    .st-val.amber { color: var(--amber); }
+
+    .st-sub {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--muted);
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 </style>
 <script>
   // ── [VERSION: MULTI_TAB_UI_v1.0] USER DASHBOARD TAB NAVIGATION ──
@@ -1141,17 +1414,20 @@ function playDing() {
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
 </head>
 <body>
-  <!-- MARKET TICKER (AUTO-SCROLLING MARQUEE) -->
-  <div id="market-ticker" style="background:var(--card); border-bottom:1px solid var(--border); border-top:2px solid #7c3aed; padding:8px 24px; font-size:13px; font-family:var(--font-mono); color:var(--muted); display:flex; gap:20px; align-items:center; overflow:hidden; white-space:nowrap; box-shadow:var(--shadow);">
-    <div style="font-weight:700; color:#7c3aed; font-size:11px; letter-spacing:1.5px; margin-right:6px; text-transform:uppercase; display:flex; align-items:center; gap:6px; flex-shrink:0;">
-      <span style="width:7px;height:7px;border-radius:50%;background:#059669;box-shadow:0 0 8px rgba(5,150,105,0.6);display:inline-block;"></span>LIVE MARKETS
-      <span style="font-size:10px; padding:1px 6px; border-radius:10px; background:rgba(37,99,235,0.08); color:var(--accent2); font-weight:700;">REGIME: BULL</span>
+  <!-- ── 2. LIVE MARKET TICKER TAPE (AUTO-SCROLLING MARQUEE) ── -->
+  <div class="market-ticker-ribbon" id="marketTickerRibbon">
+    <div class="ticker-lead">
+      <span class="live-dot-pulse"></span>
+      <span style="font-weight: 800; color: #7c3aed; font-size: 11px; letter-spacing: 1px;">LIVE MARKETS</span>
+      <span class="ticker-regime-pill" id="tickerRegimeBadge">● REGIME</span>
     </div>
-    <div style="flex:1; overflow:hidden; position:relative;" onmouseenter="const tc=document.getElementById('ticker-content'); if(tc) tc.style.animationPlayState='paused';" onmouseleave="const tc=document.getElementById('ticker-content'); if(tc) tc.style.animationPlayState='running';">
-      <div id="ticker-content" style="display:inline-flex; gap:32px; animation: tickerScroll 42s linear infinite; white-space:nowrap;">
-        <span style="opacity:0.5;">Fetching indices...</span>
+    <div class="ticker-track-container">
+      <div class="ticker-track" id="globalTickerTrack">
+        <span style="color:var(--muted); font-size:11px;">Streaming live exchange indices and regime telemetry...</span>
       </div>
     </div>
+    <!-- Hidden legacy anchor for backward compatibility -->
+    <div id="ticker-content" style="display:none;"></div>
   </div>
 
 
@@ -1239,23 +1515,60 @@ function playDing() {
     <!-- TAB 1: KPI & ALL TRADES -->
     <div id="utab-trades-portfolio" class="utab-panel active">
 
-    <!-- P&L AND PORTFOLIO BAR -->
-    <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
-      <!-- PORTFOLIO METRICS -->
-      <div style="display:flex; flex-wrap:wrap; gap:12px;">
-        <div style="padding:6px 14px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P/L:</span>
-          <span id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+    <!-- ── 3. ELEVATED FINANCIAL SUMMARY CARDS (HERO CARDS) ── -->
+    <section class="kpi-grid" id="heroSummaryGrid">
+      <div class="kpi-card" id="kpi-card-capital-box">
+        <div class="kpi-header">
+          <span class="kpi-label">Active Capital</span>
+          <span class="kpi-pill">Capital</span>
         </div>
-        <div style="padding:6px 14px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">MTM P/L:</span>
-          <span id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-        </div>
+        <div class="kpi-value" id="kpi-card-capital">₹0.00</div>
+        <div class="kpi-subtext" id="kpi-card-capital-sub">0 Active positions deployed</div>
       </div>
+
+      <div class="kpi-card green" id="kpi-card-pnl-box">
+        <div class="kpi-header">
+          <span class="kpi-label">Realized Net P&amp;L</span>
+          <span class="kpi-pill" id="kpi-card-pnl-pill" style="background: rgba(16, 185, 129, 0.1); color: var(--win, #10b981);">0.0%</span>
+        </div>
+        <div class="kpi-value green" id="kpi-card-pnl">₹0.00</div>
+        <div class="kpi-subtext" id="kpi-card-pnl-sub">Booked profit/loss</div>
+      </div>
+
+      <div class="kpi-card purple" id="kpi-card-wr-box">
+        <div class="kpi-header">
+          <span class="kpi-label">Certified Win Rate</span>
+          <span class="kpi-pill" id="kpi-card-wr-pill" style="background: rgba(124, 58, 237, 0.08); color: #7c3aed;">Audited</span>
+        </div>
+        <div class="kpi-value" id="kpi-card-wr">0.0%</div>
+        <div class="kpi-subtext" id="kpi-card-wr-sub">Real trades audited point-in-time</div>
+      </div>
+
+      <div class="kpi-card amber" id="kpi-card-regime-box">
+        <div class="kpi-header">
+          <span class="kpi-label">Market Macro Regime</span>
+          <span class="kpi-pill" id="kpi-card-regime-pill" style="background: rgba(245, 158, 11, 0.1); color: var(--amber, #f59e0b);">IST Asia/Kolkata</span>
+        </div>
+        <div class="kpi-value" id="kpi-card-regime" style="color: var(--amber, #f59e0b);">REGIME</div>
+        <div class="kpi-subtext" id="kpi-card-regime-sub">Market Trend &amp; Direction</div>
+      </div>
+    </section>
+
+    <!-- Hidden legacy elements for realBookedPnl / realOpenPnl queries -->
+    <span id="realBookedPnl" class="realBookedPnl" style="display:none;">—</span>
+    <span id="realOpenPnl" class="realOpenPnl" style="display:none;">—</span>
+
+    <!-- ── 3B. COMPACT PERFORMANCE KPI SMALL TILES (11 TILES MATCHING WIREFRAME) ── -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.8px; color:var(--text); display:flex; align-items:center; gap:8px;">
+        <span>📊 Trade Performance Analytics</span>
+        <span style="font-size:11px; font-weight:600; color:var(--muted); text-transform:none;">(Click any tile to drill down)</span>
+      </div>
+      <button onclick="drillKpi(null, null)" id="kpiResetBtn" style="display:none; font-size:11px; font-weight:700; color:#2563eb; background:rgba(37, 99, 235, 0.1); border:1px solid rgba(37, 99, 235, 0.3); padding:3px 10px; border-radius:4px; cursor:pointer;">✕ Reset Filter</button>
     </div>
 
-    <!-- KPI ROW -->
-    <div class="kpi-row" id="kpis"></div>
+    <!-- SMALL TILES GRID CONTAINER -->
+    <div class="small-kpis-grid" id="kpis"></div>
 
     <!-- PORTFOLIO CAPITAL ALLOCATION & SCANNER EXPOSURE BAR (Rule 67: Live allocation breakdown across scanners) -->
     <div class="exposure-meter-card" id="portfolioExposureBar">
@@ -1838,44 +2151,102 @@ function renderKPIs(s) {
   const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
   const todayStr = formatter.format(new Date());
 
+  const getTradePnlPct = t => {
+    if (t.pnl_pct != null && !isNaN(t.pnl_pct)) return parseFloat(t.pnl_pct);
+    if (t.entry_price && (t.exit_price || t.current_price)) {
+      const ep = parseFloat(t.exit_price || t.current_price);
+      const en = parseFloat(t.entry_price);
+      if (en > 0) return ((ep - en) / en) * 100.0;
+    }
+    return 0;
+  };
+
   const todaysCount = filteredTrades.filter(t => (t.alert_time || t.entry_date || '').startsWith(todayStr)).length;
   const judged = filteredTrades.filter(t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status));
-  const winners = judged.filter(t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0));
-  const losers = judged.filter(t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0));
+  const winners = judged.filter(t => t.status === 'WIN' || (t.status === 'CLOSED' && getTradePnlPct(t) > 0));
+  const losers = judged.filter(t => t.status === 'LOSS' || (t.status === 'CLOSED' && getTradePnlPct(t) <= 0));
   const winRate = judged.length > 0 ? ((winners.length / judged.length) * 100).toFixed(0) : 0;
-  const avgReturn = judged.length > 0 ? (judged.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / judged.length) : 0;
-  const avgWin = winners.length > 0 ? (winners.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / winners.length) : 0;
-  const avgLoss = losers.length > 0 ? (losers.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / losers.length) : 0;
-  const expectancy = (winRate / 100 * avgWin) + ((1 - winRate / 100) * avgLoss);
+  const avgReturn = judged.length > 0 ? (judged.reduce((sum, t) => sum + getTradePnlPct(t), 0) / judged.length) : 0;
+  const avgWin = winners.length > 0 ? (winners.reduce((sum, t) => sum + getTradePnlPct(t), 0) / winners.length) : 0;
+  const avgLoss = losers.length > 0 ? (losers.reduce((sum, t) => sum + Math.abs(getTradePnlPct(t)), 0) / losers.length) : 0;
+  const expectancy = (winRate / 100 * avgWin) - ((1 - winRate / 100) * avgLoss);
 
-  const bestTrade = filteredTrades.reduce((max, t) => (t.pnl_pct || 0) > max ? (t.pnl_pct || 0) : max, -100);
-  const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct || 0) < min ? (t.pnl_pct || 0) : min, 100);
+  const bestTrade = filteredTrades.length > 0 ? filteredTrades.reduce((max, t) => getTradePnlPct(t) > max ? getTradePnlPct(t) : max, -100) : 0;
+  const worstTrade = filteredTrades.length > 0 ? filteredTrades.reduce((min, t) => getTradePnlPct(t) < min ? getTradePnlPct(t) : min, 100) : 0;
   
   const openStatuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'];
   const openTradesList = filteredTrades.filter(t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status));
   const openPositions = openTradesList.length;
 
+  // ── UPDATE ELEVATED FINANCIAL SUMMARY HERO CARDS ──
+  // Card 1: Active Capital
+  let totalActiveCap = 0;
+  openTradesList.forEach(t => {
+    const cap = Number(t.capital_allocated) || ((Number(t.actual_entry_price || t.entry_price || 0)) * (Number(t.shares_bought) || 1)) || 50000;
+    totalActiveCap += cap;
+  });
+  function fmtCap(val) {
+    if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
+    if (val >= 100000) return `₹${(val / 100000).toFixed(2)} Lakh`;
+    return `₹${Math.round(val).toLocaleString('en-IN')}`;
+  }
+  const kpiCapEl = document.getElementById('kpi-card-capital');
+  if (kpiCapEl) kpiCapEl.textContent = fmtCap(totalActiveCap);
+  const kpiCapSubEl = document.getElementById('kpi-card-capital-sub');
+  if (kpiCapSubEl) kpiCapSubEl.textContent = `${openPositions} Active positions deployed`;
+
+  // Card 3: Certified Win Rate
+  const kpiWrEl = document.getElementById('kpi-card-wr');
+  if (kpiWrEl) kpiWrEl.textContent = judged.length > 0 ? `${winRate}%` : '—';
+  const kpiWrSubEl = document.getElementById('kpi-card-wr-sub');
+  if (kpiWrSubEl) kpiWrSubEl.textContent = `${judged.length} Real trades audited point-in-time`;
+  const kpiWrPillEl = document.getElementById('kpi-card-wr-pill');
+  if (kpiWrPillEl) {
+    const pf = (losers.length > 0 && avgLoss > 0) ? ((winners.length * avgWin) / (losers.length * avgLoss)).toFixed(2) : (winners.length > 0 ? 'PF ∞' : 'PF 1.00');
+    kpiWrPillEl.textContent = pf.startsWith('PF') ? pf : `PF ${pf}`;
+  }
+
+  // Card 4: Macro Regime
+  const kpiRegimeEl = document.getElementById('kpi-card-regime');
+  const kpiRegimeSubEl = document.getElementById('kpi-card-regime-sub');
+  const regObj = window._currentRegime || (window._lastIndicesData && (window._lastIndicesData._regime || window._lastIndicesData.regime)) || 'BEAR';
+  const regName = (typeof regObj === 'string' ? regObj : (regObj.regime || 'BEAR')).toUpperCase();
+  const regDetail = (typeof regObj === 'object' && regObj.detail) ? regObj.detail : 'Market Trend & Direction';
+  if (kpiRegimeEl) {
+    kpiRegimeEl.textContent = `${regName} REGIME`;
+    kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : 'var(--amber, #f59e0b)');
+  }
+  if (kpiRegimeSubEl) kpiRegimeSubEl.textContent = regDetail;
+
+  // ── 11 COMPACT PERFORMANCE KPI SMALL TILES ──
   const defs = [
-    { id: 'today', label: "Today's Alerts", value: todaysCount, cls: 'blue', sub: 'new today', filter: t => (t.alert_time || t.entry_date || '').startsWith(todayStr) },
-    { id: 'total', label: 'Total Alerts', value: filteredTrades.length, cls: '', sub: 'all alerts', filter: t => true },
-    { id: 'judged', label: 'Judged', value: judged.length, cls: '', sub: judged.length > 0 ? `${losers.length} SL · ${winners.length} target` : `${openPositions} active open`, filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
-    { id: 'winrate', label: 'Win Rate', value: judged.length > 0 ? winRate + '%' : '—', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : '', sub: judged.length > 0 ? `${winners.length}W / ${losers.length}L` : 'all positions active', filter: t => t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' },
-    { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) && t.pnl_pct != null },
-    { id: 'avgwin', label: 'Avg Win', value: winners.length > 0 ? pct(avgWin) : '—', cls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0) },
-    { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pctLoss(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0) },
-    { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW+(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
-    { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === bestTrade },
-    { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === worstTrade },
-    { id: 'open', label: 'Open', value: openPositions, cls: 'blue', sub: 'active positions', filter: t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status) },
+    { id: 'today', label: "Today's Alerts", value: todaysCount, cls: 'blue', tileCls: 'blue', sub: 'new today', filter: t => (t.alert_time || t.entry_date || '').startsWith(todayStr) },
+    { id: 'total', label: 'Total Alerts', value: filteredTrades.length, cls: '', tileCls: 'blue', sub: 'all alerts', filter: t => true },
+    { id: 'judged', label: 'Judged', value: judged.length, cls: '', tileCls: 'slate', sub: judged.length > 0 ? `${losers.length} SL · ${winners.length} target` : `${openPositions} active open`, filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
+    { id: 'winrate', label: 'Win Rate', value: judged.length > 0 ? winRate + '%' : '—', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : '', tileCls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : 'slate', sub: judged.length > 0 ? `${winners.length}W / ${losers.length}L` : 'all positions active', filter: t => t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' },
+    { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', tileCls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
+    { id: 'avgwin', label: 'Avg Win', value: winners.length > 0 ? pct(avgWin) : '—', cls: 'green', tileCls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' || (t.status === 'CLOSED' && getTradePnlPct(t) > 0) },
+    { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pctLoss(avgLoss) : '—', cls: 'red', tileCls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && getTradePnlPct(t) <= 0) },
+    { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', tileCls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW-(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
+    { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', tileCls: 'green', sub: '', filter: t => getTradePnlPct(t) === bestTrade },
+    { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', tileCls: 'red', sub: '', filter: t => getTradePnlPct(t) === worstTrade },
+    { id: 'open', label: 'Open', value: openPositions, cls: 'blue', tileCls: 'blue', sub: 'active positions', filter: t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status) },
   ];
-  document.getElementById('kpis').innerHTML = defs.map(d => `
-<div class="kpi ${activeKpi === d.id ? 'active' : ''}" data-id="${d.id}" onclick="drillKpi('${d.id}',this)">
-  <div class="kpi-label">${d.label}</div>
-  <div class="kpi-value ${d.cls}">${d.value}</div>
-  ${d.sub ? `<div class="kpi-sub">${d.sub}</div>` : ''}
-  <div class="kpi-hint">↓ click to drill down</div>
-  <div class="kpi-arrow"></div>
-</div>`).join('');
+
+  const kpisEl = document.getElementById('kpis');
+  if (kpisEl) {
+    kpisEl.innerHTML = defs.map(d => `
+      <div class="small-tile ${d.tileCls || 'slate'} ${activeKpi === d.id ? 'active' : ''}" data-id="${d.id}" onclick="drillKpi('${d.id}', this)">
+        <div class="st-label">${escapeHTML(d.label)}</div>
+        <div class="st-val ${d.cls || ''}">${d.value}</div>
+        <div class="st-sub">${d.sub ? escapeHTML(d.sub) : ''}</div>
+      </div>
+    `).join('');
+  }
+
+  const resetBtn = document.getElementById('kpiResetBtn');
+  if (resetBtn) resetBtn.style.display = activeKpi ? 'inline-block' : 'none';
+
   window._kpiDefs = defs;
   if (typeof renderExposureBar === 'function') renderExposureBar(filteredTrades);
   if (typeof updateScannerChipCounts === 'function') updateScannerChipCounts(filteredTrades);
@@ -1898,13 +2269,15 @@ window.closeDrill = function() {
   if (panel) panel.classList.remove('open');
   activeKpi = null;
   window._currentFilteredTrades = null;
-  document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.small-tile, .kpi').forEach(el => el.classList.remove('active'));
+  const resetBtn = document.getElementById('kpiResetBtn');
+  if (resetBtn) resetBtn.style.display = 'none';
   renderTradeTable();
   renderCategoryStats();
 };
 
 window.drillKpi = function(kpiId, element) {
-  if (activeKpi === kpiId) {
+  if (activeKpi === kpiId || !kpiId) {
     closeDrill();
     return;
   }
@@ -1913,8 +2286,10 @@ window.drillKpi = function(kpiId, element) {
   if (def) {
     const matchingTrades = ALL_TRADES.filter(def.filter);
     window._currentFilteredTrades = matchingTrades;
-    document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.small-tile, .kpi').forEach(el => el.classList.remove('active'));
     if (element) element.classList.add('active');
+    const resetBtn = document.getElementById('kpiResetBtn');
+    if (resetBtn) resetBtn.style.display = 'inline-block';
     
     // Open drilldown panel right under KPIs with full trade list
     openDrill(def.label, matchingTrades);
@@ -3596,6 +3971,27 @@ function updateSim() {
       roEl.style.color = realOpenPnl >= 0 ? 'var(--green)' : 'var(--red)';
   }
 
+  // ── Update Hero Summary Card 2: Realized Net P&L ──
+  const kpiCardPnl = document.getElementById('kpi-card-pnl');
+  if (kpiCardPnl) {
+    const formatted = (realBookedPnl >= 0 ? '+' : '') + '₹' + Math.round(realBookedPnl).toLocaleString('en-IN');
+    kpiCardPnl.textContent = formatted;
+    kpiCardPnl.className = 'kpi-value ' + (realBookedPnl >= 0 ? 'green' : 'red');
+    const kpiPnlCardBox = document.getElementById('kpi-card-pnl-box');
+    if (kpiPnlCardBox) kpiPnlCardBox.className = 'kpi-card ' + (realBookedPnl >= 0 ? 'green' : 'red');
+    const kpiPnlPill = document.getElementById('kpi-card-pnl-pill');
+    if (kpiPnlPill) {
+      const retPct = GLOBAL_CAPITAL > 0 ? ((realBookedPnl / GLOBAL_CAPITAL) * 100).toFixed(1) : '0.0';
+      kpiPnlPill.textContent = (realBookedPnl >= 0 ? '+' : '') + retPct + '%';
+      kpiPnlPill.style.color = realBookedPnl >= 0 ? 'var(--win, #10b981)' : 'var(--loss, #ef4444)';
+      kpiPnlPill.style.background = realBookedPnl >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)';
+    }
+    const kpiPnlSub = document.getElementById('kpi-card-pnl-sub');
+    if (kpiPnlSub) {
+      kpiPnlSub.innerHTML = `<span style="color:${realBookedPnl >= 0 ? 'var(--win, #10b981)' : 'var(--loss, #ef4444)'}; font-weight:700;">${realBookedPnl >= 0 ? '▲' : '▼'} ${formatted}</span> booked profit/loss`;
+    }
+  }
+
   renderEquityCurve();
 }
 
@@ -3895,24 +4291,63 @@ initDashboard();
       fetch('/api/indices')
         .then(r => r.json())
         .then(data => {
+          window._lastIndicesData = data;
+          const trackEl = document.getElementById('globalTickerTrack');
+          const badgeEl = document.getElementById('tickerRegimeBadge');
           const tc = document.getElementById('ticker-content');
-          if (!tc) return;
           if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
-              if (!tc.innerHTML || tc.innerHTML.trim() === '') {
-                  tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Loading market rates...</span>';
-              }
-              return;
+            if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
+              trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+            }
+            return;
           }
-          let html = '';
+
+          // Macro Regime Indicator
+          const regimeData = data._regime || data.regime;
+          if (regimeData) {
+            window._currentRegime = regimeData;
+            const regName = (typeof regimeData === 'string' ? regimeData : (regimeData.regime || 'BULL')).toUpperCase();
+            const regDetail = (typeof regimeData === 'object' && regimeData.detail) ? ` (${regimeData.detail})` : '';
+            if (badgeEl) {
+              badgeEl.textContent = `● ${regName} REGIME${regDetail}`;
+              if (regName === 'BULL') {
+                badgeEl.style.background = 'rgba(16, 185, 129, 0.1)';
+                badgeEl.style.color = '#10b981';
+                badgeEl.style.borderColor = 'rgba(16, 185, 129, 0.25)';
+              } else if (regName === 'BEAR') {
+                badgeEl.style.background = 'rgba(239, 68, 68, 0.1)';
+                badgeEl.style.color = '#ef4444';
+                badgeEl.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+              } else {
+                badgeEl.style.background = 'rgba(245, 158, 11, 0.1)';
+                badgeEl.style.color = '#f59e0b';
+                badgeEl.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+              }
+            }
+
+            // Also update macro regime hero KPI card
+            const kpiRegimeEl = document.getElementById('kpi-card-regime');
+            const kpiRegimeSubEl = document.getElementById('kpi-card-regime-sub');
+            if (kpiRegimeEl) {
+              kpiRegimeEl.textContent = `${regName} REGIME`;
+              kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : 'var(--amber, #f59e0b)');
+            }
+            if (kpiRegimeSubEl && typeof regimeData === 'object' && regimeData.detail) {
+              kpiRegimeSubEl.textContent = regimeData.detail;
+            }
+          }
+
+          let singleCycleHtml = '';
           for (const [name, info] of Object.entries(data)) {
             if (name.startsWith('_') || typeof info !== 'object' || info === null || Array.isArray(info)) continue;
             if (info.price === undefined || info.price === null) continue;
-            const color = info.pct_change >= 0 ? '#16a34a' : '#dc2626';
-            const sign = info.pct_change >= 0 ? '+' : '';
-            html += `<div style="display:flex; gap:8px; align-items:baseline; font-weight: 600;">
-              <span style="color:var(--text);">${escapeHTML(name)}</span>
-              <span style="color:var(--muted); font-size: 1.05em;">${info.price ? info.price.toLocaleString('en-IN') : 'N/A'}</span>
-              <span style="color:${color}; font-weight: 700; font-size: 1.05em;">${sign}${info.pct_change}%</span>
+            const isPos = (info.pct_change || 0) >= 0;
+            const sign = isPos ? '+' : '';
+            const priceStr = Number(info.price).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+            singleCycleHtml += `<div class="ticker-item">
+              <span class="ticker-name">${escapeHTML(name)}</span>
+              <span class="ticker-val">${priceStr}</span>
+              <span class="ticker-pct ${isPos ? 'pos' : 'neg'}">${sign}${info.pct_change}% ${isPos ? '▲' : '▼'}</span>
             </div>`;
           }
 
@@ -3920,12 +4355,11 @@ initDashboard();
           const strongSectors = data._strong_sectors || data.strong_sectors;
           if (strongSectors && strongSectors.length > 0) {
             const strongChips = strongSectors.map(s => {
-              const sign = s.pct >= 0 ? '+' : '';
-              return `<span style="font-weight:700;">${escapeHTML(s.name)} <span style="font-size:0.9em; opacity:0.9;">(${sign}${s.pct}%)</span></span>`;
-            }).join('<span style="opacity:0.4; margin:0 4px;">•</span>');
-            html += `<div style="display:flex; gap:6px; align-items:center; background:rgba(22,163,74,0.1); border:1px solid rgba(22,163,74,0.3); color:#16a34a; padding:2px 10px; border-radius:6px; font-size:12px; white-space:nowrap;">
-              <span style="font-weight:800; letter-spacing:0.5px;">🔥 STRONG:</span>
-              <span style="display:flex; align-items:center;">${strongChips}</span>
+              const sign = (s.pct || 0) >= 0 ? '+' : '';
+              return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
+            }).join(' · ');
+            singleCycleHtml += `<div class="ticker-item sector-strong">
+              <span class="sector-badge">🔥 STRONG:</span> ${strongChips}
             </div>`;
           }
 
@@ -3933,23 +4367,27 @@ initDashboard();
           const weakSectors = data._weak_sectors || data.weak_sectors;
           if (weakSectors && weakSectors.length > 0) {
             const weakChips = weakSectors.map(s => {
-              const sign = s.pct >= 0 ? '+' : '';
-              return `<span style="font-weight:700;">${escapeHTML(s.name)} <span style="font-size:0.9em; opacity:0.9;">(${sign}${s.pct}%)</span></span>`;
-            }).join('<span style="opacity:0.4; margin:0 4px;">•</span>');
-            html += `<div style="display:flex; gap:6px; align-items:center; background:rgba(220,38,38,0.1); border:1px solid rgba(220,38,38,0.3); color:#dc2626; padding:2px 10px; border-radius:6px; font-size:12px; white-space:nowrap;">
-              <span style="font-weight:800; letter-spacing:0.5px;">❄️ WEAK:</span>
-              <span style="display:flex; align-items:center;">${weakChips}</span>
+              const sign = (s.pct || 0) >= 0 ? '+' : '';
+              return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
+            }).join(' · ');
+            singleCycleHtml += `<div class="ticker-item sector-weak">
+              <span class="sector-badge">❄️ WEAK:</span> ${weakChips}
             </div>`;
           }
 
-          if (html) {
-            tc.innerHTML = html;
+          if (trackEl && singleCycleHtml) {
+            // Duplicate 2x for infinite seamless marquee loop
+            trackEl.innerHTML = singleCycleHtml + singleCycleHtml;
+          }
+          if (tc && singleCycleHtml) {
+            tc.innerHTML = singleCycleHtml;
           }
         })
         .catch(err => {
-            const tc = document.getElementById('ticker-content');
-            if (tc && (!tc.innerHTML || tc.innerHTML.trim() === '')) {
-                tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+            console.error("Failed to load indices", err);
+            const trackEl = document.getElementById('globalTickerTrack');
+            if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
+              trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
             }
         });
 
