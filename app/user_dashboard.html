@@ -303,6 +303,137 @@ var USER_PAGE_SIZE = 10;
   .user-tab-btn:hover{color:var(--text);background:var(--card2);border-color:var(--border);}
   .user-tab-btn.active{color:#ffffff;background:var(--accent);border-color:var(--accent);box-shadow:0 4px 14px rgba(5,150,105,0.35);}
   .utab-panel{display:none;}
+
+  /* ── [PORTFOLIO CAPITAL ALLOCATION & SCANNER EXPOSURE BAR] Rule 67: Provides real-time macro capital distribution across scanners ── */
+  .exposure-meter-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
+  .exposure-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--muted);
+    margin-bottom: 9px;
+  }
+  .exposure-track {
+    height: 9px;
+    border-radius: 5px;
+    background: var(--card3);
+    overflow: hidden;
+    display: flex;
+    margin-bottom: 10px;
+  }
+  .exp-seg {
+    height: 100%;
+    transition: width 0.35s ease;
+  }
+  .exposure-legend {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    font-family: var(--font-mono);
+  }
+  .exp-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+  }
+  .exp-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  /* ── [HERO MULTI-SCANNER CHIPS STRIP] Rule 67: Interactive one-click scanner filtering with badge counts ── */
+  .scanner-chips-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .scanner-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.18s ease;
+  }
+  .scanner-chip:hover {
+    border-color: var(--border2);
+    color: var(--text);
+    background: var(--card3);
+  }
+  .scanner-chip.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .scanner-chip .chip-count {
+    background: var(--card3);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 800;
+  }
+  .scanner-chip.active .chip-count {
+    background: var(--accent);
+    color: #ffffff;
+  }
+  .scanner-chip .check-circle {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--muted2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+  }
+  .scanner-chip.active .check-circle {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+  }
+
+  /* ── [LIVE CMP TICK FLASH] Rule 67: Visual pulse on price updates ── */
+  @keyframes tickFlashUp {
+    0% { background: rgba(5, 150, 105, 0.45); color: #059669; }
+    100% { background: transparent; }
+  }
+  @keyframes tickFlashDown {
+    0% { background: rgba(220, 38, 38, 0.45); color: #dc2626; }
+    100% { background: transparent; }
+  }
+  .tick-flash-up {
+    animation: tickFlashUp 1.2s ease-out;
+  }
+  .tick-flash-down {
+    animation: tickFlashDown 1.2s ease-out;
+  }
   .utab-panel.active{display:block;animation:fadeInTab 0.2s ease-out;}
   @keyframes fadeInTab{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
 
@@ -994,9 +1125,6 @@ function playDing() {
       <button onclick="playLoudNotificationSound(true)" class="refresh-btn" style="padding:5px 9px; font-size:11px; font-weight:700; color:var(--accent); border-color:rgba(5,150,105,0.25); background:rgba(5,150,105,0.08); cursor:pointer;" title="Preview breakout chime">
         ▶ Test Chime
       </button>
-      <button onclick="window.open('/static/interactive_prototype_light.html', '_blank')" class="refresh-btn" style="padding:5px 9px; font-size:11px; font-weight:700; color:var(--text); border-color:var(--border); cursor:pointer;" title="Open interactive UI wireframe/prototype">
-        🎨 Wireframe ↗
-      </button>
 
       <!-- API LATENCY PILL -->
       <div id="api-latency-pill" title="Live API response time" style="display:none; align-items:center; gap:4px; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid rgba(0,212,161,0.3); background:rgba(0,212,161,0.1); color:#00d4a1; cursor:default; user-select:none;">
@@ -1058,6 +1186,22 @@ function playDing() {
     <!-- KPI ROW -->
     <div class="kpi-row" id="kpis"></div>
 
+    <!-- PORTFOLIO CAPITAL ALLOCATION & SCANNER EXPOSURE BAR (Rule 67: Live allocation breakdown across scanners) -->
+    <div class="exposure-meter-card" id="portfolioExposureBar">
+      <div class="exposure-header">
+        <span>💼 Capital Allocation &amp; Scanner Risk Exposure</span>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--muted); text-transform:none;">
+          Total Active Risk: <strong id="expTotalCap" style="color:var(--text);">₹0.00</strong> (<span id="expTotalPos">0</span> Positions)
+        </span>
+      </div>
+      <div class="exposure-track" id="exposureTrack">
+        <div class="exp-seg" style="width:100%; background:var(--card3);"></div>
+      </div>
+      <div class="exposure-legend" id="exposureLegend">
+        <span style="color:var(--muted); font-size:11px;">Loading scanner capital distribution...</span>
+      </div>
+    </div>
+
     <div id="newAlertToast" class="alert-toast" onclick="dismissAlert()">
       <span class="alert-toast-icon">🚨</span>
       <div>
@@ -1083,6 +1227,35 @@ function playDing() {
         </div>
       </div>
       <div id="trades-body" style="padding: 20px; background: var(--bg);">
+      <!-- HERO MULTI-SCANNER CHIPS STRIP -->
+      <div class="scanner-chips-row" id="scannerChipsRow">
+        <div class="scanner-chip active" id="chip-ALL" onclick="toggleScannerChip('ALL')">
+          <div class="check-circle">✓</div>
+          <span>🎯 All Scanners</span>
+          <span class="chip-count" id="chip-cnt-ALL">0</span>
+        </div>
+        <div class="scanner-chip" id="chip-QC" onclick="toggleScannerChip('QUALITY_COMPOUNDER')">
+          <div class="check-circle">✓</div>
+          <span>💎 Quality Compounder</span>
+          <span class="chip-count" id="chip-cnt-QC">0</span>
+        </div>
+        <div class="scanner-chip" id="chip-TECH" onclick="toggleScannerChip('TECHNICAL')">
+          <div class="check-circle">✓</div>
+          <span>⚡ Technical Breakout</span>
+          <span class="chip-count" id="chip-cnt-TECH">0</span>
+        </div>
+        <div class="scanner-chip" id="chip-REC" onclick="toggleScannerChip('QUALITY_VALUE_RECOVERY')">
+          <div class="check-circle">✓</div>
+          <span>🛡️ Quality Value Recovery</span>
+          <span class="chip-count" id="chip-cnt-REC">0</span>
+        </div>
+        <div class="scanner-chip" id="chip-FUND" onclick="toggleScannerChip('FUNDAMENTAL')">
+          <div class="check-circle">✓</div>
+          <span>📊 Fundamental Breakout</span>
+          <span class="chip-count" id="chip-cnt-FUND">0</span>
+        </div>
+      </div>
+
       <div class="filter-bar">
         <select id="filterDate">
           <option value="ALL">All Time</option>
@@ -1622,6 +1795,8 @@ function renderKPIs(s) {
   <div class="kpi-arrow"></div>
 </div>`).join('');
   window._kpiDefs = defs;
+  if (typeof renderExposureBar === 'function') renderExposureBar(filteredTrades);
+  if (typeof updateScannerChipCounts === 'function') updateScannerChipCounts(filteredTrades);
 }
 
 window.openDrill = function(title, trades) {
@@ -2025,6 +2200,18 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const sparkColor = (t.pnl_pct || 0) >= 0 ? '#16a34a' : '#dc2626';
     const sparkD = (t.pnl_pct || 0) >= 0 ? "M2,15 Q16,18 30,8 T56,3" : "M2,4 Q16,5 30,13 T56,17";
     const sparkline = `<svg style="width:48px; height:16px; display:inline-block; vertical-align:middle; margin-left:6px;" viewBox="0 0 58 20" title="7-Day Trend"><path d="${sparkD}" fill="none" stroke="${sparkColor}" stroke-width="2" stroke-linecap="round"/></svg>`;
+
+    // [RULE 67 CHANGE-RATIONALE: Enhancement 2 - Live Tick Pulse Flash]
+    window._PREV_PRICES = window._PREV_PRICES || {};
+    const curP = Number(t.exit_price || t.current_price || 0);
+    const prevP = window._PREV_PRICES[cleanSym];
+    let flashCls = '';
+    if (prevP != null && prevP > 0 && curP > 0) {
+      if (curP > prevP) flashCls = 'tick-flash-up';
+      else if (curP < prevP) flashCls = 'tick-flash-down';
+    }
+    window._PREV_PRICES[cleanSym] = curP;
+
     return `
     <tr class="main-row${isOpen?' open':''}" id="mr-${id}" data-id="${t.id || ''}" data-symbol="${cleanSym}" onclick="toggleDetail('${id}', '${t.symbol}')" style="${rowHighlightStyle}">
       <td style="text-align:center; width:28px;">${isOpen?'\u25bc':'\u25b6'}</td>
@@ -2050,7 +2237,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
         ${fmt(t.actual_entry_price || t.entry_price)}
       </td>
       <td style="text-align:right;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
-        <div style="font-weight:800; font-size:12px; color:var(--text);">${fmt(t.exit_price || t.current_price)}</div>
+        <div class="cmp-val ${flashCls}" style="font-weight:800; font-size:12px; color:var(--text); padding:2px 4px; border-radius:3px; display:inline-block;">${fmt(t.exit_price || t.current_price)}</div>
       </td>
       <td style="text-align:right;">
         <div class="pnl-wrap" style="justify-content:flex-end; gap:5px;">
@@ -2744,6 +2931,143 @@ function onUserScannerChange() {
   renderTradeTable();
 }
 
+// [RULE 67 CHANGE-RATIONALE: Interactive Multi-Scanner Chips & Exposure Meter Implementation]
+function toggleScannerChip(scKey) {
+  const chips = document.querySelectorAll('.scanner-chip');
+  chips.forEach(c => c.classList.remove('active'));
+
+  if (scKey === 'ALL') {
+    const el = document.getElementById('chip-ALL');
+    if (el) el.classList.add('active');
+    setUserScannersAll(true);
+    return;
+  }
+
+  const chipMap = {
+    'QUALITY_COMPOUNDER': 'chip-QC',
+    'TECHNICAL': 'chip-TECH',
+    'QUALITY_VALUE_RECOVERY': 'chip-REC',
+    'FUNDAMENTAL': 'chip-FUND'
+  };
+  const targetId = chipMap[scKey];
+  const el = document.getElementById(targetId);
+  if (el) el.classList.add('active');
+
+  // Select only this scanner in checkboxes
+  const cbs = document.querySelectorAll('.user-scanner-cb');
+  let matched = false;
+  cbs.forEach(cb => {
+    const val = cb.value.toUpperCase();
+    if (val.includes(scKey) || (scKey === 'TECHNICAL' && val === 'TECHNICAL_BREAKOUT')) {
+      cb.checked = true;
+      matched = true;
+    } else {
+      cb.checked = false;
+    }
+  });
+
+  const hidden = document.getElementById('filterScanner');
+  if (hidden) hidden.value = scKey;
+
+  updateUserScannerLabel();
+  tradeCurrentPage = 1;
+  renderTradeTable();
+}
+
+function updateScannerChipCounts(trades) {
+  const counts = { ALL: (trades || []).length, QC: 0, TECH: 0, REC: 0, FUND: 0 };
+  (trades || []).forEach(t => {
+    const sc = String(t.scanner || '').toUpperCase();
+    if (sc.includes('COMPOUND')) counts.QC++;
+    else if (sc.includes('TECH')) counts.TECH++;
+    else if (sc.includes('RECOV')) counts.REC++;
+    else if (sc.includes('FUND')) counts.FUND++;
+  });
+  const elAll = document.getElementById('chip-cnt-ALL'); if (elAll) elAll.textContent = counts.ALL;
+  const elQC = document.getElementById('chip-cnt-QC'); if (elQC) elQC.textContent = counts.QC;
+  const elTech = document.getElementById('chip-cnt-TECH'); if (elTech) elTech.textContent = counts.TECH;
+  const elRec = document.getElementById('chip-cnt-REC'); if (elRec) elRec.textContent = counts.REC;
+  const elFund = document.getElementById('chip-cnt-FUND'); if (elFund) elFund.textContent = counts.FUND;
+}
+
+function renderExposureBar(trades) {
+  const trackEl = document.getElementById('exposureTrack');
+  const legendEl = document.getElementById('exposureLegend');
+  const totalCapEl = document.getElementById('expTotalCap');
+  const totalPosEl = document.getElementById('expTotalPos');
+  if (!trackEl || !legendEl) return;
+
+  const closedStatuses = new Set(['WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED']);
+  const openTrades = (trades || []).filter(t => {
+    const st = String(t.status || '').toUpperCase().trim();
+    return !closedStatuses.has(st) && t.is_rejected !== true;
+  });
+
+  if (totalPosEl) totalPosEl.textContent = openTrades.length;
+
+  if (openTrades.length === 0) {
+    if (totalCapEl) totalCapEl.textContent = '₹0.00';
+    trackEl.innerHTML = `<div class="exp-seg" style="width:100%; background:var(--card3);" title="100% Cash / No active positions"></div>`;
+    legendEl.innerHTML = `<span style="color:var(--muted); font-size:11px;">100% Cash · 0 Active Open Positions Deployed</span>`;
+    return;
+  }
+
+  const scannerDefs = {
+    'QUALITY_COMPOUNDER': { label: '💎 Compounder', color: '#2563eb' },
+    'TECHNICAL': { label: '⚡ Technical', color: '#d97706' },
+    'QUALITY_VALUE_RECOVERY': { label: '🛡️ Recovery', color: '#7c3aed' },
+    'FUNDAMENTAL': { label: '📊 Fundamental', color: '#16a34a' },
+    'MULTIBAGGER': { label: '🚀 Multibagger', color: '#06b6d4' },
+    'PULLBACK': { label: '🎯 Pullback', color: '#ec4899' },
+    'OTHER': { label: '🔹 Other', color: '#64748b' }
+  };
+
+  const capByScanner = {};
+  let totalCapital = 0;
+
+  openTrades.forEach(t => {
+    let rawSc = String(t.scanner || 'OTHER').toUpperCase().trim();
+    let scKey = 'OTHER';
+    if (rawSc.includes('COMPOUND')) scKey = 'QUALITY_COMPOUNDER';
+    else if (rawSc.includes('TECH')) scKey = 'TECHNICAL';
+    else if (rawSc.includes('RECOV')) scKey = 'QUALITY_VALUE_RECOVERY';
+    else if (rawSc.includes('FUND')) scKey = 'FUNDAMENTAL';
+    else if (rawSc.includes('MULTI')) scKey = 'MULTIBAGGER';
+    else if (rawSc.includes('PULL')) scKey = 'PULLBACK';
+
+    const cap = Number(t.capital_allocated) || ((Number(t.actual_entry_price || t.entry_price || 0)) * (Number(t.shares_bought) || 1)) || 50000;
+    capByScanner[scKey] = (capByScanner[scKey] || 0) + cap;
+    totalCapital += cap;
+  });
+
+  function fmtCapStr(val) {
+    if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
+    if (val >= 100000) return `₹${(val / 100000).toFixed(2)} Lakh`;
+    return `₹${Math.round(val).toLocaleString('en-IN')}`;
+  }
+
+  if (totalCapEl) totalCapEl.textContent = fmtCapStr(totalCapital);
+
+  let trackHtml = '';
+  let legendHtml = '';
+
+  Object.keys(capByScanner).forEach(scKey => {
+    const amt = capByScanner[scKey];
+    const pct = totalCapital > 0 ? ((amt / totalCapital) * 100) : 0;
+    if (pct <= 0) return;
+    const def = scannerDefs[scKey] || scannerDefs['OTHER'];
+    trackHtml += `<div class="exp-seg" style="width:${pct.toFixed(1)}%; background:${def.color};" title="${def.label}: ${fmtCapStr(amt)} (${pct.toFixed(1)}%)"></div>`;
+    legendHtml += `
+      <div class="exp-item">
+        <span class="exp-dot" style="background:${def.color};"></span>
+        <span>${def.label}: <strong>${pct.toFixed(1)}%</strong> (${fmtCapStr(amt)})</span>
+      </div>`;
+  });
+
+  trackEl.innerHTML = trackHtml;
+  legendEl.innerHTML = legendHtml;
+}
+
 function renderTradeTable() {
   const selectedScanners = getUserSelectedScanners();
   const st  = document.getElementById('filterStatus').value;
@@ -2916,6 +3240,8 @@ function populateFilters(trades) {
       userCbContainer.appendChild(lbl);
     });
     updateUserScannerLabel();
+    updateScannerChipCounts(trades);
+    renderExposureBar(trades);
   }
   
   if(cEl) {
