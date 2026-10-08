@@ -202,4 +202,4 @@ def test_admin_dashboard_html_contains_filing_watcher():
 
     assert "'FILING_WATCHER'" in content
     assert "Filing Watcher" in content
-    assert "Processed / Universe" in content
+    assert "Filings Audited:" in content or "Pre-Buy Fence:" in content

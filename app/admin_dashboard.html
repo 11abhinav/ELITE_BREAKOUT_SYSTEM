@@ -3547,33 +3547,6 @@ function changeAdminPage(type, delta) {
         </div>
       </div>
 
-      <!-- ── 6. COMPACT SCANNER HEALTH & ORCHESTRATION (1 ROW PER SCANNER) ── -->
-      <!-- [RULE 67 CHANGE-RATIONALE]: Replaced empty Multi-TF Watchlist with Compact Scanner Health & Automation Control per interactive_prototype_light.html design -->
-      <section class="card" style="margin-top: 24px; padding: 20px 24px; margin-bottom: 28px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size:15px; font-weight:800; color:var(--text); text-transform:uppercase; letter-spacing:0.6px; display:flex; align-items:center; gap:8px;">
-              🛡️ Scanner Health &amp; Automation Control
-            </span>
-            <span id="all-scanners-status-pill-tab1" style="font-size:11px; padding:2px 8px; border-radius:12px; background:rgba(16,185,129,0.1); color:var(--win); border:1px solid rgba(16,185,129,0.25); font-weight:700;">
-              All Systems Operational
-            </span>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <button onclick="toggleAllScanners('resume')" style="padding:5px 12px; border-radius:6px; background:rgba(16,185,129,0.12); color:var(--win); border:1px solid rgba(16,185,129,0.3); font-size:11px; font-weight:700; cursor:pointer;">▶ Start All</button>
-            <button onclick="toggleAllScanners('pause')" style="padding:5px 12px; border-radius:6px; background:rgba(239,68,68,0.1); color:var(--loss); border:1px solid rgba(239,68,68,0.25); font-size:11px; font-weight:700; cursor:pointer;">⏸ Pause All</button>
-            <button onclick="refreshMasterSymbolsUniverse()" style="padding:5px 12px; border-radius:6px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; font-size:11px; font-weight:700; cursor:pointer;">⚡ Sync Master Stock List</button>
-            <button onclick="switchAdminTab('health-errors')" style="padding:5px 12px; border-radius:6px; background:var(--card2); color:var(--accent); border:1px solid var(--border); font-size:11px; font-weight:700; cursor:pointer;">📜 Full Telemetry →</button>
-          </div>
-        </div>
-
-        <!-- Compact 1-Row Per Scanner Table -->
-        <div class="scanner-rows-list" id="scannerGridTab1">
-          <!-- Rendered Dynamically -->
-        </div>
-      </section>
-
-
       <!-- DRILL PANEL -->
       <div id="drill-panel">
         <div class="drill-header">
@@ -5215,13 +5188,11 @@ function changeAdminPage(type, delta) {
 
     function renderScannerGrid(scanner_stats) {
       const el = document.getElementById('scannerGrid');
-      const elTab1 = document.getElementById('scannerGridTab1');
-      if (!el && !elTab1) return;
+      if (!el) return;
 
       if (!scanner_stats || !Object.keys(scanner_stats).length) {
         const emptyHtml = `<div style="color:var(--muted);font-size:13px;padding:20px">No scanner data available yet.</div>`;
         if (el) el.innerHTML = emptyHtml;
-        if (elTab1) elTab1.innerHTML = emptyHtml;
         return;
       }
 
@@ -5395,9 +5366,8 @@ function changeAdminPage(type, delta) {
         }
 
         if (el) el.innerHTML = html_buffer;
-        if (elTab1) elTab1.innerHTML = html_buffer;
 
-        // Update status badges across tabs
+        // Update status badge on Scanner Health tab
         let pillText = 'All Systems Operational';
         let pillColor = 'var(--win)';
         let pillBg = 'rgba(16,185,129,0.1)';
@@ -5420,15 +5390,13 @@ function changeAdminPage(type, delta) {
           pillBorder = 'rgba(245,158,11,0.25)';
         }
 
-        ['all-scanners-status-pill-tab1', 'all-scanners-status-pill-tab3'].forEach(id => {
-          const p = document.getElementById(id);
-          if (p) {
-            p.textContent = pillText;
-            p.style.color = pillColor;
-            p.style.background = pillBg;
-            p.style.borderColor = pillBorder;
-          }
-        });
+        const p = document.getElementById('all-scanners-status-pill-tab3');
+        if (p) {
+          p.textContent = pillText;
+          p.style.color = pillColor;
+          p.style.background = pillBg;
+          p.style.borderColor = pillBorder;
+        }
       })();
     }
 
