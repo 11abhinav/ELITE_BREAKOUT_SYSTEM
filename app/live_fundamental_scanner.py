@@ -4263,7 +4263,8 @@ class QualityCompounderValueV2Scanner:
                 complete_scanner_execution_run,
                 upsert_scanner_health,
                 save_v2_scan_snapshots,
-                save_v2_candidate_alert
+                save_v2_candidate_alert,
+                add_symbol_to_cooloff
             )
         except ImportError:
             from app.database import (
@@ -4271,7 +4272,8 @@ class QualityCompounderValueV2Scanner:
                 complete_scanner_execution_run,
                 upsert_scanner_health,
                 save_v2_scan_snapshots,
-                save_v2_candidate_alert
+                save_v2_candidate_alert,
+                add_symbol_to_cooloff
             )
 
         # Record execution run start in scanner_execution_history ONLY AFTER lock acquired
@@ -4389,22 +4391,28 @@ class QualityCompounderValueV2Scanner:
             from database import get_active_cooloff_symbols
             db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER") | get_active_cooloff_symbols("ALL")
         except Exception:
-            db_cooloff_qc = set()
+            try:
+                from app.database import get_active_cooloff_symbols
+                db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER") | get_active_cooloff_symbols("ALL")
+            except Exception:
+                db_cooloff_qc = set()
 
+        quarantined_qc = set(db_cooloff_qc)
         try:
             from pit_recovery_cache import get_pit_recovery_cache
             _q_cache = get_pit_recovery_cache()
-            quarantined_qc = set(s for s in universe_symbols if _q_cache.is_quarantined_for_scanner(s, "QUALITY_COMPOUNDER")) | db_cooloff_qc
-            if quarantined_qc:
-                orig_cnt_qc = len(universe_symbols)
-                universe_symbols = [s for s in universe_symbols if s not in quarantined_qc]
-                new_cnt_qc = len(universe_symbols)
-                logger.info(
-                    f"🛡️ [SCANNER_PRE_FILTER: QUALITY_COMPOUNDER] Excluding {orig_cnt_qc - new_cnt_qc} stocks under active 7-day data cool-off. "
-                    f"Target universe count reduced from {orig_cnt_qc} to {new_cnt_qc}."
-                )
+            quarantined_qc |= set(s for s in universe_symbols if _q_cache.is_quarantined_for_scanner(s, "QUALITY_COMPOUNDER"))
         except Exception as _q_err:
             logger.debug(f"Quarantine pre-filter notice: {_q_err}")
+
+        if quarantined_qc:
+            orig_cnt_qc = len(universe_symbols)
+            universe_symbols = [s for s in universe_symbols if s not in quarantined_qc]
+            new_cnt_qc = len(universe_symbols)
+            logger.info(
+                f"🛡️ [SCANNER_PRE_FILTER: QUALITY_COMPOUNDER] Excluding {orig_cnt_qc - new_cnt_qc} stocks under active 7-day data cool-off. "
+                f"Target universe count reduced from {orig_cnt_qc} to {new_cnt_qc}."
+            )
 
         total_approved_univ = len(universe_symbols)
         pit_univ_cnt = len(pit_df)
@@ -4976,6 +4984,18 @@ class QualityCompounderValueV2Scanner:
                     collector.record_gate_result(sym, "ELIGIBILITY_GATE", "ELIGIBILITY", "Passed Data Gate", "DATA_PASSED", "BLOCKED_AT_DATA_GATE", "==", "NOT_EVALUATED", "BLOCKED_AT_DATA_GATE")
                     collector.record_gate_result(sym, "QUALITY_GATE", "QUALITY", "Passed Eligibility Gate", "ELIGIBILITY_PASSED", "BLOCKED_AT_DATA_GATE", "==", "NOT_EVALUATED", "BLOCKED_AT_DATA_GATE")
                     collector.record_gate_result(sym, "VALUATION_GATE", "VALUATION", "Passed Quality Gate", "QUALITY_PASSED", "BLOCKED_AT_DATA_GATE", "==", "NOT_EVALUATED", "BLOCKED_AT_DATA_GATE")
+
+                # 7-day data failure cool-off dispatch for non-PIT stock
+                try:
+                    add_symbol_to_cooloff(
+                        symbol=sym,
+                        reason="DATA_MISSING_PIT_FILINGS",
+                        scanner="ALL",
+                        duration_days=7
+                    )
+                except Exception as _ce:
+                    logger.debug(f"Cool-off dispatch notice for non-PIT {sym}: {_ce}")
+
                 continue
 
             row = pit_records_map[sym]
@@ -5164,6 +5184,15 @@ class QualityCompounderValueV2Scanner:
                     validation_reason="LIVE_CMP_REQUIRED_FOR_PRODUCTION_BUY_SIGNAL",
                     final_action="STOCK_SKIPPED",
                 )
+                try:
+                    add_symbol_to_cooloff(
+                        symbol=sym,
+                        reason="PRICE_DATA_MISSING:LIVE_CMP_UNAVAILABLE",
+                        scanner="ALL",
+                        duration_days=7
+                    )
+                except Exception as _ce:
+                    logger.debug(f"Cool-off dispatch notice for price failure {sym}: {_ce}")
 
             # Missing Quality Data check — STOPS candidate from passing if industrial metric is missing for non-financials
             _inc_cls = None
@@ -5292,6 +5321,16 @@ class QualityCompounderValueV2Scanner:
                         validation_reason=val_reason,
                         final_action="STOCK_SKIPPED",
                     )
+                    try:
+                        _miss_str = ",".join(_missing_fields) if _missing_fields else "QUALITY_FIELDS_MISSING"
+                        add_symbol_to_cooloff(
+                            symbol=sym,
+                            reason=f"DATA_INSUFFICIENT_QUALITY:{_miss_str}",
+                            scanner="ALL",
+                            duration_days=7
+                        )
+                    except Exception as _ce:
+                        logger.debug(f"Cool-off dispatch notice for quality failure {sym}: {_ce}")
 
                 else:
                     roce_val = float(roce_5y)
@@ -5305,6 +5344,15 @@ class QualityCompounderValueV2Scanner:
 
                     if share_dilution_3y is None or pd.isna(share_dilution_3y):
                         rejections.append("DATA_INSUFFICIENT_QUALITY")
+                        try:
+                            add_symbol_to_cooloff(
+                                symbol=sym,
+                                reason="DATA_INSUFFICIENT_QUALITY:share_dilution_3y",
+                                scanner="ALL",
+                                duration_days=7
+                            )
+                        except Exception as _ce:
+                            logger.debug(f"Cool-off dispatch notice for dilution failure {sym}: {_ce}")
                     elif float(share_dilution_3y) > 10.0:
                         rejections.append("FAIL_DILUTION")
 
@@ -5441,6 +5489,15 @@ class QualityCompounderValueV2Scanner:
                         validation_reason=_val_reason,
                         final_action="STOCK_SKIPPED",
                     )
+                    try:
+                        add_symbol_to_cooloff(
+                            symbol=sym,
+                            reason=f"DATA_INSUFFICIENT_VALUATION:{_val_reason or 'VALUATION_MISSING'}",
+                            scanner="ALL",
+                            duration_days=7
+                        )
+                    except Exception as _ce:
+                        logger.debug(f"Cool-off dispatch notice for valuation failure {sym}: {_ce}")
                 else:
                     ev_discount = calc_discount
                     if ev_discount < 0.25:
@@ -7316,7 +7373,11 @@ class QualityValueRecoveryScanner:
             return False, rejection_reasons, metrics
 
         # 2. Drawdown Setup Gate (Mandatory >= 30% price drawdown from 2-year peak)
+        if cmp_price <= 0:
+            rejection_reasons.append("PRICE_DATA_INSUFFICIENT")
+
         drawdown_pct = 0.0
+        p_high_2y = 0.0
         if df_px is not None and not df_px.empty:
             h_col = 'high' if 'high' in df_px.columns else ('High' if 'High' in df_px.columns else None)
             c_col = 'close' if 'close' in df_px.columns else ('Close' if 'Close' in df_px.columns else None)
@@ -7328,6 +7389,8 @@ class QualityValueRecoveryScanner:
             p_high_2y = float(row.get('high_2y') or row.get('high_52w') or row.get('high') or 0.0)
             if p_high_2y > 0 and cmp_price > 0:
                 drawdown_pct = max(0.0, (p_high_2y - cmp_price) / p_high_2y)
+            elif cmp_price > 0:
+                rejection_reasons.append("PRICE_HISTORY_MISSING")
 
         metrics['drawdown_pct'] = round(drawdown_pct * 100.0, 2)
 
@@ -7381,22 +7444,26 @@ class QualityValueRecoveryScanner:
         val_compressed = False
         val_ratio = 1.0
 
-        if ev_curr is not None and ev_med is not None and not pd.isna(ev_curr) and not pd.isna(ev_med):
+        ev_has_data = ev_curr is not None and ev_med is not None and not pd.isna(ev_curr) and not pd.isna(ev_med) and float(ev_curr or 0) > 0 and float(ev_med or 0) > 0
+        pe_has_data = pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_curr or 0) > 0 and float(pe_med or 0) > 0
+
+        if not ev_has_data and not pe_has_data:
+            rejection_reasons.append("VALUATION_DATA_INSUFFICIENT")
+
+        if ev_has_data:
             ev_c_val = float(ev_curr)
             ev_m_val = float(ev_med)
-            if ev_c_val > 0 and ev_m_val > 0:
-                val_ratio = ev_c_val / ev_m_val
-                if val_ratio <= 0.80:
-                    val_compressed = True
+            val_ratio = ev_c_val / ev_m_val
+            if val_ratio <= 0.80:
+                val_compressed = True
 
-        if not val_compressed and pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med):
+        if not val_compressed and pe_has_data:
             pe_c_val = float(pe_curr)
             pe_m_val = float(pe_med)
-            if pe_c_val > 0 and pe_m_val > 0:
-                pe_ratio = pe_c_val / pe_m_val
-                if pe_ratio <= 0.80:
-                    val_compressed = True
-                    val_ratio = min(val_ratio, pe_ratio)
+            pe_ratio = pe_c_val / pe_m_val
+            if pe_ratio <= 0.80:
+                val_compressed = True
+                val_ratio = min(val_ratio, pe_ratio)
 
         metrics['val_compression_ratio'] = round(val_ratio, 3)
 
@@ -7670,6 +7737,25 @@ class QualityValueRecoveryScanner:
                                 data_missing_count += 1
                             if 'STALE_PRICE_DATA' in rejection_reasons:
                                 stale_data_count += 1
+
+                            data_reasons = [
+                                r for r in rejection_reasons
+                                if r in ('QUALITY_DATA_INSUFFICIENT', 'VALUATION_DATA_INSUFFICIENT', 'PRICE_DATA_INSUFFICIENT', 'PRICE_HISTORY_MISSING', 'STALE_PRICE_DATA')
+                            ]
+                            if data_reasons:
+                                try:
+                                    try:
+                                        from database import add_symbol_to_cooloff
+                                    except ImportError:
+                                        from app.database import add_symbol_to_cooloff
+                                    add_symbol_to_cooloff(
+                                        symbol=sym,
+                                        reason=f"RECOVERY_DATA_INSUFFICIENT:{','.join(data_reasons)}",
+                                        scanner="ALL",
+                                        duration_days=7
+                                    )
+                                except Exception as _ce:
+                                    logger.debug(f"Cool-off dispatch notice for recovery {sym}: {_ce}")
 
                             failed_at = rejection_reasons[0] if rejection_reasons else "UNKNOWN_FAIL"
                             funnel_str = (

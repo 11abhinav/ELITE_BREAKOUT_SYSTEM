@@ -118,3 +118,105 @@ def test_fundamental_pre_recovery_excludes_cooloff_symbols():
     # Clean up
     remove_symbol_from_cooloff(cool_sym, "ALL")
 
+
+def test_missing_data_7_day_cooloff_and_8th_day_retry_flow(monkeypatch):
+    """
+    [RULE 67 INVARIANT]
+    Any stock lacking full data is enrolled into 7-day cool-off in symbol_cooloff_journal.
+    During Days 1 to 7, both QUALITY_COMPOUNDER and QUALITY_VALUE_RECOVERY exclude the stock.
+    On the 8th day, cooloff expires and the scanner retries the stock.
+    """
+    sym = "TEST_MISSING_DATA_SYM"
+    remove_symbol_from_cooloff(sym, "ALL")
+
+    base_time = datetime(2026, 10, 8, 12, 0, 0, tzinfo=IST)
+    monkeypatch.setattr("app.database.datetime", type("MockDateTime", (), {
+        "now": classmethod(lambda cls, tz=None: base_time),
+        "fromisoformat": datetime.fromisoformat,
+    }))
+
+    # 1. Enroll into 7-day cool-off
+    res = add_symbol_to_cooloff(
+        symbol=sym,
+        reason="DATA_INSUFFICIENT_QUALITY:pat_cagr_5y",
+        scanner="ALL",
+        duration_days=7
+    )
+    assert res is True
+
+    # 2. Day 1 to Day 7: Active cooloff excludes the stock from both scanners
+    active_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
+    active_qvr = get_active_cooloff_symbols("QUALITY_VALUE_RECOVERY")
+    assert sym in active_qc
+    assert sym in active_qvr
+
+    # Simulate universe filtering at scanner entry
+    target_univ = [sym, "INFY", "TCS"]
+    filtered_univ_qc = [s for s in target_univ if s not in active_qc]
+    filtered_univ_qvr = [s for s in target_univ if s not in active_qvr]
+    assert sym not in filtered_univ_qc
+    assert sym not in filtered_univ_qvr
+    assert len(filtered_univ_qc) == 2
+
+    # 3. Day 8: Cool-off expires, allowing retry
+    past_time = datetime.now(IST) - timedelta(seconds=1)
+    with get_connection() as conn:
+        if not isinstance(conn, DummyConnection):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE symbol_cooloff_journal SET cooloff_until = %s WHERE symbol = %s",
+                    (past_time, sym)
+                )
+    from app.database import _LOCAL_COOLOFF_CACHE, _LOCAL_COOLOFF_LOCK
+    with _LOCAL_COOLOFF_LOCK:
+        if (sym, "ALL") in _LOCAL_COOLOFF_CACHE:
+            _LOCAL_COOLOFF_CACHE[(sym, "ALL")]["cooloff_until"] = past_time
+
+    active_qc_day8 = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
+    active_qvr_day8 = get_active_cooloff_symbols("QUALITY_VALUE_RECOVERY")
+    assert sym not in active_qc_day8
+    assert sym not in active_qvr_day8
+
+    # Universe now includes the stock again for automatic retry
+    retried_univ_qc = [s for s in target_univ if s not in active_qc_day8]
+    assert sym in retried_univ_qc
+    assert len(retried_univ_qc) == 3
+
+    # Clean up
+    remove_symbol_from_cooloff(sym, "ALL")
+
+
+def test_quality_value_recovery_missing_data_rejection_codes():
+    """
+    Verifies that QualityValueRecoveryScanner.evaluate_symbol_recovery correctly returns
+    missing data rejection codes when full data is absent.
+    """
+    from app.live_fundamental_scanner import QualityValueRecoveryScanner
+
+    row = {
+        "symbol": "TEST_RECOVERY_DATA",
+        "industry": "Automobiles",
+        "high_2y": 0.0,
+        "roce_5y_avg": None, # Missing ROCE
+        "debt_to_equity": None, # Missing D/E
+        "cfo_pat_5y_ratio": None, # Missing CFO/PAT
+        "current_ev_ebitda": None,
+        "ev_ebitda_3y_median": None,
+        "current_pe": None,
+        "pe_3y_median": None,
+    }
+
+    # When price is 0 and price history missing
+    passed, rejections, metrics = QualityValueRecoveryScanner.evaluate_symbol_recovery(
+        sym="TEST_RECOVERY_DATA",
+        row=row,
+        cmp_price=0.0,
+        df_px=None
+    )
+
+    assert passed is False
+    assert "PRICE_DATA_INSUFFICIENT" in rejections
+    assert "QUALITY_DATA_INSUFFICIENT" in rejections
+    assert "VALUATION_DATA_INSUFFICIENT" in rejections
+
+
