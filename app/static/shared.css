@@ -328,3 +328,228 @@
   animation: tick-highlight-pulse 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* =====================================================================================
+ * FROSTED CRYSTAL GLASS DESIGN SYSTEM (LIGHT THEME)
+ * Inspired by complete_white_theme_showcase.html (Option 1: Frosted Crystal Glass)
+ * ===================================================================================== */
+
+:root[data-theme="light"],
+[data-theme="light"] {
+  --crystal-surface: rgba(255, 255, 255, 0.76);
+  --crystal-surface-hover: rgba(255, 255, 255, 0.92);
+  --crystal-border: rgba(255, 255, 255, 0.85);
+  --crystal-border-subtle: rgba(226, 232, 240, 0.85);
+  --crystal-border-hover: rgba(255, 255, 255, 1);
+  --crystal-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.45) 60%, rgba(226, 232, 240, 0.65) 100%);
+  --crystal-shadow: 0 16px 36px -8px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.03), inset 0 1px 1px 0 rgba(255, 255, 255, 0.95);
+  --crystal-shadow-hover: 0 24px 48px -10px rgba(15, 23, 42, 0.12), inset 0 1px 2px 0 rgba(255, 255, 255, 1);
+
+  --pastel-cyan: #0284c7;
+  --pastel-cyan-glow: rgba(2, 132, 199, 0.22);
+  --pastel-emerald: #059669;
+  --pastel-emerald-glow: rgba(5, 150, 105, 0.22);
+  --pastel-violet: #7c3aed;
+  --pastel-violet-glow: rgba(124, 58, 237, 0.22);
+  --pastel-amber: #d97706;
+  --pastel-amber-glow: rgba(217, 119, 6, 0.22);
+}
+
+[data-theme="light"] body {
+  background-color: #f8fafc !important;
+  background-image: radial-gradient(circle at 50% 0%, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%) !important;
+  background-attachment: fixed !important;
+}
+
+/* Light Theme Ambient Pastel Aurora Refractions */
+[data-theme="light"] .aurora-top-left {
+  background: radial-gradient(circle, #38bdf8, #818cf8) !important;
+  opacity: 0.28 !important;
+}
+[data-theme="light"] .aurora-top-right {
+  background: radial-gradient(circle, #34d399, #10b981) !important;
+  opacity: 0.28 !important;
+}
+
+/* Frosted Crystal Glass Header (Light) */
+[data-theme="light"] .header {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* Frosted Crystal Master Tabs Bar (Light) */
+[data-theme="light"] .admin-tabs-bar,
+[data-theme="light"] .user-tabs-bar {
+  background: var(--crystal-surface) !important;
+  backdrop-filter: blur(20px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
+  border: 1px solid var(--crystal-border) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--crystal-shadow) !important;
+}
+
+/* Frosted Crystal Hero KPI Cards (Light) */
+[data-theme="light"] .kpi-card {
+  background: var(--crystal-surface) !important;
+  backdrop-filter: blur(22px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(190%) !important;
+  border: 1px solid var(--crystal-border) !important;
+  border-radius: 16px !important;
+  padding: 20px 22px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              background 0.35s ease !important;
+  box-shadow: var(--crystal-shadow) !important;
+}
+
+/* Specular Crystalline Top Rim Highlight (Light) */
+[data-theme="light"] .kpi-card::before {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: 16px !important;
+  padding: 1px !important;
+  background: var(--crystal-specular) !important;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0) !important;
+  -webkit-mask-composite: xor !important;
+  mask-composite: exclude !important;
+  pointer-events: none !important;
+  height: auto !important;
+}
+
+/* Soft Pastel Radial Glow (Light) */
+[data-theme="light"] .kpi-card::after {
+  content: '' !important;
+  position: absolute !important;
+  top: -45px !important;
+  right: -45px !important;
+  width: 145px !important;
+  height: 145px !important;
+  border-radius: 50% !important;
+  filter: blur(48px) !important;
+  opacity: 0.24 !important;
+  pointer-events: none !important;
+  transition: opacity 0.35s ease, transform 0.35s ease !important;
+}
+
+[data-theme="light"] .kpi-card:hover {
+  transform: translateY(-5px) scale(1.01) !important;
+  background: var(--crystal-surface-hover) !important;
+  box-shadow: var(--crystal-shadow-hover) !important;
+}
+[data-theme="light"] .kpi-card:hover::after {
+  opacity: 0.42 !important;
+  transform: scale(1.25) !important;
+}
+
+/* Light Theme Color Accents for Cards */
+[data-theme="light"] #kpi-card-capital-box::after,
+[data-theme="light"] .kpi-card:not(.green):not(.purple):not(.amber)::after {
+  background: var(--pastel-cyan) !important;
+}
+[data-theme="light"] .kpi-card.green::after,
+[data-theme="light"] #kpi-card-pnl-box::after {
+  background: var(--pastel-emerald) !important;
+}
+[data-theme="light"] .kpi-card.purple::after,
+[data-theme="light"] #kpi-card-wr-box::after {
+  background: var(--pastel-violet) !important;
+}
+[data-theme="light"] .kpi-card.amber::after,
+[data-theme="light"] #kpi-card-regime-box::after {
+  background: var(--pastel-amber) !important;
+}
+
+/* Frosted Crystal Exposure Bar (Light) */
+[data-theme="light"] .exposure-meter-card {
+  background: var(--crystal-surface) !important;
+  backdrop-filter: blur(22px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(190%) !important;
+  border: 1px solid var(--crystal-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--crystal-shadow) !important;
+}
+
+/* Frosted Crystal Small Tiles Grid (Light) */
+[data-theme="light"] .small-tile {
+  background: var(--crystal-surface) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid var(--crystal-border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+[data-theme="light"] .small-tile:hover {
+  background: #ffffff !important;
+  transform: translateY(-3px) !important;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Frosted Crystal Cards & Panels (Light) */
+[data-theme="light"] .card {
+  background: var(--crystal-surface) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  border: 1px solid var(--crystal-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--crystal-shadow) !important;
+}
+
+/* Frosted Crystal Tables (Light) */
+[data-theme="light"] .tbl-wrap table thead th {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9) !important;
+  color: #475569 !important;
+}
+[data-theme="light"] .tbl-wrap table tbody tr {
+  border-bottom: 1px solid rgba(226, 232, 240, 0.5) !important;
+  transition: background 0.2s ease !important;
+}
+[data-theme="light"] .tbl-wrap table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.65) !important;
+}
+
+/* Frosted Crystal Scanner Chips & Status Pills (Light) */
+[data-theme="light"] .scanner-chip {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(226, 232, 240, 0.85) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="light"] .scanner-chip:hover {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  transform: translateY(-2px) !important;
+}
+[data-theme="light"] .scanner-chip.active {
+  background: #0f172a !important;
+  color: #ffffff !important;
+  border-color: #0f172a !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15) !important;
+}
+[data-theme="light"] .scanner-chip.active .check-circle {
+  border-color: #ffffff !important;
+  color: #ffffff !important;
+}
+
+[data-theme="light"] .status-pill {
+  background: rgba(255, 255, 255, 0.8) !important;
+  border: 1px solid rgba(226, 232, 240, 0.85) !important;
+}
+[data-theme="light"] .status-pill:hover {
+  background: #ffffff !important;
+}
+[data-theme="light"] .status-pill.active {
+  background: #0f172a !important;
+  color: #ffffff !important;
+  border-color: #0f172a !important;
+}
+
+

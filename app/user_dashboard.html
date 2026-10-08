@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
 <script>
 // GLOBAL SECURITY & FORMATTING HELPERS (Hoisted to top of scope)
@@ -1345,7 +1345,7 @@ window.fetch = async function(...args) {
     return response;
 };
 
-  const savedTheme = localStorage.getItem('theme') || 'dark';
+  const savedTheme = localStorage.getItem('theme') || 'light';
   document.documentElement.setAttribute('data-theme', savedTheme);
 
 let _audioCtx = null;
