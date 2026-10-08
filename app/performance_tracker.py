@@ -1250,6 +1250,23 @@ def _row_to_trade_dict(row: dict) -> dict:
         actual_entry_p = entry_price
         exec_state = "OPEN"
 
+    # [RULE 67 CHANGE-RATIONALE: Expose Company Fundamentals in API Payload for User Dashboard]
+    ctx_raw = row.get("context")
+    ctx = {}
+    if isinstance(ctx_raw, dict):
+        ctx = ctx_raw
+    elif isinstance(ctx_raw, str):
+        try:
+            import json as _json_ctx
+            ctx = _json_ctx.loads(ctx_raw)
+        except Exception:
+            ctx = {}
+
+    roce_val = ctx.get("roce") or ctx.get("roce_5y") or row.get("roce")
+    sales_cagr_val = ctx.get("sales_cagr") or ctx.get("sales_cagr_3y") or row.get("sales_cagr")
+    de_val = ctx.get("debt_to_equity") or ctx.get("de") or row.get("debt_to_equity")
+    discount_val = ctx.get("valuation_discount") or ctx.get("discount") or row.get("valuation_discount")
+
     return {
         "id":            row["id"],          # needed for write-back
         "symbol":        symbol,
@@ -1296,6 +1313,10 @@ def _row_to_trade_dict(row: dict) -> dict:
         "confirmation_quality": row.get("confirmation_quality", "INITIAL"),
         "last_event_type": row.get("last_event_type", "NEW_ENTRY"),
         "last_event_date": str(row.get("last_event_date") or ""),
+        "roce":            f"{roce_val}%" if isinstance(roce_val, (int, float)) else (str(roce_val) if roce_val else None),
+        "sales_cagr":      f"{sales_cagr_val}%" if isinstance(sales_cagr_val, (int, float)) else (str(sales_cagr_val) if sales_cagr_val else None),
+        "debt_to_equity":  de_val,
+        "valuation_discount": discount_val,
         "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
     }
 
