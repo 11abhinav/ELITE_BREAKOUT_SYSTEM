@@ -437,6 +437,80 @@ var USER_PAGE_SIZE = 10;
   .utab-panel.active{display:block;animation:fadeInTab 0.2s ease-out;}
   @keyframes fadeInTab{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
 
+  /* ── [STATUS PILLS GROUP] Rule 67: Wireframe interactive one-click status filtering ── */
+  .status-pills-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .status-pill {
+    padding: 6px 12px;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid var(--border);
+    background: var(--card2);
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+  .status-pill:hover {
+    border-color: var(--border2);
+    color: var(--text);
+    background: var(--card3);
+  }
+  .status-pill.active {
+    background: var(--text);
+    color: var(--bg);
+    border-color: var(--text);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
+  }
+  [data-theme="dark"] .status-pill.active {
+    background: #3b82f6;
+    color: #ffffff;
+    border-color: #3b82f6;
+  }
+  .status-pill .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  /* ── [FLOATING SHORTCUT BADGE] Wireframe power-user navigation badge ── */
+  .shortcuts-help-pill {
+    position: fixed;
+    bottom: 16px;
+    right: 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    padding: 6px 14px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--muted);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 1000;
+    user-select: none;
+  }
+  .key-kbd {
+    background: var(--card3);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
   /* ═══════════════════════════════════════════════
      INTERACTIVE STOCK FORENSIC MODAL & ROW STYLES
   ═══════════════════════════════════════════════ */
@@ -1117,13 +1191,10 @@ function playDing() {
       </div>
       <!-- END NOTIFICATION BELL -->
 
-      <!-- BREAKOUT CHIME SOUND TOGGLE & PREVIEW -->
+      <!-- BREAKOUT CHIME SOUND TOGGLE -->
       <button id="soundToggleBtn" onclick="toggleAlertSound()" class="refresh-btn" style="padding:5px 11px; font-size:11.5px; font-weight:700; display:inline-flex; align-items:center; gap:5px; cursor:pointer;" title="Toggle breakout sound alerts">
         <span id="soundIcon">🔔</span>
         <span id="soundLabel">Sound: ON</span>
-      </button>
-      <button onclick="playLoudNotificationSound(true)" class="refresh-btn" style="padding:5px 9px; font-size:11px; font-weight:700; color:var(--accent); border-color:rgba(5,150,105,0.25); background:rgba(5,150,105,0.08); cursor:pointer;" title="Preview breakout chime">
-        ▶ Test Chime
       </button>
 
       <!-- API LATENCY PILL -->
@@ -1256,6 +1327,17 @@ function playDing() {
         </div>
       </div>
 
+      <!-- SECONDARY FILTER STRIP: STATUS PILLS (Rule 67: Wireframe interactive status pill filter strip) -->
+      <div class="status-pills-group" id="statusPillsGroup">
+        <span style="font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; margin-right: 4px;">Status:</span>
+        <div class="status-pill active" data-status="" onclick="setUserStatusFilter('')">All <span id="status-cnt-ALL" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-status="OPEN" onclick="setUserStatusFilter('OPEN')"><span class="status-dot" style="background:#2563eb;"></span> Open <span id="status-cnt-OPEN" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-status="TRAILING" onclick="setUserStatusFilter('TRAILING')"><span class="status-dot" style="background:#059669;"></span> Trailing <span id="status-cnt-TRAILING" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-status="T1_HIT" onclick="setUserStatusFilter('T1_HIT')"><span class="status-dot" style="background:#7c3aed;"></span> Target 1 <span id="status-cnt-T1_HIT" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-status="WIN" onclick="setUserStatusFilter('WIN')"><span class="status-dot" style="background:#15803d;"></span> Win <span id="status-cnt-WIN" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-status="LOSS" onclick="setUserStatusFilter('LOSS')"><span class="status-dot" style="background:#dc2626;"></span> Stopped <span id="status-cnt-LOSS" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+      </div>
+
       <div class="filter-bar">
         <select id="filterDate">
           <option value="ALL">All Time</option>
@@ -1293,7 +1375,7 @@ function playDing() {
           <option value="">All Statuses</option>
         </select>
         <select id="filterCategory"><option value="">All categories</option></select>
-        <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
+        <input id="filterSymbol" type="text" placeholder="Search symbol (Press '/' to focus)…" style="width:220px">
         <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
         <button class="refresh-btn" onclick="expandAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent);">↔️ Expand All</button>
         <button class="refresh-btn" onclick="collapseAllTrades()" style="margin-left:8px;padding:6px 12px; background:rgba(255,77,109,0.15); color:var(--warn); border:1px solid var(--warn);">↕️ Collapse All</button>
@@ -2987,6 +3069,53 @@ function toggleScannerChip(scKey) {
   renderTradeTable();
 }
 
+function setUserStatusFilter(statusKey) {
+  /* [RULE 67 CHANGE-RATIONALE]: Interactive wireframe status pill filtering for user view */
+  document.querySelectorAll('#statusPillsGroup .status-pill').forEach(pill => {
+    if (pill.getAttribute('data-status') === statusKey) {
+      pill.classList.add('active');
+    } else {
+      pill.classList.remove('active');
+    }
+  });
+  const stEl = document.getElementById('filterStatus');
+  if (stEl) {
+    stEl.value = statusKey;
+  }
+  tradeCurrentPage = 1;
+  renderTradeTable();
+}
+
+function updateStatusPillCounts(trades) {
+  /* [RULE 67 CHANGE-RATIONALE]: Wireframe status pill badge counts computed dynamically from loaded trades */
+  const counts = { ALL: 0, OPEN: 0, TRAILING: 0, T1_HIT: 0, WIN: 0, LOSS: 0 };
+  (trades || []).forEach(t => {
+    if (t.status === 'REJECTED') return;
+    counts.ALL++;
+    const st = String(t.status || '').toUpperCase().trim();
+    const execSt = String(t.execution_state || '').toUpperCase().trim();
+    const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
+
+    if (st === 'TRAILING' || execSt === 'TRAILING' || (st === 'OPEN' && t.trailing_active)) {
+      counts.TRAILING++;
+    } else if (st === 'T1_HIT' || st === 'PARTIAL_WIN_1' || execSt === 'PARTIAL_WIN_1' || t.t1_hit) {
+      counts.T1_HIT++;
+    } else if (st === 'WIN' || st === 'PROFIT' || (st === 'CLOSED' && pnl != null && pnl >= 0)) {
+      counts.WIN++;
+    } else if (st === 'LOSS' || st === 'STOPPED' || (st === 'CLOSED' && pnl != null && pnl < 0)) {
+      counts.LOSS++;
+    } else {
+      counts.OPEN++;
+    }
+  });
+  const elAll = document.getElementById('status-cnt-ALL'); if (elAll) elAll.textContent = `(${counts.ALL})`;
+  const elOpen = document.getElementById('status-cnt-OPEN'); if (elOpen) elOpen.textContent = `(${counts.OPEN})`;
+  const elTrail = document.getElementById('status-cnt-TRAILING'); if (elTrail) elTrail.textContent = `(${counts.TRAILING})`;
+  const elT1 = document.getElementById('status-cnt-T1_HIT'); if (elT1) elT1.textContent = `(${counts.T1_HIT})`;
+  const elWin = document.getElementById('status-cnt-WIN'); if (elWin) elWin.textContent = `(${counts.WIN})`;
+  const elLoss = document.getElementById('status-cnt-LOSS'); if (elLoss) elLoss.textContent = `(${counts.LOSS})`;
+}
+
 function updateScannerChipCounts(trades) {
   const counts = { ALL: (trades || []).length, QC: 0, TECH: 0, REC: 0, FUND: 0 };
   (trades || []).forEach(t => {
@@ -3001,6 +3130,7 @@ function updateScannerChipCounts(trades) {
   const elTech = document.getElementById('chip-cnt-TECH'); if (elTech) elTech.textContent = counts.TECH;
   const elRec = document.getElementById('chip-cnt-REC'); if (elRec) elRec.textContent = counts.REC;
   const elFund = document.getElementById('chip-cnt-FUND'); if (elFund) elFund.textContent = counts.FUND;
+  updateStatusPillCounts(trades);
 }
 
 function renderExposureBar(trades) {
@@ -3102,7 +3232,22 @@ function renderTradeTable() {
   let filtered = ALL_TRADES.filter(t => {
     if (selectedScanners.length > 0 && !selectedScanners.includes(t.scanner)) return false;
     if (st) {
-      if ((t.status || '').trim().toUpperCase() !== st.toUpperCase()) return false;
+      const tSt = (t.status || '').trim().toUpperCase();
+      const tExec = (t.execution_state || '').trim().toUpperCase();
+      const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
+      if (st === 'OPEN') {
+        if (tSt !== 'OPEN' && tExec !== 'OPEN' && tSt !== 'PENDING') return false;
+      } else if (st === 'TRAILING') {
+        if (tSt !== 'TRAILING' && tExec !== 'TRAILING' && !(tSt === 'OPEN' && t.trailing_active)) return false;
+      } else if (st === 'T1_HIT') {
+        if (tSt !== 'T1_HIT' && tSt !== 'PARTIAL_WIN_1' && tExec !== 'PARTIAL_WIN_1' && !t.t1_hit) return false;
+      } else if (st === 'WIN') {
+        if (tSt !== 'WIN' && tSt !== 'PROFIT' && !(tSt === 'CLOSED' && pnl != null && pnl >= 0)) return false;
+      } else if (st === 'LOSS') {
+        if (tSt !== 'LOSS' && tSt !== 'STOPPED' && !(tSt === 'CLOSED' && pnl != null && pnl < 0)) return false;
+      } else {
+        if (tSt !== st.toUpperCase()) return false;
+      }
     } else {
       if (t.status === 'REJECTED') return false; 
     }
@@ -3274,6 +3419,7 @@ function populateFilters(trades) {
     });
     if(curSt && distinctStatuses.includes(curSt)) stEl.value = curSt;
   }
+  updateStatusPillCounts(trades);
 }
 
 function renderCategoryStats() {
@@ -3865,7 +4011,7 @@ function closeChartModal(e) {
   }
 }
 
-// Power-User Keyboard Shortcuts
+// Power-User Keyboard Shortcuts (Rule 67: Wireframe keyboard navigation)
 document.addEventListener('keydown', (e) => {
   const activeTag = (document.activeElement && document.activeElement.tagName) || '';
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(activeTag) && e.key !== 'Escape') return;
@@ -3878,7 +4024,18 @@ document.addEventListener('keydown', (e) => {
       searchInput.select();
     }
   } else if (e.key === 'Escape') {
-    closeChartModalDirect();
+    if (typeof closeChartModalDirect === 'function') closeChartModalDirect();
+    const aiModal = document.getElementById('aiModal');
+    if (aiModal) aiModal.style.display = 'none';
+    const fmModal = document.getElementById('stockForensicModal');
+    if (fmModal) fmModal.style.display = 'none';
+    const searchInput = document.getElementById('filterSymbol');
+    if (document.activeElement === searchInput) {
+      searchInput.value = '';
+      tradeCurrentPage = 1;
+      renderTradeTable();
+      searchInput.blur();
+    }
   }
 });
 </script>
@@ -6924,6 +7081,14 @@ document.addEventListener("DOMContentLoaded", function() {
     </div>
   </div>
 </div>
+
+  <!-- [RULE 67: FLOATING SHORTCUT BADGE] Wireframe power-user navigation indicator -->
+  <div class="shortcuts-help-pill" title="Keyboard Shortcuts for fast navigation">
+    <span>Navigation:</span>
+    <span><span class="key-kbd">/</span> to Search</span>
+    <span>•</span>
+    <span><span class="key-kbd">Esc</span> to Close</span>
+  </div>
 
 <script src="/static/interactive_ui.js"></script>
 </body>
