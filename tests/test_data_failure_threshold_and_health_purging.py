@@ -32,6 +32,7 @@ class TestDataFailureThresholdAndHealthPurging(unittest.TestCase):
         expected_active = {
             "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
             "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
+            "QUALITY_COMPOUNDER_EXIT", "QUALITY_VALUE_RECOVERY_EXIT",
             "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
             "FILING_WATCHER"
         }

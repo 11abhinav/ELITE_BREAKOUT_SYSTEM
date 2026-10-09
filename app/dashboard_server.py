@@ -597,7 +597,8 @@ _logging.getLogger("werkzeug").setLevel(_logging.WARNING)
 
 from database import (
     get_user_id_by_username, ping_user_session, cleanup_stale_sessions, get_online_users_and_history,
-    send_user_message, get_user_messages, mark_user_messages_read, get_unread_message_counts
+    send_user_message, get_user_messages, mark_user_messages_read, get_unread_message_counts,
+    normalize_scanner_name
 )
 
 _viewers_cache = {"timestamp": 0, "payload": None}
@@ -1521,7 +1522,7 @@ def _build_instant_performance_fallback():
             trades.append({
                 "id": row.get("id"),
                 "symbol": row.get("symbol"),
-                "scanner": row.get("scanner") or "",
+                "scanner": normalize_scanner_name(row.get("scanner") or ""),
                 "category": row.get("category") or "",
                 "signals": row.get("signals") or "",
                 "entry_date": ad_str,
@@ -1728,7 +1729,7 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
                         missing_trades.append({
                             "id": r.get("id"),
                             "symbol": r.get("symbol"),
-                            "scanner": r.get("scanner") or "UNKNOWN",
+                            "scanner": normalize_scanner_name(r.get("scanner") or "UNKNOWN"),
                             "category": r.get("category") or "BREAKOUT",
                             "signals": r.get("signals") or "",
                             "entry_date": ad_str,
@@ -1764,6 +1765,7 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
                         perf_dict["trades"] = missing_trades + trades_list
                     # Defense-in-depth on all trades:
                     for tr in perf_dict["trades"]:
+                        tr["scanner"] = normalize_scanner_name(tr.get("scanner") or "")
                         if tr.get("status") in ("OPEN", "PARTIAL_WIN_1", "PARTIAL_WIN_2", "TRAILING", "SELL_REVIEW"):
                             tr["closed_at"] = None
                             if tr.get("status") == "OPEN":
@@ -1772,7 +1774,7 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
                         perf_dict["summary"]["total_alerts"] = len(perf_dict["trades"])
                         perf_dict["summary"]["open_positions"] = len([t for t in perf_dict["trades"] if t.get("status") == "OPEN"])
                     for mt in missing_trades:
-                        sc = mt.get("scanner") or "UNKNOWN"
+                        sc = normalize_scanner_name(mt.get("scanner") or "UNKNOWN")
                         perf_dict.setdefault("by_scanner", {}).setdefault(sc, {"total": 0, "wins": 0, "losses": 0, "open": 0, "win_rate": 0.0})
                         perf_dict["by_scanner"][sc]["total"] += 1
                         if mt.get("status") == "OPEN":

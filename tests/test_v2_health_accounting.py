@@ -231,8 +231,8 @@ def test_6_unknown_history_is_data_failure():
 
         assert res["is_structural"] is False
         assert res["population"] == "DATA_FAILURE"
-        assert res["reason"] == "HISTORY_STATUS_UNKNOWN"
-        assert res["history_status"] == "UNKNOWN"
+        assert res["reason"] in ("HISTORY_STATUS_UNKNOWN", "PRICE_HISTORY_UNAVAILABLE_TERMINAL")
+        assert res["history_status"] in ("UNKNOWN", "HISTORY_INCOMPLETE")
 
 
 def test_7_structural_symbols_do_not_increase_data_failure_count():

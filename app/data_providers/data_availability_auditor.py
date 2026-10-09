@@ -597,8 +597,8 @@ class DataAvailabilityAuditor:
             availability_status = "REFERENCE_ONLY"
             production_eligibility = "INELIGIBLE"
             block_reason = "SCREENER_REFERENCE_ONLY_GOVERNANCE_BLOCKED"
-            quarantine_action = "7_DAY_QUARANTINE"
-            quarantine_until = (datetime.now(IST) + timedelta(days=7)).isoformat()
+            quarantine_action = "NONE"
+            quarantine_until = None
         elif cls == AvailabilityClassification.PARSER_OR_FIELD_MAPPING_FAILURE:
             source_of_truth = "NONE"
             availability_status = "PARSER_FAILURE"

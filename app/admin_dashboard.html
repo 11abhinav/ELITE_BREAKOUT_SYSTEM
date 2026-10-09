@@ -6753,6 +6753,20 @@ function changeAdminPage(type, delta) {
   </table>`;
     }
 
+    function normalizeScannerName(scanner) {
+      if (!scanner) return '';
+      const u = String(scanner).trim().toUpperCase().replace(/[-\s]/g, '_');
+      if (!u || u === 'ALL' || u === 'ALL_SCANNERS') return '';
+      if (u.includes('COMPOUND')) return 'QUALITY_COMPOUNDER';
+      if (u.includes('RECOV')) return 'QUALITY_VALUE_RECOVERY';
+      if (u.includes('TECH')) return 'TECHNICAL';
+      if (u.includes('FUND')) return 'FUNDAMENTAL';
+      if (u.includes('MULTI') && !u.includes('TF')) return 'MULTIBAGGER';
+      if (u.includes('PULL')) return 'PULLBACK';
+      if (u.includes('BUILD')) return 'DAILY_BUILDER';
+      return u;
+    }
+
     // [RULE 67 CHANGE-RATIONALE: Interactive Multi-Scanner Chips & Exposure Meter Implementation]
     function toggleAdminScannerChip(scKey) {
       const chips = document.querySelectorAll('.scanner-chip');
@@ -6774,9 +6788,10 @@ function changeAdminPage(type, delta) {
         if (scKey === 'ALL') {
           scanEl.value = '';
         } else {
+          const normTarget = normalizeScannerName(scKey);
           let found = false;
           for (let i = 0; i < scanEl.options.length; i++) {
-            if (scanEl.options[i].value.toUpperCase().includes(scKey.toUpperCase())) {
+            if (normalizeScannerName(scanEl.options[i].value) === normTarget) {
               scanEl.selectedIndex = i;
               found = true;
               break;
@@ -6841,11 +6856,11 @@ function changeAdminPage(type, delta) {
     function updateScannerChipCounts(trades) {
       const counts = { ALL: (trades || []).length, QC: 0, TECH: 0, REC: 0, FUND: 0 };
       (trades || []).forEach(t => {
-        const sc = String(t.scanner || '').toUpperCase();
-        if (sc.includes('COMPOUND')) counts.QC++;
-        else if (sc.includes('TECH')) counts.TECH++;
-        else if (sc.includes('RECOV')) counts.REC++;
-        else if (sc.includes('FUND')) counts.FUND++;
+        const sc = normalizeScannerName(t.scanner);
+        if (sc === 'QUALITY_COMPOUNDER') counts.QC++;
+        else if (sc === 'TECHNICAL') counts.TECH++;
+        else if (sc === 'QUALITY_VALUE_RECOVERY') counts.REC++;
+        else if (sc === 'FUNDAMENTAL') counts.FUND++;
       });
       const elAll = document.getElementById('chip-cnt-ALL'); if (elAll) elAll.textContent = counts.ALL;
       const elQC = document.getElementById('chip-cnt-QC'); if (elQC) elQC.textContent = counts.QC;
@@ -6968,7 +6983,8 @@ function changeAdminPage(type, delta) {
       if (typeof activeAdminTab !== 'undefined' && activeAdminTab !== 'signals-trades') return;
       try {
         /* [RULE 67 CHANGE-RATIONALE]: Add safe optional chaining to prevent TypeError if filter elements are not yet mounted on page load */
-        const sc = document.getElementById('filterScanner')?.value || '';
+        const rawSc = document.getElementById('filterScanner')?.value || '';
+        const sc = rawSc ? normalizeScannerName(rawSc) : '';
         const st = document.getElementById('filterStatus')?.value || '';
         const sym = (document.getElementById('filterSymbol')?.value || '').trim().toUpperCase();
         const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
@@ -6991,7 +7007,7 @@ function changeAdminPage(type, delta) {
 
         let filtered = (ALL_TRADES || []).filter(t => {
           if (!t) return false;
-          if (sc && t.scanner !== sc) return false;
+          if (sc && sc !== 'ALL' && sc !== 'UNKNOWN' && normalizeScannerName(t.scanner) !== sc) return false;
           
           if (st) {
             const tSt = (t.status || '').trim().toUpperCase();
@@ -7293,8 +7309,8 @@ function changeAdminPage(type, delta) {
     });
 
     function populateFilters(trades) {
-      const predefinedScanners = ['TECHNICAL', 'FUNDAMENTAL'];
-      const scanners = [...new Set([...predefinedScanners, ...trades.map(t => t.scanner).filter(Boolean)])].sort();
+      const predefinedScanners = ['QUALITY_COMPOUNDER', 'TECHNICAL', 'QUALITY_VALUE_RECOVERY', 'FUNDAMENTAL'];
+      const scanners = [...new Set([...predefinedScanners, ...trades.map(t => normalizeScannerName(t.scanner)).filter(Boolean)])].sort();
       const distinctStatuses = [...new Set(trades.map(t => (t.status || '').trim()).filter(Boolean))].sort();
       
       const sEl = document.getElementById('filterScanner');
@@ -7302,9 +7318,23 @@ function changeAdminPage(type, delta) {
 
       // Keep the first default option, remove the rest
       if (sEl) {
-        const curSc = sEl.value;
+        const curSc = normalizeScannerName(sEl.value);
         while (sEl.options.length > 1) sEl.remove(1);
-        scanners.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sEl.appendChild(o); });
+        const scannerLabels = {
+          'QUALITY_COMPOUNDER': '💎 Quality Compounder',
+          'TECHNICAL': '⚡ Technical Breakout',
+          'QUALITY_VALUE_RECOVERY': '🛡️ Quality Value Recovery',
+          'FUNDAMENTAL': '📊 Fundamental Breakout',
+          'DAILY_BUILDER': '🏗️ Daily Builder',
+          'MULTIBAGGER': '🚀 Multibagger',
+          'PULLBACK': '🎯 Pullback'
+        };
+        scanners.forEach(s => { 
+          const o = document.createElement('option'); 
+          o.value = s; 
+          o.textContent = scannerLabels[s] || s; 
+          sEl.appendChild(o); 
+        });
         if (curSc && scanners.includes(curSc)) sEl.value = curSc;
       }
       
@@ -8409,7 +8439,10 @@ async function initDashboard() {
         ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
     }
 
-    ALL_TRADES = data.trades || [];
+    ALL_TRADES = (data.trades || []).map(t => {
+      if (t) t.scanner = normalizeScannerName(t.scanner);
+      return t;
+    });
     EXIT_HISTORY_CACHE.clear();
     populateFilters(ALL_TRADES);
     renderExposureBar(ALL_TRADES);
@@ -8523,7 +8556,10 @@ async function initDashboard() {
     try {
       const data = await loadData();
       if (data && data.trades) {
-        ALL_TRADES = data.trades;
+        ALL_TRADES = (data.trades || []).map(t => {
+          if (t) t.scanner = normalizeScannerName(t.scanner);
+          return t;
+        });
         EXIT_HISTORY_CACHE.clear();
         populateFilters(ALL_TRADES);
         renderExposureBar(ALL_TRADES);

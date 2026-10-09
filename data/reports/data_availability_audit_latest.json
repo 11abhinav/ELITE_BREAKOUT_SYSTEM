@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-08T15:25:00.569374+05:30",
+  "generated_at": "2026-10-09T09:16:55.746055+05:30",
   "scanner": "QUALITY_COMPOUNDER",
   "records": [
     {
@@ -20,7 +20,7 @@
       "production_value_written": false,
       "buy_allowed": false,
       "admin_alert_generated": true,
-      "checked_at": "2026-10-08T15:25:00.567798+05:30",
+      "checked_at": "2026-10-09T09:16:55.741997+05:30",
       "upstox_key_ratios": "N/A",
       "severity": "HIGH",
       "admin_action": "INVESTIGATE_WHY_VALUE_IN_SCREENER_CANNOT_BE_RECOVERED_FROM_VERIFIED_SOURCE",
@@ -30,7 +30,7 @@
       "production_eligibility": "INELIGIBLE",
       "block_reason": "SCREENER_REFERENCE_ONLY_GOVERNANCE_BLOCKED",
       "quarantine_action": "7_DAY_QUARANTINE",
-      "quarantine_until": "2026-10-15T15:25:00.567774+05:30",
+      "quarantine_until": "2026-10-16T09:16:55.741916+05:30",
       "selected_periods": []
     },
     {
@@ -51,7 +51,7 @@
       "production_value_written": false,
       "buy_allowed": false,
       "admin_alert_generated": true,
-      "checked_at": "2026-10-08T15:25:00.567867+05:30",
+      "checked_at": "2026-10-09T09:16:55.742338+05:30",
       "upstox_key_ratios": "N/A",
       "severity": "HIGH",
       "admin_action": "INVESTIGATE_WHY_VALUE_IN_SCREENER_CANNOT_BE_RECOVERED_FROM_VERIFIED_SOURCE",
@@ -61,7 +61,7 @@
       "production_eligibility": "INELIGIBLE",
       "block_reason": "SCREENER_REFERENCE_ONLY_GOVERNANCE_BLOCKED",
       "quarantine_action": "7_DAY_QUARANTINE",
-      "quarantine_until": "2026-10-15T15:25:00.567857+05:30",
+      "quarantine_until": "2026-10-16T09:16:55.742273+05:30",
       "selected_periods": []
     }
   ]

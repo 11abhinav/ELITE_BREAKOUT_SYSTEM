@@ -3439,17 +3439,31 @@ document.addEventListener('click', function(e) {
   }
 });
 
+function normalizeScannerName(scanner) {
+  if (!scanner) return '';
+  const u = String(scanner).trim().toUpperCase().replace(/[-\s]/g, '_');
+  if (!u || u === 'ALL' || u === 'ALL_SCANNERS') return '';
+  if (u.includes('COMPOUND')) return 'QUALITY_COMPOUNDER';
+  if (u.includes('RECOV')) return 'QUALITY_VALUE_RECOVERY';
+  if (u.includes('TECH')) return 'TECHNICAL';
+  if (u.includes('FUND')) return 'FUNDAMENTAL';
+  if (u.includes('MULTI') && !u.includes('TF')) return 'MULTIBAGGER';
+  if (u.includes('PULL')) return 'PULLBACK';
+  if (u.includes('BUILD')) return 'DAILY_BUILDER';
+  return u;
+}
+
 function getUserSelectedScanners() {
   const cbs = Array.from(document.querySelectorAll('.user-scanner-cb:checked'));
   const allCbs = Array.from(document.querySelectorAll('.user-scanner-cb'));
   if (allCbs.length === 0) {
     const legacyVal = document.getElementById('filterScanner')?.value;
-    return legacyVal ? [legacyVal] : [];
+    return legacyVal ? [normalizeScannerName(legacyVal)] : [];
   }
   if (cbs.length === 0 || cbs.length === allCbs.length) {
     return []; // All scanners selected, no filter restriction
   }
-  return cbs.map(cb => cb.value);
+  return cbs.map(cb => normalizeScannerName(cb.value));
 }
 
 function updateUserScannerLabel() {
@@ -3502,11 +3516,12 @@ function toggleScannerChip(scKey) {
   if (el) el.classList.add('active');
 
   // Select only this scanner in checkboxes
+  const normTarget = normalizeScannerName(scKey);
   const cbs = document.querySelectorAll('.user-scanner-cb');
   let matched = false;
   cbs.forEach(cb => {
-    const val = cb.value.toUpperCase();
-    if (val.includes(scKey) || (scKey === 'TECHNICAL' && val === 'TECHNICAL_BREAKOUT')) {
+    const val = normalizeScannerName(cb.value);
+    if (val === normTarget) {
       cb.checked = true;
       matched = true;
     } else {
@@ -3572,11 +3587,11 @@ function updateStatusPillCounts(trades) {
 function updateScannerChipCounts(trades) {
   const counts = { ALL: (trades || []).length, QC: 0, TECH: 0, REC: 0, FUND: 0 };
   (trades || []).forEach(t => {
-    const sc = String(t.scanner || '').toUpperCase();
-    if (sc.includes('COMPOUND')) counts.QC++;
-    else if (sc.includes('TECH')) counts.TECH++;
-    else if (sc.includes('RECOV')) counts.REC++;
-    else if (sc.includes('FUND')) counts.FUND++;
+    const sc = normalizeScannerName(t.scanner);
+    if (sc === 'QUALITY_COMPOUNDER') counts.QC++;
+    else if (sc === 'TECHNICAL') counts.TECH++;
+    else if (sc === 'QUALITY_VALUE_RECOVERY') counts.REC++;
+    else if (sc === 'FUNDAMENTAL') counts.FUND++;
   });
   const elAll = document.getElementById('chip-cnt-ALL'); if (elAll) elAll.textContent = counts.ALL;
   const elQC = document.getElementById('chip-cnt-QC'); if (elQC) elQC.textContent = counts.QC;
@@ -3684,7 +3699,7 @@ function renderTradeTable() {
   weekStart.setDate(weekStart.getDate() - dayOfWeek + 1);
 
   let filtered = ALL_TRADES.filter(t => {
-    if (selectedScanners.length > 0 && !selectedScanners.includes(t.scanner)) return false;
+    if (selectedScanners.length > 0 && !selectedScanners.map(normalizeScannerName).includes(normalizeScannerName(t.scanner))) return false;
     if (st) {
       const tSt = (t.status || '').trim().toUpperCase();
       const tExec = (t.execution_state || '').trim().toUpperCase();
@@ -3839,7 +3854,8 @@ let _userTableRenderDebounce = null;
 });
 
 function populateFilters(trades) {
-  const scanners = [...new Set(trades.map(t=>t.scanner).filter(Boolean))].sort();
+  const predefinedScanners = ['QUALITY_COMPOUNDER', 'TECHNICAL', 'QUALITY_VALUE_RECOVERY', 'FUNDAMENTAL'];
+  const scanners = [...new Set([...predefinedScanners, ...trades.map(t=>normalizeScannerName(t.scanner)).filter(Boolean)])].sort();
   const cats     = [...new Set(trades.map(t=>t.category).filter(Boolean))].sort();
   const distinctStatuses = [...new Set(trades.map(t => (t.status || '').trim()).filter(Boolean))].sort();
   
@@ -3849,10 +3865,20 @@ function populateFilters(trades) {
   
   if (userCbContainer) {
     userCbContainer.innerHTML = '';
+    const scannerLabels = {
+      'QUALITY_COMPOUNDER': '💎 Quality Compounder',
+      'TECHNICAL': '⚡ Technical Breakout',
+      'QUALITY_VALUE_RECOVERY': '🛡️ Quality Value Recovery',
+      'FUNDAMENTAL': '📊 Fundamental Breakout',
+      'DAILY_BUILDER': '🏗️ Daily Builder',
+      'MULTIBAGGER': '🚀 Multibagger',
+      'PULLBACK': '🎯 Pullback'
+    };
     scanners.forEach(s => {
       const lbl = document.createElement('label');
       lbl.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);';
-      lbl.innerHTML = `<input type="checkbox" class="user-scanner-cb" value="${escapeHTML(s)}" onchange="onUserScannerChange()" checked /> <span>${escapeHTML(s)}</span>`;
+      const dLabel = scannerLabels[s] || s;
+      lbl.innerHTML = `<input type="checkbox" class="user-scanner-cb" value="${escapeHTML(s)}" onchange="onUserScannerChange()" checked /> <span>${escapeHTML(dLabel)}</span>`;
       userCbContainer.appendChild(lbl);
     });
     updateUserScannerLabel();
@@ -4285,7 +4311,10 @@ async function doRefresh(isAuto = false) {
   ]);
   window.DATA_GENERATED_AT = data.generated_at;
 
-  ALL_TRADES = data.trades || [];
+  ALL_TRADES = (data.trades || []).map(t => {
+    if (t) t.scanner = normalizeScannerName(t.scanner);
+    return t;
+  });
   populateFilters(ALL_TRADES);
   if (typeof activeUserTab !== 'undefined' && activeUserTab === 'live-signals') {
     if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
@@ -4342,7 +4371,10 @@ async function initDashboard() {
     const s = (data && data.summary) || { win_rate: 0, winners: 0, losers: 0, open_positions: 0 };
     const hsEl = document.getElementById('header-stats');
     if (hsEl) hsEl.textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
-    ALL_TRADES = (data && data.trades) || [];
+    ALL_TRADES = ((data && data.trades) || []).map(t => {
+      if (t) t.scanner = normalizeScannerName(t.scanner);
+      return t;
+    });
     populateFilters(ALL_TRADES);
     renderKPIs(s);
     // Render current active tab components; secondary tab data loads on demand when tab clicked

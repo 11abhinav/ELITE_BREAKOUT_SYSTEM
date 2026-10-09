@@ -555,11 +555,11 @@ class TestShareCountValidation:
             symbol="UNITX",
             net_profit_cr=None,
             eps=None,
-            shares_outstanding_raw=15000.0,  # 15000M = implausible; 15M after ÷1000
+            shares_outstanding_raw=150_000.0,  # 150000M = implausible (> MAX_SHARES_M); 150M after ÷1000
         )
         assert result.ok
         assert result.unit_scaling_applied == "DIV_1000"
-        assert abs(result.shares_millions - 15.0) < 0.01
+        assert abs(result.shares_millions - 150.0) < 0.01
 
     def test_basic_vs_diluted_implausible_blocked(self):
         """
@@ -1127,7 +1127,10 @@ class TestPITAsOfTimestamp:
             gate_results={},
         )
         assert not eligible
-        assert len(reasons) == len(required)
+        missing_reasons = [r for r in reasons if "MISSING_PROVENANCE_RECORD" in r]
+        assert len(missing_reasons) == len(required)
+        for req_field in required:
+            assert any(req_field in r for r in missing_reasons)
 
     def test_missing_ocf_blocks_quality_gate(self):
         """Missing OCF provenance → BUY blocked for QUALITY_COMPOUNDER."""

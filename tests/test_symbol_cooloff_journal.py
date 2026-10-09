@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import app.database
 
 from app.database import (
     add_symbol_to_cooloff,

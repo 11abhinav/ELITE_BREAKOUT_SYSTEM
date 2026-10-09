@@ -1,17 +1,17 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-10-07T14:01:24.770536",
+    "last_successful_check_at": "2026-10-09T09:40:00.000000",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
-        "last_successful_check_at": "2026-10-05T15:47:40.557013"
+        "last_successful_check_at": "2026-10-09T09:47:40.713176"
       },
       "MULTI_CORP": {
-        "last_successful_check_at": "2026-10-05T15:47:38.221861"
+        "last_successful_check_at": "2026-10-09T09:47:39.316531"
       },
       "UP_CORP": {
-        "last_successful_check_at": "2026-10-05T15:47:40.338305"
+        "last_successful_check_at": "2026-10-09T09:47:40.498572"
       },
       "ADOR": {
         "last_successful_check_at": "2026-10-05T12:39:29.227247"
@@ -50,17 +50,17 @@
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-10-07T14:01:24.773047",
+    "last_successful_check_at": "2026-10-09T09:40:00.000000",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
-        "last_successful_check_at": "2026-10-05T15:47:40.567283"
+        "last_successful_check_at": "2026-10-09T09:47:40.715651"
       },
       "MULTI_CORP": {
-        "last_successful_check_at": "2026-10-05T15:47:38.225620"
+        "last_successful_check_at": "2026-10-09T09:47:39.318662"
       },
       "UP_CORP": {
-        "last_successful_check_at": "2026-10-05T15:47:40.342255"
+        "last_successful_check_at": "2026-10-09T09:47:40.501785"
       },
       "ADOR": {
         "last_successful_check_at": "2026-10-05T12:39:29.235912"

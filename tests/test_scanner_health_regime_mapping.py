@@ -80,7 +80,13 @@ def test_core_invariant_supported_not_equal_production_active():
 
 
 def test_certified_production_set():
-    assert CERTIFIED_PRODUCTION_SCANNERS == {"TECHNICAL", "FUNDAMENTAL"}
+    assert CERTIFIED_PRODUCTION_SCANNERS == {
+        "TECHNICAL",
+        "FUNDAMENTAL",
+        "QUALITY_VALUE_RECOVERY",
+        "QUALITY_COMPOUNDER",
+        "QUALITY_COMPOUNDER_VALUE_V2_FINAL"
+    }
     assert len(UNDER_CERTIFICATION_SCANNERS) == 0
 
 

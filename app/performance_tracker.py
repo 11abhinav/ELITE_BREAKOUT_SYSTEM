@@ -1305,7 +1305,7 @@ def _row_to_trade_dict(row: dict) -> dict:
     return {
         "id":            row["id"],          # needed for write-back
         "symbol":        symbol,
-        "scanner":       scanner,
+        "scanner":       normalize_scanner_name(scanner),
         "category":      category,
         "signals":       signals,
         "entry_date":    alert_date,
