@@ -1497,9 +1497,14 @@ function playDing() {
       <div class="kpi-card" id="kpi-card-capital-box">
         <div class="kpi-header">
           <span class="kpi-label">Active Capital</span>
-          <span class="kpi-pill">Capital</span>
+          <span class="kpi-pill" id="kpi-card-capital-pill" style="background: rgba(100, 116, 139, 0.1); color: var(--muted, #94a3b8);">MTM 0.0%</span>
         </div>
         <div class="kpi-value" id="kpi-card-capital">₹0.00</div>
+        <div id="kpi-card-mtm-row" style="display:flex; align-items:center; gap:6px; margin:4px 0 6px 0; font-family:var(--font-mono, monospace);">
+          <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Floating MTM:</span>
+          <span id="kpi-card-mtm-val" style="font-size:14px; font-weight:800; color:var(--muted);">₹0.00</span>
+          <span id="kpi-card-mtm-pct" style="font-size:12px; font-weight:700; color:var(--muted);">(0.0%)</span>
+        </div>
         <div class="kpi-subtext" id="kpi-card-capital-sub">0 Active positions deployed</div>
       </div>
 
@@ -2156,22 +2161,77 @@ function renderKPIs(s) {
   const openPositions = openTradesList.length;
 
   // ── UPDATE ELEVATED FINANCIAL SUMMARY HERO CARDS ──
-  // Card 1: Active Capital
+  // Card 1: Active Capital & Floating MTM (% Up/Down)
   let totalActiveCap = 0;
+  let totalOpenMtm = 0;
   openTradesList.forEach(t => {
     /* [RULE 67 CHANGE-RATIONALE]: Use strictly dynamic capital from allocated capital or entry * shares, zero hardcoded 50000 fallback */
-    const cap = Number(t.capital_allocated) || ((Number(t.actual_entry_price || t.entry_price || 0)) * (Number(t.shares_bought) || 0));
+    const effEntry = Number(t.actual_entry_price || t.entry_price || 0);
+    let shares = Number(t.remaining_shares !== undefined && t.remaining_shares !== null ? t.remaining_shares : (t.shares_bought || 0));
+    let cap = Number(t.capital_allocated) || 0;
+    if (!cap && effEntry > 0 && shares > 0) {
+      cap = effEntry * shares;
+    } else if (!cap) {
+      cap = (t.score >= 85 ? 100000 : t.score >= 70 ? 50000 : 25000);
+    }
+    if (!shares && effEntry > 0 && cap > 0) {
+      shares = Math.floor(cap / effEntry);
+    }
     totalActiveCap += cap;
+
+    const curPrice = Number(t.current_price || effEntry);
+    let tradeMtm = 0;
+    if (shares > 0 && effEntry > 0 && curPrice > 0) {
+      tradeMtm = (curPrice - effEntry) * shares;
+    } else if (t.pnl_rs != null && Number(t.pnl_rs) !== 0) {
+      tradeMtm = Number(t.pnl_rs) || 0;
+    } else if (t.pnl_pct != null && cap > 0) {
+      tradeMtm = (Number(t.pnl_pct) / 100.0) * cap;
+    }
+    totalOpenMtm += tradeMtm;
   });
+
   function fmtCap(val) {
     if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
     if (val >= 100000) return `₹${(val / 100000).toFixed(2)} Lakh`;
     return `₹${Math.round(val).toLocaleString('en-IN')}`;
   }
+  function fmtMtm(val) {
+    const sign = val > 0 ? '+' : (val < 0 ? '-' : '');
+    return `${sign}₹${Math.abs(Math.round(val)).toLocaleString('en-IN')}`;
+  }
+
   const kpiCapEl = document.getElementById('kpi-card-capital');
   if (kpiCapEl) kpiCapEl.textContent = fmtCap(totalActiveCap);
+
   const kpiCapSubEl = document.getElementById('kpi-card-capital-sub');
-  if (kpiCapSubEl) kpiCapSubEl.textContent = `${openPositions} Active positions deployed`;
+  if (kpiCapSubEl) kpiCapSubEl.textContent = `${openPositions} Active position${openPositions === 1 ? '' : 's'} deployed`;
+
+  // Update MTM row & % Up/Down pill
+  const mtmPct = totalActiveCap > 0 ? ((totalOpenMtm / totalActiveCap) * 100) : 0;
+  const isMtmPos = totalOpenMtm > 0;
+  const isMtmNeg = totalOpenMtm < 0;
+  const mtmColor = isMtmPos ? 'var(--win, #10b981)' : (isMtmNeg ? 'var(--loss, #ef4444)' : 'var(--muted, #94a3b8)');
+  const mtmBg = isMtmPos ? 'rgba(16, 185, 129, 0.1)' : (isMtmNeg ? 'rgba(239, 68, 68, 0.1)' : 'rgba(100, 116, 139, 0.1)');
+  const mtmArrow = isMtmPos ? '▲ ' : (isMtmNeg ? '▼ ' : '');
+  const mtmPctStr = (isMtmPos ? '+' : '') + mtmPct.toFixed(2) + '%';
+
+  const kpiMtmValEl = document.getElementById('kpi-card-mtm-val');
+  if (kpiMtmValEl) {
+    kpiMtmValEl.textContent = totalActiveCap > 0 ? fmtMtm(totalOpenMtm) : '₹0.00';
+    kpiMtmValEl.style.color = mtmColor;
+  }
+  const kpiMtmPctEl = document.getElementById('kpi-card-mtm-pct');
+  if (kpiMtmPctEl) {
+    kpiMtmPctEl.textContent = totalActiveCap > 0 ? `(${mtmPctStr})` : '(0.0%)';
+    kpiMtmPctEl.style.color = mtmColor;
+  }
+  const kpiCapPillEl = document.getElementById('kpi-card-capital-pill');
+  if (kpiCapPillEl) {
+    kpiCapPillEl.textContent = totalActiveCap > 0 ? `${mtmArrow}MTM ${mtmPctStr}` : 'MTM 0.0%';
+    kpiCapPillEl.style.color = mtmColor;
+    kpiCapPillEl.style.background = mtmBg;
+  }
 
   // Card 3: Certified Win Rate
   const kpiWrEl = document.getElementById('kpi-card-wr');
