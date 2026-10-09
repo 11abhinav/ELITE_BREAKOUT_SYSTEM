@@ -4963,11 +4963,13 @@ def api_indices():
         for k, v in fallback_data.items():
             if k not in bg_data:
                 bg_data[k] = v
-            else:
+            elif isinstance(bg_data[k], dict) and isinstance(v, dict):
                 if bg_data[k].get("point_change") is None and v.get("point_change") is not None:
                     bg_data[k]["point_change"] = v["point_change"]
                 if bg_data[k].get("prev_close") is None and v.get("prev_close") is not None:
                     bg_data[k]["prev_close"] = v["prev_close"]
+                if bg_data[k].get("pct_change") is None and v.get("pct_change") is not None:
+                    bg_data[k]["pct_change"] = v["pct_change"]
 
         if bg_data:
             with _indices_lock:
