@@ -2103,6 +2103,7 @@ function changeAdminPage(type, delta) {
       background: #2563eb;
     }
     .kpi-card.green::before { background: var(--win); }
+    .kpi-card.red::before { background: var(--loss, #ef4444); }
     .kpi-card.purple::before { background: #7c3aed; }
     .kpi-card.amber::before { background: var(--amber); }
 
@@ -2136,6 +2137,7 @@ function changeAdminPage(type, delta) {
       margin-bottom: 4px;
     }
     .kpi-value.green { color: var(--win); }
+    .kpi-value.red { color: var(--loss, #ef4444); }
     .kpi-subtext {
       font-size: 11px;
       color: var(--muted);
@@ -3308,6 +3310,24 @@ function changeAdminPage(type, delta) {
             <span id="kpi-card-mtm-pct" style="font-size:12px; font-weight:700; color:var(--muted);">(0.0%)</span>
           </div>
           <div class="kpi-subtext" id="kpi-card-capital-sub">0 Active positions deployed</div>
+        </div>
+
+        <div class="kpi-card green" id="kpi-card-winners-box" style="cursor:pointer;" onclick="drillKpi('winners_up', this)">
+          <div class="kpi-header">
+            <span class="kpi-label">Winners (Up vs Alert)</span>
+            <span class="kpi-pill" id="kpi-card-winners-pill" style="background: rgba(16, 185, 129, 0.1); color: var(--win, #10b981);">0% Up</span>
+          </div>
+          <div class="kpi-value green" id="kpi-card-winners">0</div>
+          <div class="kpi-subtext" id="kpi-card-winners-sub">Trading higher than alert price</div>
+        </div>
+
+        <div class="kpi-card red" id="kpi-card-losers-box" style="cursor:pointer;" onclick="drillKpi('losers_down', this)">
+          <div class="kpi-header">
+            <span class="kpi-label">Losers (Down vs Alert)</span>
+            <span class="kpi-pill" id="kpi-card-losers-pill" style="background: rgba(239, 68, 68, 0.1); color: var(--loss, #ef4444);">0% Down</span>
+          </div>
+          <div class="kpi-value red" id="kpi-card-losers">0</div>
+          <div class="kpi-subtext" id="kpi-card-losers-sub">Trading lower than alert price</div>
         </div>
 
         <div class="kpi-card green" id="kpi-card-pnl-box">
@@ -4698,6 +4718,45 @@ function changeAdminPage(type, delta) {
         kpiCapPillEl.style.background = mtmBg;
       }
 
+      // ── WINNERS & LOSERS KPIS (Above/Below Alert Price) ──
+      const isTradeUpVsAlert = (t) => {
+        const en = Number(t.actual_entry_price || t.entry_price || 0);
+        const cp = Number(t.current_price || t.exit_price || en);
+        if (en > 0) return cp > en;
+        return getTradePnlPct(t) > 0;
+      };
+      const isTradeDownVsAlert = (t) => {
+        const en = Number(t.actual_entry_price || t.entry_price || 0);
+        const cp = Number(t.current_price || t.exit_price || en);
+        if (en > 0) return cp < en;
+        return getTradePnlPct(t) < 0;
+      };
+
+      const refPool = openPositions > 0 ? openTradesList : filteredTrades;
+      const winnersUpList = refPool.filter(isTradeUpVsAlert);
+      const losersDownList = refPool.filter(isTradeDownVsAlert);
+      const winnersCount = winnersUpList.length;
+      const losersCount = losersDownList.length;
+      const refPoolTotal = refPool.length;
+      const winnersPct = refPoolTotal > 0 ? ((winnersCount / refPoolTotal) * 100).toFixed(0) : 0;
+      const losersPct = refPoolTotal > 0 ? ((losersCount / refPoolTotal) * 100).toFixed(0) : 0;
+
+      // Update Card: Winners (Up vs Alert)
+      const kpiWinnersEl = document.getElementById('kpi-card-winners');
+      if (kpiWinnersEl) kpiWinnersEl.textContent = winnersCount;
+      const kpiWinnersSubEl = document.getElementById('kpi-card-winners-sub');
+      if (kpiWinnersSubEl) kpiWinnersSubEl.textContent = openPositions > 0 ? `${winnersCount} of ${openPositions} active positions up` : `${winnersCount} stocks trading > alert px`;
+      const kpiWinnersPillEl = document.getElementById('kpi-card-winners-pill');
+      if (kpiWinnersPillEl) kpiWinnersPillEl.textContent = `${winnersPct}% Up`;
+
+      // Update Card: Losers (Down vs Alert)
+      const kpiLosersEl = document.getElementById('kpi-card-losers');
+      if (kpiLosersEl) kpiLosersEl.textContent = losersCount;
+      const kpiLosersSubEl = document.getElementById('kpi-card-losers-sub');
+      if (kpiLosersSubEl) kpiLosersSubEl.textContent = openPositions > 0 ? `${losersCount} of ${openPositions} active positions down` : `${losersCount} stocks trading < alert px`;
+      const kpiLosersPillEl = document.getElementById('kpi-card-losers-pill');
+      if (kpiLosersPillEl) kpiLosersPillEl.textContent = `${losersPct}% Down`;
+
       // Card 3: Certified Win Rate
       const kpiWrEl = document.getElementById('kpi-card-wr');
       if (kpiWrEl) kpiWrEl.textContent = judged.length > 0 ? `${winRate}%` : '—';
@@ -4727,10 +4786,13 @@ function changeAdminPage(type, delta) {
       }
       if (kpiRegimeSubEl) kpiRegimeSubEl.textContent = regDetail;
 
-      // ── 11 COMPACT PERFORMANCE KPI SMALL TILES ──
+      // ── 13 COMPACT PERFORMANCE KPI SMALL TILES (Including Winners & Losers) ──
       const defs = [
         { id: 'today', label: "Today's Alerts", value: todaysCount, cls: 'blue', tileCls: 'blue', sub: 'new today', filter: t => (t.alert_time || t.entry_date || '').startsWith(todayStr) },
         { id: 'total', label: 'Total Alerts', value: filteredTrades.length, cls: '', tileCls: 'blue', sub: 'filtered', filter: t => true },
+        { id: 'winners_up', label: 'Winners (Up)', value: winnersCount, cls: 'green', tileCls: 'green', sub: 'trading > alert px', filter: isTradeUpVsAlert },
+        { id: 'losers_down', label: 'Losers (Down)', value: losersCount, cls: 'red', tileCls: 'red', sub: 'trading < alert px', filter: isTradeDownVsAlert },
+        { id: 'open', label: 'Open', value: openPositions, cls: 'blue', tileCls: 'blue', sub: 'active positions', filter: t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status) },
         { id: 'judged', label: 'Judged', value: judged.length, cls: '', tileCls: 'slate', sub: judged.length > 0 ? `${losers.length} SL · ${winners.length} target` : `${openPositions} active open`, filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
         { id: 'winrate', label: 'Win Rate', value: judged.length > 0 ? winRate + '%' : '—', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : '', tileCls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : 'slate', sub: judged.length > 0 ? `${winners.length}W / ${losers.length}L` : 'all positions active', filter: t => t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' },
         { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', tileCls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
@@ -4739,7 +4801,6 @@ function changeAdminPage(type, delta) {
         { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', tileCls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW-(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
         { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', tileCls: 'green', sub: '', filter: t => getTradePnlPct(t) === bestTrade },
         { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', tileCls: 'red', sub: '', filter: t => getTradePnlPct(t) === worstTrade },
-        { id: 'open', label: 'Open', value: openPositions, cls: 'blue', tileCls: 'blue', sub: 'active positions', filter: t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status) },
       ];
 
       const kpisEl = document.getElementById('kpis');
