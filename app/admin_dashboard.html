@@ -2074,19 +2074,38 @@ function changeAdminPage(type, delta) {
     /* ── [ELEVATED FINANCIAL SUMMARY CARDS] Rule 67: Wireframe Hero Financial Summary ── */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 12px;
       margin-bottom: 20px;
+    }
+    @media (max-width: 1280px) {
+      .kpi-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 768px) {
+      .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 480px) {
+      .kpi-grid {
+        grid-template-columns: 1fr;
+      }
     }
     .kpi-card {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius-md, 12px);
-      padding: 16px 20px;
+      padding: 12px 14px;
       box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.04);
       position: relative;
       overflow: hidden;
       transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
     }
     .kpi-card:hover {
       transform: translateY(-2px);
@@ -2111,40 +2130,52 @@ function changeAdminPage(type, delta) {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
+      gap: 4px;
     }
     .kpi-label {
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.6px;
+      letter-spacing: 0.5px;
       color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .kpi-pill {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 700;
-      padding: 2px 7px;
+      padding: 2px 6px;
       border-radius: 9999px;
       background: var(--card3);
       color: var(--text);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
     .kpi-value {
       font-family: var(--font-mono);
-      font-size: 22px;
+      font-size: clamp(17px, 1.25vw, 21px);
       font-weight: 800;
       color: var(--text);
       line-height: 1.2;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .kpi-value.green { color: var(--win); }
     .kpi-value.red { color: var(--loss, #ef4444); }
     .kpi-subtext {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--muted);
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
       font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* ── [11 COMPACT PERFORMANCE KPI SMALL TILES] Rule 67: Wireframe sleek KPI small tiles ── */
@@ -3304,10 +3335,10 @@ function changeAdminPage(type, delta) {
             <span class="kpi-pill" id="kpi-card-capital-pill" style="background: rgba(100, 116, 139, 0.1); color: var(--muted, #94a3b8);">MTM 0.0%</span>
           </div>
           <div class="kpi-value" id="kpi-card-capital">₹0.00</div>
-          <div id="kpi-card-mtm-row" style="display:flex; align-items:center; gap:6px; margin:4px 0 6px 0; font-family:var(--font-mono, monospace);">
-            <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Floating MTM:</span>
-            <span id="kpi-card-mtm-val" style="font-size:14px; font-weight:800; color:var(--muted);">₹0.00</span>
-            <span id="kpi-card-mtm-pct" style="font-size:12px; font-weight:700; color:var(--muted);">(0.0%)</span>
+          <div id="kpi-card-mtm-row" style="display:flex; align-items:center; gap:4px; margin:2px 0 4px 0; font-family:var(--font-mono, monospace); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            <span style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.4px;">MTM:</span>
+            <span id="kpi-card-mtm-val" style="font-size:12px; font-weight:800; color:var(--muted);">₹0.00</span>
+            <span id="kpi-card-mtm-pct" style="font-size:11px; font-weight:700; color:var(--muted);">(0.0%)</span>
           </div>
           <div class="kpi-subtext" id="kpi-card-capital-sub">0 Active positions deployed</div>
         </div>
