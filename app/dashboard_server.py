@@ -281,6 +281,62 @@ def check_session_validity():
             if request.endpoint not in ('complete_profile', 'login', 'logout', 'static', 'get_csrf_token', 'favicon'):
                 return redirect('/complete_profile')
 
+# ── Static Asset In-Memory Cache (Sub-Millisecond Zero Disk I/O) ────────────
+_STATIC_FILE_CACHE = {}
+_STATIC_FILE_LOCK = threading.Lock()
+
+@app.route("/static/<path:filename>")
+def serve_cached_static(filename):
+    """Serve static assets directly from RAM with ETag 304 and precompressed gzip."""
+    static_dir = os.path.join(APP_DIR, "static")
+    file_path = os.path.abspath(os.path.join(static_dir, filename))
+    if not file_path.startswith(static_dir) or not os.path.exists(file_path):
+        return abort(404)
+
+    mtime = os.path.getmtime(file_path)
+    cached = _STATIC_FILE_CACHE.get(file_path)
+    if not cached or cached.get("mtime") != mtime:
+        with _STATIC_FILE_LOCK:
+            cached = _STATIC_FILE_CACHE.get(file_path)
+            if not cached or cached.get("mtime") != mtime:
+                with open(file_path, "rb") as f:
+                    content = f.read()
+                import mimetypes, hashlib
+                mime, _ = mimetypes.guess_type(file_path)
+                mime = mime or "application/octet-stream"
+                etag = f'"{hashlib.md5(content).hexdigest()}"'
+                gz_content = _gzip.compress(content, compresslevel=1) if len(content) > 200 else None
+                cached = {
+                    "content": content,
+                    "gz_content": gz_content,
+                    "etag": etag,
+                    "mime": mime,
+                    "mtime": mtime
+                }
+                _STATIC_FILE_CACHE[file_path] = cached
+
+    client_etag = request.headers.get("If-None-Match")
+    if client_etag and client_etag == cached["etag"]:
+        return Response("", status=304, headers={
+            "ETag": cached["etag"],
+            "Cache-Control": "public, max-age=86400, must-revalidate"
+        })
+
+    headers = {
+        "ETag": cached["etag"],
+        "Cache-Control": "public, max-age=86400, must-revalidate",
+        "Content-Type": cached["mime"]
+    }
+
+    if cached["gz_content"] and 'gzip' in request.headers.get('Accept-Encoding', '').lower():
+        headers['Content-Encoding'] = 'gzip'
+        headers['Content-Length'] = str(len(cached['gz_content']))
+        headers['Vary'] = 'Accept-Encoding'
+        return Response(cached['gz_content'], mimetype=cached["mime"], headers=headers)
+
+    headers['Content-Length'] = str(len(cached['content']))
+    return Response(cached["content"], mimetype=cached["mime"], headers=headers)
+
 # ── PWA Routes ───────────────────────────────────────────────
 # IMPORTANT: Service worker MUST be served from the root path '/'
 # to allow it to control ALL pages. If served from /static/,
@@ -877,6 +933,57 @@ def invalidate_all_dashboard_caches():
     try:
         _CAPITAL_INFO_CACHE["ts"] = 0
         _CAPITAL_INFO_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_V2_MASTER_SUMMARY_CACHE" in globals():
+            _V2_MASTER_SUMMARY_CACHE["ts"] = 0.0
+            _V2_MASTER_SUMMARY_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_V2_SCANNER_HEALTH_CACHE" in globals():
+            _V2_SCANNER_HEALTH_CACHE["ts"] = 0.0
+            _V2_SCANNER_HEALTH_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_SUMMARY_API_CACHE" in globals():
+            _SUMMARY_API_CACHE["ts"] = 0.0
+            _SUMMARY_API_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_SHORTLIST_MEMO_CACHE" in globals():
+            _SHORTLIST_MEMO_CACHE["ts"] = 0.0
+            _SHORTLIST_MEMO_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_EXIT_HISTORY_CACHE" in globals():
+            _EXIT_HISTORY_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        if "_indices_cache" in globals() and isinstance(_indices_cache, dict):
+            _indices_cache["ts"] = 0.0
+            _indices_cache["payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_INDICES_MEMO" in globals() and isinstance(_INDICES_MEMO, dict):
+            _INDICES_MEMO["ts"] = 0.0
+            _INDICES_MEMO["payload"] = None
+            _INDICES_MEMO["gzip"] = None
+            _INDICES_MEMO["etag"] = None
+    except Exception:
+        pass
+    try:
+        if "_BREAKOUT_WATCHLIST_CACHE" in globals() and isinstance(_BREAKOUT_WATCHLIST_CACHE, dict):
+            _BREAKOUT_WATCHLIST_CACHE["ts"] = 0.0
+            _BREAKOUT_WATCHLIST_CACHE["payload"] = None
+            _BREAKOUT_WATCHLIST_CACHE["gzip"] = None
+            _BREAKOUT_WATCHLIST_CACHE["etag"] = None
     except Exception:
         pass
 
@@ -1931,10 +2038,31 @@ def health():
 
 
 # ── PHASE 4 V2 MASTER ORCHESTRATION ROUTES ──
+_V2_MASTER_SUMMARY_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+
 @app.route("/api/v2/master_summary")
 def get_v2_master_summary():
+    """Serves v2 master summary with 5s in-memory micro-cache, ETag 304, and precompressed gzip."""
+    global _V2_MASTER_SUMMARY_CACHE
+    now_ts = time.time()
+    if _V2_MASTER_SUMMARY_CACHE["payload"] is not None and (now_ts - _V2_MASTER_SUMMARY_CACHE["ts"]) < 5.0:
+        return _make_json_response(
+            _V2_MASTER_SUMMARY_CACHE["payload"],
+            etag=_V2_MASTER_SUMMARY_CACHE["etag"],
+            max_age=5,
+            precompressed_gzip=_V2_MASTER_SUMMARY_CACHE["gzip"]
+        )
     from master_orchestrator import orchestrator_v2
-    return jsonify(orchestrator_v2.get_master_summary())
+    data = orchestrator_v2.get_master_summary()
+    payload = json.dumps(data)
+    import hashlib
+    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+    _V2_MASTER_SUMMARY_CACHE["ts"] = now_ts
+    _V2_MASTER_SUMMARY_CACHE["payload"] = payload
+    _V2_MASTER_SUMMARY_CACHE["gzip"] = gz
+    _V2_MASTER_SUMMARY_CACHE["etag"] = etag
+    return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
 
 
 @app.route("/api/v2/stocks_to_watch")
@@ -1960,10 +2088,31 @@ def get_v2_confluence_breakdown(symbol: str = None):
         return jsonify(orchestrator_v2.get_all_confluence_setups())
     return jsonify(orchestrator_v2.get_confluence_breakdown(symbol))
 
+_V2_SCANNER_HEALTH_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+
 @app.route("/api/v2/scanner_health")
 def get_v2_scanner_health():
+    """Serves v2 scanner health telemetry with 5s in-memory micro-cache, ETag 304, and precompressed gzip."""
+    global _V2_SCANNER_HEALTH_CACHE
+    now_ts = time.time()
+    if _V2_SCANNER_HEALTH_CACHE["payload"] is not None and (now_ts - _V2_SCANNER_HEALTH_CACHE["ts"]) < 5.0:
+        return _make_json_response(
+            _V2_SCANNER_HEALTH_CACHE["payload"],
+            etag=_V2_SCANNER_HEALTH_CACHE["etag"],
+            max_age=5,
+            precompressed_gzip=_V2_SCANNER_HEALTH_CACHE["gzip"]
+        )
     from master_orchestrator import orchestrator_v2
-    return jsonify(orchestrator_v2.get_scanner_health())
+    data = orchestrator_v2.get_scanner_health()
+    payload = json.dumps(data)
+    import hashlib
+    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+    _V2_SCANNER_HEALTH_CACHE["ts"] = now_ts
+    _V2_SCANNER_HEALTH_CACHE["payload"] = payload
+    _V2_SCANNER_HEALTH_CACHE["gzip"] = gz
+    _V2_SCANNER_HEALTH_CACHE["etag"] = etag
+    return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
 
 
 _UNIVERSE_HEALTH_CACHE = {"ts": 0, "payload": None}
@@ -2820,10 +2969,22 @@ def export_watchlist(list_type):
     return send_file(file_path, as_attachment=True, download_name=filename)
 
 
+_SUMMARY_API_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+
 @app.route("/api/summary")
 @login_required
 def api_summary():
-    """Quick JSON summary — useful for curl checks, loaded from DB."""
+    """Quick JSON summary with 10s micro-cache, ETag 304, and precompressed gzip."""
+    global _SUMMARY_API_CACHE
+    now_ts = time.time()
+    with _dashboard_cache_lock:
+        if _SUMMARY_API_CACHE["payload"] is not None and (now_ts - _SUMMARY_API_CACHE["ts"]) < 10.0:
+            return _make_json_response(
+                _SUMMARY_API_CACHE["payload"],
+                etag=_SUMMARY_API_CACHE["etag"],
+                max_age=10,
+                precompressed_gzip=_SUMMARY_API_CACHE["gzip"]
+            )
     try:
         from database import get_system_state
         val = get_system_state("performance_summary")
@@ -2831,7 +2992,16 @@ def api_summary():
             summary = json.loads(val)
             from database import get_ai_cache_count
             summary["ai_cache_count"] = get_ai_cache_count()
-            return jsonify(summary)
+            payload = json.dumps(summary)
+            import hashlib
+            etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+            gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+            with _dashboard_cache_lock:
+                _SUMMARY_API_CACHE["ts"] = now_ts
+                _SUMMARY_API_CACHE["payload"] = payload
+                _SUMMARY_API_CACHE["gzip"] = gz
+                _SUMMARY_API_CACHE["etag"] = etag
+            return _make_json_response(payload, etag=etag, max_age=10, precompressed_gzip=gz)
     except Exception:
         logger.debug("❌ /api/summary fallback")
     return jsonify({"scanned_stocks": 0, "win_rate": 0.0, "total_alerts": 0, "ai_cache_count": 0, "status": "ok"}), 200
@@ -2845,17 +3015,22 @@ def _get_shortlist_cache():
         registry.put("shortlist_cache", data)
     return data
 
-_SHORTLIST_MEMO_CACHE = {"ts": 0.0, "payload": None}
+_SHORTLIST_MEMO_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
 
 @app.route("/api/shortlist")
 @login_required
 def api_shortlist():
-    """Returns the elite fundamental watchlist data as JSON with live CMP enrichment and 10s micro-cache."""
+    """Returns the elite fundamental watchlist data as JSON with live CMP enrichment, 10s micro-cache, ETag 304, and precompressed gzip."""
     global _SHORTLIST_MEMO_CACHE
     from config import WATCHLIST_PATH, DATA_DIR
     now_ts = time.time()
     if _SHORTLIST_MEMO_CACHE["payload"] is not None and (now_ts - _SHORTLIST_MEMO_CACHE["ts"]) < 10.0:
-        return Response(_SHORTLIST_MEMO_CACHE["payload"], mimetype="application/json")
+        return _make_json_response(
+            _SHORTLIST_MEMO_CACHE["payload"],
+            etag=_SHORTLIST_MEMO_CACHE.get("etag"),
+            max_age=10,
+            precompressed_gzip=_SHORTLIST_MEMO_CACHE.get("gzip")
+        )
 
     try:
         target_path = WATCHLIST_PATH
@@ -2925,9 +3100,14 @@ def api_shortlist():
 
         clean_records = sanitize_nans(records)
         payload = json.dumps(clean_records)
+        gz_bytes = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        import hashlib
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
         _SHORTLIST_MEMO_CACHE["ts"] = now_ts
         _SHORTLIST_MEMO_CACHE["payload"] = payload
-        return Response(payload, mimetype="application/json")
+        _SHORTLIST_MEMO_CACHE["gzip"] = gz_bytes
+        _SHORTLIST_MEMO_CACHE["etag"] = etag
+        return _make_json_response(payload, etag=etag, max_age=10, precompressed_gzip=gz_bytes)
     except Exception as e:
         logger.exception(f"Failed to load shortlist JSON")
         return jsonify([])
@@ -3100,31 +3280,59 @@ def api_stream_alerts():
 
 _MACRO_STATE_RESPONSE_CACHE = {
     "timestamp": 0.0,
-    "payload": {"nifty_6m_return": 0.0, "nifty_dist_52w": 0.0, "bear_market_gate": False}
+    "payload": {"nifty_6m_return": 0.0, "nifty_dist_52w": 0.0, "bear_market_gate": False},
+    "json": None,
+    "gzip": None,
+    "etag": None
 }
+_MACRO_STATE_LOCK = threading.Lock()
+_macro_is_refreshing = False
 
 @app.route("/api/macro_state")
 @login_required
 def api_macro_state():
-    """Returns the current Macro Regime state (Nifty correction) with non-blocking async background refresh."""
+    """Returns the current Macro Regime state with single-flight non-blocking background refresh, ETag 304, and gzip."""
+    global _macro_is_refreshing
     now = time.time()
-    if (now - _MACRO_STATE_RESPONSE_CACHE["timestamp"]) > 120:
-        import threading
-        def _refresh():
-            try:
-                from wealth_engine import fetch_nifty_macro_state
-                ret_6m, dist_52w = fetch_nifty_macro_state()
-                r_6m = round(float(ret_6m), 2) if ret_6m is not None else None
-                d_52w = round(float(dist_52w), 2) if dist_52w is not None else None
-                _MACRO_STATE_RESPONSE_CACHE["timestamp"] = time.time()
-                _MACRO_STATE_RESPONSE_CACHE["payload"] = {
-                    "nifty_6m_return": r_6m,
-                    "nifty_dist_52w": d_52w,
-                    "bear_market_gate": bool(d_52w > 15.0) if d_52w is not None else False
-                }
-            except Exception:
-                pass
-        threading.Thread(target=_refresh, daemon=True).start()
+    with _MACRO_STATE_LOCK:
+        cached_ts = _MACRO_STATE_RESPONSE_CACHE.get("timestamp", 0.0)
+        cached_json = _MACRO_STATE_RESPONSE_CACHE.get("json")
+        cached_gz = _MACRO_STATE_RESPONSE_CACHE.get("gzip")
+        cached_etag = _MACRO_STATE_RESPONSE_CACHE.get("etag")
+
+        if (now - cached_ts) > 120 and not _macro_is_refreshing:
+            _macro_is_refreshing = True
+            def _refresh():
+                global _macro_is_refreshing
+                try:
+                    from wealth_engine import fetch_nifty_macro_state
+                    ret_6m, dist_52w = fetch_nifty_macro_state()
+                    r_6m = round(float(ret_6m), 2) if ret_6m is not None else None
+                    d_52w = round(float(dist_52w), 2) if dist_52w is not None else None
+                    p = {
+                        "nifty_6m_return": r_6m,
+                        "nifty_dist_52w": d_52w,
+                        "bear_market_gate": bool(d_52w > 15.0) if d_52w is not None else False
+                    }
+                    p_str = json.dumps(p)
+                    import hashlib
+                    p_etag = f'"{hashlib.md5(p_str.encode("utf-8")).hexdigest()}"'
+                    p_gz = _gzip.compress(p_str.encode("utf-8"), compresslevel=1)
+                    with _MACRO_STATE_LOCK:
+                        _MACRO_STATE_RESPONSE_CACHE["timestamp"] = time.time()
+                        _MACRO_STATE_RESPONSE_CACHE["payload"] = p
+                        _MACRO_STATE_RESPONSE_CACHE["json"] = p_str
+                        _MACRO_STATE_RESPONSE_CACHE["gzip"] = p_gz
+                        _MACRO_STATE_RESPONSE_CACHE["etag"] = p_etag
+                except Exception:
+                    pass
+                finally:
+                    with _MACRO_STATE_LOCK:
+                        _macro_is_refreshing = False
+            threading.Thread(target=_refresh, daemon=True).start()
+
+        if cached_json is not None:
+            return _make_json_response(cached_json, etag=cached_etag, max_age=60, precompressed_gzip=cached_gz)
 
     return jsonify(_MACRO_STATE_RESPONSE_CACHE["payload"])
 
@@ -3807,15 +4015,8 @@ def api_todays_alerts():
         if _todays_alerts_cache.get(payload_key) is not None and (now_ts - _todays_alerts_cache.get("ts", 0)) < 10.0:
             cached_payload = _todays_alerts_cache[payload_key]
             cached_etag = _todays_alerts_cache.get(etag_key)
-            if client_etag and cached_etag and client_etag == cached_etag:
-                return Response("", status=304, headers={
-                    "ETag": cached_etag,
-                    "Cache-Control": "public, max-age=5, must-revalidate"
-                })
-            return Response(cached_payload, mimetype="application/json", headers={
-                "ETag": cached_etag or "",
-                "Cache-Control": "public, max-age=5, must-revalidate"
-            })
+            cached_gz = _todays_alerts_cache.get(f"{role_key}_gz")
+            return _make_json_response(cached_payload, etag=cached_etag, max_age=5, precompressed_gzip=cached_gz)
 
     try:
         from database import get_todays_alerts
@@ -3831,6 +4032,8 @@ def api_todays_alerts():
 
         admin_etag = f'"{hashlib.md5(admin_payload.encode("utf-8")).hexdigest()}"'
         user_etag = f'"{hashlib.md5(user_payload.encode("utf-8")).hexdigest()}"'
+        admin_gz = _gzip.compress(admin_payload.encode("utf-8"), compresslevel=1)
+        user_gz = _gzip.compress(user_payload.encode("utf-8"), compresslevel=1)
 
         with _dashboard_cache_lock:
             _todays_alerts_cache["ts"] = now_ts
@@ -3838,20 +4041,14 @@ def api_todays_alerts():
             _todays_alerts_cache["user_payload"] = user_payload
             _todays_alerts_cache["admin_etag"] = admin_etag
             _todays_alerts_cache["user_etag"] = user_etag
+            _todays_alerts_cache["admin_gz"] = admin_gz
+            _todays_alerts_cache["user_gz"] = user_gz
 
         current_payload = admin_payload if is_admin else user_payload
         current_etag = admin_etag if is_admin else user_etag
+        current_gz = admin_gz if is_admin else user_gz
 
-        if client_etag and client_etag == current_etag:
-            return Response("", status=304, headers={
-                "ETag": current_etag,
-                "Cache-Control": "public, max-age=5, must-revalidate"
-            })
-
-        return Response(current_payload, mimetype="application/json", headers={
-            "ETag": current_etag,
-            "Cache-Control": "public, max-age=5, must-revalidate"
-        })
+        return _make_json_response(current_payload, etag=current_etag, max_age=5, precompressed_gzip=current_gz)
     except Exception:
         logger.exception('❌ /api/todays_alerts failed')
         return jsonify([]), 200
@@ -4112,10 +4309,20 @@ def api_reject_multiple_alerts():
         logger.exception('❌ /api/alert/reject_multiple failed')
         return jsonify({'error': str(e)}), 500
 
+_EXIT_HISTORY_CACHE = {}
+_EXIT_HISTORY_LOCK = threading.Lock()
+_EXIT_HISTORY_MAX_ENTRIES = 500
+
 @app.route('/api/alert/exit_history/<int:alert_id>', methods=['GET'])
 @login_required
 def api_get_exit_history(alert_id):
-    """Fetch the full exit_history JSON array for a specific alert from the database."""
+    """Fetch the full exit_history JSON array for a specific alert with 60s in-memory LRU cache."""
+    now_ts = time.time()
+    with _EXIT_HISTORY_LOCK:
+        cached = _EXIT_HISTORY_CACHE.get(alert_id)
+        if cached and (now_ts - cached[1]) < 60.0:
+            return _make_json_response(cached[0], max_age=30, precompressed_gzip=cached[2])
+
     try:
         from database import get_connection
         with get_connection() as conn:
@@ -4124,6 +4331,7 @@ def api_get_exit_history(alert_id):
                 # Check regular alerts first
                 cur.execute("SELECT exit_history FROM alerts WHERE id = %s", (alert_id,))
                 row = cur.fetchone()
+                history = []
                 if row and row['exit_history']:
                     history = row['exit_history']
                     if isinstance(history, str):
@@ -4140,11 +4348,15 @@ def api_get_exit_history(alert_id):
                                     seen.add(t_type)
                             deduped.append(h)
                         history = deduped
-                    return jsonify(history)
-                    
-        return jsonify([]), 200
+                payload = json.dumps(history)
+                gz_bytes = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                with _EXIT_HISTORY_LOCK:
+                    if len(_EXIT_HISTORY_CACHE) > _EXIT_HISTORY_MAX_ENTRIES:
+                        _EXIT_HISTORY_CACHE.clear()
+                    _EXIT_HISTORY_CACHE[alert_id] = (payload, now_ts, gz_bytes)
+                return _make_json_response(payload, max_age=30, precompressed_gzip=gz_bytes)
     except Exception as e:
-        logger.exception('\u274c /api/alert/exit_history failed')
+        logger.exception("❌ /api/alert/exit_history failed")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/alert/accept', methods=['POST'])
@@ -4516,9 +4728,13 @@ def api_scanner_status():
     Return per-scanner health stats and today's trades (10s TTL cache to protect DB connection pool).
     """
     global _SCANNER_STATUS_CACHE, _WORKER_STATS_CACHE, _WEALTH_TODAY_TRADES_CACHE
-    now_ts = time.time()
     if _SCANNER_STATUS_CACHE.get("payload") is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
-        return _make_json_response(_SCANNER_STATUS_CACHE["payload"], max_age=5, precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip"))
+        return _make_json_response(
+            _SCANNER_STATUS_CACHE["payload"],
+            etag=_SCANNER_STATUS_CACHE.get("etag"),
+            max_age=5,
+            precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip")
+        )
     try:
         import os
         from database import get_all_scanner_health, get_all_scanners_today_trades
@@ -4654,14 +4870,17 @@ def api_scanner_status():
             
         res_payload = json.dumps(serialize_datetimes(result), default=str)
         gz_status = _gzip.compress(res_payload.encode("utf-8"), compresslevel=1)
+        import hashlib
+        etag_status = f'"{hashlib.md5(res_payload.encode("utf-8")).hexdigest()}"'
         _SCANNER_STATUS_CACHE["ts"] = now_ts
         _SCANNER_STATUS_CACHE["payload"] = res_payload
         _SCANNER_STATUS_CACHE["gzip"] = gz_status
-        return _make_json_response(res_payload, max_age=5, precompressed_gzip=gz_status)
+        _SCANNER_STATUS_CACHE["etag"] = etag_status
+        return _make_json_response(res_payload, etag=etag_status, max_age=5, precompressed_gzip=gz_status)
     except Exception as exc:
         logger.warning(f"❌ /api/scanner_status warning: {exc}")
         if _SCANNER_STATUS_CACHE.get("payload") is not None:
-            return _make_json_response(_SCANNER_STATUS_CACHE["payload"], max_age=5, precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip"))
+            return _make_json_response(_SCANNER_STATUS_CACHE["payload"], etag=_SCANNER_STATUS_CACHE.get("etag"), max_age=5, precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip"))
         return jsonify({}), 200
 
 
@@ -4844,156 +5063,196 @@ def _get_fallback_indices() -> dict:
     return fallback
 
 _indices_lock = threading.Lock()
+_indices_is_fetching = False
+_INDICES_MEMO = {"ts": 0.0, "payload": None, "gzip": None, "etag": None, "data": None}
 
 @app.route("/api/indices")
 @login_required
 def api_indices():
-    """Fetch live NIFTY 50, BANKNIFTY, and SENSEX with 1-min caching using UnifiedFetcher."""
+    """Fetch live NIFTY 50, BANKNIFTY, and SENSEX with fast caching, ETag 304, and non-blocking background refresh."""
+    global _indices_is_fetching, _INDICES_MEMO
+    now_ts = time.time()
+    
+    # 1. Check in-memory fast memo cache (30s freshness)
     with _indices_lock:
-        cache = _get_indices_cache()
-        if cache.get("data") and (time.time() - cache.get("timestamp", 0) < 60):
-            return jsonify(cache["data"])
+        cached_payload = _INDICES_MEMO.get("payload")
+        cached_etag = _INDICES_MEMO.get("etag")
+        cached_gzip = _INDICES_MEMO.get("gzip")
+        cache_age = now_ts - _INDICES_MEMO.get("ts", 0.0)
+
+    if cached_payload is not None and cache_age < 30.0:
+        return _make_json_response(cached_payload, etag=cached_etag, max_age=15, precompressed_gzip=cached_gzip)
+
+    # 2. If expired or empty, check whether we should trigger background refresh
+    should_spawn = False
+    with _indices_lock:
+        if not _indices_is_fetching:
+            _indices_is_fetching = True
+            should_spawn = True
+
     symbols_to_fetch = ["NIFTY 50", "BANKNIFTY", "SENSEX", "NIFTY BANK"]
 
-    # Background fetcher thread
     def _fetch_indices_bg():
-        bg_data = {}
-        canonical_map = {
-            "NIFTY 50": "NIFTY 50",
-            "NIFTY 50.NS": "NIFTY 50",
-            "NIFTY50": "NIFTY 50",
-            "^NSEI": "NIFTY 50",
-            "NSE_INDEX|NIFTY 50": "NIFTY 50",
-            "NSE_INDEX:NIFTY 50": "NIFTY 50",
-            "BANKNIFTY": "BANKNIFTY",
-            "BANKNIFTY.NS": "BANKNIFTY",
-            "NIFTY BANK": "BANKNIFTY",
-            "BANK NIFTY": "BANKNIFTY",
-            "NIFTYBANK": "BANKNIFTY",
-            "^NSEBANK": "BANKNIFTY",
-            "NSE_INDEX|NIFTY BANK": "BANKNIFTY",
-            "NSE_INDEX:NIFTY BANK": "BANKNIFTY",
-            "SENSEX": "SENSEX",
-            "SENSEX.NS": "SENSEX",
-            "SENSEX.BO": "SENSEX",
-            "BSE SENSEX": "SENSEX",
-            "^BSESN": "SENSEX",
-            "BSE_INDEX|SENSEX": "SENSEX",
-            "BSE_INDEX:SENSEX": "SENSEX"
-        }
+        global _indices_is_fetching, _INDICES_MEMO
         try:
-            from data_providers.unified_fetcher import fetcher
-            results = fetcher.fetch_live_quotes(symbols_to_fetch, consumer="dashboard_indices")
-            for sym, quote in results.items():
-                canon_name = canonical_map.get(sym.upper().strip(), sym.replace(".NS", "").replace(".BO", "").strip())
-                if canon_name not in ("NIFTY 50", "BANKNIFTY", "SENSEX"):
-                    continue
-                if canon_name in bg_data and bg_data[canon_name].get("price"):
-                    continue
-                if "v" in quote and "cmd" in quote["v"]:
-                    lp = quote["v"]["cmd"]["c"]
-                    prev_close = quote["v"]["cmd"].get("pc")
-                    ch = quote["v"]["cmd"].get("ch")
-                    chp = quote["v"]["cmd"].get("chp")
-
-                    point_change = 0.0
-                    if ch is not None:
-                        point_change = round(float(ch), 2)
-                    elif lp and prev_close and float(prev_close) > 0:
-                        point_change = round(float(lp) - float(prev_close), 2)
-
-                    pct_change = 0.0
-                    if chp is not None:
-                        pct_change = round(float(chp), 2)
-                    elif point_change != 0 and prev_close and float(prev_close) > 0:
-                        pct_change = round((point_change / float(prev_close)) * 100, 2)
-                    elif lp and prev_close and float(prev_close) > 0:
-                        pct_change = round(((float(lp) - float(prev_close)) / float(prev_close)) * 100, 2)
-
-                    # Ensure strict sign coherence between point_change and pct_change
-                    if point_change < 0 and pct_change > 0:
-                        pct_change = -abs(pct_change)
-                    elif point_change > 0 and pct_change < 0:
-                        pct_change = abs(pct_change)
-
-                    bg_data[canon_name] = {
-                        "price": lp,
-                        "pct_change": pct_change,
-                        "point_change": point_change,
-                        "prev_close": prev_close
-                    }
-        except Exception as e:
-            logger.error(f"Error fetching indices via UnifiedFetcher (bg): {e}")
-
-        # Enrich with live Strong and Weak Sector Leaders
-        try:
+            bg_data = {}
+            canonical_map = {
+                "NIFTY 50": "NIFTY 50",
+                "NIFTY 50.NS": "NIFTY 50",
+                "NIFTY50": "NIFTY 50",
+                "^NSEI": "NIFTY 50",
+                "NSE_INDEX|NIFTY 50": "NIFTY 50",
+                "NSE_INDEX:NIFTY 50": "NIFTY 50",
+                "BANKNIFTY": "BANKNIFTY",
+                "BANKNIFTY.NS": "BANKNIFTY",
+                "NIFTY BANK": "BANKNIFTY",
+                "BANK NIFTY": "BANKNIFTY",
+                "NIFTYBANK": "BANKNIFTY",
+                "^NSEBANK": "BANKNIFTY",
+                "NSE_INDEX|NIFTY BANK": "BANKNIFTY",
+                "NSE_INDEX:NIFTY BANK": "BANKNIFTY",
+                "SENSEX": "SENSEX",
+                "SENSEX.NS": "SENSEX",
+                "SENSEX.BO": "SENSEX",
+                "BSE SENSEX": "SENSEX",
+                "^BSESN": "SENSEX",
+                "BSE_INDEX|SENSEX": "SENSEX",
+                "BSE_INDEX:SENSEX": "SENSEX"
+            }
             try:
-                from sector_rotation import get_sector_scores
-            except ImportError:
-                from app.sector_rotation import get_sector_scores
-            sec_res = get_sector_scores()
-            if sec_res and sec_res.scores:
-                strong_items = []
-                weak_items = []
-                for s_name in sec_res.strong_sectors:
-                    sc = sec_res.scores.get(s_name)
-                    if sc:
-                        strong_items.append({
-                            "name": s_name,
-                            "pct": sc.outperformance_pct,
-                            "ret": sc.sector_return_pct,
-                            "status": sc.classification
-                        })
-                for w_name in sec_res.weak_sectors:
-                    sc = sec_res.scores.get(w_name)
-                    if sc:
-                        weak_items.append({
-                            "name": w_name,
-                            "pct": sc.outperformance_pct,
-                            "ret": sc.sector_return_pct,
-                            "status": sc.classification
-                        })
-                strong_items.sort(key=lambda x: x["pct"], reverse=True)
-                weak_items.sort(key=lambda x: x["pct"])
-                bg_data["_strong_sectors"] = strong_items[:3]
-                bg_data["_weak_sectors"] = weak_items[:3]
-        except Exception as _sec_err:
-            logger.debug(f"Could not calculate sector leaders for indices header: {_sec_err}")
+                from data_providers.unified_fetcher import fetcher
+                results = fetcher.fetch_live_quotes(symbols_to_fetch, consumer="dashboard_indices")
+                for sym, quote in results.items():
+                    canon_name = canonical_map.get(sym.upper().strip(), sym.replace(".NS", "").replace(".BO", "").strip())
+                    if canon_name not in ("NIFTY 50", "BANKNIFTY", "SENSEX"):
+                        continue
+                    if canon_name in bg_data and bg_data[canon_name].get("price"):
+                        continue
+                    if "v" in quote and "cmd" in quote["v"]:
+                        lp = quote["v"]["cmd"]["c"]
+                        prev_close = quote["v"]["cmd"].get("pc")
+                        ch = quote["v"]["cmd"].get("ch")
+                        chp = quote["v"]["cmd"].get("chp")
 
-        # Merge with fallback data so that all symbols are always present
-        fallback_data = _get_fallback_indices()
-        for k, v in fallback_data.items():
-            if k not in bg_data:
-                bg_data[k] = v
-            elif isinstance(bg_data[k], dict) and isinstance(v, dict):
-                if bg_data[k].get("point_change") is None and v.get("point_change") is not None:
-                    bg_data[k]["point_change"] = v["point_change"]
-                if bg_data[k].get("prev_close") is None and v.get("prev_close") is not None:
-                    bg_data[k]["prev_close"] = v["prev_close"]
-                if bg_data[k].get("pct_change") is None and v.get("pct_change") is not None:
-                    bg_data[k]["pct_change"] = v["pct_change"]
+                        point_change = 0.0
+                        if ch is not None:
+                            point_change = round(float(ch), 2)
+                        elif lp and prev_close and float(prev_close) > 0:
+                            point_change = round(float(lp) - float(prev_close), 2)
 
-        if bg_data:
+                        pct_change = 0.0
+                        if chp is not None:
+                            pct_change = round(float(chp), 2)
+                        elif point_change != 0 and prev_close and float(prev_close) > 0:
+                            pct_change = round((point_change / float(prev_close)) * 100, 2)
+                        elif lp and prev_close and float(prev_close) > 0:
+                            pct_change = round(((float(lp) - float(prev_close)) / float(prev_close)) * 100, 2)
+
+                        # Ensure strict sign coherence between point_change and pct_change
+                        if point_change < 0 and pct_change > 0:
+                            pct_change = -abs(pct_change)
+                        elif point_change > 0 and pct_change < 0:
+                            pct_change = abs(pct_change)
+
+                        bg_data[canon_name] = {
+                            "price": lp,
+                            "pct_change": pct_change,
+                            "point_change": point_change,
+                            "prev_close": prev_close
+                        }
+            except Exception as e:
+                logger.error(f"Error fetching indices via UnifiedFetcher (bg): {e}")
+
+            # Enrich with live Strong and Weak Sector Leaders
+            try:
+                try:
+                    from sector_rotation import get_sector_scores
+                except ImportError:
+                    from app.sector_rotation import get_sector_scores
+                sec_res = get_sector_scores()
+                if sec_res and sec_res.scores:
+                    strong_items = []
+                    weak_items = []
+                    for s_name in sec_res.strong_sectors:
+                        sc = sec_res.scores.get(s_name)
+                        if sc:
+                            strong_items.append({
+                                "name": s_name,
+                                "pct": sc.outperformance_pct,
+                                "ret": sc.sector_return_pct,
+                                "status": sc.classification
+                            })
+                    for w_name in sec_res.weak_sectors:
+                        sc = sec_res.scores.get(w_name)
+                        if sc:
+                            weak_items.append({
+                                "name": w_name,
+                                "pct": sc.outperformance_pct,
+                                "ret": sc.sector_return_pct,
+                                "status": sc.classification
+                            })
+                    strong_items.sort(key=lambda x: x["pct"], reverse=True)
+                    weak_items.sort(key=lambda x: x["pct"])
+                    bg_data["_strong_sectors"] = strong_items[:3]
+                    bg_data["_weak_sectors"] = weak_items[:3]
+            except Exception as _sec_err:
+                logger.debug(f"Could not calculate sector leaders for indices header: {_sec_err}")
+
+            # Merge with fallback data so that all symbols are always present
+            fallback_data = _get_fallback_indices()
+            for k, v in fallback_data.items():
+                if k not in bg_data:
+                    bg_data[k] = v
+                elif isinstance(bg_data[k], dict) and isinstance(v, dict):
+                    if bg_data[k].get("point_change") is None and v.get("point_change") is not None:
+                        bg_data[k]["point_change"] = v["point_change"]
+                    if bg_data[k].get("prev_close") is None and v.get("prev_close") is not None:
+                        bg_data[k]["prev_close"] = v["prev_close"]
+                    if bg_data[k].get("pct_change") is None and v.get("pct_change") is not None:
+                        bg_data[k]["pct_change"] = v["pct_change"]
+
+            if bg_data:
+                payload = json.dumps(serialize_datetimes(bg_data), default=str)
+                gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                import hashlib
+                etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+                with _indices_lock:
+                    _INDICES_MEMO["ts"] = time.time()
+                    _INDICES_MEMO["payload"] = payload
+                    _INDICES_MEMO["gzip"] = gz
+                    _INDICES_MEMO["etag"] = etag
+                    _INDICES_MEMO["data"] = bg_data
+                    c = _get_indices_cache()
+                    c["timestamp"] = time.time()
+                    c["data"] = bg_data
+                    from data_registry import registry
+                    registry.put("indices_cache", c)
+        except Exception as _bg_err:
+            logger.error(f"Error in _fetch_indices_bg: {_bg_err}")
+        finally:
             with _indices_lock:
-                c = _get_indices_cache()
-                c["timestamp"] = time.time()
-                c["data"] = bg_data
-                from data_registry import registry
-                registry.put("indices_cache", c)
+                _indices_is_fetching = False
 
-    # Spawn background fetch
-    t = threading.Thread(target=_fetch_indices_bg, daemon=True)
-    t.start()
+    if should_spawn:
+        threading.Thread(target=_fetch_indices_bg, daemon=True).start()
 
-    # Return whatever is in cache immediately (or fallback immediately if None)
+    # 3. If cached payload exists (even if stale while bg thread refreshes), return it immediately
+    if cached_payload is not None:
+        return _make_json_response(cached_payload, etag=cached_etag, max_age=15, precompressed_gzip=cached_gzip)
+
+    # 4. If cold start, return fallback immediately
+    fallback_data = _get_fallback_indices()
+    fb_payload = json.dumps(serialize_datetimes(fallback_data), default=str)
+    fb_gz = _gzip.compress(fb_payload.encode("utf-8"), compresslevel=1)
+    import hashlib
+    fb_etag = f'"{hashlib.md5(fb_payload.encode("utf-8")).hexdigest()}"'
     with _indices_lock:
-        cache = _get_indices_cache()
-        data = cache.get("data")
-        if not data:
-            data = _get_fallback_indices()
-            cache["data"] = data
-            cache["timestamp"] = 0  # Allow immediate overwrite when bg fetch completes
-        return jsonify(data)
+        _INDICES_MEMO["ts"] = now_ts
+        _INDICES_MEMO["payload"] = fb_payload
+        _INDICES_MEMO["gzip"] = fb_gz
+        _INDICES_MEMO["etag"] = fb_etag
+        _INDICES_MEMO["data"] = fallback_data
+    return _make_json_response(fb_payload, etag=fb_etag, max_age=15, precompressed_gzip=fb_gz)
 
 _news_cache_fallback = {}
 _news_lock = threading.Lock()
@@ -6235,7 +6494,7 @@ def start_dashboard_server_async():
 
 _BREAKOUT_CMP_CACHE = {}
 _BREAKOUT_CMP_LAST_FETCH = 0
-_BREAKOUT_WATCHLIST_CACHE = {"ts": 0.0, "payload": None}
+_BREAKOUT_WATCHLIST_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
 
 @app.route("/api/breakout_watchlist", methods=["GET"])
 @login_required
@@ -6245,10 +6504,13 @@ def api_breakout_watchlist():
     now_sec = time.time()
     # [RULE 67 CHANGE-RATIONALE]: 5.0s micro-cache protects PostgreSQL connection pool and CPU from
     # repetitive table scans and corporate action adjustments on high-frequency admin dashboard polling.
-    if _BREAKOUT_WATCHLIST_CACHE["payload"] is not None and (now_sec - _BREAKOUT_WATCHLIST_CACHE["ts"]) < 5.0:
-        resp = Response(_BREAKOUT_WATCHLIST_CACHE["payload"], mimetype="application/json")
-        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resp
+    if _BREAKOUT_WATCHLIST_CACHE.get("payload") is not None and (now_sec - _BREAKOUT_WATCHLIST_CACHE.get("ts", 0.0)) < 5.0:
+        return _make_json_response(
+            _BREAKOUT_WATCHLIST_CACHE["payload"],
+            etag=_BREAKOUT_WATCHLIST_CACHE.get("etag"),
+            max_age=5,
+            precompressed_gzip=_BREAKOUT_WATCHLIST_CACHE.get("gzip")
+        )
 
     try:
         from database import get_active_breakout_watchlist
@@ -6317,12 +6579,15 @@ def api_breakout_watchlist():
                 adjust_trade_for_corporate_actions(item)
 
         payload = json.dumps({"status": "success", "data": serialize_datetimes(data)}, default=str)
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        import hashlib
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
         with _dashboard_cache_lock:
             _BREAKOUT_WATCHLIST_CACHE["ts"] = now_sec
             _BREAKOUT_WATCHLIST_CACHE["payload"] = payload
-        resp = Response(payload, mimetype="application/json")
-        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resp
+            _BREAKOUT_WATCHLIST_CACHE["gzip"] = gz
+            _BREAKOUT_WATCHLIST_CACHE["etag"] = etag
+        return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
     except Exception as e:
         logger.exception("Failed to fetch breakout watchlist.")
         return jsonify({"status": "error", "message": str(e)}), 500
