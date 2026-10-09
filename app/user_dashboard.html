@@ -5387,10 +5387,20 @@ async function fetchUserInfo() {
     } catch(e) {}
 }
 
-// Poll every 10 seconds for ultra-fast fallback sync
-setInterval(fetchNotifications, 10000);
-fetchNotifications();
-fetchUserInfo();
+// Poll every 10 seconds for ultra-fast fallback sync (deferred slightly to prioritize critical UI paint)
+if (window.requestIdleCallback) {
+    window.requestIdleCallback(() => {
+        fetchNotifications();
+        fetchUserInfo();
+        setInterval(fetchNotifications, 10000);
+    });
+} else {
+    setTimeout(() => {
+        fetchNotifications();
+        fetchUserInfo();
+        setInterval(fetchNotifications, 10000);
+    }, 200);
+}
 
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);

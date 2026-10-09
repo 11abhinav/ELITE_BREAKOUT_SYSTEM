@@ -4200,11 +4200,28 @@ def get_all_alerts(limit: int = None) -> list[dict]:
             return enrich_alerts_with_multi_scanner_confluence(rows)
 
 
-def get_all_open_alerts_summary() -> dict[str, list[dict]]:
-    """Return all currently open alerts grouped by normalized symbol.
+_open_alerts_summary_cache = {"ts": 0.0, "data": None}
+_open_alerts_summary_lock = threading.Lock()
+
+def invalidate_open_alerts_summary_cache():
+    """Invalidate micro-cache of open alerts summary on alert mutation."""
+    global _open_alerts_summary_cache
+    with _open_alerts_summary_lock:
+        _open_alerts_summary_cache["ts"] = 0.0
+        _open_alerts_summary_cache["data"] = None
+
+def get_all_open_alerts_summary(force_refresh: bool = False) -> dict[str, list[dict]]:
+    """Return all currently open alerts grouped by normalized symbol with 15s micro-cache.
     
     Used to calculate multi-scanner open alert confluence across the entire system.
     """
+    global _open_alerts_summary_cache
+    now_ts = time.time()
+    if not force_refresh:
+        with _open_alerts_summary_lock:
+            if _open_alerts_summary_cache["data"] is not None and (now_ts - _open_alerts_summary_cache["ts"]) < 15.0:
+                return _open_alerts_summary_cache["data"]
+
     closed_statuses = ('WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED')
     open_alerts_by_sym: dict[str, list[dict]] = {}
     
@@ -4249,6 +4266,9 @@ def get_all_open_alerts_summary() -> dict[str, list[dict]]:
                         'score': r.get('score'),
                     }
                     open_alerts_by_sym.setdefault(clean_sym, []).append(item)
+        with _open_alerts_summary_lock:
+            _open_alerts_summary_cache["data"] = open_alerts_by_sym
+            _open_alerts_summary_cache["ts"] = now_ts
     except Exception as e:
         logger.debug(f"get_all_open_alerts_summary query failed: {e}")
         
@@ -4312,6 +4332,14 @@ def enrich_alerts_with_multi_scanner_confluence(
             open_alerts_by_sym.setdefault(clean_sym, []).append(item)
 
     for a in alerts:
+        st = str(a.get('status') or '').strip().upper()
+        if st in closed_statuses or a.get('is_rejected'):
+            a['total_open_scanners_count'] = 0
+            a['other_open_alerts'] = []
+            a['other_open_scanners'] = []
+            a['has_other_open_alerts'] = False
+            continue
+
         raw_sym = str(a.get('symbol') or '').strip()
         clean_sym = raw_sym.replace('.NS', '').replace('.BO', '').strip().upper()
         sym_open = open_alerts_by_sym.get(clean_sym, [])

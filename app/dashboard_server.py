@@ -105,6 +105,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 86400  # 1-day client cache for static CSS/JS/images
 
 app.config['WTF_CSRF_CHECK_DEFAULT'] = False
 csrf = CSRFProtect(app)
@@ -134,7 +135,7 @@ _GZIP_MIN_SIZE = 500  # Don't bother compressing tiny responses
 
 @app.after_request
 def gzip_response(response):
-    """Compress responses > 500 bytes when client supports gzip."""
+    """Compress responses > 500 bytes when client supports gzip. Uses compresslevel=1 for 5-10x faster dynamic compression."""
     if (response.status_code < 200 or response.status_code >= 300 or
         'Content-Encoding' in response.headers or
         'gzip' not in request.headers.get('Accept-Encoding', '').lower()):
@@ -155,12 +156,47 @@ def gzip_response(response):
     if len(data) < _GZIP_MIN_SIZE:
         return response
     
-    compressed = _gzip.compress(data, compresslevel=6)
+    compressed = _gzip.compress(data, compresslevel=1)
     response.set_data(compressed)
     response.headers['Content-Encoding'] = 'gzip'
     response.headers['Content-Length'] = len(compressed)
     response.headers['Vary'] = 'Accept-Encoding'
     return response
+
+
+def _make_json_response(payload_str: str, etag: str = None, max_age: int = 10, precompressed_gzip: bytes = None, no_cache: bool = False):
+    """Serve JSON payload with instant pre-compressed gzip if client accepts gzip.
+    Eliminates multi-hundred millisecond synchronous gzip overhead on Flask request threads."""
+    client_etag = request.headers.get("If-None-Match")
+    if client_etag and etag and client_etag == etag:
+        return Response("", status=304, headers={
+            "ETag": etag,
+            "Cache-Control": f"public, max-age={max_age}, must-revalidate"
+        })
+
+    if no_cache:
+        cc_val = "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0"
+    else:
+        cc_val = f"public, max-age={max_age}, must-revalidate"
+
+    headers = {
+        "Cache-Control": cc_val,
+        "Content-Type": "application/json"
+    }
+    if no_cache:
+        headers["Pragma"] = "no-cache"
+        headers["Expires"] = "0"
+    if etag:
+        headers["ETag"] = etag
+
+    if "gzip" in request.headers.get("Accept-Encoding", "").lower():
+        gz_bytes = precompressed_gzip if precompressed_gzip is not None else _gzip.compress(payload_str.encode("utf-8"), compresslevel=1)
+        headers["Content-Encoding"] = "gzip"
+        headers["Content-Length"] = str(len(gz_bytes))
+        headers["Vary"] = "Accept-Encoding"
+        return Response(gz_bytes, mimetype="application/json", headers=headers)
+
+    return Response(payload_str, mimetype="application/json", headers=headers)
 
 # [VERSION: DASHBOARD_PERF_FIX_v1.0] Session validation cache.
 # check_session_validity() hits the DB on EVERY request via login_required decorator.
@@ -661,11 +697,19 @@ def api_messages_read():
     return jsonify({"status": "success" if success else "error"})
 
 
+_user_info_cache = {}  # user_id -> (info_dict, ts)
+
 @app.route('/api/user_info', methods=['GET'])
 @login_required
 def api_user_info():
-    """Returns profile & display name info for logged-in user."""
+    """Returns profile & display name info for logged-in user with 300s in-memory cache."""
     user_id = session.get('user_id')
+    now_ts = time.time()
+    if user_id and user_id in _user_info_cache:
+        c_info, c_ts = _user_info_cache[user_id]
+        if (now_ts - c_ts) < 300.0:
+            return jsonify(c_info)
+
     username = session.get('username', '')
     first_name = session.get('first_name')
     email = session.get('email', '')
@@ -695,13 +739,16 @@ def api_user_info():
     else:
         first_name = first_name.strip().title()
 
-    return jsonify({
+    info = {
         "user_id": user_id,
         "username": username,
         "first_name": first_name,
         "email": email or "",
         "role": role
-    })
+    }
+    if user_id:
+        _user_info_cache[user_id] = (info, now_ts)
+    return jsonify(info)
 
 # =====================================================================================
 # NOTIFICATIONS API
@@ -734,6 +781,11 @@ _ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None, "ad
 def invalidate_notifications_cache():
     global _notifications_cache
     _notifications_cache["ts"] = 0.0
+    _notifications_cache["admin_payload"] = None
+    _notifications_cache["user_payload"] = None
+    _notifications_cache["admin_gz"] = None
+    _notifications_cache["user_gz"] = None
+
 def invalidate_all_dashboard_caches():
     """
     [EVENT-DRIVEN CACHE INVALIDATION]
@@ -743,9 +795,14 @@ def invalidate_all_dashboard_caches():
     global _todays_alerts_cache, _ALL_ALERTS_CACHE, _BREAKOUT_RESPONSE_CACHE, _SCANNER_STATUS_CACHE
     global _SEH_API_CACHE, _ADVANCED_OUTCOMES_CACHE, _notifications_cache, _CAPITAL_INFO_CACHE
     global _fetch_errors_grouped_cache, _UNIVERSE_HEALTH_CACHE, _PENDING_USERS_CACHE
-    global _SYSTEM_LOGS_CACHE
+    global _SYSTEM_LOGS_CACHE, _fetch_errors_cache
     try:
         invalidate_performance_cache()
+    except Exception:
+        pass
+    try:
+        from database import invalidate_open_alerts_summary_cache
+        invalidate_open_alerts_summary_cache()
     except Exception:
         pass
     try:
@@ -772,6 +829,7 @@ def invalidate_all_dashboard_caches():
     try:
         _SCANNER_STATUS_CACHE["ts"] = 0
         _SCANNER_STATUS_CACHE["payload"] = None
+        _SCANNER_STATUS_CACHE["gzip"] = None
     except Exception:
         pass
     try:
@@ -784,9 +842,7 @@ def invalidate_all_dashboard_caches():
     except Exception:
         pass
     try:
-        _notifications_cache["ts"] = 0
-        _notifications_cache["admin_payload"] = None
-        _notifications_cache["user_payload"] = None
+        invalidate_notifications_cache()
     except Exception:
         pass
     try:
@@ -798,6 +854,13 @@ def invalidate_all_dashboard_caches():
     try:
         _fetch_errors_grouped_cache["ts"] = 0
         _fetch_errors_grouped_cache["payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_fetch_errors_cache" in globals() and isinstance(_fetch_errors_cache, dict):
+            _fetch_errors_cache["ts"] = 0.0
+            _fetch_errors_cache["payload"] = None
+            _fetch_errors_cache["gzip"] = None
     except Exception:
         pass
     try:
@@ -819,10 +882,23 @@ def invalidate_all_dashboard_caches():
 @app.route('/api/notifications', methods=['GET'])
 @login_required
 def get_notifications():
+    global _notifications_cache
+    now_ts = time.time()
+    user_role = session.get('role', 'user')
+    cache_key = "admin_payload" if user_role == 'admin' else "user_payload"
+    gz_key = "admin_gz" if user_role == 'admin' else "user_gz"
+
+    if _notifications_cache.get(cache_key) is not None and (now_ts - _notifications_cache.get("ts", 0)) < 5.0:
+        return _make_json_response(
+            _notifications_cache[cache_key],
+            max_age=0,
+            precompressed_gzip=_notifications_cache.get(gz_key),
+            no_cache=True
+        )
+
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
-        user_role = session.get('role', 'user')
 
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -868,14 +944,15 @@ def get_notifications():
                         n['created_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
                 
                 payload = json.dumps(notifications)
-                return Response(payload, mimetype="application/json", headers={
-                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
-                    "Pragma": "no-cache",
-                    "Expires": "0"
-                })
+                gz_bytes = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                _notifications_cache["ts"] = now_ts
+                _notifications_cache[cache_key] = payload
+                _notifications_cache[gz_key] = gz_bytes
+                return _make_json_response(payload, max_age=0, precompressed_gzip=gz_bytes, no_cache=True)
 
     except Exception as e:
         logger.debug(f"Error fetching notifications: {e}")
+        return jsonify([])
         return jsonify([])
 
 @app.route('/api/notifications/mark_seen/<int:notif_id>', methods=['POST'])
@@ -958,8 +1035,8 @@ _html_file_cache = {}
 _html_file_lock = threading.Lock()
 
 def serve_cached_html(file_path: str, extra_headers: dict = None):
-    """Serve dashboard HTML directly from RAM cache with ETag 304 and gzip compression.
-    Eliminates multi-second uncompressed file reads and allows instant sub-millisecond 304 reloads."""
+    """Serve dashboard HTML directly from RAM cache with ETag 304 and pre-compressed gzip.
+    Eliminates multi-second uncompressed file reads and allows instant sub-millisecond loads."""
     if not file_path or not os.path.exists(file_path):
         return None
     now_mtime = os.path.getmtime(file_path)
@@ -970,7 +1047,13 @@ def serve_cached_html(file_path: str, extra_headers: dict = None):
                 content = f.read()
             import hashlib
             etag = f'"{hashlib.md5(content).hexdigest()}"'
-            cached = {"content": content, "mtime": now_mtime, "etag": etag}
+            gz_content = _gzip.compress(content, compresslevel=6)
+            cached = {
+                "content": content,
+                "gzip_content": gz_content,
+                "mtime": now_mtime,
+                "etag": etag
+            }
             _html_file_cache[file_path] = cached
 
     client_etag = request.headers.get("If-None-Match")
@@ -987,6 +1070,12 @@ def serve_cached_html(file_path: str, extra_headers: dict = None):
     }
     if extra_headers:
         headers.update(extra_headers)
+
+    if 'gzip' in request.headers.get('Accept-Encoding', '').lower():
+        headers['Content-Encoding'] = 'gzip'
+        headers['Content-Length'] = str(len(cached['gzip_content']))
+        headers['Vary'] = 'Accept-Encoding'
+        return Response(cached['gzip_content'], mimetype="text/html", headers=headers)
 
     return Response(cached["content"], mimetype="text/html", headers=headers)
 
@@ -1495,6 +1584,7 @@ def _build_instant_performance_fallback():
         return None
 
 _perf_data_mem_cache = None
+_perf_data_mem_gzip = None
 _perf_data_mem_ts = 0.0
 _perf_data_etag = None
 _perf_data_build_lock = threading.Lock()
@@ -1502,9 +1592,10 @@ _perf_data_build_lock = threading.Lock()
 def invalidate_performance_cache():
     """[RULE 67 CHANGE-RATIONALE]: Thread-safe cache invalidator called on alert status modifications.
     Cascades invalidation to master_summary so new alerts/mutations are reflected instantly."""
-    global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag, _INSTANT_PERF_CACHE
+    global _perf_data_mem_cache, _perf_data_mem_gzip, _perf_data_mem_ts, _perf_data_etag, _INSTANT_PERF_CACHE
     with _dashboard_cache_lock:
         _perf_data_mem_cache = None
+        _perf_data_mem_gzip = None
         _perf_data_mem_ts = 0.0
         _perf_data_etag = None
         _INSTANT_PERF_CACHE["payload"] = None
@@ -1519,7 +1610,7 @@ def invalidate_performance_cache():
 @login_required
 def performance_json():
     """Serve performance JSON with 30s high-performance in-memory micro-cache, single-flight lock, live alert reconciliation, and ETag 304."""
-    global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag
+    global _perf_data_mem_cache, _perf_data_mem_gzip, _perf_data_mem_ts, _perf_data_etag
     force_rebuild = request.args.get("rebuild", "").lower() == "true" or request.args.get("force", "").lower() == "true"
     now_ts = time.time()
     client_etag = request.headers.get("If-None-Match")
@@ -1528,15 +1619,12 @@ def performance_json():
     if not force_rebuild:
         with _dashboard_cache_lock:
             if _perf_data_mem_cache is not None and (now_ts - _perf_data_mem_ts) < 30.0:
-                if client_etag and _perf_data_etag and client_etag == _perf_data_etag:
-                    return Response("", status=304, headers={
-                        "ETag": _perf_data_etag,
-                        "Cache-Control": "public, max-age=10, must-revalidate"
-                    })
-                return Response(_perf_data_mem_cache, mimetype="application/json", headers={
-                    "ETag": _perf_data_etag or "",
-                    "Cache-Control": "public, max-age=10, must-revalidate"
-                })
+                return _make_json_response(
+                    _perf_data_mem_cache,
+                    etag=_perf_data_etag,
+                    max_age=10,
+                    precompressed_gzip=_perf_data_mem_gzip
+                )
 
     # Slow path: Single-flight lock to eliminate thundering herd / cache stampede
     with _perf_data_build_lock:
@@ -1544,20 +1632,17 @@ def performance_json():
 
 
 def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
-    global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag
+    global _perf_data_mem_cache, _perf_data_mem_gzip, _perf_data_mem_ts, _perf_data_etag
     now_ts = time.time()
     if not force_rebuild:
         with _dashboard_cache_lock:
             if _perf_data_mem_cache is not None and (now_ts - _perf_data_mem_ts) < 30.0:
-                if client_etag and _perf_data_etag and client_etag == _perf_data_etag:
-                    return Response("", status=304, headers={
-                        "ETag": _perf_data_etag,
-                        "Cache-Control": "public, max-age=10, must-revalidate"
-                    })
-                return Response(_perf_data_mem_cache, mimetype="application/json", headers={
-                    "ETag": _perf_data_etag or "",
-                    "Cache-Control": "public, max-age=10, must-revalidate"
-                })
+                return _make_json_response(
+                    _perf_data_mem_cache,
+                    etag=_perf_data_etag,
+                    max_age=10,
+                    precompressed_gzip=_perf_data_mem_gzip
+                )
 
     try:
         from database import get_system_state
@@ -1703,21 +1788,14 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
 
             import hashlib
             etag_val = f'"{hashlib.md5(val.encode("utf-8")).hexdigest()}"'
+            gz_bytes = _gzip.compress(val.encode("utf-8"), compresslevel=1)
             with _dashboard_cache_lock:
                 _perf_data_mem_cache = val
+                _perf_data_mem_gzip = gz_bytes
                 _perf_data_mem_ts = now_ts
                 _perf_data_etag = etag_val
 
-            if client_etag and client_etag == etag_val and not force_rebuild:
-                return Response("", status=304, headers={
-                    "ETag": etag_val,
-                    "Cache-Control": "public, max-age=5, must-revalidate"
-                })
-
-            return Response(val, mimetype="application/json", headers={
-                "ETag": etag_val,
-                "Cache-Control": "public, max-age=5, must-revalidate"
-            })
+            return _make_json_response(val, etag=etag_val, max_age=5, precompressed_gzip=gz_bytes)
     except Exception as e:
         logger.exception(f"❌ Failed to load performance data from DB: {e}")
 
@@ -1725,19 +1803,13 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
     if fallback_val:
         import hashlib
         fb_etag = f'"{hashlib.md5(fallback_val.encode("utf-8")).hexdigest()}"'
+        fb_gz = _gzip.compress(fallback_val.encode("utf-8"), compresslevel=1)
         with _dashboard_cache_lock:
             _perf_data_mem_cache = fallback_val
+            _perf_data_mem_gzip = fb_gz
             _perf_data_mem_ts = now_ts
             _perf_data_etag = fb_etag
-        if client_etag and client_etag == fb_etag and not force_rebuild:
-            return Response("", status=304, headers={
-                "ETag": fb_etag,
-                "Cache-Control": "public, max-age=5, must-revalidate"
-            })
-        return Response(fallback_val, mimetype="application/json", headers={
-            "ETag": fb_etag,
-            "Cache-Control": "public, max-age=5, must-revalidate"
-        })
+        return _make_json_response(fallback_val, etag=fb_etag, max_age=5, precompressed_gzip=fb_gz)
 
     # [RULE 67 CHANGE-RATIONALE]:
     # Removed premature return of empty_data. If system_state cache is missing and 
@@ -1836,19 +1908,13 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
     tier4_str = json.dumps(empty, default=str)
     import hashlib
     t4_etag = f'"{hashlib.md5(tier4_str.encode("utf-8")).hexdigest()}"'
+    t4_gz = _gzip.compress(tier4_str.encode("utf-8"), compresslevel=1)
     with _dashboard_cache_lock:
         _perf_data_mem_cache = tier4_str
+        _perf_data_mem_gzip = t4_gz
         _perf_data_mem_ts = now_ts
         _perf_data_etag = t4_etag
-    if client_etag and client_etag == t4_etag and not force_rebuild:
-        return Response("", status=304, headers={
-            "ETag": t4_etag,
-            "Cache-Control": "public, max-age=10, must-revalidate"
-        })
-    return Response(tier4_str, mimetype="application/json", headers={
-        "ETag": t4_etag,
-        "Cache-Control": "public, max-age=10, must-revalidate"
-    })
+    return _make_json_response(tier4_str, etag=t4_etag, max_age=10, precompressed_gzip=t4_gz)
 
 
 @app.route("/health", methods=["GET", "HEAD"])
@@ -3064,15 +3130,27 @@ def api_macro_state():
 
 # ── Fetch errors & System logs API (admin) ───────────────────────────────────────
 
+_fetch_errors_cache: dict = {"ts": 0.0, "payload": None, "gzip": None}
+
 @app.route("/api/fetch_errors")
 @login_required
 def api_fetch_errors():
-    """Return recent aggregated fetch errors for admin triage with zero stale caching and fast index lookup."""
+    """Return recent aggregated fetch errors for admin triage with 5s micro-cache and instant pre-compressed gzip."""
+    global _fetch_errors_cache
+    now_ts = time.time()
+    force = request.args.get("force", "").lower() == "true"
+    if not force and _fetch_errors_cache.get("payload") is not None and (now_ts - _fetch_errors_cache["ts"]) < 5.0:
+        return _make_json_response(_fetch_errors_cache["payload"], max_age=5, precompressed_gzip=_fetch_errors_cache.get("gzip"))
     try:
         limit = min(500, max(10, int(request.args.get("limit", 200))))
         from database import get_all_fetch_errors
         rows = get_all_fetch_errors(limit)
-        return jsonify(serialize_datetimes(rows))
+        payload = json.dumps(serialize_datetimes(rows), default=str)
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        _fetch_errors_cache["ts"] = now_ts
+        _fetch_errors_cache["payload"] = payload
+        _fetch_errors_cache["gzip"] = gz
+        return _make_json_response(payload, max_age=5, precompressed_gzip=gz)
     except Exception as e:
         logger.warning(f"❌ /api/fetch_errors warning: {e}")
         return jsonify([]), 200
@@ -4437,8 +4515,8 @@ def api_scanner_status():
     """
     global _SCANNER_STATUS_CACHE, _WORKER_STATS_CACHE, _WEALTH_TODAY_TRADES_CACHE
     now_ts = time.time()
-    if _SCANNER_STATUS_CACHE["payload"] is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
-        return Response(_SCANNER_STATUS_CACHE["payload"], mimetype="application/json")
+    if _SCANNER_STATUS_CACHE.get("payload") is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
+        return _make_json_response(_SCANNER_STATUS_CACHE["payload"], max_age=5, precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip"))
     try:
         import os
         from database import get_all_scanner_health, get_all_scanners_today_trades
@@ -4573,13 +4651,15 @@ def api_scanner_status():
             result[sc]["status"] = f"QUEUED-{i + 1}"
             
         res_payload = json.dumps(serialize_datetimes(result), default=str)
+        gz_status = _gzip.compress(res_payload.encode("utf-8"), compresslevel=1)
         _SCANNER_STATUS_CACHE["ts"] = now_ts
         _SCANNER_STATUS_CACHE["payload"] = res_payload
-        return Response(res_payload, mimetype="application/json")
+        _SCANNER_STATUS_CACHE["gzip"] = gz_status
+        return _make_json_response(res_payload, max_age=5, precompressed_gzip=gz_status)
     except Exception as exc:
         logger.warning(f"❌ /api/scanner_status warning: {exc}")
-        if _SCANNER_STATUS_CACHE["payload"] is not None:
-            return Response(_SCANNER_STATUS_CACHE["payload"], mimetype="application/json")
+        if _SCANNER_STATUS_CACHE.get("payload") is not None:
+            return _make_json_response(_SCANNER_STATUS_CACHE["payload"], max_age=5, precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip"))
         return jsonify({}), 200
 
 

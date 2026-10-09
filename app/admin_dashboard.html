@@ -8444,12 +8444,12 @@ async function initDashboard() {
     updateScannerChipCounts(ALL_TRADES);
     renderTradeTable();
     renderScannerGrid(data.scanner_stats);
-    loadNonCriticalErrors();
 
     // Load secondary dashboard components for default tab (non-blocking)
     Promise.allSettled([
       loadCapitalInfo(),
-      fetchSignalLadder()
+      fetchSignalLadder(),
+      loadNonCriticalErrors()
     ]).catch(e => console.error("Error loading secondary dashboard components:", e));
   } catch (err) {
     console.error("Dashboard init error:", err);
@@ -9843,9 +9843,18 @@ async function fetchUserInfo() {
     } catch(e) {}
 }
 
-// Initial fetch and start loop
-fetchNotifications().then(scheduleNextNotificationFetch);
-fetchUserInfo();
+// Initial fetch and start loop (deferred slightly to prioritize critical UI paint)
+if (window.requestIdleCallback) {
+    window.requestIdleCallback(() => {
+        fetchNotifications().then(scheduleNextNotificationFetch);
+        fetchUserInfo();
+    });
+} else {
+    setTimeout(() => {
+        fetchNotifications().then(scheduleNextNotificationFetch);
+        fetchUserInfo();
+    }, 200);
+}
 
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
