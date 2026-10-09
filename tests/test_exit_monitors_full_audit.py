@@ -178,7 +178,7 @@ class TestExitMonitorsFullAudit(unittest.TestCase):
                         self.assertEqual(row[0], "OPEN", "V2 Shadow check must NOT mutate live position status to CLOSED — position remains OPEN")
                         self.assertEqual(row[1], "ORANGE", "Watchlist state must be updated to ORANGE shadow warning")
                         self.assertIn("VALUATION_RE_RATED", str(row[2]))
-                        self.assertIn("PAT_DECELERATION", str(row[2]))
+                        self.assertIn("MODEL_E3", str(row[2]))
 
         if os.path.exists(parquet_path):
             os.remove(parquet_path)

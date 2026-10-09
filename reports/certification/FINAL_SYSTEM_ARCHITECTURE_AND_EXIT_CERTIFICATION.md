@@ -76,14 +76,12 @@
 ---
 
 ### Q22 — RECOVERY EXIT RECONCILIATION
-- `QUALITY_VALUE_RECOVERY` live exit evaluator ([`live_wealth_monitor.py:L1417-L1448`](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/live_wealth_monitor.py#L1417)) enforces:
-  1. `SMA200_BREAK` (2 consecutive closes below SMA200)
-  2. `STOP_LOSS_10PCT_HIT` (10% hard stop loss)
-  3. `VALUATION_RE_RATED` ($\text{EV/EBITDA} \ge \text{3Y Median}$)
-  4. `PAT_DECELERATION` (Trailing 3-quarter PAT growth $< 0$)
-  5. `MAX_HOLDING_EXPIRED` (10 trading sessions / ~14 calendar days)
-  6. `CanonicalRecoveryE3ExitEvaluator` (Margin collapse $>30\%$, D/E $>1.25$, 3 profit drops)
-- **Zero Compounder exit rules (e.g. 20% hard stop, Hold Score < 45) are used for Recovery.**
+- `QUALITY_VALUE_RECOVERY` live exit evaluator enforces strictly certified rules:
+  1. `VALUATION_RE_RATED` ($\text{EV/EBITDA} \ge \text{3Y Median}$ or $\text{PE} \ge \text{3Y Median}$)
+  2. `CanonicalRecoveryE3ExitEvaluator` (Model E3: Operating margin collapse $>30\%$, D/E $>1.25$, 3 consecutive annual profit drops)
+  3. `MATURATION_HORIZON_3Y` ($\ge 1095$ calendar days / ~3 years)
+- **Zero unbacktested price stops (10% hard stop) or short holding limits (10 sessions / 14 days) are used for Recovery.**
+- **Zero Compounder exit rules (e.g. 20% hard drawdown stop, Hold Score < 45) are used for Recovery.**
 
 ---
 

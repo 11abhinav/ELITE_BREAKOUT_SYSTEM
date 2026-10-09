@@ -1401,12 +1401,12 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                 is_recovery = sc_name in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1")
                 entry_price = float(al.get("entry_price") or al.get("alert_price") or close_t)
                 
-                # Recovery stocks enter below SMA200, so evaluate 10% hard stop instead of SMA200
-                pre_close_breached = (entry_price > 0 and close_t <= 0.90 * entry_price) if is_recovery else (close_t < sma200_t)
+                # Recovery positions have zero price stops in certified backtests (evaluated only on EOD fundamental Model E3 and valuation targets)
+                pre_close_breached = False if is_recovery else (close_t < sma200_t)
 
                 if pre_close_breached:
                     warnings_count += 1
-                    warn_reason = "INTRADAY_STOP_LOSS_10PCT_WARNING" if is_recovery else "INTRADAY_SMA200_BREACH_WARNING"
+                    warn_reason = "INTRADAY_SMA200_BREACH_WARNING"
                     save_v2_exit_event(
                         symbol=sym,
                         event_type="EXIT_CHECK_PRE_CLOSE",
@@ -1435,32 +1435,39 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
                 sma200_exit_confirmed = (close_t < sma200_t) and (close_t_prev < sma200_t_prev)
 
                 if sc_name in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
-                    # ── MODEL E3 EXIT LOGIC FOR RECOVERY (NO SMA200 BREAK) ──
-                    # 1. Hard Stop Loss: 10% below entry
-                    entry_price = float(al.get("entry_price") or al.get("alert_price") or close_t)
-                    if entry_price > 0 and close_t <= 0.90 * entry_price:
-                        exit_reasons.append("STOP_LOSS_10PCT_HIT")
-
-                    # 2. Valuation Mean-Reversion Re-Rating (EV/EBITDA discount is closed)
+                    # ── CERTIFIED MODEL E3 & VALUATION MEAN-REVERSION EXIT LOGIC ──
+                    # 1. Valuation Mean-Reversion Re-Rating (EV/EBITDA or PE discount is closed)
                     curr_ev = ctx.get("current_ev_ebitda")
                     med_ev = ctx.get("ev_ebitda_3y_median")
+                    curr_pe = ctx.get("current_pe")
+                    med_pe = ctx.get("pe_3y_median")
                     if curr_ev is not None and med_ev is not None and float(med_ev) > 0:
                         if float(curr_ev) >= float(med_ev):
                             exit_reasons.append("VALUATION_RE_RATED")
+                    elif curr_pe is not None and med_pe is not None and float(med_pe) > 0:
+                        if float(curr_pe) >= float(med_pe):
+                            exit_reasons.append("VALUATION_RE_RATED")
 
-                    # 3. PAT Deceleration Check
-                    pat_growth_3q = ctx.get("pat_growth_trailing_3q")
-                    if pat_growth_3q is not None and float(pat_growth_3q) < 0.0:
-                        exit_reasons.append("PAT_DECELERATION")
+                    # 2. Canonical Model E3 Fundamental Exit (Margin collapse > 30%, D/E > 1.25, 3 consecutive profit declines)
+                    try:
+                        eb_m = float(ctx.get("ebitda_margin") or ctx.get("op_margin_latest") or ctx.get("operating_margin") or 0.20)
+                        eb_m_init = float(ctx.get("entry_ebitda_margin") or ctx.get("op_margin_3y_median") or ctx.get("operating_margin_3y_median") or eb_m)
+                        de_val = float(ctx.get("debt_to_equity") or ctx.get("d_e") or 0.0)
+                        yoy_drops = int(ctx.get("yoy_profit_drops") or ctx.get("consecutive_profit_declines") or 0)
+                        e3_res = CanonicalRecoveryE3ExitEvaluator.evaluate(eb_m, eb_m_init, de_val, yoy_drops)
+                        if e3_res.get("exit_signal"):
+                            exit_reasons.append(f"MODEL_E3_{e3_res.get('reason')}")
+                    except Exception as _e3_err:
+                        logger.debug(f"Recovery E3 evaluation notice for {sym}: {_e3_err}")
 
-                    # 4. Holding Period Window (Max 10 trading sessions)
+                    # 3. 3-Year Maturation Horizon (Holding period >= 3 years / 1095 calendar days)
                     alert_date_str = str(al.get("created_at") or al.get("alert_time") or today_str)[:10]
                     try:
                         alert_d = datetime.strptime(alert_date_str, "%Y-%m-%d").date()
                         cur_d = now_ist.date()
                         days_held = (cur_d - alert_d).days
-                        if days_held >= 14:  # ~10 trading days
-                            exit_reasons.append("MAX_HOLDING_EXPIRED")
+                        if days_held >= 1095:
+                            exit_reasons.append("MATURATION_HORIZON_3Y")
                     except Exception:
                         pass
                 else:

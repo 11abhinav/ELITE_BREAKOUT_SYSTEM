@@ -1518,39 +1518,33 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             exit_code = ""
             exit_reason = ""
 
-            # 1. Hard Stop Loss: 10% max loss from entry (cmp <= 0.90 * entry_price)
-            if entry_price > 0 and cmp <= 0.90 * entry_price:
-                exit_code = "SELL"
-                exit_reason = f"Hard Stop Loss Hit: -{drawdown_pct:.1f}% (<= 10.0% max loss threshold)"
+            # 1. Valuation Mean-Reversion Target Reached (EV/EBITDA or PE closes discount vs 3Y Median)
+            curr_ev = r.get("current_ev_ebitda") or raw_ctx.get("current_ev_ebitda") or (raw_ctx.get("metrics", {}).get("current_ev_ebitda"))
+            med_ev = r.get("ev_ebitda_3y_median") or raw_ctx.get("ev_ebitda_3y_median") or (raw_ctx.get("metrics", {}).get("ev_ebitda_3y_median"))
+            curr_pe = r.get("current_pe") or raw_ctx.get("current_pe") or (raw_ctx.get("metrics", {}).get("current_pe"))
+            med_pe = r.get("pe_3y_median") or raw_ctx.get("pe_3y_median") or (raw_ctx.get("metrics", {}).get("pe_3y_median"))
 
-            # 2. Valuation Mean-Reversion Target Reached (EV/EBITDA or PE closes discount vs 3Y Median)
-            if not exit_code:
-                curr_ev = r.get("current_ev_ebitda") or raw_ctx.get("current_ev_ebitda") or (raw_ctx.get("metrics", {}).get("current_ev_ebitda"))
-                med_ev = r.get("ev_ebitda_3y_median") or raw_ctx.get("ev_ebitda_3y_median") or (raw_ctx.get("metrics", {}).get("ev_ebitda_3y_median"))
-                curr_pe = r.get("current_pe") or raw_ctx.get("current_pe") or (raw_ctx.get("metrics", {}).get("current_pe"))
-                med_pe = r.get("pe_3y_median") or raw_ctx.get("pe_3y_median") or (raw_ctx.get("metrics", {}).get("pe_3y_median"))
+            if curr_ev is not None and med_ev is not None:
+                try:
+                    c_ev_f = float(curr_ev)
+                    m_ev_f = float(med_ev)
+                    if m_ev_f > 0 and c_ev_f >= m_ev_f:
+                        exit_code = "SELL"
+                        exit_reason = f"Valuation Mean-Reversion Target Reached (EV/EBITDA {c_ev_f:.1f}x >= 3Y Median {m_ev_f:.1f}x)"
+                except (ValueError, TypeError):
+                    pass
 
-                if curr_ev is not None and med_ev is not None:
-                    try:
-                        c_ev_f = float(curr_ev)
-                        m_ev_f = float(med_ev)
-                        if m_ev_f > 0 and c_ev_f >= m_ev_f:
-                            exit_code = "SELL"
-                            exit_reason = f"Valuation Mean-Reversion Target Reached (EV/EBITDA {c_ev_f:.1f}x >= 3Y Median {m_ev_f:.1f}x)"
-                    except (ValueError, TypeError):
-                        pass
+            if not exit_code and curr_pe is not None and med_pe is not None:
+                try:
+                    c_pe_f = float(curr_pe)
+                    m_pe_f = float(med_pe)
+                    if m_pe_f > 0 and c_pe_f >= m_pe_f:
+                        exit_code = "SELL"
+                        exit_reason = f"Valuation Mean-Reversion Target Reached (PE {c_pe_f:.1f}x >= 3Y Median {m_pe_f:.1f}x)"
+                except (ValueError, TypeError):
+                    pass
 
-                if not exit_code and curr_pe is not None and med_pe is not None:
-                    try:
-                        c_pe_f = float(curr_pe)
-                        m_pe_f = float(med_pe)
-                        if m_pe_f > 0 and c_pe_f >= m_pe_f:
-                            exit_code = "SELL"
-                            exit_reason = f"Valuation Mean-Reversion Target Reached (PE {c_pe_f:.1f}x >= 3Y Median {m_pe_f:.1f}x)"
-                    except (ValueError, TypeError):
-                        pass
-
-            # 3. Model E3 Fundamental Exit (Margin collapse > 30%, Debt > 1.25, 3 profit drops)
+            # 2. Model E3 Fundamental Exit (Operating margin collapse > 30%, D/E > 1.25, 3 consecutive profit drops)
             if not exit_code:
                 try:
                     from live_wealth_monitor import CanonicalRecoveryE3ExitEvaluator
@@ -1566,25 +1560,14 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                 except Exception as _e3_err:
                     logger.debug(f"Recovery E3 evaluation notice for {sym}: {_e3_err}")
 
-            # 4. PAT Deceleration Check
-            if not exit_code:
-                pat_growth_3q = raw_ctx.get("pat_growth_trailing_3q") or r.get("pat_growth_trailing_3q")
-                if pat_growth_3q is not None:
-                    try:
-                        if float(pat_growth_3q) < 0.0:
-                            exit_code = "SELL"
-                            exit_reason = f"PAT Deceleration (Trailing 3Q Growth {float(pat_growth_3q):.1f}% < 0%)"
-                    except (ValueError, TypeError):
-                        pass
-
-            # 5. Holding Period Window (Max 10 trading sessions / ~14 calendar days)
+            # 3. 3-Year Maturation Horizon (Holding period >= 3 years / 1095 calendar days)
             if not exit_code:
                 entry_date_val = _coerce_to_date(r.get("entry_date") or r.get("alert_date") or p_info.get("entry_date"))
                 if entry_date_val:
                     days_held = (datetime.now(IST).date() - entry_date_val).days
-                    if days_held >= 14:
+                    if days_held >= 1095:
                         exit_code = "SELL"
-                        exit_reason = f"Max Holding Period Expired ({days_held} days >= 10 trading sessions limit)"
+                        exit_reason = f"3-Year Maturation Horizon Reached ({days_held} days >= 1095 days limit)"
 
             r["Exit_Code"] = exit_code
             r["Exit_Reason"] = exit_reason

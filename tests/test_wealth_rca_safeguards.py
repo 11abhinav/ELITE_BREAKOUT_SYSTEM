@@ -108,3 +108,52 @@ def test_close_position_atomic_safeguard():
         # Call close_position_atomic with exit_price = 110.0 (+10% gain) and Catastrophic Trend Collapse
         res = close_position_atomic("TEST_SYM", 110.0, "Catastrophic Trend Collapse (CMP < 75% 200SMA)")
         assert res is False, "close_position_atomic must refuse to close winning trade on trend collapse!"
+
+
+def test_recovery_no_10pct_stop_loss_or_10day_expiration():
+    """
+    Ensure QUALITY_VALUE_RECOVERY does NOT exit on 10% or 13.7% drawdown (like JSLL),
+    and does NOT exit on 10 or 15 days holding period.
+    Certified Model E3 has NO price stops and has a 3-year maturation horizon.
+    """
+    df = pd.DataFrame([{
+        "Stock": "JSLL_TEST",
+        "scanner": "QUALITY_VALUE_RECOVERY",
+        "entry_price": 100.0,
+        "cmp": 86.3,         # Down 13.7% (drawdown > 10%)
+        "prev_close": 87.0,
+        "sma_200": 150.0,
+        "rs_6m": -30.0,
+        "entry_date": "2026-09-20", # 19 days ago (> 14 calendar days / 10 trading sessions)
+        "consecutive_closes_below_200sma": 10,
+        "roce_avg": 20.0,
+        "trailing_roce": 20.0,
+        "sales_growth_3y": 15.0,
+        "opm_trend": "EXPANDING",
+        "der": 0.2,
+        "rsi_14": 40.0,
+        "atr_14": 3.0,
+        "dist_from_52w_high": 35.0,
+        "used_fallback_data": False,
+        "data_quality": "VALID",
+        "context": {
+            "current_ev_ebitda": 10.0,
+            "ev_ebitda_3y_median": 15.0, # Valuation discount NOT yet closed
+            "debt_to_equity": 0.2,        # D/E < 1.25 (no debt explosion)
+            "ebitda_margin": 0.22,
+            "entry_ebitda_margin": 0.24,  # Margin drop < 30% (no margin collapse)
+            "yoy_profit_drops": 0
+        }
+    }])
+
+    with patch("wealth_hold_tracking.HoldScoreTrendAnalyzer.analyze_trends_batch", return_value={}):
+        with patch("macro_utils.get_macro_regime", return_value="BULL"):
+            result_df = evaluate_open_positions(df, {"JSLL_TEST": {"scanner": "QUALITY_VALUE_RECOVERY"}})
+
+    row = result_df.iloc[0]
+    exit_code = row.get("Exit_Code")
+    exit_reason = row.get("Exit_Reason", "")
+
+    assert exit_code != "SELL", f"Recovery position at -13.7% drawdown must NOT be exited! Got: {exit_code} - {exit_reason}"
+    assert "Hard Stop Loss" not in exit_reason, "Zero 10% hard stop allowed in Recovery"
+    assert "Max Holding Period" not in exit_reason, "Zero 10-session holding limit allowed in Recovery"
