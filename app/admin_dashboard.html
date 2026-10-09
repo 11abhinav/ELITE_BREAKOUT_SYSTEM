@@ -8765,17 +8765,18 @@ initDashboard();
                 ptChg = Number(info.price) - Number(info.prev_close);
               }
 
-              const isNeg = pct < -0.001 || (ptChg !== null && ptChg < -0.001);
-              const isPos = pct > 0.001 || (ptChg !== null && ptChg > 0.001);
+              const isNeg = (ptChg !== null && ptChg < -0.001) || pct < -0.001;
+              const isPos = (ptChg !== null && ptChg > 0.001) || pct > 0.001;
               const colorClass = isNeg ? 'neg' : (isPos ? 'pos' : 'neutral');
               const arrow = isNeg ? '▼' : (isPos ? '▲' : '—');
-              const ptSign = (ptChg !== null && ptChg > 0) ? '+' : '';
-              const pctSign = pct > 0 ? '+' : '';
-              const priceStr = Number(info.price).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+              const ptSign = (ptChg !== null && ptChg > 0.001) ? '+' : '';
+              const pctSign = pct > 0.001 ? '+' : '';
+              const priceStr = Number(info.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
               let changeText = '';
               if (ptChg !== null) {
-                changeText = `${ptSign}${ptChg.toFixed(2)} pts (${pctSign}${pct.toFixed(2)}%) ${arrow}`;
+                const ptStr = `${ptSign}${ptChg.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                changeText = `${ptStr} (${pctSign}${pct.toFixed(2)}%) ${arrow}`;
               } else {
                 changeText = `${pctSign}${pct.toFixed(2)}% ${arrow}`;
               }
@@ -13795,7 +13796,6 @@ document.addEventListener('keydown', function(e) {
     <span><span class="key-kbd">Esc</span> to Close</span>
   </div>
 
-<script src="/static/interactive_ui.js"></script>
 </body>
 
 </html>

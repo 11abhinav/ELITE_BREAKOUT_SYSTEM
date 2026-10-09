@@ -1,6 +1,6 @@
-// table_sorter.js - Generic Table Column Sorting
-// This script automatically makes all tables sortable across the dashboards
-// and preserves the active sort even when JS frameworks overwrite the tbody innerHTML.
+// table_sorter.js - Generic Table Column Sorting (High Performance / Zero Reflow)
+// Optimized to eliminate forced synchronous reflows (textContent instead of innerText)
+// and uses DocumentFragment for batch DOM insertion.
 
 const TableSorter = {
   currentSorts: new Map(), // tableId -> { index: number, asc: boolean }
@@ -8,10 +8,11 @@ const TableSorter = {
   
   init() {
     document.querySelectorAll('table').forEach(table => {
-      // Must have an ID to track sort state across re-renders
       if (!table.id) return;
+
+      // Skip tables that manage their own data-driven sorting/filtering
+      if (table.id === 'tbl-master-signals' || table.id === 'tradeTable' || table.id === 'table-signals' || table.classList.contains('no-auto-sort')) return;
       
-      // Prevent double initialization
       if (table.dataset.sortableInit) return;
       table.dataset.sortableInit = "true";
 
@@ -21,16 +22,14 @@ const TableSorter = {
       const headers = Array.from(thead.querySelectorAll('th'));
       
       headers.forEach((th, index) => {
-        // Skip columns that explicitly shouldn't be sorted (e.g. action buttons)
-        if (th.classList.contains('no-sort') || th.innerText.trim().toLowerCase() === 'act') return;
+        if (th.classList.contains('no-sort') || th.textContent.trim().toLowerCase() === 'act') return;
 
         th.style.cursor = 'pointer';
         th.title = 'Click to sort';
         th.style.userSelect = 'none';
 
-        // Add the generic sort icon if not already present
-        if (!th.innerHTML.includes('↕') && !th.innerHTML.includes('↑') && !th.innerHTML.includes('↓')) {
-           th.innerHTML = th.innerHTML + ' <span class="sort-icon" style="opacity:0.3;font-size:10px">↕</span>';
+        if (!th.textContent.includes('↕') && !th.textContent.includes('↑') && !th.textContent.includes('↓')) {
+           th.insertAdjacentHTML('beforeend', ' <span class="sort-icon" style="opacity:0.3;font-size:10px">↕</span>');
         }
         
         th.addEventListener('click', () => {
@@ -47,16 +46,17 @@ const TableSorter = {
         });
       });
       
-      // Hook into DOM updates to reapply sort when data refreshes via setInterval
       const tbody = table.querySelector('tbody');
       if (tbody) {
+        let timer = null;
         const observer = new MutationObserver(() => {
-          // If we have an active sort for this table, we need to re-apply it after the innerHTML changes
           if (this.currentSorts.has(table.id)) {
-            // Disconnect temporarily so we don't trigger an infinite loop when we rearrange rows
-            observer.disconnect();
-            this.sortRows(table);
-            observer.observe(tbody, { childList: true });
+            clearTimeout(timer);
+            timer = setTimeout(() => {
+              observer.disconnect();
+              this.sortRows(table);
+              observer.observe(tbody, { childList: true });
+            }, 60);
           }
         });
         observer.observe(tbody, { childList: true });
@@ -70,17 +70,15 @@ const TableSorter = {
     const headers = Array.from(table.querySelectorAll('thead th'));
     
     headers.forEach((th, i) => {
-      // Find the existing sort icon span
-      const iconSpan = th.querySelector('.sort-icon') || Array.from(th.querySelectorAll('span')).find(s => s.innerText === '↕' || s.innerText === '↑' || s.innerText === '↓');
-      
+      const iconSpan = th.querySelector('.sort-icon');
       if (!iconSpan) return;
 
       if (currentSort && currentSort.index === i) {
-        iconSpan.innerText = currentSort.asc ? '↑' : '↓';
+        iconSpan.textContent = currentSort.asc ? '↑' : '↓';
         iconSpan.style.opacity = '1';
         iconSpan.style.color = 'var(--accent, #10b981)';
       } else {
-        iconSpan.innerText = '↕';
+        iconSpan.textContent = '↕';
         iconSpan.style.opacity = '0.3';
         iconSpan.style.color = 'inherit';
       }
@@ -95,62 +93,56 @@ const TableSorter = {
     if (!tbody) return;
     
     const rows = Array.from(tbody.querySelectorAll('tr'));
-    if (rows.length === 0) return;
+    if (rows.length <= 1) return;
     
-    rows.sort((a, b) => {
-      const aCol = a.children[currentSort.index];
-      const bCol = b.children[currentSort.index];
-      if (!aCol || !bCol) return 0;
+    // Pre-extract comparison values once per row to avoid O(N log N) DOM queries
+    const rowValues = rows.map(row => {
+      const col = row.children[currentSort.index];
+      const text = col ? col.textContent.trim() : '';
       
-      let aText = aCol.innerText.trim();
-      let bText = bCol.innerText.trim();
+      let numVal = NaN;
+      let dateVal = NaN;
       
-      // Special Date Parsing (Handle ISO, GMT, IST, DD Mon YYYY, and localized dates)
-      if (aText.length >= 6 && bText.length >= 6) {
-        let daClean = aText.replace(/IST|GMT|UTC/gi, '').trim();
-        let dbClean = bText.replace(/IST|GMT|UTC/gi, '').trim();
-        let da = Date.parse(daClean);
-        let db = Date.parse(dbClean);
-        if (isNaN(da) || isNaN(db)) {
-          // Try parsing DD Mon YYYY (e.g., "13 Aug 2026" or "13 Aug, 10:30")
-          const dPartsA = daClean.match(/^(\d{1,2})[-/\s]+([A-Za-z]+|\d{1,2})[-/\s,]*(\d{2,4})?/);
-          const dPartsB = dbClean.match(/^(\d{1,2})[-/\s]+([A-Za-z]+|\d{1,2})[-/\s,]*(\d{2,4})?/);
-          if (dPartsA && dPartsB) {
-            const yrA = dPartsA[3] || new Date().getFullYear();
-            const yrB = dPartsB[3] || new Date().getFullYear();
-            da = Date.parse(`${dPartsA[2]} ${dPartsA[1]}, ${yrA}`);
-            db = Date.parse(`${dPartsB[2]} ${dPartsB[1]}, ${yrB}`);
-          }
-        }
-        if (!isNaN(da) && !isNaN(db) && da > 946684800000 && db > 946684800000) {
-          return currentSort.asc ? da - db : db - da;
+      // Date check
+      if (text.length >= 6) {
+        const daClean = text.replace(/IST|GMT|UTC/gi, '').trim();
+        const dParsed = Date.parse(daClean);
+        if (!isNaN(dParsed) && dParsed > 946684800000) {
+          dateVal = dParsed;
         }
       }
-
-
-      // Cleanup numbers (remove currency symbols, commas, percent signs, up/down arrows)
-      aText = aText.replace(/₹|,|%|↑|↓|\+/g, '').trim();
-      bText = bText.replace(/₹|,|%|↑|↓|\+/g, '').trim();
       
-      let aVal = parseFloat(aText);
-      let bVal = parseFloat(bText);
-      
-      // If either is not a number, fallback to string comparison
-      if (isNaN(aVal) || isNaN(bVal)) {
-        return currentSort.asc ? aCol.innerText.trim().localeCompare(bCol.innerText.trim()) : bCol.innerText.trim().localeCompare(aCol.innerText.trim());
-      } else {
-        return currentSort.asc ? (aVal - bVal) : (bVal - aVal);
+      // Numeric check
+      if (isNaN(dateVal)) {
+        const cleaned = text.replace(/[₹,%↑↓+\s]/g, '');
+        if (cleaned.length > 0) {
+          const parsed = parseFloat(cleaned);
+          if (!isNaN(parsed)) numVal = parsed;
+        }
       }
+      
+      return { row, text, numVal, dateVal };
     });
     
-    // Re-append sorted rows
-    rows.forEach(row => tbody.appendChild(row));
+    rowValues.sort((a, b) => {
+      if (!isNaN(a.dateVal) && !isNaN(b.dateVal)) {
+        return currentSort.asc ? (a.dateVal - b.dateVal) : (b.dateVal - a.dateVal);
+      }
+      if (!isNaN(a.numVal) && !isNaN(b.numVal)) {
+        return currentSort.asc ? (a.numVal - b.numVal) : (b.numVal - a.numVal);
+      }
+      return currentSort.asc ? a.text.localeCompare(b.text) : b.text.localeCompare(a.text);
+    });
+    
+    // Batch DOM insertion using DocumentFragment (Single paint)
+    const frag = document.createDocumentFragment();
+    rowValues.forEach(item => frag.appendChild(item.row));
+    tbody.appendChild(frag);
   }
 };
 
 // Initialize after DOM load
 document.addEventListener('DOMContentLoaded', () => {
-    // Initial wait to allow frameworks to inject the first render
-    setTimeout(() => TableSorter.init(), 1000);
+    setTimeout(() => TableSorter.init(), 600);
 });
 

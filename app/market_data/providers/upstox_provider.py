@@ -208,6 +208,11 @@ class UpstoxProvider(ProviderInterface):
         "BANKNIFTY":    "NSE_INDEX|Nifty Bank",
         "NIFTYBANK":    "NSE_INDEX|Nifty Bank",
         "NSEBANK":      "NSE_INDEX|Nifty Bank",
+        "NIFTY BANK":   "NSE_INDEX|Nifty Bank",
+        "BANK NIFTY":   "NSE_INDEX|Nifty Bank",
+        "NIFTY-BANK":   "NSE_INDEX|Nifty Bank",
+        "BANKNIFTY.NS": "NSE_INDEX|Nifty Bank",
+        "NIFTY 50.NS":  "NSE_INDEX|Nifty 50",
 
         "^BSESN":       "BSE_INDEX|SENSEX",
         "SENSEX":       "BSE_INDEX|SENSEX",

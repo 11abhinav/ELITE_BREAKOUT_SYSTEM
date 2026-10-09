@@ -1069,6 +1069,7 @@ var USER_PAGE_SIZE = 10;
     .ticker-val { font-weight: 700; color: var(--text); }
     .ticker-pct.pos { color: var(--win); font-weight: 800; }
     .ticker-pct.neg { color: var(--loss); font-weight: 800; }
+    .ticker-pct.neutral { color: var(--muted); font-weight: 700; }
 
     /* ── [ELEVATED FINANCIAL SUMMARY CARDS] Wireframe Hero Financial Summary ── */
     .kpi-grid {
@@ -2624,10 +2625,261 @@ function getTradeConfluenceInfo(t) {
   };
 }
 
+function buildDetailPanelContent(t, id) {
+  const cleanSym = (t.symbol || '').replace('.NS', '').replace('.BO', '').trim();
+  const confluence = getTradeConfluenceInfo(t);
+  const tvLink = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
+  return `
+    ${confluence.hasOtherOpenAlerts ? `
+    <div class="detail-item" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(255, 138, 0, 0.12), rgba(229, 46, 113, 0.08)); border: 1px solid rgba(255, 138, 0, 0.45); padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; box-shadow: inset 0 0 12px rgba(255, 138, 0, 0.08);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:16px;">⚡</span>
+          <div>
+            <div style="color:#ffaa40; font-weight:800; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">
+              Multi-Scanner Confluence: ${confluence.totalOpenScanners} Scanner${confluence.totalOpenScanners > 1 ? 's' : ''} with Active Open Alert on ${cleanSym}
+            </div>
+            <div style="color:var(--muted); font-size:10.5px; margin-top:1px;">
+              Current Alert: <strong style="color:var(--accent);">${t.scanner || 'TECHNICAL'}</strong> (${fmtDetailTime(t.alert_time || t.entry_date)} @ ${fmt(t.actual_entry_price || t.entry_price)})
+            </div>
+          </div>
+        </div>
+        <span style="font-size:10.5px; font-weight:700; color:#ffaa40; background:rgba(0,0,0,0.35); border:1px solid rgba(255,138,0,0.4); padding:3px 10px; border-radius:12px; font-family:var(--font-mono);">
+          +${confluence.otherOpenAlerts.length} other open alert${confluence.otherOpenAlerts.length > 1 ? 's' : ''}
+        </span>
+      </div>
+      
+      <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:10px;">
+        ${confluence.otherOpenAlerts.map(oa => `
+          <div style="background:var(--card); border:1px solid var(--border); border-left:3px solid #ff8a00; border-radius:6px; padding:10px 12px; display:flex; flex-direction:column; gap:5px; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-weight:800; font-size:11.5px; color:var(--accent); font-family:var(--font-mono);">${oa.scanner}</span>
+              <span class="badge" style="font-size:9.5px; font-weight:700; padding:1px 6px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid rgba(0,212,161,0.3); border-radius:3px;">
+                ${oa.status || 'OPEN'}
+              </span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; margin-top:2px;">
+              <span style="color:var(--muted); font-size:11px;">Alert Price:</span>
+              <span style="font-weight:800; color:var(--text); font-family:var(--font-mono); font-size:12px;">${fmt(oa.entry_price)}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted);">
+              <span>Alert Date:</span>
+              <span style="font-family:var(--font-mono); color:var(--text); font-weight:600;">${fmtDetailTime(oa.alert_time || oa.alert_date)}</span>
+            </div>
+            ${oa.score != null ? `
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--muted); border-top:1px dashed var(--border); padding-top:4px; margin-top:2px;">
+              <span>Confluence Score:</span>
+              <span style="font-weight:700; color:var(--accent); font-family:var(--font-mono);">${oa.score}</span>
+            </div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    ` : ''}
+    ${(() => {
+      /* [RULE 67 CHANGE-RATIONALE]: Ensure 100% dynamic visual roadmap in user dashboard. Never fabricate synthetic targets if strategy has no target by design. */
+      const entryP = Number(t.actual_entry_price || t.entry_price || 0);
+      const hasSl = (t.stop_loss != null && Number(t.stop_loss) > 0);
+      const slP = hasSl ? Number(t.stop_loss) : null;
+      const cmpP = Number(t.current_price || t.exit_price || entryP);
+      const hasT1 = (t.target_1 != null && Number(t.target_1) > 0) || (t.target_price != null && Number(t.target_price) > 0);
+      const hasT2 = (t.target_2 != null && Number(t.target_2) > 0);
+      const t1P = hasT1 ? Number(t.target_1 || t.target_price) : null;
+      const t2P = hasT2 ? Number(t.target_2) : null;
+      const isLoss = t.status === 'LOSS';
+      const isWin = t.status === 'WIN';
+      const isTrailed = hasSl && entryP > 0 && slP >= entryP;
+      const isT1Hit = hasT1 && (t.status === 'PARTIAL_WIN_1' || t.status === 'PARTIAL_WIN_2' || isWin || (t1P && cmpP >= t1P));
+      const isT2Hit = hasT2 && (isWin || (t2P && cmpP >= t2P));
+
+      let pctProgress = 25;
+      let statusSubtext = '';
+
+      if (hasT1) {
+        const maxTarget = hasT2 ? t2P : t1P;
+        const targetLabel = hasT2 ? 'T2' : 'T1';
+        if (isLoss) {
+          pctProgress = 5;
+        } else if (isWin || isT2Hit) {
+          pctProgress = 95;
+        } else if (isT1Hit) {
+          pctProgress = hasT2 ? 65 : 90;
+        } else if (entryP > 0 && maxTarget > entryP) {
+          const upsideRatio = Math.max(0, Math.min(1, (cmpP - entryP) / (maxTarget - entryP)));
+          pctProgress = Math.round(30 + upsideRatio * (hasT2 ? 35 : 55));
+        }
+        statusSubtext = `${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% (${pctProgress}% to ${targetLabel})`;
+      } else {
+        if (isLoss) {
+          pctProgress = 5;
+        } else if (isWin) {
+          pctProgress = 90;
+        } else if (entryP > 0 && cmpP >= entryP) {
+          pctProgress = Math.min(85, Math.round(45 + Math.min(40, ((cmpP - entryP) / entryP) * 100)));
+        } else {
+          pctProgress = 25;
+        }
+        statusSubtext = `${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% (Trailing Exit — No Target by Design)`;
+      }
+
+      return `
+        <div class="detail-item" style="grid-column: 1 / -1; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 4px 0 8px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <span style="font-size:11.5px; font-weight:800; text-transform:uppercase; color:var(--text); display:flex; align-items:center; gap:6px;"><span>📈</span> Price Track &amp; Target Roadmap</span>
+            <span style="font-size:11px; font-family:var(--font-mono); font-weight:700; color:${(t.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'};">${statusSubtext}</span>
+          </div>
+          <div style="position:relative; width:100%; height:6px; background:var(--border2); border-radius:3px; margin:20px 0 16px 0;">
+            <div style="position:absolute; top:0; left:0; height:100%; width:${pctProgress}%; background:linear-gradient(90deg, #2563eb, #059669); border-radius:3px;"></div>
+            <div style="position:absolute; top:-6px; left:0; width:100%; display:flex; justify-content:space-between;">
+              <div style="text-align:center;">
+                <div style="width:16px; height:16px; border-radius:50%; background:${isLoss ? '#dc2626' : (hasSl ? '#cbd5e1' : '#94a3b8')}; border:2px solid #fff; margin:0 auto;"></div>
+                <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isLoss ? '#dc2626' : 'var(--muted)'};">${hasSl ? 'SL ₹' + Number(slP).toFixed(0) : 'Open SL'}</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; margin:0 auto;"></div>
+                <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--text);">Entry ₹${Number(entryP).toFixed(0)}</div>
+              </div>
+              ${isTrailed ? `
+              <div style="text-align:center;">
+                <div style="width:16px; height:16px; border-radius:50%; background:#059669; border:2px solid #fff; margin:0 auto;"></div>
+                <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#059669;">Trailed ₹${Number(slP).toFixed(0)}</div>
+              </div>` : ''}
+              <div style="text-align:center;">
+                <div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; box-shadow:0 0 0 4px rgba(37,99,235,0.25); margin:0 auto;"></div>
+                <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:800; color:var(--accent2);">CMP ₹${Number(cmpP).toFixed(0)}</div>
+              </div>
+              ${hasT1 ? `
+              <div style="text-align:center;">
+                <div style="width:16px; height:16px; border-radius:50%; background:${isT1Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div>
+                <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isT1Hit ? '#059669' : 'var(--muted)'};">T1 ₹${Number(t1P).toFixed(0)}${isT1Hit ? ' ✓' : ''}</div>
+              </div>` : ''}
+              ${hasT2 ? `
+              <div style="text-align:center;">
+                <div style="width:16px; height:16px; border-radius:50%; background:${isT2Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div>
+                <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--muted);">T2 ₹${Number(t2P).toFixed(0)}${isT2Hit ? ' ✓' : ''}</div>
+              </div>` : ''}
+              ${!hasT1 ? `
+              <div style="text-align:center;">
+                <div style="width:16px; height:16px; border-radius:50%; background:#10b981; border:2px solid #fff; margin:0 auto; box-shadow:0 0 0 2px rgba(16,185,129,0.3);"></div>
+                <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#10b981;">Trailing Exit 🛡️</div>
+              </div>` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    })()}
+    ${(t.roce != null || t.sales_cagr != null || t.debt_to_equity != null || t.valuation_discount != null || (t.context && (t.context.roce || t.context.sales_cagr || t.context.pe))) ? `
+    <div class="detail-item" style="grid-column: 1 / -1; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 4px 0 8px 0;">
+      <div style="font-size:11.5px; font-weight:800; text-transform:uppercase; color:var(--text); margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+        <span>📊</span> Company Fundamentals &amp; Quality Metrics
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; font-size:11.5px; font-family:var(--font-mono);">
+        <div><span style="color:var(--muted);">ROCE:</span> <strong style="color:var(--win);">${t.roce || (t.context && t.context.roce ? t.context.roce + '%' : '—')}</strong></div>
+        <div><span style="color:var(--muted);">Sales CAGR:</span> <strong style="color:var(--accent);">${t.sales_cagr || (t.context && t.context.sales_cagr ? t.context.sales_cagr + '%' : '—')}</strong></div>
+        <div><span style="color:var(--muted);">Debt / Equity:</span> <strong style="color:var(--text);">${t.debt_to_equity ?? (t.context && t.context.debt_to_equity != null ? t.context.debt_to_equity : (t.context && t.context.de != null ? t.context.de : '—'))}</strong></div>
+        <div><span style="color:var(--muted);">Valuation:</span> <strong style="color:var(--amber);">${t.valuation_discount || (t.context && t.context.valuation_discount ? t.context.valuation_discount : (t.context && t.context.discount ? t.context.discount : '—'))}</strong></div>
+      </div>
+    </div>
+    ` : ''}
+    <div class="detail-item">
+      <div class="detail-label">Strategy / Pattern</div>
+      <div class="detail-val" style="color:var(--accent);font-weight:700;white-space:normal;word-break:break-word;line-height:1.4;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">Stop Loss</div>
+      <div class="detail-val neg">${(t.scanner === 'FUNDAMENTAL' || !t.stop_loss) ? '<span style="color:var(--muted);font-weight:700;">NONE (OPEN-ENDED)</span>' : fmt(t.stop_loss)}</div>
+      ${t.status === 'LOSS' && t.exit_price ? `
+        <div style="font-size:11px;color:var(--warn);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
+          Booked: ${fmt(t.exit_price)}<br>
+          @ ${fmtClosedAt(t.closed_at)}
+        </div>` : ''
+      }
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">Targets (T1/T2)</div>
+      <div class="detail-val pos" style="font-size:11px;">
+        ${(t.target_1 || t.target_price) ? (
+          (t.target_1 ? 'T1: ' + fmt(t.target_1) : 'TP: ' + fmt(t.target_price)) +
+          (t.target_2 ? '<br>T2: ' + fmt(t.target_2) : '')
+        ) : '<span style="color:#10b981;font-weight:700;">OPEN-ENDED / TRAILING (NO TARGET BY DESIGN)</span>'}
+      </div>
+      ${t.status === 'WIN' && t.exit_price ? `
+        <div style="font-size:11px;color:var(--accent);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
+          Booked: ${fmt(t.exit_price)}<br>
+          @ ${fmtClosedAt(t.closed_at)}
+        </div>` : ''
+      }
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">Exit Price</div>
+      <div class="detail-val">${fmt(t.exit_price)}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">RSI</div>
+      <div class="detail-val" style="color:var(--accent)">${t.rsi??'—'}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">Vol Ratio</div>
+      <div class="detail-val">${t.volume_ratio??'—'}\u00d7</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">Alert Time</div>
+      <div class="detail-val" style="font-size:11px;color:var(--muted)">${fmtDetailTime(t.alert_time || t.entry_date)}</div>
+    </div>
+    <div class="detail-item">
+      <div class="detail-label">Actions</div>
+      <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
+        <button onclick="event.stopPropagation(); openStockIntelligenceDossier('${cleanSym}');" style="background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; border:none; padding:5px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; box-shadow:0 0 10px rgba(168,85,247,0.3);">🧠 AI Corporate Dossier</button>
+        <button onclick="event.stopPropagation(); openTradingViewChart('${cleanSym}', ${t.actual_entry_price || t.entry_price || 0}, ${t.stop_loss || 0}, ${t.target_price || 0});" style="background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); color:var(--accent2); padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📈 Embedded TV Chart</button>
+        <button onclick="event.stopPropagation(); window.open('${tvLink}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
+        <button onclick="event.stopPropagation(); triggerStockDiagnosticBySymbol('${cleanSym}');" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">🔍 7-Stage Diagnostic</button>
+      </div>
+    </div>
+    ${(t.exit_signal || t.exit_reason) ? `
+    <div class="detail-item" style="grid-column: 1 / -1; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); padding: 10px 14px; border-radius: 6px; margin-top: 4px;">
+      <div class="detail-label" style="color: #dc2626; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">🛑 Exit Reason / Trigger Signal</div>
+      <div class="detail-val" style="font-size: 12px; font-weight: 700; color: var(--text); font-family: var(--font-mono); margin-top: 2px;">
+        ${t.exit_signal || t.exit_reason}
+      </div>
+    </div>` : ''}
+    <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15); display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:24px; width: 100%; box-sizing: border-box;">
+      <div class="detail-item">
+        <div class="detail-label" style="color:var(--accent);">Live Catalysts</div>
+        <div class="detail-val" style="margin-top:4px; max-height:150px; overflow-y:auto; padding-right:8px;">
+          ${(window.NEWS_CACHE && window.NEWS_CACHE[t.symbol]) ? window.NEWS_CACHE[t.symbol] : `
+            <div id="news-${id}" style="font-size:11px; font-weight:normal; color:var(--text); font-family:var(--font-body); line-height:1.4;">Waiting...</div>
+            <button id="btn-news-${id}" onclick="fetchNews('${t.symbol}', 'news-${id}', 'btn-news-${id}')" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:10px; cursor:pointer; margin-top:6px;">Fetch Latest News</button>
+          `}
+        </div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label" style="color:var(--accent);">Official NSE Notices</div>
+        <div class="detail-val" style="margin-top:4px; max-height:150px; overflow-y:auto; padding-right:8px;" id="notices-${id}">
+          ${(window.NOTICES_CACHE && window.NOTICES_CACHE[t.symbol]) ? window.NOTICES_CACHE[t.symbol] : `
+            <div style="font-size:11px; font-weight:normal; color:var(--muted); font-family:var(--font-body); line-height:1.4;">Fetching...</div>
+          `}
+        </div>
+      </div>
+    </div>
+    <div style="grid-column: 1 / -1; padding-top: 14px; border-top: 1px dashed rgba(0,212,161,.15);">
+        <div class="detail-label" style="color:#b266ff; display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:11px; font-weight:800; display:flex; align-items:center; gap:6px;"><span>🧠</span> Corporate &amp; Analyst Intelligence Dossier</span>
+            <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">🔍 Open Full Dossier &amp; Timeline ↗</button>
+        </div>
+        <div class="detail-val" id="ai-${id}">
+            <div style="font-size:11px; color:var(--muted); font-family:var(--font-body); font-weight:normal;">Loading stock intelligence summary...</div>
+        </div>
+    </div>
+    ${t.signals ? `<div class="detail-signals">⚡ ${t.signals}</div>` : ''}
+  `;
+}
+
 function buildTradeRows(trades, maxAbs, prefix) {
   updateOpenAlertsIndex(typeof ALL_TRADES !== 'undefined' && ALL_TRADES && ALL_TRADES.length > 0 ? ALL_TRADES : trades);
+  window._tradeLookup = window._tradeLookup || {};
   return trades.map((t, i) => {
     const id = prefix + i;
+    window._tradeLookup[id] = t;
     if (t.execution_state === 'PENDING_ENTRY') {
       t.pnl_pct = 0;
       t.pnl_rs = 0;
@@ -2651,8 +2903,6 @@ function buildTradeRows(trades, maxAbs, prefix) {
     }
     const tipText = tipLines.join('\n').replace(/"/g, '&quot;');
 
-    // [RULE 67 CHANGE-RATIONALE]: Row highlight per user instruction:
-    // Only profit trades in green, and SL trades in red; neutral / breakeven (0.00%) remain unhighlighted.
     const isProfit = (t.status === 'WIN' || t.status === 'PROFIT' || (t.status && t.status.startsWith('PARTIAL_WIN')) || t.exit_signal === 'TARGET' || (t.pnl_pct != null && t.pnl_pct > 0.001) || (pnlRsVal > 0));
     const isSL = (t.status === 'LOSS' || t.exit_signal === 'STOP_LOSS' || (t.exit_reason && (t.exit_reason.includes('SL') || t.exit_reason.includes('STOP_LOSS'))) || (t.pnl_pct != null && t.pnl_pct < -0.001) || (pnlRsVal < 0) || (t.stop_loss > 0 && (t.current_price || t.exit_price) > 0 && (t.current_price || t.exit_price) <= t.stop_loss));
 
@@ -2669,7 +2919,6 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const sparkD = (t.pnl_pct || 0) >= 0 ? "M2,15 Q16,18 30,8 T56,3" : "M2,4 Q16,5 30,13 T56,17";
     const sparkline = `<svg style="width:48px; height:16px; display:inline-block; vertical-align:middle; margin-left:6px;" viewBox="0 0 58 20" title="7-Day Trend"><path d="${sparkD}" fill="none" stroke="${sparkColor}" stroke-width="2" stroke-linecap="round"/></svg>`;
 
-    // [RULE 67 CHANGE-RATIONALE: Enhancement 2 - Live Tick Pulse Flash]
     window._PREV_PRICES = window._PREV_PRICES || {};
     const curP = Number(t.exit_price || t.current_price || 0);
     const prevP = window._PREV_PRICES[cleanSym];
@@ -2679,6 +2928,9 @@ function buildTradeRows(trades, maxAbs, prefix) {
       else if (curP < prevP) flashCls = 'tick-flash-down';
     }
     window._PREV_PRICES[cleanSym] = curP;
+
+    // LAZY RENDERING: Only build heavy detail DOM tree if panel is open!
+    const detailPanelInnerHtml = isOpen ? buildDetailPanelContent(t, id) : '';
 
     return `
     <tr class="main-row${isOpen?' open':''}" id="mr-${id}" data-id="${t.id || ''}" data-symbol="${cleanSym}" onclick="toggleDetail('${id}', '${t.symbol}')" style="${rowHighlightStyle}">
@@ -2726,248 +2978,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
     <tr class="detail-row">
       <td colspan="16">
         <div class="detail-panel ${isOpen?'open':'closed'}" id="dp-${id}">
-          ${confluence.hasOtherOpenAlerts ? `
-          <div class="detail-item" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(255, 138, 0, 0.12), rgba(229, 46, 113, 0.08)); border: 1px solid rgba(255, 138, 0, 0.45); padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; box-shadow: inset 0 0 12px rgba(255, 138, 0, 0.08);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:16px;">⚡</span>
-                <div>
-                  <div style="color:#ffaa40; font-weight:800; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">
-                    Multi-Scanner Confluence: ${confluence.totalOpenScanners} Scanner${confluence.totalOpenScanners > 1 ? 's' : ''} with Active Open Alert on ${cleanSym}
-                  </div>
-                  <div style="color:var(--muted); font-size:10.5px; margin-top:1px;">
-                    Current Alert: <strong style="color:var(--accent);">${t.scanner || 'TECHNICAL'}</strong> (${fmtDetailTime(t.alert_time || t.entry_date)} @ ${fmt(t.actual_entry_price || t.entry_price)})
-                  </div>
-                </div>
-              </div>
-              <span style="font-size:10.5px; font-weight:700; color:#ffaa40; background:rgba(0,0,0,0.35); border:1px solid rgba(255,138,0,0.4); padding:3px 10px; border-radius:12px; font-family:var(--font-mono);">
-                +${confluence.otherOpenAlerts.length} other open alert${confluence.otherOpenAlerts.length > 1 ? 's' : ''}
-              </span>
-            </div>
-            
-            <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:10px;">
-              ${confluence.otherOpenAlerts.map(oa => `
-                <div style="background:var(--card); border:1px solid var(--border); border-left:3px solid #ff8a00; border-radius:6px; padding:10px 12px; display:flex; flex-direction:column; gap:5px; box-shadow:0 2px 6px rgba(0,0,0,0.2);">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-weight:800; font-size:11.5px; color:var(--accent); font-family:var(--font-mono);">${oa.scanner}</span>
-                    <span class="badge" style="font-size:9.5px; font-weight:700; padding:1px 6px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid rgba(0,212,161,0.3); border-radius:3px;">
-                      ${oa.status || 'OPEN'}
-                    </span>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; margin-top:2px;">
-                    <span style="color:var(--muted); font-size:11px;">Alert Price:</span>
-                    <span style="font-weight:800; color:var(--text); font-family:var(--font-mono); font-size:12px;">${fmt(oa.entry_price)}</span>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted);">
-                    <span>Alert Date:</span>
-                    <span style="font-family:var(--font-mono); color:var(--text); font-weight:600;">${fmtDetailTime(oa.alert_time || oa.alert_date)}</span>
-                  </div>
-                  ${oa.score != null ? `
-                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--muted); border-top:1px dashed var(--border); padding-top:4px; margin-top:2px;">
-                    <span>Confluence Score:</span>
-                    <span style="font-weight:700; color:var(--accent); font-family:var(--font-mono);">${oa.score}</span>
-                  </div>` : ''}
-                </div>
-              `).join('')}
-            </div>
-          </div>
-          ` : ''}
-          ${(() => {
-            /* [RULE 67 CHANGE-RATIONALE]: Ensure 100% dynamic visual roadmap in user dashboard. Never fabricate synthetic targets if strategy has no target by design. */
-            const entryP = Number(t.actual_entry_price || t.entry_price || 0);
-            const hasSl = (t.stop_loss != null && Number(t.stop_loss) > 0);
-            const slP = hasSl ? Number(t.stop_loss) : null;
-            const cmpP = Number(t.current_price || t.exit_price || entryP);
-            const hasT1 = (t.target_1 != null && Number(t.target_1) > 0) || (t.target_price != null && Number(t.target_price) > 0);
-            const hasT2 = (t.target_2 != null && Number(t.target_2) > 0);
-            const t1P = hasT1 ? Number(t.target_1 || t.target_price) : null;
-            const t2P = hasT2 ? Number(t.target_2) : null;
-            const isLoss = t.status === 'LOSS';
-            const isWin = t.status === 'WIN';
-            const isTrailed = hasSl && entryP > 0 && slP >= entryP;
-            const isT1Hit = hasT1 && (t.status === 'PARTIAL_WIN_1' || t.status === 'PARTIAL_WIN_2' || isWin || (t1P && cmpP >= t1P));
-            const isT2Hit = hasT2 && (isWin || (t2P && cmpP >= t2P));
-
-            let pctProgress = 25;
-            let statusSubtext = '';
-
-            if (hasT1) {
-              const maxTarget = hasT2 ? t2P : t1P;
-              const targetLabel = hasT2 ? 'T2' : 'T1';
-              if (isLoss) {
-                pctProgress = 5;
-              } else if (isWin || isT2Hit) {
-                pctProgress = 95;
-              } else if (isT1Hit) {
-                pctProgress = hasT2 ? 65 : 90;
-              } else if (entryP > 0 && maxTarget > entryP) {
-                const upsideRatio = Math.max(0, Math.min(1, (cmpP - entryP) / (maxTarget - entryP)));
-                pctProgress = Math.round(30 + upsideRatio * (hasT2 ? 35 : 55));
-              }
-              statusSubtext = `${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% (${pctProgress}% to ${targetLabel})`;
-            } else {
-              // Open-ended / trailing exit strategy without fixed targets by design
-              if (isLoss) {
-                pctProgress = 5;
-              } else if (isWin) {
-                pctProgress = 90;
-              } else if (entryP > 0 && cmpP >= entryP) {
-                pctProgress = Math.min(85, Math.round(45 + Math.min(40, ((cmpP - entryP) / entryP) * 100)));
-              } else {
-                pctProgress = 25;
-              }
-              statusSubtext = `${(t.pnl_pct || 0) >= 0 ? '+' : ''}${Number(t.pnl_pct || 0).toFixed(2)}% (Trailing Exit — No Target by Design)`;
-            }
-
-            return `
-              <div class="detail-item" style="grid-column: 1 / -1; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 4px 0 8px 0;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                  <span style="font-size:11.5px; font-weight:800; text-transform:uppercase; color:var(--text); display:flex; align-items:center; gap:6px;"><span>📈</span> Price Track &amp; Target Roadmap</span>
-                  <span style="font-size:11px; font-family:var(--font-mono); font-weight:700; color:${(t.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'};">${statusSubtext}</span>
-                </div>
-                <div style="position:relative; width:100%; height:6px; background:var(--border2); border-radius:3px; margin:20px 0 16px 0;">
-                  <div style="position:absolute; top:0; left:0; height:100%; width:${pctProgress}%; background:linear-gradient(90deg, #2563eb, #059669); border-radius:3px;"></div>
-                  <div style="position:absolute; top:-6px; left:0; width:100%; display:flex; justify-content:space-between;">
-                    <div style="text-align:center;">
-                      <div style="width:16px; height:16px; border-radius:50%; background:${isLoss ? '#dc2626' : (hasSl ? '#cbd5e1' : '#94a3b8')}; border:2px solid #fff; margin:0 auto;"></div>
-                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isLoss ? '#dc2626' : 'var(--muted)'};">${hasSl ? 'SL ₹' + Number(slP).toFixed(0) : 'Open SL'}</div>
-                    </div>
-                    <div style="text-align:center;">
-                      <div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; margin:0 auto;"></div>
-                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--text);">Entry ₹${Number(entryP).toFixed(0)}</div>
-                    </div>
-                    ${isTrailed ? `
-                    <div style="text-align:center;">
-                      <div style="width:16px; height:16px; border-radius:50%; background:#059669; border:2px solid #fff; margin:0 auto;"></div>
-                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#059669;">Trailed ₹${Number(slP).toFixed(0)}</div>
-                    </div>` : ''}
-                    <div style="text-align:center;">
-                      <div style="width:16px; height:16px; border-radius:50%; background:#2563eb; border:2px solid #fff; box-shadow:0 0 0 4px rgba(37,99,235,0.25); margin:0 auto;"></div>
-                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:800; color:var(--accent2);">CMP ₹${Number(cmpP).toFixed(0)}</div>
-                    </div>
-                    ${hasT1 ? `
-                    <div style="text-align:center;">
-                      <div style="width:16px; height:16px; border-radius:50%; background:${isT1Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div>
-                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:${isT1Hit ? '#059669' : 'var(--muted)'};">T1 ₹${Number(t1P).toFixed(0)}${isT1Hit ? ' ✓' : ''}</div>
-                    </div>` : ''}
-                    ${hasT2 ? `
-                    <div style="text-align:center;">
-                      <div style="width:16px; height:16px; border-radius:50%; background:${isT2Hit ? '#059669' : '#cbd5e1'}; border:2px solid #fff; margin:0 auto;"></div>
-                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:var(--muted);">T2 ₹${Number(t2P).toFixed(0)}${isT2Hit ? ' ✓' : ''}</div>
-                    </div>` : ''}
-                    ${!hasT1 ? `
-                    <div style="text-align:center;">
-                      <div style="width:16px; height:16px; border-radius:50%; background:#10b981; border:2px solid #fff; margin:0 auto; box-shadow:0 0 0 2px rgba(16,185,129,0.3);"></div>
-                      <div style="font-size:10px; font-family:var(--font-mono); margin-top:4px; font-weight:700; color:#10b981;">Trailing Exit 🛡️</div>
-                    </div>` : ''}
-                  </div>
-                </div>
-              </div>
-            `;
-          })()}
-          ${(t.roce != null || t.sales_cagr != null || t.debt_to_equity != null || t.valuation_discount != null || (t.context && (t.context.roce || t.context.sales_cagr || t.context.pe))) ? `
-          <div class="detail-item" style="grid-column: 1 / -1; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 4px 0 8px 0;">
-            <div style="font-size:11.5px; font-weight:800; text-transform:uppercase; color:var(--text); margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-              <span>📊</span> Company Fundamentals &amp; Quality Metrics
-            </div>
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; font-size:11.5px; font-family:var(--font-mono);">
-              <div><span style="color:var(--muted);">ROCE:</span> <strong style="color:var(--win);">${t.roce || (t.context && t.context.roce ? t.context.roce + '%' : '—')}</strong></div>
-              <div><span style="color:var(--muted);">Sales CAGR:</span> <strong style="color:var(--accent);">${t.sales_cagr || (t.context && t.context.sales_cagr ? t.context.sales_cagr + '%' : '—')}</strong></div>
-              <div><span style="color:var(--muted);">Debt / Equity:</span> <strong style="color:var(--text);">${t.debt_to_equity ?? (t.context && t.context.debt_to_equity != null ? t.context.debt_to_equity : (t.context && t.context.de != null ? t.context.de : '—'))}</strong></div>
-              <div><span style="color:var(--muted);">Valuation:</span> <strong style="color:var(--amber);">${t.valuation_discount || (t.context && t.context.valuation_discount ? t.context.valuation_discount : (t.context && t.context.discount ? t.context.discount : '—'))}</strong></div>
-            </div>
-          </div>
-          ` : ''}
-          <div class="detail-item">
-            <div class="detail-label">Strategy / Pattern</div>
-            <div class="detail-val" style="color:var(--accent);font-weight:700;white-space:normal;word-break:break-word;line-height:1.4;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Stop Loss</div>
-            <div class="detail-val neg">${(t.scanner === 'FUNDAMENTAL' || !t.stop_loss) ? '<span style="color:var(--muted);font-weight:700;">NONE (OPEN-ENDED)</span>' : fmt(t.stop_loss)}</div>
-            ${t.status === 'LOSS' && t.exit_price ? `
-              <div style="font-size:11px;color:var(--warn);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
-                Booked: ${fmt(t.exit_price)}<br>
-                @ ${fmtClosedAt(t.closed_at)}
-              </div>` : ''
-            }
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Targets (T1/T2)</div>
-            <div class="detail-val pos" style="font-size:11px;">
-              ${(t.target_1 || t.target_price) ? (
-                (t.target_1 ? 'T1: ' + fmt(t.target_1) : 'TP: ' + fmt(t.target_price)) +
-                (t.target_2 ? '<br>T2: ' + fmt(t.target_2) : '')
-              ) : '<span style="color:#10b981;font-weight:700;">OPEN-ENDED / TRAILING (NO TARGET BY DESIGN)</span>'}
-            </div>
-            ${t.status === 'WIN' && t.exit_price ? `
-              <div style="font-size:11px;color:var(--accent);margin-top:4px;font-family:var(--font-mono);line-height:1.3">
-                Booked: ${fmt(t.exit_price)}<br>
-                @ ${fmtClosedAt(t.closed_at)}
-              </div>` : ''
-            }
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Exit Price</div>
-            <div class="detail-val">${fmt(t.exit_price)}</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">RSI</div>
-            <div class="detail-val" style="color:var(--accent)">${t.rsi??'—'}</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Vol Ratio</div>
-            <div class="detail-val">${t.volume_ratio??'—'}\u00d7</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Alert Time</div>
-            <div class="detail-val" style="font-size:11px;color:var(--muted)">${fmtDetailTime(t.alert_time || t.entry_date)}</div>
-          </div>
-          <div class="detail-item">
-            <div class="detail-label">Actions</div>
-            <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-              <button onclick="event.stopPropagation(); openStockIntelligenceDossier('${cleanSym}');" style="background:linear-gradient(135deg,#6366f1,#a855f7); color:#fff; border:none; padding:5px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content; box-shadow:0 0 10px rgba(168,85,247,0.3);">🧠 AI Corporate Dossier</button>
-              <button onclick="event.stopPropagation(); openTradingViewChart('${cleanSym}', ${t.actual_entry_price || t.entry_price || 0}, ${t.stop_loss || 0}, ${t.target_price || 0});" style="background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); color:var(--accent2); padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📈 Embedded TV Chart</button>
-              <button onclick="event.stopPropagation(); window.open('${tvLink}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
-              <button onclick="event.stopPropagation(); triggerStockDiagnosticBySymbol('${cleanSym}');" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">🔍 7-Stage Diagnostic</button>
-            </div>
-          </div>
-          ${(t.exit_signal || t.exit_reason) ? `
-          <div class="detail-item" style="grid-column: 1 / -1; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); padding: 10px 14px; border-radius: 6px; margin-top: 4px;">
-            <div class="detail-label" style="color: #dc2626; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">🛑 Exit Reason / Trigger Signal</div>
-            <div class="detail-val" style="font-size: 12px; font-weight: 700; color: var(--text); font-family: var(--font-mono); margin-top: 2px;">
-              ${t.exit_signal || t.exit_reason}
-            </div>
-          </div>` : ''}
-          <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15); display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:24px; width: 100%; box-sizing: border-box;">
-            <div class="detail-item">
-              <div class="detail-label" style="color:var(--accent);">Live Catalysts</div>
-              <div class="detail-val" style="margin-top:4px; max-height:150px; overflow-y:auto; padding-right:8px;">
-                ${(window.NEWS_CACHE && window.NEWS_CACHE[t.symbol]) ? window.NEWS_CACHE[t.symbol] : `
-                  <div id="news-${id}" style="font-size:11px; font-weight:normal; color:var(--text); font-family:var(--font-body); line-height:1.4;">Waiting...</div>
-                  <button id="btn-news-${id}" onclick="fetchNews('${t.symbol}', 'news-${id}', 'btn-news-${id}')" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:10px; cursor:pointer; margin-top:6px;">Fetch Latest News</button>
-                `}
-              </div>
-            </div>
-            <div class="detail-item">
-              <div class="detail-label" style="color:var(--accent);">Official NSE Notices</div>
-              <div class="detail-val" style="margin-top:4px; max-height:150px; overflow-y:auto; padding-right:8px;" id="notices-${id}">
-                ${(window.NOTICES_CACHE && window.NOTICES_CACHE[t.symbol]) ? window.NOTICES_CACHE[t.symbol] : `
-                  <div style="font-size:11px; font-weight:normal; color:var(--muted); font-family:var(--font-body); line-height:1.4;">Fetching...</div>
-                `}
-              </div>
-            </div>
-          </div>
-          <div style="grid-column: 1 / -1; padding-top: 14px; border-top: 1px dashed rgba(0,212,161,.15);">
-              <div class="detail-label" style="color:#b266ff; display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                  <span style="font-size:11px; font-weight:800; display:flex; align-items:center; gap:6px;"><span>🧠</span> Corporate &amp; Analyst Intelligence Dossier</span>
-                  <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">🔍 Open Full Dossier &amp; Timeline ↗</button>
-              </div>
-              <div class="detail-val" id="ai-${id}">
-                  <div style="font-size:11px; color:var(--muted); font-family:var(--font-body); font-weight:normal;">Loading stock intelligence summary...</div>
-              </div>
-          </div>
-          ${t.signals ? `<div class="detail-signals">⚡ ${t.signals}</div>` : ''}
+          ${detailPanelInnerHtml}
         </div>
       </td>
     </tr>`;
@@ -2987,6 +2998,13 @@ function toggleDetail(id, symbol) {
     mainRow && mainRow.classList.remove('open');
   } else {
     expandedIds.add(id);
+    // On-Demand Lazy population of panel HTML
+    if (!panel.innerHTML || panel.innerHTML.trim() === '') {
+      const tradeObj = window._tradeLookup && window._tradeLookup[id];
+      if (tradeObj) {
+        panel.innerHTML = buildDetailPanelContent(tradeObj, id);
+      }
+    }
     panel.classList.replace('closed','open');
     mainRow && mainRow.classList.add('open');
     const btn = document.getElementById('btn-news-' + id);
@@ -2994,25 +3012,34 @@ function toggleDetail(id, symbol) {
     if (symbol && !window.NOTICES_CACHE[symbol]) {
         fetchNotices(symbol, 'notices-' + id);
     }
-    // Automatically load Corporate & Analyst Intelligence Dossier by default
     if (symbol) {
         loadInlineStockIntelligence(symbol, 'ai-' + id);
     }
   }
 }
 
-// [VERSION: EXPAND_COLLAPSE_ALL_TRADES_v1.1] Implement expandAllTrades and collapseAllTrades
+// Optimized Expand/Collapse All without thrashing DOM
 function expandAllTrades() {
   const filtered = window._currentFilteredTrades || ALL_TRADES;
   filtered.forEach((t, i) => {
-    expandedIds.add('main-' + i);
+    const id = 'main-' + i;
+    expandedIds.add(id);
+    const panel = document.getElementById('dp-' + id);
+    if (panel) {
+      if (!panel.innerHTML || panel.innerHTML.trim() === '') {
+        panel.innerHTML = buildDetailPanelContent(t, id);
+      }
+      panel.classList.replace('closed', 'open');
+      const mainRow = document.getElementById('mr-' + id);
+      if (mainRow) mainRow.classList.add('open');
+    }
   });
-  renderTradeTable();
 }
 
 function collapseAllTrades() {
   expandedIds.clear();
-  renderTradeTable();
+  document.querySelectorAll('.detail-panel.open').forEach(p => p.classList.replace('open', 'closed'));
+  document.querySelectorAll('.main-row.open').forEach(r => r.classList.remove('open'));
 }
 
 
@@ -3812,12 +3839,16 @@ document.addEventListener('click', e => {
 });
 
 let _userFilterSymDebounce = null;
+let _userTableRenderDebounce = null;
 ['searchTrades', 'filterScanner', 'filterStatus', 'filterCategory', 'filterSymbol', 'filterDate'].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
     el.addEventListener('input', () => {
       tradeCurrentPage = 1;
-      renderTradeTable();
+      clearTimeout(_userTableRenderDebounce);
+      _userTableRenderDebounce = setTimeout(() => {
+        renderTradeTable();
+      }, 100);
       if (id === 'filterSymbol' || id === 'searchTrades') {
         const sym = (el.value || '').trim().toUpperCase();
         if (sym && sym.length >= 2) {
@@ -4367,109 +4398,135 @@ async function initDashboard() {
 // Trigger check
 initDashboard();
 
-      // Fetch indices
-      fetch('/api/indices')
-        .then(r => r.json())
-        .then(data => {
-          window._lastIndicesData = data;
-          const trackEl = document.getElementById('globalTickerTrack');
-          const badgeEl = document.getElementById('tickerRegimeBadge');
-          const tc = document.getElementById('ticker-content');
-          if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
-            if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
-              trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+      function updateIndicesTicker() {
+        fetch('/api/indices')
+          .then(r => r.json())
+          .then(data => {
+            window._lastIndicesData = data;
+            const trackEl = document.getElementById('globalTickerTrack');
+            const badgeEl = document.getElementById('tickerRegimeBadge');
+            const tc = document.getElementById('ticker-content');
+            if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
+              if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
+                trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+              }
+              return;
             }
-            return;
-          }
 
-          // Macro Regime Indicator
-          const regimeData = data._regime || data.regime;
-          if (regimeData) {
-            window._currentRegime = regimeData;
-            const regName = (typeof regimeData === 'string' ? regimeData : (regimeData.regime || 'BULL')).toUpperCase();
-            const regDetail = (typeof regimeData === 'object' && regimeData.detail) ? ` (${regimeData.detail})` : '';
-            if (badgeEl) {
-              badgeEl.textContent = `● ${regName} REGIME${regDetail}`;
-              if (regName === 'BULL') {
-                badgeEl.style.background = 'rgba(16, 185, 129, 0.1)';
-                badgeEl.style.color = '#10b981';
-                badgeEl.style.borderColor = 'rgba(16, 185, 129, 0.25)';
-              } else if (regName === 'BEAR') {
-                badgeEl.style.background = 'rgba(239, 68, 68, 0.1)';
-                badgeEl.style.color = '#ef4444';
-                badgeEl.style.borderColor = 'rgba(239, 68, 68, 0.25)';
-              } else {
-                badgeEl.style.background = 'rgba(245, 158, 11, 0.1)';
-                badgeEl.style.color = '#f59e0b';
-                badgeEl.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+            // Macro Regime Indicator
+            const regimeData = data._regime || data.regime;
+            if (regimeData) {
+              window._currentRegime = regimeData;
+              const regName = (typeof regimeData === 'string' ? regimeData : (regimeData.regime || 'BULL')).toUpperCase();
+              const regDetail = (typeof regimeData === 'object' && regimeData.detail) ? ` (${regimeData.detail})` : '';
+              if (badgeEl) {
+                badgeEl.textContent = `● ${regName} REGIME${regDetail}`;
+                if (regName === 'BULL') {
+                  badgeEl.style.background = 'rgba(16, 185, 129, 0.1)';
+                  badgeEl.style.color = '#10b981';
+                  badgeEl.style.borderColor = 'rgba(16, 185, 129, 0.25)';
+                } else if (regName === 'BEAR') {
+                  badgeEl.style.background = 'rgba(239, 68, 68, 0.1)';
+                  badgeEl.style.color = '#ef4444';
+                  badgeEl.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                } else {
+                  badgeEl.style.background = 'rgba(245, 158, 11, 0.1)';
+                  badgeEl.style.color = '#f59e0b';
+                  badgeEl.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+                }
+              }
+
+              // Also update macro regime hero KPI card
+              const kpiRegimeEl = document.getElementById('kpi-card-regime');
+              const kpiRegimeSubEl = document.getElementById('kpi-card-regime-sub');
+              if (kpiRegimeEl) {
+                kpiRegimeEl.textContent = `${regName} REGIME`;
+                kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : 'var(--amber, #f59e0b)');
+              }
+              if (kpiRegimeSubEl && typeof regimeData === 'object' && regimeData.detail) {
+                kpiRegimeSubEl.textContent = regimeData.detail;
               }
             }
 
-            // Also update macro regime hero KPI card
-            const kpiRegimeEl = document.getElementById('kpi-card-regime');
-            const kpiRegimeSubEl = document.getElementById('kpi-card-regime-sub');
-            if (kpiRegimeEl) {
-              kpiRegimeEl.textContent = `${regName} REGIME`;
-              kpiRegimeEl.style.color = regName === 'BULL' ? 'var(--win, #10b981)' : (regName === 'BEAR' ? 'var(--loss, #ef4444)' : 'var(--amber, #f59e0b)');
+            let singleCycleHtml = '';
+            for (const [name, info] of Object.entries(data)) {
+              if (name.startsWith('_') || typeof info !== 'object' || info === null || Array.isArray(info)) continue;
+              if (info.price === undefined || info.price === null) continue;
+
+              const pct = Number(info.pct_change != null ? info.pct_change : 0);
+              let ptChg = null;
+              if (info.point_change != null && !isNaN(info.point_change)) {
+                ptChg = Number(info.point_change);
+              } else if (info.prev_close && Number(info.prev_close) > 0 && info.price) {
+                ptChg = Number(info.price) - Number(info.prev_close);
+              }
+
+              const isNeg = (ptChg !== null && ptChg < -0.001) || pct < -0.001;
+              const isPos = (ptChg !== null && ptChg > 0.001) || pct > 0.001;
+              const colorClass = isNeg ? 'neg' : (isPos ? 'pos' : 'neutral');
+              const arrow = isNeg ? '▼' : (isPos ? '▲' : '—');
+              const ptSign = (ptChg !== null && ptChg > 0.001) ? '+' : '';
+              const pctSign = pct > 0.001 ? '+' : '';
+              const priceStr = Number(info.price).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+              let changeText = '';
+              if (ptChg !== null) {
+                const ptStr = `${ptSign}${ptChg.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                changeText = `${ptStr} (${pctSign}${pct.toFixed(2)}%) ${arrow}`;
+              } else {
+                changeText = `${pctSign}${pct.toFixed(2)}% ${arrow}`;
+              }
+
+              singleCycleHtml += `<div class="ticker-item">
+                <span class="ticker-name">${escapeHTML(name)}</span>
+                <span class="ticker-val">${priceStr}</span>
+                <span class="ticker-pct ${colorClass}">${changeText}</span>
+              </div>`;
             }
-            if (kpiRegimeSubEl && typeof regimeData === 'object' && regimeData.detail) {
-              kpiRegimeSubEl.textContent = regimeData.detail;
+
+            // Strong Sectors
+            const strongSectors = data._strong_sectors || data.strong_sectors;
+            if (strongSectors && strongSectors.length > 0) {
+              const strongChips = strongSectors.map(s => {
+                const sign = (s.pct || 0) >= 0 ? '+' : '';
+                return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
+              }).join(' · ');
+              singleCycleHtml += `<div class="ticker-item sector-strong">
+                <span class="sector-badge">🔥 STRONG:</span> ${strongChips}
+              </div>`;
             }
-          }
 
-          let singleCycleHtml = '';
-          for (const [name, info] of Object.entries(data)) {
-            if (name.startsWith('_') || typeof info !== 'object' || info === null || Array.isArray(info)) continue;
-            if (info.price === undefined || info.price === null) continue;
-            const isPos = (info.pct_change || 0) >= 0;
-            const sign = isPos ? '+' : '';
-            const priceStr = Number(info.price).toLocaleString('en-IN', { maximumFractionDigits: 2 });
-            singleCycleHtml += `<div class="ticker-item">
-              <span class="ticker-name">${escapeHTML(name)}</span>
-              <span class="ticker-val">${priceStr}</span>
-              <span class="ticker-pct ${isPos ? 'pos' : 'neg'}">${sign}${info.pct_change}% ${isPos ? '▲' : '▼'}</span>
-            </div>`;
-          }
-
-          // Strong Sectors
-          const strongSectors = data._strong_sectors || data.strong_sectors;
-          if (strongSectors && strongSectors.length > 0) {
-            const strongChips = strongSectors.map(s => {
-              const sign = (s.pct || 0) >= 0 ? '+' : '';
-              return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
-            }).join(' · ');
-            singleCycleHtml += `<div class="ticker-item sector-strong">
-              <span class="sector-badge">🔥 STRONG:</span> ${strongChips}
-            </div>`;
-          }
-
-          // Weak Sectors
-          const weakSectors = data._weak_sectors || data.weak_sectors;
-          if (weakSectors && weakSectors.length > 0) {
-            const weakChips = weakSectors.map(s => {
-              const sign = (s.pct || 0) >= 0 ? '+' : '';
-              return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
-            }).join(' · ');
-            singleCycleHtml += `<div class="ticker-item sector-weak">
-              <span class="sector-badge">❄️ WEAK:</span> ${weakChips}
-            </div>`;
-          }
-
-          if (trackEl && singleCycleHtml) {
-            // Duplicate 2x for infinite seamless marquee loop
-            trackEl.innerHTML = singleCycleHtml + singleCycleHtml;
-          }
-          if (tc && singleCycleHtml) {
-            tc.innerHTML = singleCycleHtml;
-          }
-        })
-        .catch(err => {
-            console.error("Failed to load indices", err);
-            const trackEl = document.getElementById('globalTickerTrack');
-            if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
-              trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+            // Weak Sectors
+            const weakSectors = data._weak_sectors || data.weak_sectors;
+            if (weakSectors && weakSectors.length > 0) {
+              const weakChips = weakSectors.map(s => {
+                const sign = (s.pct || 0) >= 0 ? '+' : '';
+                return `<span>${escapeHTML(s.name)} (${sign}${s.pct}%)</span>`;
+              }).join(' · ');
+              singleCycleHtml += `<div class="ticker-item sector-weak">
+                <span class="sector-badge">❄️ WEAK:</span> ${weakChips}
+              </div>`;
             }
-        });
+
+            if (trackEl && singleCycleHtml) {
+              // Duplicate 2x for infinite seamless marquee loop
+              trackEl.innerHTML = singleCycleHtml + singleCycleHtml;
+            }
+            if (tc && singleCycleHtml) {
+              tc.innerHTML = singleCycleHtml;
+            }
+          })
+          .catch(err => {
+              console.error("Failed to load indices", err);
+              const trackEl = document.getElementById('globalTickerTrack');
+              if (trackEl && (!trackEl.innerHTML || trackEl.innerHTML.includes('Streaming'))) {
+                trackEl.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+              }
+          });
+      }
+
+      updateIndicesTicker();
+      setInterval(updateIndicesTicker, 60000);
 
 </script>
 
@@ -5387,20 +5444,31 @@ async function fetchUserInfo() {
     } catch(e) {}
 }
 
-// Poll every 10 seconds for ultra-fast fallback sync (deferred slightly to prioritize critical UI paint)
+// Poll every 15 seconds for notification sync (pauses when tab is hidden to eliminate idle background CPU drain)
+function runNotificationPolling() {
+  if (document.hidden) return;
+  fetchNotifications();
+}
+
 if (window.requestIdleCallback) {
     window.requestIdleCallback(() => {
         fetchNotifications();
         fetchUserInfo();
-        setInterval(fetchNotifications, 10000);
+        setInterval(runNotificationPolling, 15000);
     });
 } else {
     setTimeout(() => {
         fetchNotifications();
         fetchUserInfo();
-        setInterval(fetchNotifications, 10000);
-    }, 200);
+        setInterval(runNotificationPolling, 15000);
+    }, 400);
 }
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        fetchNotifications();
+    }
+});
 
 window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -7625,6 +7693,5 @@ document.addEventListener("DOMContentLoaded", function() {
     <span><span class="key-kbd">Esc</span> to Close</span>
   </div>
 
-<script src="/static/interactive_ui.js"></script>
 </body>
 </html>

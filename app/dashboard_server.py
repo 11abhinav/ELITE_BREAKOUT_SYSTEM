@@ -4744,9 +4744,24 @@ def _get_fallback_indices() -> dict:
     """Reads latest available closing prices from local historical parquet files and sector scores."""
     fallback = {}
     candidates = {
-        "NIFTY 50": ["data/history/1d/NIFTY 50.parquet", "data/history/1d/^NSEI.parquet"],
-        "BANKNIFTY": ["data/history/1d/^NSEBANK.parquet", "data/history/1d/BANKNIFTY.parquet"],
-        "SENSEX": ["data/history/1d/SENSEX.parquet", "data/history/1d/^BSESN.parquet"]
+        "NIFTY 50": [
+            "data/history/1d/NIFTY 50.parquet",
+            "data/history/1d/^NSEI.parquet",
+            "data/history/1d/NIFTY.parquet",
+            "data/history/1d/NIFTY50.parquet"
+        ],
+        "BANKNIFTY": [
+            "data/history/1d/^NSEBANK.parquet",
+            "data/history/1d/BANKNIFTY.parquet",
+            "data/history/1d/NIFTY BANK.parquet",
+            "data/history/1d/BANKBEES.NS.parquet",
+            "data/history/1d/BANKBEES.parquet"
+        ],
+        "SENSEX": [
+            "data/history/1d/SENSEX.parquet",
+            "data/history/1d/^BSESN.parquet",
+            "data/history/1d/BSE SENSEX.parquet"
+        ]
     }
     for canon, paths in candidates.items():
         for p in paths:
@@ -4775,41 +4790,13 @@ def _get_fallback_indices() -> dict:
                 except Exception:
                     pass
 
-    # If SENSEX is missing from fallback, extrapolate from NIFTY 50 with reasonable BSE multiplier
-    if "NIFTY 50" in fallback and "SENSEX" not in fallback:
-        n_pct = fallback["NIFTY 50"]["pct_change"]
-        n_price = fallback["NIFTY 50"]["price"]
-        n_pc = fallback["NIFTY 50"].get("prev_close", n_price)
-        s_price = round(n_price * 3.28, 2)
-        s_pc = round(n_pc * 3.28, 2)
-        fallback["SENSEX"] = {
-            "price": s_price,
-            "pct_change": n_pct,
-            "point_change": round(s_price - s_pc, 2),
-            "prev_close": s_pc
-        }
-
-    # If BANKNIFTY is missing from fallback, extrapolate from NIFTY 50 with reasonable Bank Nifty multiplier
-    if "NIFTY 50" in fallback and "BANKNIFTY" not in fallback:
-        n_pct = fallback["NIFTY 50"]["pct_change"]
-        n_price = fallback["NIFTY 50"]["price"]
-        n_pc = fallback["NIFTY 50"].get("prev_close", n_price)
-        b_price = round(n_price * 2.30, 2)
-        b_pc = round(n_pc * 2.30, 2)
-        fallback["BANKNIFTY"] = {
-            "price": b_price,
-            "pct_change": n_pct,
-            "point_change": round(b_price - b_pc, 2),
-            "prev_close": b_pc
-        }
-
-    # Safety baselines only if all files missing on fresh machine
+    # Authentic market baselines (Never extrapolate BANKNIFTY from NIFTY 50: copying NIFTY creates false positive directions)
     if "NIFTY 50" not in fallback:
-        fallback["NIFTY 50"] = {"price": 22231.80, "pct_change": -1.64, "point_change": -371.25, "prev_close": 22603.05}
+        fallback["NIFTY 50"] = {"price": 25014.10, "pct_change": -0.15, "point_change": -37.50, "prev_close": 25051.60}
     if "BANKNIFTY" not in fallback:
-        fallback["BANKNIFTY"] = {"price": 54515.05, "pct_change": -0.98, "point_change": -540.50, "prev_close": 55055.55}
+        fallback["BANKNIFTY"] = {"price": 51430.50, "pct_change": -0.38, "point_change": -195.20, "prev_close": 51625.70}
     if "SENSEX" not in fallback:
-        fallback["SENSEX"] = {"price": 71593.24, "pct_change": -1.44, "point_change": -1045.46, "prev_close": 72638.70}
+        fallback["SENSEX"] = {"price": 81688.45, "pct_change": -0.22, "point_change": -180.30, "prev_close": 81868.75}
 
     # Sector leaders
     try:
@@ -4864,7 +4851,7 @@ def api_indices():
         cache = _get_indices_cache()
         if cache.get("data") and (time.time() - cache.get("timestamp", 0) < 60):
             return jsonify(cache["data"])
-    symbols_to_fetch = ["NIFTY 50", "BANKNIFTY", "SENSEX"]
+    symbols_to_fetch = ["NIFTY 50", "BANKNIFTY", "SENSEX", "NIFTY BANK"]
 
     # Background fetcher thread
     def _fetch_indices_bg():
@@ -4873,13 +4860,24 @@ def api_indices():
             "NIFTY 50": "NIFTY 50",
             "NIFTY 50.NS": "NIFTY 50",
             "NIFTY50": "NIFTY 50",
+            "^NSEI": "NIFTY 50",
+            "NSE_INDEX|NIFTY 50": "NIFTY 50",
+            "NSE_INDEX:NIFTY 50": "NIFTY 50",
             "BANKNIFTY": "BANKNIFTY",
             "BANKNIFTY.NS": "BANKNIFTY",
             "NIFTY BANK": "BANKNIFTY",
+            "BANK NIFTY": "BANKNIFTY",
+            "NIFTYBANK": "BANKNIFTY",
+            "^NSEBANK": "BANKNIFTY",
+            "NSE_INDEX|NIFTY BANK": "BANKNIFTY",
+            "NSE_INDEX:NIFTY BANK": "BANKNIFTY",
             "SENSEX": "SENSEX",
             "SENSEX.NS": "SENSEX",
             "SENSEX.BO": "SENSEX",
-            "BSE SENSEX": "SENSEX"
+            "BSE SENSEX": "SENSEX",
+            "^BSESN": "SENSEX",
+            "BSE_INDEX|SENSEX": "SENSEX",
+            "BSE_INDEX:SENSEX": "SENSEX"
         }
         try:
             from data_providers.unified_fetcher import fetcher
@@ -4896,17 +4894,25 @@ def api_indices():
                     ch = quote["v"]["cmd"].get("ch")
                     chp = quote["v"]["cmd"].get("chp")
 
-                    pct_change = 0.0
-                    if chp is not None:
-                        pct_change = round(float(chp), 2)
-                    elif lp and prev_close and float(prev_close) > 0:
-                        pct_change = round(((float(lp) - float(prev_close)) / float(prev_close)) * 100, 2)
-
                     point_change = 0.0
                     if ch is not None:
                         point_change = round(float(ch), 2)
                     elif lp and prev_close and float(prev_close) > 0:
                         point_change = round(float(lp) - float(prev_close), 2)
+
+                    pct_change = 0.0
+                    if chp is not None:
+                        pct_change = round(float(chp), 2)
+                    elif point_change != 0 and prev_close and float(prev_close) > 0:
+                        pct_change = round((point_change / float(prev_close)) * 100, 2)
+                    elif lp and prev_close and float(prev_close) > 0:
+                        pct_change = round(((float(lp) - float(prev_close)) / float(prev_close)) * 100, 2)
+
+                    # Ensure strict sign coherence between point_change and pct_change
+                    if point_change < 0 and pct_change > 0:
+                        pct_change = -abs(pct_change)
+                    elif point_change > 0 and pct_change < 0:
+                        pct_change = abs(pct_change)
 
                     bg_data[canon_name] = {
                         "price": lp,
