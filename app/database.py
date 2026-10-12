@@ -8924,6 +8924,7 @@ def add_symbol_to_cooloff(
                     """, (
                         sym, reason_clean, scan, now_dt, until_dt, pf_str, now_dt, now_dt
                     ))
+                conn.commit()
     except Exception as e:
         logger.debug(f"Cool-off DB insertion notice: {e}")
 
@@ -9013,6 +9014,7 @@ def remove_symbol_from_cooloff(symbol: str, scanner: str = "ALL") -> bool:
                         WHERE symbol = %s
                           AND (UPPER(scanner) = %s OR UPPER(scanner) = 'ALL' OR %s = 'ALL')
                     """, (sym, scan, scan))
+                conn.commit()
         return True
     except Exception as e:
         logger.error(f"Failed to remove {sym} from symbol_cooloff_journal: {e}")
@@ -9029,9 +9031,10 @@ def cleanup_expired_cooloffs() -> int:
                 with conn.cursor() as cur:
                     cur.execute("DELETE FROM symbol_cooloff_journal WHERE cooloff_until <= %s", (now_dt,))
                     cnt = cur.rowcount
-                    if cnt and cnt > 0:
-                        logger.info(f"🧹 Evicted {cnt} expired entries from symbol_cooloff_journal.")
-                    return cnt or 0
+                conn.commit()
+                if cnt and cnt > 0:
+                    logger.info(f"🧹 Evicted {cnt} expired entries from symbol_cooloff_journal.")
+                return cnt or 0
         return 0
     except Exception as e:
         logger.debug(f"Cleanup cooloffs notice: {e}")

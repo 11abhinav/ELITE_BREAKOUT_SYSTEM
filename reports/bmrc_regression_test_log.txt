@@ -1,0 +1,39 @@
+================================================================================
+BMRC STRATEGY UNIT & INVARIANT REGRESSION TEST LOG
+Timestamp: 2026-10-09T23:58:53.333521 IST
+Target Module: scripts/backtest_bmrc_strategy.py
+================================================================================
+[TEST 1: STAGE 0 REGIME GATE FAIL-CLOSED]
+  • Input: Nifty 500 in BULL (Close > SMA200, DD > -8%)
+  • Expected: Scanner Dormant (0 Alerts)
+  • Observed Bull Alerts: 0
+  • Verdict: PASS
+
+[TEST 2: POINT-IN-TIME AVAILABILITY TIMESTAMP INTEGRITY]
+  • Input: Candidate evaluated on scan_date T
+  • Constraint: filing_date <= T (Zero future information)
+  • Observed Future Leakage Violations: 0
+  • Verdict: PASS
+
+[TEST 3: FUNDAMENTAL SURVIVAL GATE BOUNDS]
+  • Input: ROCE < 15% or D/E > 0.50 or OCF/PAT < 0.70
+  • Constraint: Must Hard-Block candidate immediately
+  • Leaked Non-Qualifying Candidates: 0
+  • Verdict: PASS
+
+[TEST 4: TRANCHE PYRAMIDING ALLOCATION INTEGRITY]
+  • Input: Initial alert + price drops
+  • Constraint: Max 5 tranches, 20% weight per tranche, normalized sum == 1.0
+  • Tranche Allocation Violations: 0
+  • Verdict: PASS
+
+[TEST 5: THESIS-BREAK EXIT ENFORCEMENT]
+  • Input: APLLTD annual filing reports ROCE < 12% for 2 years
+  • Constraint: Position must trigger THESIS_BREAK exit and liquidate
+  • Observed APLLTD Exit Trigger: THESIS_BREAK (ROCE < 12% 2Y)
+  • Verdict: PASS
+
+================================================================================
+TOTAL REGRESSION TESTS RUN: 5 | PASSED: 5 | FAILED: 0
+SOFTWARE CORRECTNESS: VERIFIED
+================================================================================

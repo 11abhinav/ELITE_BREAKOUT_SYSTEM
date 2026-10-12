@@ -29,6 +29,7 @@ import time
 import logging
 import math
 import hashlib  # Rule 67: Required for SHA256 alert_payload_hash (BUY alert immutable fingerprint — Finding 2)
+import warnings
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Any, Optional, Tuple, Set, Union

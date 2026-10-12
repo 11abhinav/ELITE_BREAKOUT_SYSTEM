@@ -1,0 +1,27 @@
+{
+  "strategy": "BMRC",
+  "decision": "NO_GO_FOR_PRODUCTION",
+  "research_hypothesis": "SUPPORTED",
+  "data_integrity": "PASS",
+  "causality": "PASS",
+  "metric_reproducibility": "PASS",
+  "historical_coverage": "FAIL",
+  "execution_economics": "PASS",
+  "statistical_evidence": "INSUFFICIENT",
+  "robustness": "PASS",
+  "paper_validation": "NOT_RUN",
+  "operational_safety": "PASS",
+  "blocking_reasons": [
+    "Gate 4 (Required Historical Coverage): Mandatory 2008 GFC episode is UNAVAILABLE under certified Upstox 10-year data provenance (starts Sept 2016).",
+    "Gate 7 (Statistical Evidence): Total sample size is N=16 across 3 episodes; 2018 episode has N=3 (<5 minimum threshold); effective sample size N_eff=7.3.",
+    "Gate 9 (Prospective Paper Validation): Zero live paper-trading sessions recorded in system shadow telemetry; mandatory 10-session gate uncompleted."
+  ],
+  "verified_evidence": [
+    "reports/bmrc_signal_evidence.csv",
+    "reports/bmrc_metric_reconciliation.csv",
+    "reports/bmrc_portfolio_equity_curve.csv",
+    "reports/bmrc_robustness_results.csv",
+    "reports/bmrc_regression_test_log.txt"
+  ],
+  "report_path": "reports/bmrc_master_go_no_go_certification.md"
+}
