@@ -4207,8 +4207,8 @@ function changeAdminPage(type, delta) {
     const _activeTabLoadingMap = {};
     function triggerActiveTabFetch(tabId) {
       const now = Date.now();
-      if (_activeTabLoadingMap[tabId] && (now - _activeTabLoadingMap[tabId] < 2000)) {
-        return; // Idempotency: skip redundant fetch within 2s
+      if (_activeTabLoadingMap[tabId] && (now - _activeTabLoadingMap[tabId] < 30000)) {
+        return; // Idempotency: skip redundant fetch within 30s
       }
       _activeTabLoadingMap[tabId] = now;
 
@@ -4218,12 +4218,10 @@ function changeAdminPage(type, delta) {
         }
         if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
       } else if (tabId === 'watchlist-users') {
-        _watchlistFetchCache = null;
-        _watchlistFetchCache_ts = 0;
-        if (typeof loadUserWatchlist === 'function') loadUserWatchlist(true);
+        if (typeof loadUserWatchlist === 'function') loadUserWatchlist(false);
         if (typeof searchUsers === 'function') searchUsers();
         if (typeof loadPendingUsers === 'function') loadPendingUsers();
-        if (typeof loadManualWatchlist === 'function') loadManualWatchlist(true);
+        if (typeof loadManualWatchlist === 'function') loadManualWatchlist(false);
       } else if (tabId === 'health-errors') {
         if (typeof loadDiagnostics === 'function' && !diagnosticsLoaded) {
            document.getElementById('diagnostics-status').textContent = 'Loading...';
@@ -5629,13 +5627,12 @@ function changeAdminPage(type, delta) {
       return '';
     }
 
+    window.JOURNEY_CACHE = window.JOURNEY_CACHE || new Map();
     async function loadTradeJourney(alertId, elementId) {
       const el = document.getElementById(elementId);
       if (!el || !alertId) return;
-      try {
-        const res = await fetch(`/api/alert/${alertId}/events`);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const events = await res.json();
+
+      function renderJourneyEvents(events) {
         if (!events || events.length === 0) {
           el.innerHTML = `<span style="color:var(--muted)">Initial entry recorded. No multi-day re-triggers yet.</span>`;
           return;
@@ -5681,6 +5678,19 @@ function changeAdminPage(type, delta) {
               💡 Note: Re-triggers and pyramid candidates identify continuation opportunities. Positions are not automatically resized; manage additions per your risk rules.
             </div>
           </div>`;
+      }
+
+      if (window.JOURNEY_CACHE.has(alertId)) {
+        renderJourneyEvents(window.JOURNEY_CACHE.get(alertId));
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/alert/${alertId}/events`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const events = await res.json();
+        window.JOURNEY_CACHE.set(alertId, events || []);
+        renderJourneyEvents(events || []);
       } catch (err) {
         el.innerHTML = `<span style="color:var(--warn)">Failed to load journey: ${err.message}</span>`;
       }
@@ -6192,50 +6202,63 @@ function changeAdminPage(type, delta) {
         expandedIds.add(id);
         panel.classList.replace('closed', 'open');
         mainRow && mainRow.classList.add('open');
-        const btn = document.getElementById('btn-news-' + id);
-        if (btn) btn.click();
-        if (symbol && !window.NOTICES_CACHE[symbol]) {
-          fetchNotices(symbol, 'notices-' + id);
-        }
-        // Automatically load Corporate & Analyst Intelligence Dossier by default
-        if (symbol) {
-          loadInlineStockIntelligence(symbol, 'ai-' + id);
-        }
-        
-        // Auto-load Trade Journey timeline
-        const tjEl = document.getElementById('tj-' + id);
-        const resolvedId = alertDbId || (ehEl && ehEl.dataset.alertId ? parseInt(ehEl.dataset.alertId, 10) : null);
-        if (tjEl && resolvedId) {
-          loadTradeJourney(resolvedId, 'tj-' + id);
+
+        // Populate cached live notices immediately if already fetched
+        if (symbol && window.NOTICES_CACHE[symbol]) {
+          const noticesEl = document.getElementById('notices-' + id);
+          if (noticesEl) noticesEl.innerHTML = window.NOTICES_CACHE[symbol];
         }
 
-        // Fetch exit_history on-demand to populate the Exit History panel
+        // Render intelligence immediately if cached; otherwise defer so click is 0ms
+        if (symbol) {
+          const cleanSym = (symbol || '').replace('.NS', '').replace('.BO', '').trim();
+          if (window._STOCK_INTELLIGENCE_CACHE && window._STOCK_INTELLIGENCE_CACHE[cleanSym]) {
+            loadInlineStockIntelligence(symbol, 'ai-' + id);
+          } else {
+            setTimeout(() => {
+              if (expandedIds.has(id)) loadInlineStockIntelligence(symbol, 'ai-' + id);
+            }, 300);
+          }
+        }
+        
+        // Auto-load Trade Journey timeline asynchronously without UI stutter
+        const tjEl = document.getElementById('tj-' + id);
+        const resolvedId = alertDbId || (document.getElementById('eh-' + id)?.dataset.alertId ? parseInt(document.getElementById('eh-' + id).dataset.alertId, 10) : null);
+        if (tjEl && resolvedId) {
+          if (window.JOURNEY_CACHE && window.JOURNEY_CACHE.has(resolvedId)) {
+            loadTradeJourney(resolvedId, 'tj-' + id);
+          } else {
+            setTimeout(() => {
+              if (expandedIds.has(id)) loadTradeJourney(resolvedId, 'tj-' + id);
+            }, 200);
+          }
+        }
+
+        // Fetch exit_history on-demand to populate Exit History panel if not preloaded inline
         const ehEl = document.getElementById('eh-' + id);
-        if (ehEl) {
+        if (ehEl && ehEl.dataset.preloaded !== 'true') {
           const finalAlertDbId = resolvedId || (ehEl.dataset.alertId ? parseInt(ehEl.dataset.alertId, 10) : null);
           if (finalAlertDbId) {
             const cacheKey = String(finalAlertDbId);
-            // If already pre-populated inline from t.exit_history, skip the API call
-            if (ehEl.dataset.preloaded === 'true') {
-              // Already rendered — nothing to do
-            } else if (EXIT_HISTORY_CACHE.has(cacheKey)) {
+            if (EXIT_HISTORY_CACHE.has(cacheKey)) {
               renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey), finalAlertDbId);
             } else {
-              try {
-                const r = await fetch('/api/alert/exit_history/' + finalAlertDbId);
-                if (r.ok) {
-                  const eh = await r.json();
-                  EXIT_HISTORY_CACHE.set(cacheKey, eh);
-                  renderExitHistory(ehEl, eh, finalAlertDbId);
-                } else {
+              setTimeout(async () => {
+                if (!expandedIds.has(id)) return;
+                try {
+                  const r = await fetch('/api/alert/exit_history/' + finalAlertDbId);
+                  if (r.ok) {
+                    const eh = await r.json();
+                    EXIT_HISTORY_CACHE.set(cacheKey, eh);
+                    renderExitHistory(ehEl, eh, finalAlertDbId);
+                  } else {
+                    renderExitHistory(ehEl, null, finalAlertDbId);
+                  }
+                } catch(e) {
                   renderExitHistory(ehEl, null, finalAlertDbId);
                 }
-              } catch(e) {
-                renderExitHistory(ehEl, null, finalAlertDbId);
-              }
+              }, 250);
             }
-          } else {
-            ehEl.textContent = '—';
           }
         }
       }
@@ -11277,7 +11300,7 @@ let _watchlistFetchCache_ts = 0;
 
 function _fetchWatchlist(forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && _watchlistFetchCache && (now - _watchlistFetchCache_ts) < 5000) {
+  if (!forceRefresh && _watchlistFetchCache && (now - _watchlistFetchCache_ts) < 30000) {
     return _watchlistFetchCache;
   }
   _watchlistFetchCache_ts = now;

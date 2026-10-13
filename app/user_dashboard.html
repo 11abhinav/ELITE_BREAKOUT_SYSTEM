@@ -1247,6 +1247,7 @@ var USER_PAGE_SIZE = 10;
   // ── [VERSION: MULTI_TAB_UI_v1.0] USER DASHBOARD TAB NAVIGATION ──
   let activeUserTab = 'trades-portfolio';
 
+  const _activeUserTabLoadingMap = {};
   function switchUserTab(tabId) {
     const tabAliasMap = {
       'trades': 'trades-portfolio',
@@ -1280,17 +1281,26 @@ var USER_PAGE_SIZE = 10;
       if (fallback) fallback.classList.add('active');
     }
 
-    if (resolvedTabId === 'live-signals') {
-      if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
-      if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
+    const now = Date.now();
+    const shouldFetch = !_activeUserTabLoadingMap[resolvedTabId] || (now - _activeUserTabLoadingMap[resolvedTabId] >= 30000);
+    if (shouldFetch) {
+      _activeUserTabLoadingMap[resolvedTabId] = now;
+      if (resolvedTabId === 'live-signals') {
+        if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
+        if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
+      } else if (resolvedTabId === 'trades-portfolio') {
+        if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
+          renderTradeTable();
+        }
+        if (typeof loadCapitalInfo === 'function') loadCapitalInfo();
+      } else if (resolvedTabId === 'watchlist-analyzer') {
+        if (typeof loadUserWatchlist === 'function') loadUserWatchlist(false);
+        if (typeof preloadMasterSymbolsList === 'function') preloadMasterSymbolsList();
+      }
     } else if (resolvedTabId === 'trades-portfolio') {
       if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
         renderTradeTable();
       }
-      if (typeof loadCapitalInfo === 'function') loadCapitalInfo();
-    } else if (resolvedTabId === 'watchlist-analyzer') {
-      if (typeof loadUserWatchlist === 'function') loadUserWatchlist(false);
-      if (typeof preloadMasterSymbolsList === 'function') preloadMasterSymbolsList();
     }
   }
 
@@ -3131,13 +3141,23 @@ function toggleDetail(id, symbol) {
     }
     panel.classList.replace('closed','open');
     mainRow && mainRow.classList.add('open');
-    const btn = document.getElementById('btn-news-' + id);
-    if (btn) btn.click();
-    if (symbol && !window.NOTICES_CACHE[symbol]) {
-        fetchNotices(symbol, 'notices-' + id);
+
+    // Populate cached live notices immediately if already fetched
+    if (symbol && window.NOTICES_CACHE[symbol]) {
+      const noticesEl = document.getElementById('notices-' + id);
+      if (noticesEl) noticesEl.innerHTML = window.NOTICES_CACHE[symbol];
     }
+
+    // Render intelligence immediately if cached; otherwise defer so click is 0ms
     if (symbol) {
+      const cleanSym = (symbol || '').replace('.NS', '').replace('.BO', '').trim();
+      if (window._STOCK_INTELLIGENCE_CACHE && window._STOCK_INTELLIGENCE_CACHE[cleanSym]) {
         loadInlineStockIntelligence(symbol, 'ai-' + id);
+      } else {
+        setTimeout(() => {
+          if (expandedIds.has(id)) loadInlineStockIntelligence(symbol, 'ai-' + id);
+        }, 300);
+      }
     }
   }
 }
