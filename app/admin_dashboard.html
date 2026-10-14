@@ -5360,13 +5360,19 @@ function changeAdminPage(type, delta) {
           const rawTime = data.last_run || data.last_success || data.updated_at || data.last_alert_at;
           if (rawTime) {
             try {
-              const d = new Date(rawTime);
-              if (!isNaN(d.getTime())) {
-                const datePart = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' });
-                const timePart = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
-                lastRunStr = `${datePart}, ${timePart} IST`;
+              const rawStr = String(rawTime).trim();
+              const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(rawStr);
+              const d = parseToISTDate(rawStr);
+              if (d && !isNaN(d.getTime())) {
+                const datePart = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
+                if (isDateOnly) {
+                  lastRunStr = `${datePart} (EOD Session)`;
+                } else {
+                  const timePart = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+                  lastRunStr = `${datePart}, ${timePart} IST`;
+                }
               } else {
-                lastRunStr = String(rawTime);
+                lastRunStr = rawStr;
               }
             } catch(e) { lastRunStr = String(rawTime); }
           }
