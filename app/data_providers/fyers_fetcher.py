@@ -223,6 +223,7 @@ class FyersFetcher(DataFetcher):
             "GUJGAS": "GUJGASLTD",
             "GMRINFRA": "GMRAIRPORT",
             "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
+            "CCAVENUE": "INFIBEAM",
         }
         if sym in _corporate_alias_map:
             sym = _corporate_alias_map[sym]
