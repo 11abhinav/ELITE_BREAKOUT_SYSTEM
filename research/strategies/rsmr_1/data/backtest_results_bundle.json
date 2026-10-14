@@ -1,0 +1,194 @@
+{
+  "final_verdict": "GO_TO_PAPER_TRADING",
+  "gates": {
+    "Gate 1 Data Integrity": {
+      "pass": true,
+      "details": "Real Upstox data, verified provenance, zero duplicates"
+    },
+    "Gate 2 Return Advantage": {
+      "pass": true,
+      "details": "Overall excess: 12.41%, Holdout excess: 6.02%, Bootstrap 95% CI low: 2.01%"
+    },
+    "Gate 3 Risk Limits": {
+      "pass": "True",
+      "details": "DD diff: -6.98% (Limit <= 5.0%), Sharpe: 0.87 vs 0.41"
+    },
+    "Gate 4 Temporal Consistency": {
+      "pass": true,
+      "details": "Positive windows: 3/4 (W1: -10.4%, W2: 28.2%, W3: 19.5%, W4: 13.6%)"
+    },
+    "Gate 5 Benchmark Challenge": {
+      "pass": "True",
+      "details": "Excess vs Momentum ETF: 15.37%"
+    },
+    "Gate 6 Costs & Capacity": {
+      "pass": "True",
+      "details": "Survives 20bps adverse slippage (23.39%) and \u20b91Cr scale (22.53%)"
+    },
+    "Gate 7 Operations": {
+      "pass": true,
+      "details": "Reproducible pipeline, isolated namespace, zero broker access"
+    }
+  },
+  "strat_metrics": {
+    "days": 2468,
+    "years": 9.79,
+    "cum_return": 7.344006183139554,
+    "cagr": 0.24187753129785738,
+    "ann_volatility": 0.20640565537263758,
+    "sharpe": 0.871692245524986,
+    "sortino": 0.9792916308461624,
+    "max_drawdown": -0.31323136334281676,
+    "calmar": 0.7722008700422952,
+    "drawdown_series": "dt\n2016-09-30    0.000000\n2016-10-03    0.000000\n2016-10-04    0.000000\n2016-10-05    0.000000\n2016-10-06    0.000000\n                ...   \n2026-10-06   -0.129931\n2026-10-07   -0.129931\n2026-10-08   -0.129931\n2026-10-09   -0.129931\n2026-10-12   -0.129931\nName: strat_return, Length: 2468, dtype: float64",
+    "beta": 0.9867018399669493,
+    "correlation": 0.7758749426130381,
+    "excess_cagr": 0.12414605544220358
+  },
+  "bench_metrics": {
+    "days": 2468,
+    "years": 9.79,
+    "cum_return": 1.9744071033856239,
+    "cagr": 0.1177314758556538,
+    "ann_volatility": 0.16230331142649534,
+    "sharpe": 0.4087341588328938,
+    "sortino": 0.48156642224922847,
+    "max_drawdown": -0.3830235095475717,
+    "calmar": 0.3073740199256137,
+    "drawdown_series": "dt\n2016-09-30    0.000000\n2016-10-03    0.000000\n2016-10-04    0.000000\n2016-10-05   -0.000291\n2016-10-06   -0.004024\n                ...   \n2026-10-06   -0.093647\n2026-10-07   -0.099482\n2026-10-08   -0.117597\n2026-10-09   -0.107371\n2026-10-12   -0.109163\nName: bench_return, Length: 2468, dtype: float64"
+  },
+  "dev_strat": {
+    "days": 798,
+    "years": 3.17,
+    "cum_return": 0.2373987621500835,
+    "cagr": 0.06958076050083473,
+    "ann_volatility": 0.1469381136500685,
+    "sharpe": 0.13466485878046497,
+    "sortino": 0.1594232682531137,
+    "max_drawdown": -0.20875979376245019,
+    "calmar": 0.333305370956686,
+    "drawdown_series": "dt\n2016-09-30    0.000000\n2016-10-03    0.000000\n2016-10-04    0.000000\n2016-10-05    0.000000\n2016-10-06    0.000000\n                ...   \n2019-12-24   -0.041420\n2019-12-26   -0.034853\n2019-12-27   -0.031646\n2019-12-30   -0.025041\n2019-12-31   -0.025865\nName: strat_return, Length: 798, dtype: float64"
+  },
+  "dev_bench": {
+    "days": 798,
+    "years": 3.17,
+    "cum_return": 0.34561155246535025,
+    "cagr": 0.09827598257745818,
+    "ann_volatility": 0.12756208404003738,
+    "sharpe": 0.34179645620016574,
+    "sortino": 0.5148234390734281,
+    "max_drawdown": -0.15760108563551167,
+    "calmar": 0.623574274131231,
+    "drawdown_series": "dt\n2016-09-30    0.000000\n2016-10-03    0.000000\n2016-10-04    0.000000\n2016-10-05   -0.000291\n2016-10-06   -0.004024\n                ...   \n2019-12-24   -0.012370\n2019-12-26   -0.017494\n2019-12-27   -0.008337\n2019-12-30   -0.006735\n2019-12-31   -0.011955\nName: bench_return, Length: 798, dtype: float64"
+  },
+  "val_strat": {
+    "days": 937,
+    "years": 3.72,
+    "cum_return": 3.59772135076913,
+    "cagr": 0.5072541777014572,
+    "ann_volatility": 0.23246970973462108,
+    "sharpe": 1.6330695792982313,
+    "sortino": 1.8109546170751556,
+    "max_drawdown": -0.311511486461407,
+    "calmar": 1.6283642810850274,
+    "drawdown_series": "dt\n2020-01-01    0.000000\n2020-01-02    0.000000\n2020-01-03   -0.003537\n2020-01-06   -0.027132\n2020-01-07   -0.007618\n                ...   \n2023-10-06   -0.015643\n2023-10-09   -0.039488\n2023-10-10   -0.021058\n2023-10-11   -0.014220\n2023-10-12   -0.010031\nName: strat_return, Length: 937, dtype: float64"
+  },
+  "val_bench": {
+    "days": 937,
+    "years": 3.72,
+    "cum_return": 0.7644602421608675,
+    "cagr": 0.1649965672712248,
+    "ann_volatility": 0.19777705724425268,
+    "sharpe": 0.5780577241117348,
+    "sortino": 0.6232063277894652,
+    "max_drawdown": -0.38302350954757186,
+    "calmar": 0.43077399469844313,
+    "drawdown_series": "dt\n2020-01-01    0.000000\n2020-01-02    0.000000\n2020-01-03   -0.003843\n2020-01-06   -0.023307\n2020-01-07   -0.017495\n                ...   \n2023-10-06   -0.021069\n2023-10-09   -0.030460\n2023-10-10   -0.020517\n2023-10-11   -0.014630\n2023-10-12   -0.013931\nName: bench_return, Length: 937, dtype: float64"
+  },
+  "holdout_strat": {
+    "days": 733,
+    "years": 2.91,
+    "cum_return": 0.46663583836666955,
+    "cagr": 0.14072347518695527,
+    "ann_volatility": 0.22501488991160482,
+    "sharpe": 0.4397812715670495,
+    "sortino": 0.5221370390002976,
+    "max_drawdown": -0.31323136334281576,
+    "calmar": 0.4492636806389678,
+    "drawdown_series": "dt\n2023-10-13    0.000000\n2023-10-16    0.000000\n2023-10-17    0.000000\n2023-10-18   -0.009719\n2023-10-19   -0.002420\n                ...   \n2026-10-06   -0.129931\n2026-10-07   -0.129931\n2026-10-08   -0.129931\n2026-10-09   -0.129931\n2026-10-12   -0.129931\nName: strat_return, Length: 733, dtype: float64"
+  },
+  "holdout_bench": {
+    "days": 733,
+    "years": 2.91,
+    "cum_return": 0.25276273292427387,
+    "cagr": 0.08055426342178862,
+    "ann_volatility": 0.1450047726906481,
+    "sharpe": 0.2051720299230865,
+    "sortino": 0.25919948570056134,
+    "max_drawdown": -0.18843200267763321,
+    "calmar": 0.42749778316372145,
+    "drawdown_series": "dt\n2023-10-13    0.000000\n2023-10-16    0.000000\n2023-10-17    0.000000\n2023-10-18   -0.007082\n2023-10-19   -0.008999\n                ...   \n2026-10-06   -0.093647\n2026-10-07   -0.099482\n2026-10-08   -0.117597\n2026-10-09   -0.107371\n2026-10-12   -0.109163\nName: bench_return, Length: 733, dtype: float64"
+  },
+  "bootstrap": {
+    "num_simulations": 2000,
+    "block_size_days": 21,
+    "mean_active_cagr": 0.1265186841727166,
+    "median_active_cagr": 0.12435794546143791,
+    "ci_95_low": 0.02014512896297934,
+    "ci_95_high": 0.24329721673325325,
+    "p_value_one_tailed": 0.0095
+  },
+  "diagnostics": [
+    {
+      "scenario": "RSMR_1_Primary (\u20b910L, 5bps)",
+      "cagr": 0.24187753129785738,
+      "sharpe": 0.871692245524986,
+      "max_dd": -0.31323136334281676,
+      "excess_cagr": 0.12414605544220358
+    },
+    {
+      "scenario": "RSMR_1_NoTrendFilter (Ablation)",
+      "cagr": 0.24663797317578529,
+      "sharpe": 0.8874007857229915,
+      "max_dd": -0.31474121242840164,
+      "excess_cagr": 0.12890649732013149
+    },
+    {
+      "scenario": "RSMR_1_AdverseSlippage_10bps",
+      "cagr": 0.2389163592096477,
+      "sharpe": 0.8595063110047776,
+      "max_dd": -0.31529287681699214,
+      "excess_cagr": 0.12118488335399391
+    },
+    {
+      "scenario": "RSMR_1_AdverseSlippage_20bps",
+      "cagr": 0.23387179588824392,
+      "sharpe": 0.8390504842865315,
+      "max_dd": -0.3183201799360549,
+      "excess_cagr": 0.11614032003259012
+    },
+    {
+      "scenario": "RSMR_1_Scale_5Lakh",
+      "cagr": 0.24185599941940028,
+      "sharpe": 0.8709157580587236,
+      "max_dd": -0.31896610077663645,
+      "excess_cagr": 0.12412452356374648
+    },
+    {
+      "scenario": "RSMR_1_Scale_1Crore",
+      "cagr": 0.22534394221468523,
+      "sharpe": 0.8818256460972447,
+      "max_dd": -0.27518358719079705,
+      "excess_cagr": 0.10761246635903143
+    },
+    {
+      "scenario": "Benchmark_NIFTY_500",
+      "cagr": 0.1177314758556538,
+      "sharpe": 0.4087341588328938,
+      "max_dd": -0.3830235095475717,
+      "excess_cagr": 0.0
+    }
+  ],
+  "total_trades": 1519,
+  "total_costs_inr": 280135.7699999998
+}

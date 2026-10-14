@@ -1,0 +1,5 @@
+timeframe,rebal_days,cagr,bench_cagr,excess_cagr,sharpe,sortino,max_dd,bench_max_dd,win_rate,profit_factor,total_trades
+Monthly (21 Days),21,27.25,10.11,17.14,0.94,1.09,-39.48,-38.3,47.8,1.44,1128
+Bi-Monthly (42 Days),42,25.2,10.11,15.09,0.86,1.0,-36.6,-38.3,50.3,1.38,786
+Quarterly (63 Days - Baseline),63,27.01,10.11,16.9,0.92,1.07,-36.53,-38.3,51.8,1.54,649
+Semi-Annual (126 Days),126,31.57,10.11,21.47,1.09,1.25,-36.77,-38.3,59.1,2.45,435

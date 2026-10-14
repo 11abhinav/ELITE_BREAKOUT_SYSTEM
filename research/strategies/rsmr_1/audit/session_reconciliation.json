@@ -1,0 +1,19 @@
+{
+  "total_source_sessions": 2490,
+  "first_source_date": "2016-09-27",
+  "last_source_date": "2026-10-12",
+  "warmup_sessions_required_6m": 326,
+  "warmup_start_date": "2016-09-27",
+  "warmup_end_date": "2018-01-16",
+  "active_trading_sessions_6m": 2164,
+  "active_start_date": "2018-01-17",
+  "active_end_date": "2026-10-12",
+  "benchmark_matched_sessions": 2146,
+  "regime_breakdown": {
+    "BULL": 988,
+    "SIDEWAYS": 570,
+    "BEAR": 588,
+    "sum_regimes": 2146
+  },
+  "discrepancy_explanation": "The 344 unaccounted sessions consist of exactly 326 required indicator warm-up sessions (from 2016-09-27 to 2018-01-16) during which 200-SMA and 126-day momentum were accumulating prior to the first causal rebalance on 2018-01-17, plus 18 exchange calendar holidays where index and stock feeds had slight trading session alignment offsets."
+}

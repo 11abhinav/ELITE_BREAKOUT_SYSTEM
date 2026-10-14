@@ -1,0 +1,8 @@
+transfer_type,action,rejection_reason
+Inter-se Promoter Off-Market Transfer,EXCLUDED,No net market demand; ownership reshuffle
+Gift / Family Inheritance,EXCLUDED,Zero market capital inflow; non-market transfer
+Preferential Allotment / QIP,EXCLUDED,"Primary issuance dilution, not on-market accumulation"
+Bonus / Rights Issue,EXCLUDED,"Corporate action dilution, not secondary buying"
+Pledge Invocation / Revocation,EXCLUDED,"Lender collateral movement, not voluntary investment"
+Custodian / Depository Movement,EXCLUDED,Administrative reclassification
+On-Market Net Buying (Shares Bought > Sold),QUALIFIED,Documented secondary market net absorption

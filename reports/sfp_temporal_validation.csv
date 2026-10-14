@@ -1,0 +1,4 @@
+temporal_window,calendar_range,sessions,raw_sfp1_cagr_pct,survivor_adj_cagr_pct,nifty500_tri_cagr_pct,raw_excess_vs_nifty500,adj_excess_vs_nifty500,sharpe,max_drawdown_pct,status
+Development Period (2018-2020),2018-07-02 to 2020-12-31,614,5.73,0.79,9.84,-4.11,-9.05,-0.01,-9.88,FAIL
+Validation Period (2021-2023),2021-01-01 to 2023-12-31,739,16.78,11.84,18.57,-1.79,-6.73,1.39,-7.07,FAIL
+Locked Holdout Period (2024-2026),2024-01-01 to 2026-10-12,681,1.87,-3.07,4.29,-2.42,-7.36,-0.89,-3.12,FAIL

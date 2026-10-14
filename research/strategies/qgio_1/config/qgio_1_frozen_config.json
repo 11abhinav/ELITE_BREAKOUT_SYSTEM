@@ -1,0 +1,61 @@
+{
+  "strategy_id": "QGIO_1",
+  "strategy_name": "Quality Growth + Verified Ownership Accumulation",
+  "version": "1.0.0",
+  "timestamp_frozen": "2026-10-13T11:52:00Z",
+  "universe": {
+    "exchange": "NSE",
+    "exclude_bfsi": true,
+    "min_market_cap_cr": 1000.0,
+    "min_median_turnover_cr_60d": 5.0,
+    "min_price_bars": 200
+  },
+  "gate_1_quality": {
+    "consecutive_profitable_years": 5,
+    "min_sales_cagr_3y": 0.10,
+    "annual_revenue_increasing_years": 3,
+    "min_roce_latest": 0.15,
+    "min_roce_3y_avg": 0.15,
+    "min_cfo_pat_ratio_3y": 0.80,
+    "max_net_debt_to_ebitda": 1.00,
+    "publication_lag_days": 75
+  },
+  "gate_2_ownership": {
+    "lookback_days": 90,
+    "eligible_categories": ["PROMOTER", "FII", "DII"],
+    "min_net_buy_value_pct_float": 0.0005,
+    "exclude_non_market_transfers": true
+  },
+  "gate_3_trend": {
+    "sma_fast": 50,
+    "sma_slow": 200,
+    "sma_slow_slope_lookback": 20,
+    "require_close_gt_sma_fast": true,
+    "require_close_gt_sma_slow": true,
+    "require_sma_fast_gt_sma_slow": true,
+    "require_sma_slow_rising": true
+  },
+  "portfolio": {
+    "max_positions": 20,
+    "target_weight_pct": 0.05,
+    "max_sector_weight_pct": 0.25,
+    "cash_return_annual": 0.00,
+    "ranking_method": "COMPOSITE_QUALITY_PERCENTILE"
+  },
+  "exit": {
+    "consecutive_closes_below_200_sma": 3,
+    "exit_on_death_cross": true,
+    "exit_execution": "NEXT_OPEN"
+  },
+  "transaction_costs": {
+    "brokerage_per_order": 20.0,
+    "stt_sell": 0.0010,
+    "stamp_duty_buy": 0.00015,
+    "exchange_sebi_turnover": 0.0000345,
+    "gst_on_charges": 0.18,
+    "dp_charge_per_sell": 15.93,
+    "base_slippage_bps": 5.0,
+    "adverse_slippage_bps_1": 10.0,
+    "adverse_slippage_bps_2": 20.0
+  }
+}

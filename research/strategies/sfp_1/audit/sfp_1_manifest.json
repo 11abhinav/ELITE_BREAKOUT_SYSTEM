@@ -1,0 +1,22 @@
+{
+  "strategy": "SFP-1",
+  "timestamp_utc": "2026-10-13T09:39:09.124173",
+  "models_evaluated": [
+    "Model 1: SFP-1 Full Strategy (Base Cost)",
+    "Model 1: SFP-1 Adverse Cost (10 bps slippage)",
+    "Model 1: SFP-1 Adverse Cost (20 bps slippage)",
+    "Model 2: Smallcap Unfiltered Control (No Survival Gates)",
+    "Nifty 500 TRI (Broad Market Benchmark)",
+    "Model 1: SFP-1 (Survivorship-Adjusted Net CAGR)"
+  ],
+  "survivorship_limitation": "CONFIRMED_UPWARD_BIAS_SURVIVING_SAMPLE",
+  "survivorship_haircut_cagr_pct": 4.94,
+  "files_generated": [
+    "sfp_benchmark_comparison.csv",
+    "sfp_temporal_validation.csv",
+    "sfp_portfolio_nav.csv",
+    "sfp_trade_ledger.csv",
+    "sfp_signal_history.csv",
+    "sfp_transaction_cost_audit.csv"
+  ]
+}

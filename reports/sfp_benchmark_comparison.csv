@@ -1,0 +1,7 @@
+model_name,net_cagr_pct,total_return_pct,sharpe_ratio,max_drawdown_pct,total_trades,win_rate_pct,profit_factor
+Model 1: SFP-1 Full Strategy (Base Cost),8.37,94.57,0.4,-9.88,77,59.7,4.89
+Model 1: SFP-1 Adverse Cost (10 bps slippage),8.34,94.03,0.39,-9.88,77,59.7,4.85
+Model 1: SFP-1 Adverse Cost (20 bps slippage),8.27,93.12,0.38,-9.88,77,59.7,4.8
+Model 2: Smallcap Unfiltered Control (No Survival Gates),6.62,69.99,0.12,-13.46,78,52.6,3.72
+Nifty 500 TRI (Broad Market Benchmark),11.13,139.57,0.37,-38.3,0,0.0,0.0
+Model 1: SFP-1 (Survivorship-Adjusted Net CAGR),3.43,32.21,0.15,-14.88,77,59.7,4.89

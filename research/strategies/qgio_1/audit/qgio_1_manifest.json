@@ -1,0 +1,12 @@
+{
+  "strategy_id": "QGIO_1",
+  "strategy_name": "Quality Growth + Verified Ownership Accumulation",
+  "timestamp": "2026-10-13 11:59:12",
+  "data_readiness_status": "RESEARCH_HOLD (Gate 2 Ownership Data Absent)",
+  "strategy_a_net_cagr": 14.55,
+  "strategy_b_net_cagr": 0.0,
+  "strategy_c_net_cagr": 0.0,
+  "nifty500_tri_cagr": 12.03,
+  "excess_vs_nifty500_strategy_a": 2.52,
+  "governance_verdict": "RESEARCH_HOLD"
+}

@@ -1,0 +1,6 @@
+model_name,net_cagr_pct,total_return_pct,sharpe_ratio,max_drawdown_pct,total_trades,win_rate_pct,profit_factor
+QPF-1 Frozen Strategy (Base Cost),6.67,71.21,0.06,-17.14,29,58.6,5.39
+QPF-1 Adverse Cost (10 bps slippage),6.66,71.11,0.06,-17.15,29,58.6,5.39
+QPF-1 Adverse Cost (20 bps slippage),6.65,70.9,0.06,-17.15,29,58.6,5.39
+Nifty500 Quality 50 Proxy,7.33,80.17,0.13,-17.86,28,67.9,7.36
+Nifty 500 TRI (Broad Benchmark),12.03,133.56,0.32,-38.3,0,0.0,0.0

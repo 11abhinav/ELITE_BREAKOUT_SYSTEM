@@ -1,0 +1,18 @@
+{
+  "strategy_id": "QPF_1",
+  "strategy_name": "Quality & Payout Factor",
+  "timestamp": "2026-10-13 10:57:37",
+  "universe_symbols": 836,
+  "rebalance_cadence": "Semi-Annual (June 15 & Dec 15)",
+  "portfolio_slots": 50,
+  "qpf_net_cagr": 6.67,
+  "nifty500_tri_cagr": 12.03,
+  "excess_vs_nifty500": -5.36,
+  "nifty_q50_cagr": 7.33,
+  "excess_vs_q50": -0.66,
+  "sharpe": 0.06,
+  "max_drawdown": -17.14,
+  "win_rate": 58.6,
+  "profit_factor": 5.39,
+  "governance_verdict": "RESEARCH_HOLD"
+}

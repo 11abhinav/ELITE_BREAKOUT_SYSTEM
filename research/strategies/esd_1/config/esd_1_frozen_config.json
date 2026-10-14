@@ -1,0 +1,36 @@
+{
+  "strategy_id": "ESD_1",
+  "strategy_name": "Point-in-Time Earnings Surprise Drift",
+  "version": "1.0.0",
+  "hypothesis": "Companies reporting quarterly earnings materially stronger than their own historical earnings pattern (SUE >= 1.0) continue to experience positive market-adjusted returns following the initial response window.",
+  "sue_formula": "SUE_q = (EPS_q - EPS_{q-4}) / std(previous_8_available_yoy_eps_changes)",
+  "sue_threshold": 1.0,
+  "min_historical_quarters": 8,
+  "response_window": "1_complete_trading_session_post_announcement",
+  "response_filter": "stock_session_return > nifty500_session_return",
+  "entry_execution": "next_eligible_trading_session_open",
+  "holding_period_sessions": 63,
+  "exit_execution": "session_64_open",
+  "portfolio_max_slots": 20,
+  "portfolio_slot_weight": 0.05,
+  "sector_max_exposure": 0.25,
+  "cash_drag": true,
+  "benchmark": "Nifty 500 TRI",
+  "statutory_costs": {
+    "brokerage_per_order": 20.0,
+    "stt_sell_pct": 0.001,
+    "stamp_duty_buy_pct": 0.00015,
+    "dp_charges_sell": 15.93,
+    "exchange_turnover_pct": 0.0000345,
+    "gst_pct": 0.18,
+    "sebi_turnover_pct": 0.000001,
+    "slippage_bps_base": 5.0,
+    "slippage_bps_adverse_1": 10.0,
+    "slippage_bps_adverse_2": 20.0
+  },
+  "temporal_splits": {
+    "development": "2016-01-01 to 2020-12-31",
+    "validation": "2021-01-01 to 2023-12-31",
+    "locked_holdout": "2024-01-01 to 2026-10-13"
+  }
+}

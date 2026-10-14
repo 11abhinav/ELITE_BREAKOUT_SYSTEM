@@ -1,0 +1,78 @@
+# ==============================================================================
+# RSMR-1: RELATIVE-STRENGTH MOMENTUM ROTATION (FROZEN RULES CONFIGURATION)
+# Strategy Identifier: RSMR_1
+# Governance Status: FROZEN_FOR_RESEARCH_AND_CERTIFICATION
+# Date Frozen: 2026-10-13
+# ==============================================================================
+
+strategy:
+  id: "RSMR_1"
+  name: "Relative-Strength Momentum Rotation"
+  version: "1.0.0"
+  type: "EQUITY_LONG_ONLY_MOMENTUM"
+  rebalance_cadence: "QUARTERLY"
+  decision_timing: "LAST_TRADING_DAY_OF_CALENDAR_QUARTER"
+  execution_timing: "NEXT_ELIGIBLE_TRADING_DAY_OPEN"
+
+universe:
+  exchange: "NSE"
+  market_segment: "EQ"
+  historical_data_provider: "UPSTOX_V3_1D_CERTIFIED"
+  min_history_bars: 200
+  recommended_history_bars: 252
+
+filters:
+  momentum_lookback_bars: 126   # ~6 calendar months (trading sessions)
+  trend_filter:
+    enabled: true
+    type: "SMA"
+    period: 200
+    condition: "CLOSE_GT_SMA"
+  liquidity:
+    lookback_bars: 60
+    metric: "MEDIAN_DAILY_TRADED_VALUE"
+    min_median_turnover_inr: 5000000.0   # ₹50 Lakh minimum daily median turnover
+    max_participation_rate: 0.01          # Maximum 1% of median daily volume
+
+portfolio:
+  target_slots: 30
+  target_weight_per_slot: 0.03333333333333333   # 1/30th
+  max_weight_per_stock: 0.05                    # 5.0%
+  max_weight_per_sector: 0.25                   # 25.0%
+  max_stocks_per_sector: 7                      # For 30 slots (7 * 3.33% = 23.33% <= 25%)
+  unfilled_slots_policy: "RETAIN_AS_CASH"       # Never reallocate vacant slot capital
+  leverage: 1.0                                 # Long-only, strictly zero leverage
+  odd_lot_policy: "WHOLE_SHARES_ONLY"
+
+transaction_costs:
+  brokerage_pct: 0.0003                         # 0.03% or ₹20 per order
+  brokerage_cap_inr: 20.0
+  stt_sell_pct: 0.001                           # 0.1% on delivery sell
+  exchange_turnover_pct: 0.0000345              # 0.00345% NSE turnover charge
+  sebi_charges_pct: 0.000001                    # ₹10 per crore (0.0001%)
+  stamp_duty_buy_pct: 0.00015                   # 0.015% on delivery buy
+  gst_pct: 0.18                                 # 18% on (brokerage + exchange + sebi)
+  dp_charges_sell_inr: 15.93                    # ₹13.50 + 18% GST = ₹15.93 per ISIN sell
+  base_slippage_bps: 5.0                        # 5 bps base slippage per side
+  adverse_slippage_bps_1: 10.0                  # 10 bps sensitivity scenario
+  adverse_slippage_bps_2: 20.0                  # 20 bps extreme stress scenario
+
+capital_scales_tested:
+  - 500000.0    # ₹5 Lakh
+  - 2500000.0   # ₹25 Lakh
+  - 10000000.0  # ₹1 Crore
+
+temporal_splits:
+  development:
+    start_date: "2016-09-27"
+    end_date: "2019-12-31"
+  validation:
+    start_date: "2020-01-01"
+    end_date: "2023-10-12"
+  holdout:
+    start_date: "2023-10-13"
+    end_date: "2026-10-12"
+
+benchmarks:
+  broad_market: "NIFTY_500"
+  momentum_reference: "NIFTY_200_MOMENTUM_30"

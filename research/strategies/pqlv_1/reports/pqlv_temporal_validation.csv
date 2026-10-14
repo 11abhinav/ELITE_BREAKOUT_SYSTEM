@@ -1,0 +1,4 @@
+temporal_window,calendar_range,sessions,pqlv1_cagr_pct,nifty500_tri_cagr_pct,nifty_lowvol_cagr_pct,excess_vs_nifty500,excess_vs_official_lowvol,sharpe,max_drawdown_pct,status
+Development Period (2018-2020),2018-06-29 to 2020-12-31,615,3.22,10.85,11.17,-7.63,-7.94,-0.56,-9.21,FAIL
+Validation Period (2021-2023),2021-01-01 to 2023-12-31,739,5.03,19.87,14.11,-14.84,-9.08,-0.36,-4.96,FAIL
+Locked Holdout Period (2024-2026),2024-01-01 to 2026-10-12,681,-1.46,5.59,-1.46,-7.05,0.0,-2.09,-9.71,FAIL

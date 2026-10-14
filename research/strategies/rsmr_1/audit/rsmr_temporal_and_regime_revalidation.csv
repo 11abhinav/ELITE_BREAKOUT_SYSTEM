@@ -1,0 +1,8 @@
+category,segment_name,sessions,calendar_pct,rsmr_6m_cagr,rsmr_12m_cagr,benchmark_pr_cagr,excess_alpha_12m,governance_status
+Regime,BULL Regime,1006,49.8%,68.42%,74.19%,32.14%,+42.05%,HIGH ALPHA
+Regime,SIDEWAYS Regime,570,28.2%,8.95%,12.44%,0.82%,+11.62%,POSITIVE ALPHA
+Regime,BEAR Regime,588,29.1%,-21.27%,-17.84%,-20.34%,+2.50%,NO CAPITAL PROTECTION
+Temporal Cell,Cell 1 (2018-07-20 to 2018-12-31),108,5.3%,-8.58%,-10.80%,-1.67%,-9.13%,UNDERPERFORMED
+Temporal Cell,Cell 2 (2019-01-01 to 2021-12-31),739,36.6%,48.54%,61.79%,18.26%,+43.53%,MASSIVE ALPHA
+Temporal Cell,Cell 3 (2022-01-01 to 2024-12-31),736,36.4%,44.83%,47.99%,14.68%,+33.31%,MASSIVE ALPHA
+Temporal Cell,Cell 4 (2025-01-01 to 2026-10-12),437,21.6%,-5.16%,6.37%,-1.43%,+7.81%,MOMENTUM DECAY / FAILED RULE

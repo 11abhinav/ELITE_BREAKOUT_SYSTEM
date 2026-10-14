@@ -1,0 +1,9 @@
+episode,regime_type,calendar_span,sessions,strategy_return_pct,benchmark_return_pct,alpha_pct,strategy_max_dd_pct,benchmark_max_dd_pct
+2018 NBFC Liquidity Crisis,BEAR,2018-01-01 to 2018-10-31,194,-11.06,-8.94,-2.13,-22.22,-15.76
+2020 COVID-19 Crash,BEAR,2020-01-01 to 2020-04-30,81,-6.06,-18.84,12.77,-36.53,-38.3
+2021-2022 Global Rate Hike / War,BEAR,2021-10-01 to 2022-06-30,186,5.98,-11.06,17.05,-20.47,-18.48
+Late 2024-2025 Market Correction,BEAR,2024-10-01 to 2025-03-31,122,-19.68,-11.98,-7.69,-27.97,-18.09
+2020-2021 Post-COVID Liquidity Surge,BULL,2020-05-01 to 2021-09-30,353,162.26,87.86,74.4,-9.4,-7.22
+2023-2024 Capex & Manufacturing Rally,BULL,2023-04-01 to 2024-09-30,365,189.81,66.54,123.26,-14.77,-6.76
+2019 Pre-Election Choppiness,SIDEWAYS,2019-01-01 to 2019-12-31,242,10.52,7.66,2.86,-16.07,-12.13
+2022-2023 Consolidation Range,SIDEWAYS,2022-07-01 to 2023-03-31,186,11.61,8.74,2.86,-18.65,-11.2

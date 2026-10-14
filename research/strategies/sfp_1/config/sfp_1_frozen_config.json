@@ -1,0 +1,47 @@
+{
+  "strategy_name": "SFP-1",
+  "strategy_description": "Size Premium with Financial Survival Filters",
+  "frozen_version": "1.0.0",
+  "frozen_at_utc": "2026-10-13T09:30:00Z",
+  "universe_parameters": {
+    "size_rank_min": 251,
+    "size_rank_max": 500,
+    "exclude_bfsi": true,
+    "liquidity_min_median_daily_turnover_cr": 5.0,
+    "liquidity_lookback_sessions": 60
+  },
+  "financial_survival_rules": {
+    "positive_pat_latest_fy": true,
+    "positive_cfo_latest_fy": true,
+    "positive_equity_net_worth": true,
+    "min_filing_delay_days": 90
+  },
+  "portfolio_parameters": {
+    "target_slots": 30,
+    "target_weight_pct": 3.3333333333333335,
+    "single_stock_max_weight_pct": 5.0,
+    "sector_max_weight_pct": 25.0,
+    "unallocated_cash_allowed": true,
+    "initial_nav_inr": 1000000.0,
+    "rebalance_cadence": "SEMIANNUAL",
+    "rebalance_months": [6, 12]
+  },
+  "cost_model": {
+    "brokerage_per_order_inr": 20.0,
+    "stt_sell_delivery_rate": 0.001,
+    "stamp_duty_buy_rate": 0.00015,
+    "exchange_sebi_turnover_rate": 0.0000345,
+    "gst_rate": 0.18,
+    "dp_charges_per_sell_inr": 15.93,
+    "slippage_scenarios_bps": [5.0, 10.0, 20.0]
+  },
+  "benchmarks": {
+    "broad_market_parquet": "research/strategies/rsmr_1/data/NIFTY_500.parquet",
+    "survivorship_haircut_cagr_pct": 4.94
+  },
+  "temporal_evaluation_split": {
+    "development_end": "2020-12-31",
+    "validation_end": "2023-12-31",
+    "locked_holdout_start": "2024-01-01"
+  }
+}

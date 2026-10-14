@@ -1,0 +1,4 @@
+temporal_window,calendar_range,sessions,events_count,strategy_cagr_pct,benchmark_cagr_pct,excess_cagr_pct,sharpe,max_drawdown_pct,status
+Development Period (2016-2020),2016-01-01 to 2020-12-31,0,0,,,,,,DATA_UNAVAILABLE_INSUFFICIENT_HISTORY
+Validation Period (2021-2023),2021-01-01 to 2023-12-31,91,2,1.51,49.88,-48.37,-3.68,-0.63,FAIL
+Locked Holdout Period (2024-2026),2024-01-01 to 2026-10-13,681,379,-0.95,5.59,-6.54,-1.9,-8.07,FAIL

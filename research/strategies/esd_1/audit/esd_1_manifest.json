@@ -1,0 +1,21 @@
+{
+  "strategy_id": "ESD_1",
+  "execution_timestamp": "2026-10-13 10:25:39",
+  "pit_source_file": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.parquet",
+  "pit_sha256": "c91b33703df62f9bcc16a6cf4d513c44fa539cfaf8f4fd266cc1910fa41986d7",
+  "benchmark_sha256": "79431e8c6c2c15c6f2d4bd16144d82bbb1872b389e03549a23a502587e582b8d",
+  "total_quarterly_filings": 8099,
+  "total_symbols_in_pit": 848,
+  "strict_rule_events": 13,
+  "viable_rule_events": 3058,
+  "qualifying_esd1_signals": 381,
+  "net_cagr": -0.006481333572254888,
+  "bench_tri_cagr": 0.09942394795973307,
+  "excess_cagr": -0.10590528153198796,
+  "sharpe": -1.9275687857926451,
+  "max_drawdown": -0.08071724641470718,
+  "total_trades": 21,
+  "win_rate": 33.33333333333333,
+  "profit_factor": 0.7402862731376962,
+  "governance_verdict": "RESEARCH_HOLD"
+}

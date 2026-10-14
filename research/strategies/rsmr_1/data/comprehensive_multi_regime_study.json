@@ -1,0 +1,272 @@
+{
+  "timeframe_cadences": [
+    {
+      "timeframe": "Monthly (21 Days)",
+      "rebal_days": 21,
+      "cagr": 27.25,
+      "bench_cagr": 10.11,
+      "excess_cagr": 17.14,
+      "sharpe": 0.94,
+      "sortino": 1.09,
+      "max_dd": -39.48,
+      "bench_max_dd": -38.3,
+      "win_rate": 47.8,
+      "profit_factor": 1.44,
+      "total_trades": 1128
+    },
+    {
+      "timeframe": "Bi-Monthly (42 Days)",
+      "rebal_days": 42,
+      "cagr": 25.2,
+      "bench_cagr": 10.11,
+      "excess_cagr": 15.09,
+      "sharpe": 0.86,
+      "sortino": 1.0,
+      "max_dd": -36.6,
+      "bench_max_dd": -38.3,
+      "win_rate": 50.3,
+      "profit_factor": 1.38,
+      "total_trades": 786
+    },
+    {
+      "timeframe": "Quarterly (63 Days - Baseline)",
+      "rebal_days": 63,
+      "cagr": 27.01,
+      "bench_cagr": 10.11,
+      "excess_cagr": 16.9,
+      "sharpe": 0.92,
+      "sortino": 1.07,
+      "max_dd": -36.53,
+      "bench_max_dd": -38.3,
+      "win_rate": 51.8,
+      "profit_factor": 1.54,
+      "total_trades": 649
+    },
+    {
+      "timeframe": "Semi-Annual (126 Days)",
+      "rebal_days": 126,
+      "cagr": 31.57,
+      "bench_cagr": 10.11,
+      "excess_cagr": 21.47,
+      "sharpe": 1.09,
+      "sortino": 1.25,
+      "max_dd": -36.77,
+      "bench_max_dd": -38.3,
+      "win_rate": 59.1,
+      "profit_factor": 2.45,
+      "total_trades": 435
+    }
+  ],
+  "momentum_lookbacks": [
+    {
+      "lookback": "3-Month Lookback (63 Sessions)",
+      "lookback_bars": 63,
+      "cagr": 22.76,
+      "bench_cagr": 10.63,
+      "excess_cagr": 12.13,
+      "sharpe": 0.8,
+      "max_dd": -37.34,
+      "win_rate": 55.7,
+      "profit_factor": 1.68,
+      "total_trades": 854
+    },
+    {
+      "lookback": "6-Month Lookback (126 Sessions - Baseline)",
+      "lookback_bars": 126,
+      "cagr": 27.01,
+      "bench_cagr": 10.11,
+      "excess_cagr": 16.9,
+      "sharpe": 0.92,
+      "max_dd": -36.53,
+      "win_rate": 51.8,
+      "profit_factor": 1.54,
+      "total_trades": 649
+    },
+    {
+      "lookback": "12-Month Lookback (252 Sessions)",
+      "lookback_bars": 252,
+      "cagr": 38.55,
+      "bench_cagr": 11.32,
+      "excess_cagr": 27.23,
+      "sharpe": 1.34,
+      "max_dd": -36.34,
+      "win_rate": 57.8,
+      "profit_factor": 2.02,
+      "total_trades": 462
+    }
+  ],
+  "regime_attribution": [
+    {
+      "regime": "BULL",
+      "sessions_count": 988,
+      "sessions_pct": 46.0,
+      "strat_ann_return": 52.08,
+      "bench_ann_return": 20.37,
+      "excess_ann_return": 31.71,
+      "strat_vol": 17.6,
+      "bench_vol": 12.01,
+      "sharpe": 2.47,
+      "daily_win_rate": 60.8
+    },
+    {
+      "regime": "SIDEWAYS",
+      "sessions_count": 570,
+      "sessions_pct": 26.6,
+      "strat_ann_return": 52.21,
+      "bench_ann_return": 31.75,
+      "excess_ann_return": 20.45,
+      "strat_vol": 23.06,
+      "bench_vol": 14.95,
+      "sharpe": 1.94,
+      "daily_win_rate": 63.9
+    },
+    {
+      "regime": "BEAR",
+      "sessions_count": 588,
+      "sessions_pct": 27.4,
+      "strat_ann_return": -21.27,
+      "bench_ann_return": -20.34,
+      "excess_ann_return": -0.93,
+      "strat_vol": 27.69,
+      "bench_vol": 23.94,
+      "sharpe": -0.72,
+      "daily_win_rate": 53.7
+    }
+  ],
+  "historical_episodes": [
+    {
+      "episode": "2018 NBFC Liquidity Crisis",
+      "regime_type": "BEAR",
+      "calendar_span": "2018-01-01 to 2018-10-31",
+      "sessions": 194,
+      "strategy_return_pct": -11.06,
+      "benchmark_return_pct": -8.94,
+      "alpha_pct": -2.13,
+      "strategy_max_dd_pct": -22.22,
+      "benchmark_max_dd_pct": -15.76
+    },
+    {
+      "episode": "2020 COVID-19 Crash",
+      "regime_type": "BEAR",
+      "calendar_span": "2020-01-01 to 2020-04-30",
+      "sessions": 81,
+      "strategy_return_pct": -6.06,
+      "benchmark_return_pct": -18.84,
+      "alpha_pct": 12.77,
+      "strategy_max_dd_pct": -36.53,
+      "benchmark_max_dd_pct": -38.3
+    },
+    {
+      "episode": "2021-2022 Global Rate Hike / War",
+      "regime_type": "BEAR",
+      "calendar_span": "2021-10-01 to 2022-06-30",
+      "sessions": 186,
+      "strategy_return_pct": 5.98,
+      "benchmark_return_pct": -11.06,
+      "alpha_pct": 17.05,
+      "strategy_max_dd_pct": -20.47,
+      "benchmark_max_dd_pct": -18.48
+    },
+    {
+      "episode": "Late 2024-2025 Market Correction",
+      "regime_type": "BEAR",
+      "calendar_span": "2024-10-01 to 2025-03-31",
+      "sessions": 122,
+      "strategy_return_pct": -19.68,
+      "benchmark_return_pct": -11.98,
+      "alpha_pct": -7.69,
+      "strategy_max_dd_pct": -27.97,
+      "benchmark_max_dd_pct": -18.09
+    },
+    {
+      "episode": "2020-2021 Post-COVID Liquidity Surge",
+      "regime_type": "BULL",
+      "calendar_span": "2020-05-01 to 2021-09-30",
+      "sessions": 353,
+      "strategy_return_pct": 162.26,
+      "benchmark_return_pct": 87.86,
+      "alpha_pct": 74.4,
+      "strategy_max_dd_pct": -9.4,
+      "benchmark_max_dd_pct": -7.22
+    },
+    {
+      "episode": "2023-2024 Capex & Manufacturing Rally",
+      "regime_type": "BULL",
+      "calendar_span": "2023-04-01 to 2024-09-30",
+      "sessions": 365,
+      "strategy_return_pct": 189.81,
+      "benchmark_return_pct": 66.54,
+      "alpha_pct": 123.26,
+      "strategy_max_dd_pct": -14.77,
+      "benchmark_max_dd_pct": -6.76
+    },
+    {
+      "episode": "2019 Pre-Election Choppiness",
+      "regime_type": "SIDEWAYS",
+      "calendar_span": "2019-01-01 to 2019-12-31",
+      "sessions": 242,
+      "strategy_return_pct": 10.52,
+      "benchmark_return_pct": 7.66,
+      "alpha_pct": 2.86,
+      "strategy_max_dd_pct": -16.07,
+      "benchmark_max_dd_pct": -12.13
+    },
+    {
+      "episode": "2022-2023 Consolidation Range",
+      "regime_type": "SIDEWAYS",
+      "calendar_span": "2022-07-01 to 2023-03-31",
+      "sessions": 186,
+      "strategy_return_pct": 11.61,
+      "benchmark_return_pct": 8.74,
+      "alpha_pct": 2.86,
+      "strategy_max_dd_pct": -18.65,
+      "benchmark_max_dd_pct": -11.2
+    }
+  ],
+  "temporal_cells": [
+    {
+      "cell": "Cell 1 (2016-2018)",
+      "sessions": 234,
+      "strat_cagr": -11.58,
+      "bench_cagr": -4.95,
+      "excess_cagr": -6.63,
+      "sharpe": -0.8,
+      "bench_sharpe": -0.73,
+      "strat_max_dd": -22.22,
+      "bench_max_dd": -15.76
+    },
+    {
+      "cell": "Cell 2 (2019-2021)",
+      "sessions": 739,
+      "strat_cagr": 48.54,
+      "bench_cagr": 18.26,
+      "excess_cagr": 30.28,
+      "sharpe": 1.56,
+      "bench_sharpe": 0.63,
+      "strat_max_dd": -36.53,
+      "bench_max_dd": -38.3
+    },
+    {
+      "cell": "Cell 3 (2022-2024)",
+      "sessions": 736,
+      "strat_cagr": 44.83,
+      "bench_cagr": 14.68,
+      "excess_cagr": 30.14,
+      "sharpe": 1.5,
+      "bench_sharpe": 0.62,
+      "strat_max_dd": -20.47,
+      "bench_max_dd": -17.94
+    },
+    {
+      "cell": "Cell 4 (2025-2026)",
+      "sessions": 437,
+      "strat_cagr": -5.16,
+      "bench_cagr": -1.43,
+      "excess_cagr": -3.73,
+      "sharpe": -0.43,
+      "bench_sharpe": -0.43,
+      "strat_max_dd": -30.62,
+      "bench_max_dd": -14.82
+    }
+  ]
+}

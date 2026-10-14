@@ -1,0 +1,5 @@
+model_name,eval_period,net_cagr_pct,benchmark_tri_cagr_pct,excess_cagr_pct,sharpe_ratio,benchmark_sharpe,max_drawdown_pct,benchmark_max_dd_pct,total_trades,win_rate_pct,profit_factor
+ESD-1 Frozen Strategy (Base Cost),2023-08-17 to 2026-10-12,-0.65,9.94,-10.59,-1.93,0.21,-8.07,-18.84,21,33.3,0.74
+ESD-1 Adverse Cost (10 bps slippage),2023-08-17 to 2026-10-12,-1.45,9.94,-11.39,-1.98,0.21,-8.87,-18.84,21,32.8,0.69
+ESD-1 Adverse Cost (20 bps slippage),2023-08-17 to 2026-10-12,-3.05,9.94,-12.99,-2.08,0.21,-10.17,-18.84,21,32.1,0.62
+Nifty 500 TRI (Benchmark),2023-08-17 to 2026-10-12,9.94,9.94,0.0,0.21,0.21,-18.84,-18.84,0,0.0,0.0

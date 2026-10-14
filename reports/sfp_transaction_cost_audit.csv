@@ -1,0 +1,9 @@
+cost_component,amount_inr
+Total Brokerage (₹20/order),2920.0
+Securities Transaction Tax (STT 0.1% on Sell),4204.34
+Execution Slippage (5 bps per side),3984.92
+Stamp Duty (0.015% on Buy),564.79
+Depository Charges (DP ₹15.93/sell),1099.17
+Exchange & SEBI Turnover Fees,274.95
+GST (18% on Statutory Fees),575.09
+TOTAL TRANSACTION FRICTION,13623.26

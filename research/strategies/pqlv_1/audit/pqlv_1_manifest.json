@@ -1,0 +1,13 @@
+{
+  "strategy_id": "PQLV_1",
+  "strategy_name": "Profitable Quality + Low Volatility",
+  "timestamp": "2026-10-13 14:42:51",
+  "model_d_net_cagr": 2.32,
+  "model_a_official_ref_cagr": 7.89,
+  "model_b_quality_only_cagr": 4.41,
+  "model_c_low_vol_only_cagr": 2.13,
+  "nifty500_tri_cagr": 12.34,
+  "excess_vs_nifty500": -10.02,
+  "excess_vs_official_lowvol": -5.57,
+  "governance_verdict": "RESEARCH_HOLD"
+}

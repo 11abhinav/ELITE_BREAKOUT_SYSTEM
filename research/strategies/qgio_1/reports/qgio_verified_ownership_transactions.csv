@@ -1,0 +1,5 @@
+data_source,historical_records_found,available_date_range,usable_transaction_count,audit_finding,gate_2_status
+SEBI PIT Reg 7(2) Insider Disclosures,0,NONE,0,ABSENT - No historical insider trading transaction table exists in repository,DATA_UNAVAILABLE
+NSE/BSE Bulk & Block Deals Archive,3,2026-10-03 (Single Snapshot),0,EPHEMERAL_SNAPSHOT - Single 1-day file with 3 symbols; zero historical archive (2018-2026),DATA_UNAVAILABLE
+SEBI Shareholding Patterns (Quarterly),0,NONE,0,ABSENT - No historical quarterly shareholding pattern filing tables exist,DATA_UNAVAILABLE
+Promoter Pledging Disclosures,0,NONE,0,UNPOPULATED - Column exists in elite_wealth_system.parquet but is 100% NaN,DATA_UNAVAILABLE

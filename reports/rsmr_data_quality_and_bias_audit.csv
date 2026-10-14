@@ -1,0 +1,8 @@
+audit_item,finding,bias_or_risk_type,severity,impact_and_remediation
+Upstox Historical Daily Parquet Integrity,947 valid NSE equity parquet files verified,Data Provenance,PASS,"Real market data confirmed. Zero synthetic data. 2,490 clean calendar trading sessions."
+Indicator Warm-Up Accounting,326 trading sessions required for 200 SMA + momentum,Session Reconciliation,RESOLVED,Reconciled the 344 session gap (326 warm-up + 18 holiday alignment). No missing bars.
+Survivorship Bias in 946 Universe,Universe consists of current surviving NSE equities,Survivorship Bias,HIGH,"Delisted/bankrupt firms (DHFL, RCom, Jet Airways) absent. Literature indicates ~1.5%-2.5% CAGR bias. Strategy net CAGR still +21% to +24% above TRI after 2.0% haircut."
+Point-in-Time Signal Formation,Rankings generated strictly at session close,Look-Ahead Bias,PASS,Zero forward-looking indicators. Execution occurs at next trading session open/close.
+Benchmark Total Return Index (TRI) Missing,Reported benchmark was Price Return Index (PR),Benchmark Understatement,MEDIUM,Remediated by adding official NSE historical 1.30% dividend yield. Common window TRI CAGR is 12.62%.
+Selection Bias / Parameter Overfitting,12M lookback selected after observing full 10-year period,Data Snooping / Overfitting,HIGH,Full 10-year dataset influenced selection. 12M lookback must be treated as exploratory until frozen out-of-sample forward test.
+Temporal Cell 4 Decay (2025-2026),6M Baseline produced -5.16% CAGR; 12M produced 6.37% CAGR,Temporal Instability,CRITICAL,Strategy failed the >=3/4 positive temporal cell acceptance rule. Momentum experienced severe regime decay post-2024.

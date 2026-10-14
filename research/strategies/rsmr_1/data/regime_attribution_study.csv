@@ -1,0 +1,4 @@
+regime,sessions_count,sessions_pct,strat_ann_return,bench_ann_return,excess_ann_return,strat_vol,bench_vol,sharpe,daily_win_rate
+BULL,988,46.0,52.08,20.37,31.71,17.6,12.01,2.47,60.8
+SIDEWAYS,570,26.6,52.21,31.75,20.45,23.06,14.95,1.94,63.9
+BEAR,588,27.4,-21.27,-20.34,-0.93,27.69,23.94,-0.72,53.7

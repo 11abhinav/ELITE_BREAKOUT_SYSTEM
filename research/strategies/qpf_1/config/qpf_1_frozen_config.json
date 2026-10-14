@@ -1,0 +1,40 @@
+{
+  "strategy_id": "QPF_1",
+  "strategy_name": "Quality & Payout Factor",
+  "version": "1.0.0",
+  "hypothesis": "High-quality, durable companies with persistent multi-year profitability, conservative leverage, high cash-flow reliability, and sustainable shareholder distributions generate superior risk-adjusted returns over broad-market and quality indices across all market regimes.",
+  "academic_reference": "IIM Ahmedabad (2022) Quality Factor Working Paper; Novy-Marx (2013); Asness et al. (2019)",
+  "benchmark_reference": "Nifty500 Quality 50 TRI; Nifty 500 TRI",
+  "universe": "NSE Cash Equities with >= 3 years audited annual filings and certified 1D price history",
+  "factor_weights": {
+    "profitability_5y_roe_stability": 0.35,
+    "balance_sheet_leverage_bfsi_decoupled": 0.25,
+    "cash_flow_reliability_cfo_pat": 0.25,
+    "sustainable_shareholder_payout": 0.15
+  },
+  "portfolio_construction": {
+    "rebalance_cadence": "Semi-Annual (June 15 and December 15)",
+    "target_slots": 50,
+    "slot_weight": 0.02,
+    "max_sector_exposure": 0.25,
+    "max_gross_exposure": 1.00,
+    "cash_drag": true
+  },
+  "execution_model": {
+    "entry_exit_timing": "Rebalance Day Open",
+    "brokerage_per_order": 20.0,
+    "stt_sell_pct": 0.0010,
+    "stamp_duty_buy_pct": 0.00015,
+    "dp_charge_sell": 15.93,
+    "exchange_turnover_pct": 0.0000345,
+    "gst_pct": 0.18,
+    "sebi_turnover_pct": 0.0000010,
+    "base_slippage_bps": 5.0,
+    "adverse_slippage_bps": [10.0, 20.0]
+  },
+  "temporal_splits": {
+    "development": "2018-06-15 to 2020-12-31",
+    "validation": "2021-01-01 to 2023-12-31",
+    "locked_holdout": "2024-01-01 to 2026-10-12"
+  }
+}

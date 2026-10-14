@@ -1,0 +1,9 @@
+model_name,net_cagr_pct,total_return_pct,sharpe_ratio,max_drawdown_pct,total_trades,win_rate_pct,profit_factor
+Model D: PQLV-1 Full Strategy (Base Cost),2.32,20.89,-0.91,-9.71,36,63.9,4.17
+Model D: PQLV-1 Adverse Cost (10 bps slippage),2.3,20.73,-0.91,-9.74,36,63.9,4.17
+Model D: PQLV-1 Adverse Cost (20 bps slippage),2.27,20.42,-0.92,-9.82,36,63.9,4.17
+Model A: Official Nifty100 Low Vol 30 Proxy,7.89,87.67,0.16,-29.49,134,64.9,3.62
+Model B: Quality-Only Control (No Volatility),4.41,42.96,-0.28,-13.59,30,50.0,4.65
+Model C: Low-Volatility-Only Control (No Quality),2.13,19.13,-0.39,-30.66,46,58.7,2.86
+Nifty500 Quality 50 Proxy (Official Quality Benchmark),7.33,80.17,0.13,-17.86,28,67.9,7.36
+Nifty 500 TRI (Broad Market Benchmark),12.34,138.18,0.34,-38.3,0,0.0,0.0

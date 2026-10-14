@@ -1,0 +1,4 @@
+lookback,lookback_bars,cagr,bench_cagr,excess_cagr,sharpe,max_dd,win_rate,profit_factor,total_trades
+3-Month Lookback (63 Sessions),63,22.76,10.63,12.13,0.8,-37.34,55.7,1.68,854
+6-Month Lookback (126 Sessions - Baseline),126,27.01,10.11,16.9,0.92,-36.53,51.8,1.54,649
+12-Month Lookback (252 Sessions),252,38.55,11.32,27.23,1.34,-36.34,57.8,2.02,462

@@ -1,0 +1,7 @@
+sue_group,event_count,valid_63d_count,mean_response_1d_excess_pct,mean_5d_excess_pct,mean_21d_excess_pct,mean_42d_excess_pct,mean_63d_excess_pct,median_63d_excess_pct,win_rate_63d_pct
+1_EXTREME_NEGATIVE (SUE < -1.0),308,307,-0.52,0.22,1.32,0.3,0.92,-1.83,45.1
+2_MODERATE_NEGATIVE (-1.0 <= SUE < 0),384,384,-0.67,-0.02,0.79,1.46,2.39,-1.56,46.1
+3_MODERATE_POSITIVE (0 <= SUE < 1.0),580,580,-0.21,-0.14,0.25,1.47,2.9,-1.41,46.6
+4_STRONG_POSITIVE (1.0 <= SUE < 2.0),367,366,-0.14,-0.11,-0.28,1.41,2.66,-0.55,46.9
+5_EXTREME_POSITIVE (SUE >= 2.0),564,564,0.07,0.55,1.62,1.45,2.14,-1.31,47.0
+UNAVAILABLE,1535,1535,-0.39,0.6,1.14,3.56,-1.16,-2.43,43.5
