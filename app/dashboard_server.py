@@ -4776,6 +4776,7 @@ def api_scanner_status():
     Return per-scanner health stats and today's trades (10s TTL cache to protect DB connection pool).
     """
     global _SCANNER_STATUS_CACHE, _WORKER_STATS_CACHE, _WEALTH_TODAY_TRADES_CACHE
+    now_ts = time.time()
     if _SCANNER_STATUS_CACHE.get("payload") is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
         return _make_json_response(
             _SCANNER_STATUS_CACHE["payload"],
