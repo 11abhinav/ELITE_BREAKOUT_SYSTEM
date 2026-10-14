@@ -823,5 +823,20 @@
     "raw_NII": null,
     "mapped_revenue": 88667.0,
     "mapping_rule": "REVENUE_DIRECT"
+  },
+  {
+    "filing_id": "MRPL_20260930_Q2_v1",
+    "symbol": "MRPL",
+    "period_end_date": "2026-09-30",
+    "filing_date": "2026-10-14",
+    "actual_publication_timestamp": "2026-10-14 18:10:00",
+    "conservative_availability_timestamp": "2026-10-14 18:10:00",
+    "timestamp_basis": "OFFICIAL_EXCHANGE_DISCLOSURE",
+    "source": "NSE_XBRL_QUARTERLY_STANDALONE",
+    "statement_type": "QUARTERLY",
+    "revenue": 23400.0,
+    "operating_profit": 1180.0,
+    "net_profit": 512.0,
+    "eps": 2.92
   }
 ]

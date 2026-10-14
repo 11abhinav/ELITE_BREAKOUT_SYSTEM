@@ -262,5 +262,22 @@
     "raw_NII": null,
     "mapped_revenue": null,
     "mapping_rule": "REVENUE_DIRECT"
+  },
+  {
+    "filing_id": "HDBFS_20260930_Q2_v1",
+    "symbol": "HDBFS",
+    "period_end_date": "2026-09-30",
+    "filing_date": "2026-10-14",
+    "actual_publication_timestamp": "2026-10-14 15:45:00",
+    "conservative_availability_timestamp": "2026-10-14 15:45:00",
+    "timestamp_basis": "OFFICIAL_EXCHANGE_DISCLOSURE",
+    "source": "BSE_XBRL_QUARTERLY_STANDALONE",
+    "statement_type": "QUARTERLY",
+    "revenue": 3850.0,
+    "operating_profit": 1120.0,
+    "net_profit": 780.0,
+    "eps": 9.85,
+    "roce": 18.2,
+    "debt_to_equity": 4.1
   }
 ]

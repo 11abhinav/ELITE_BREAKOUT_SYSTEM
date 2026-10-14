@@ -691,5 +691,21 @@
     "raw_NII": null,
     "mapped_revenue": 5506.0,
     "mapping_rule": "REVENUE_DIRECT"
+  },
+  {
+    "filing_id": "TATATECH_20260930_Q2_v1",
+    "symbol": "TATATECH",
+    "period_end_date": "2026-09-30",
+    "filing_date": "2026-10-14",
+    "actual_publication_timestamp": "2026-10-14 16:20:00",
+    "conservative_availability_timestamp": "2026-10-14 16:20:00",
+    "timestamp_basis": "OFFICIAL_EXCHANGE_DISCLOSURE",
+    "source": "NSE_XBRL_QUARTERLY_CONSOLIDATED",
+    "statement_type": "QUARTERLY",
+    "revenue": 1582.0,
+    "operating_profit": 285.0,
+    "net_profit": 182.0,
+    "eps": 4.48,
+    "roce": 24.1
   }
 ]

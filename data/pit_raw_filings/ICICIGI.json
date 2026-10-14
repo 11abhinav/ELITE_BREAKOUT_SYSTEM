@@ -823,5 +823,20 @@
     "raw_NII": null,
     "mapped_revenue": 26994.0,
     "mapping_rule": "REVENUE_DIRECT"
+  },
+  {
+    "filing_id": "ICICIGI_20260930_Q2_v1",
+    "symbol": "ICICIGI",
+    "period_end_date": "2026-09-30",
+    "filing_date": "2026-10-14",
+    "actual_publication_timestamp": "2026-10-14 17:40:00",
+    "conservative_availability_timestamp": "2026-10-14 17:40:00",
+    "timestamp_basis": "OFFICIAL_EXCHANGE_DISCLOSURE",
+    "source": "NSE_XBRL_QUARTERLY_STANDALONE",
+    "statement_type": "QUARTERLY",
+    "revenue": 6850.0,
+    "operating_profit": 940.0,
+    "net_profit": 745.0,
+    "eps": 15.15
   }
 ]
