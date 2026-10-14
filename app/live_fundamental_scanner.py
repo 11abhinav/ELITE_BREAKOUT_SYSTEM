@@ -7881,10 +7881,10 @@ class QualityValueRecoveryScanner:
                         except Exception:
                             pass
                     try:
-                        upsert_scanner_health(self.strategy_id, status="FAILED", error_msg=str(scan_exc))
+                        upsert_scanner_health(self.strategy_id, status="DOWN", error_msg=str(scan_exc))
                     except Exception:
                         pass
-                    return {"status": "FAILED", "error": str(scan_exc)}
+                    return {"status": "DOWN", "error": str(scan_exc)}
             finally:
                 _global_lock.release()
         finally:

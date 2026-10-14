@@ -4648,7 +4648,7 @@ def upsert_scanner_health(
                 status = 'OK'
 
         allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED', 'INCONSISTENT'}
-        if status == 'ERROR':
+        if status in ('ERROR', 'FAILED'):
             status = 'DOWN'
         elif status == 'INCONSISTENT':
             # Critical population accounting / reconciliation failure — first-class terminal failure (NEVER IDLE)
@@ -12422,6 +12422,7 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         rejection_reason, quality_gate_status, value_gate_status, tier,
                         ranking_score, signal_date, next_trading_day, reference_entry_open,
                         governance_status, context, signals, score,
+                        execution_state, entry_mode, actual_entry_price,
                         capital_allocated, shares_bought, remaining_shares
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)

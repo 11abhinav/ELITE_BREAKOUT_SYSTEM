@@ -36,6 +36,7 @@ CORPORATE_ACTION_ALIASES = {
     "GMRINFRA": "GMRAIRPORT",
     "MCDOWELL-N": "UNITDSPR",
     "MCDOWELL": "UNITDSPR",
+    "CCAVENUE": "INFIBEAM",
 }
 
 class UnifiedFetcher:
