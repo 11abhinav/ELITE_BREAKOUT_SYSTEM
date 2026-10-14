@@ -1048,16 +1048,19 @@ function changeAdminPage(type, delta) {
       flex-direction: column;
       gap: 9px;
       width: 100%;
+      overflow-x: auto;
+      padding-bottom: 4px;
     }
     .scanner-row {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 12px 18px;
-      display: flex;
+      display: grid;
+      grid-template-columns: 330px 1fr 280px;
       align-items: center;
-      justify-content: space-between;
       gap: 16px;
+      min-width: 1260px;
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
       position: relative;
@@ -1087,8 +1090,8 @@ function changeAdminPage(type, delta) {
       display: flex;
       align-items: center;
       gap: 12px;
-      min-width: 320px;
-      flex: 1 1 320px;
+      min-width: 0;
+      width: 330px;
     }
     .status-indicator-dot {
       width: 9px;
@@ -1154,28 +1157,37 @@ function changeAdminPage(type, delta) {
       font-size: 11px;
       color: var(--muted);
       margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 310px;
     }
 
     .scanner-col-stats {
-      display: flex;
+      display: grid;
+      grid-template-columns: 200px 135px 145px 155px;
       align-items: center;
       gap: 8px;
-      flex-wrap: wrap;
-      justify-content: flex-start;
+      justify-content: start;
     }
     .stat-pill {
       background: var(--card2);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 3px 8px;
+      padding: 4px 8px;
       font-size: 11px;
       font-family: var(--font-mono);
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      box-sizing: border-box;
+      width: 100%;
     }
-    .stat-pill .lbl { color: var(--muted); font-size: 10px; text-transform: uppercase; }
-    .stat-pill .val { color: var(--text); font-weight: 700; }
+    .stat-pill .lbl { color: var(--muted); font-size: 10px; text-transform: uppercase; flex-shrink: 0; }
+    .stat-pill .val { color: var(--text); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .stat-pill.highlight.green {
       background: rgba(16, 185, 129, 0.08);
       border-color: rgba(16, 185, 129, 0.25);
@@ -1185,8 +1197,10 @@ function changeAdminPage(type, delta) {
     .scanner-col-actions {
       display: flex;
       align-items: center;
+      justify-content: flex-end;
       gap: 6px;
       flex-shrink: 0;
+      width: 280px;
     }
     .scanner-action-btn {
       padding: 5px 10px;
@@ -1196,6 +1210,10 @@ function changeAdminPage(type, delta) {
       cursor: pointer;
       transition: all 0.15s ease;
       border: 1px solid transparent;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
     .scanner-action-btn.run {
       background: var(--accent);
@@ -3547,20 +3565,20 @@ function changeAdminPage(type, delta) {
           <table>
             <thead>
               <tr>
-                <th style="width:24px; text-align:center;"><input type="checkbox" id="selectAllTrades" onclick="toggleAllTrades(this)"></th>
-                <th style="width:24px; text-align:center;"></th>
-                <th data-col="symbol" style="text-align:left;">Symbol</th>
-                <th data-col="entry_date" style="text-align:left;">Date &amp; Time</th>
-                <th data-col="scanner" style="text-align:left;">Scanner</th>
-                <th data-col="scanner_count" style="text-align:center; cursor:pointer;" title="Number of scanners with active open alerts">Count</th>
-                <th data-col="status" class="sort-asc" style="text-align:left;">Status</th>
-                <th data-col="entry_price" style="cursor:pointer; text-align:right;">Entry ₹</th>
-                <th data-col="current_price" style="cursor:pointer; text-align:right;">CMP ₹</th>
-                <th data-col="pnl_pct" style="cursor:pointer; text-align:right;" class="desc">P&amp;L</th>
-                <th data-col="score" style="cursor:pointer; text-align:center;">Score</th>
-                <th data-col="capital_allocated" style="cursor:pointer; text-align:right;" class="col-opt">Capital ₹</th>
-                <th data-col="shares_bought" style="cursor:pointer; text-align:right;" class="col-opt">Shares</th>
-                <th data-col="days_held" class="col-opt" style="text-align:center;">Days</th>
+                <th style="width:28px; min-width:28px; text-align:center;"><input type="checkbox" id="selectAllTrades" onclick="toggleAllTrades(this)"></th>
+                <th style="width:24px; min-width:24px; text-align:center;"></th>
+                <th data-col="symbol" style="text-align:left; min-width:130px;">Symbol</th>
+                <th data-col="entry_date" style="text-align:left; min-width:105px;">Date &amp; Time</th>
+                <th data-col="scanner" style="text-align:left; min-width:160px;">Scanner</th>
+                <th data-col="scanner_count" style="text-align:center; cursor:pointer; width:55px; min-width:50px;" title="Number of scanners with active open alerts">Count</th>
+                <th data-col="status" class="sort-asc" style="text-align:left; width:85px; min-width:80px;">Status</th>
+                <th data-col="entry_price" style="cursor:pointer; text-align:right; min-width:95px;">Entry ₹</th>
+                <th data-col="current_price" style="cursor:pointer; text-align:right; min-width:95px;">CMP ₹</th>
+                <th data-col="pnl_pct" style="cursor:pointer; text-align:right; min-width:125px;" class="desc">P&amp;L</th>
+                <th data-col="score" style="cursor:pointer; text-align:center; width:65px; min-width:60px;">Score</th>
+                <th data-col="capital_allocated" style="cursor:pointer; text-align:right; min-width:105px;" class="col-opt">Capital ₹</th>
+                <th data-col="shares_bought" style="cursor:pointer; text-align:right; min-width:75px;" class="col-opt">Shares</th>
+                <th data-col="days_held" class="col-opt" style="text-align:center; width:55px; min-width:50px;">Days</th>
               </tr>
             </thead>
             <tbody id="tradeBody"></tbody>
@@ -4451,7 +4469,7 @@ function changeAdminPage(type, delta) {
     /* [RULE 67 CHANGE-RATIONALE]: Define pctLoss helper to format negative percentages for Avg Loss KPI without throwing ReferenceError */
     const pctLoss = v => v != null ? (Number(v) > 0 ? '-' + Number(v).toFixed(2) : Number(v).toFixed(2)) + '%' : '—';
     const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat';
-    const fmt = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—';
+    const fmt = v => (v != null && !isNaN(v)) ? '₹' + Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
     const badgeHtml = (s, t) => {
       let displayStatus = s;
       if (t && t.execution_state === 'PENDING_ENTRY') {
@@ -6010,19 +6028,19 @@ function changeAdminPage(type, delta) {
 
         return `
     <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" data-id="${t.id || ''}" data-symbol="${cleanSym}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${rowHighlightStyle}">
-      <td onclick="event.stopPropagation();" style="text-align:center; width:24px;">${checkboxHtml}</td>
+      <td onclick="event.stopPropagation();" style="text-align:center; width:28px;">${checkboxHtml}</td>
       <td style="text-align:center; width:24px;">${isOpen ? '\u25bc' : '\u25b6'}</td>
-      <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">
+      <td style="font-weight:700;color:var(--text);letter-spacing:-.3px; white-space:nowrap;">
         ${formatStockSymbolLink(t.symbol)}${eventMarkHtml}${evolutionBadge}
       </td>
-      <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time || t.entry_date)}</td>
-      <td>
+      <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px; white-space:nowrap;">${fmtAlertTime(t.alert_time || t.entry_date)}</td>
+      <td style="white-space:nowrap;">
         <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
           <span class="badge badge-scanner">${t.scanner || '—'}</span>
           ${t.signals && t.signals.includes('GEM') ? `<span style="display:inline-flex; align-items:center; gap:2px; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:800; background:rgba(0,212,161,0.18); color:#00d4a1; border:1px solid rgba(0,212,161,0.5); box-shadow:0 0 6px rgba(0,212,161,0.2);">💎 GEM</span>` : ''}
         </div>
       </td>
-      <td style="text-align:center; vertical-align:middle;">
+      <td style="text-align:center; vertical-align:middle; white-space:nowrap;">
         <span class="badge ${countVal > 1 ? 'badge-confluence' : 'badge-neutral'}" 
               title="${tipText}" 
               style="font-weight:800; font-size:11px; padding:2px 8px; min-width:22px; display:inline-block; ${confluence.hasOtherOpenAlerts ? 'cursor:pointer;' : ''}"
@@ -6030,27 +6048,26 @@ function changeAdminPage(type, delta) {
           ${countVal}
         </span>
       </td>
-      <td>${badgeHtml(t.status, t)}</td>
-      <td style="text-align:right; font-weight:800; font-size:12px; color:var(--text);">
+      <td style="white-space:nowrap;">${badgeHtml(t.status, t)}</td>
+      <td style="text-align:right; font-weight:800; font-size:12px; color:var(--text); white-space:nowrap; font-variant-numeric:tabular-nums;">
         ${fmt(t.actual_entry_price || t.entry_price)}
       </td>
-      <td style="text-align:right;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
+      <td style="text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
         <div style="font-weight:800; font-size:12px; color:var(--text);">${fmt(t.exit_price || t.current_price)}</div>
       </td>
-      <td style="text-align:right;">
-        <div class="pnl-wrap" style="justify-content:flex-end; gap:5px;">
+      <td style="text-align:right; white-space:nowrap;">
+        <div class="pnl-wrap" style="justify-content:flex-end; gap:6px;">
           <div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
-          <span class="pnl-text ${pctClass(pnlData.totalPct)}" style="font-size:11.5px; min-width:auto;">${pct(pnlData.totalPct)}</span>
+          <span class="pnl-text ${pctClass(pnlData.totalPct)}" style="font-size:11.5px; min-width:58px; text-align:right; font-variant-numeric:tabular-nums;">${pct(pnlData.totalPct)}</span>
         </div>
-        <div style="font-size:9.5px; margin-top:2px;" class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</div>
+        <div style="font-size:9.5px; margin-top:2px; font-variant-numeric:tabular-nums;" class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</div>
       </td>
-      <td style="text-align:center;" title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
+      <td style="text-align:center; white-space:nowrap;" title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
-        <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
-      <td class="col-opt" style="text-align:right;">${fmt(capAllocated)}</td>
-      <td class="col-opt" style="text-align:right;">${t.shares_bought || '\u2014'}</td>
-      <td class="col-opt" style="color:var(--muted); text-align:center;">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
+      <td class="col-opt" style="text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;">${fmt(capAllocated)}</td>
+      <td class="col-opt" style="text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;">${t.shares_bought != null ? Number(t.shares_bought).toLocaleString('en-IN') : '\u2014'}</td>
+      <td class="col-opt" style="color:var(--muted); text-align:center; white-space:nowrap;">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
     </tr>
     <tr class="detail-row">
       <td colspan="16">
