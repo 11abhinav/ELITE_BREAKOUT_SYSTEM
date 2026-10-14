@@ -1034,6 +1034,16 @@ def run_system_scheduler():
             if not already_fresh:
                 from telemetry_manager import telemetry
                 telemetry.log_scheduler_event("DAILY_BUILDER", "CYCLE_COMPLETE")
+                try:
+                    from database import insert_notification
+                    today_str = datetime.now(IST).strftime('%Y-%m-%d')
+                    insert_notification(
+                        "info",
+                        f"✅ Daily Builder Complete ({today_str})",
+                        f"Daily Builder ran for the day. Watchlist updated successfully in {dur_db}s."
+                    )
+                except Exception:
+                    pass
             return True
         except Exception as e:
             err_str = str(e).lower()

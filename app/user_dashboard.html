@@ -4980,6 +4980,12 @@ function setupSSEAlertStream() {
     source.addEventListener('alert', function(e) {
       try {
         const data = JSON.parse(e.data || '{}');
+        if (typeof playLoudNotificationSound === 'function') {
+          playLoudNotificationSound();
+        }
+        if (typeof triggerAlertFlashing === 'function') {
+          triggerAlertFlashing();
+        }
         if (typeof fetchTodaysAlertsAndBlink_User === 'function') {
           fetchTodaysAlertsAndBlink_User();
         }
@@ -4995,6 +5001,11 @@ function setupSSEAlertStream() {
     source.addEventListener('notification', function(e) {
       try {
         const data = JSON.parse(e.data || '{}');
+        if (data && data.type === 'buy') {
+          if (typeof playLoudNotificationSound === 'function') playLoudNotificationSound();
+        } else {
+          if (typeof playSoftTickSound === 'function') playSoftTickSound();
+        }
         if (typeof fetchNotifications === 'function') {
           fetchNotifications();
         }
@@ -5008,11 +5019,30 @@ function setupSSEAlertStream() {
 setupSSEAlertStream();
 
 let isFirstUserAlertFetch = true;
-let lastUserAlertCount = 0;
-
+let lastUserAlertIds = new Set();
 let soundAlertsEnabled = true;
 
+let globalUserAudioCtx = null;
+function getSharedUserAudioContext() {
+  if (!globalUserAudioCtx) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) globalUserAudioCtx = new AudioCtx();
+  }
+  return globalUserAudioCtx;
+}
+
+function unlockUserAudioEngine() {
+  const ctx = getSharedUserAudioContext();
+  if (ctx && ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+}
+['click', 'touchstart', 'keydown'].forEach(evt => {
+  document.addEventListener(evt, unlockUserAudioEngine, { passive: true });
+});
+
 function toggleAlertSound() {
+  unlockUserAudioEngine();
   soundAlertsEnabled = !soundAlertsEnabled;
   const icon = document.getElementById('soundIcon');
   const label = document.getElementById('soundLabel');
@@ -5023,13 +5053,19 @@ function toggleAlertSound() {
 
 function playLoudNotificationSound(force = false) {
   if (!soundAlertsEnabled && !force) return;
-  // Soft, pleasant dual-tone harmonic chime (E5 -> A5)
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    if (ctx.state === 'suspended') ctx.resume();
-    
+    const ctx = getSharedUserAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => _playUserChimeOscillators(ctx)).catch(() => {});
+    } else {
+      _playUserChimeOscillators(ctx);
+    }
+  } catch(e) { console.warn("Audio playback blocked", e); }
+}
+
+function _playUserChimeOscillators(ctx) {
+  try {
     const now = ctx.currentTime;
     
     // Tone 1: Gentle warm tone (E5 - 659.25 Hz)
@@ -5038,7 +5074,7 @@ function playLoudNotificationSound(force = false) {
     osc1.type = 'sine';
     osc1.frequency.setValueAtTime(659.25, now);
     gain1.gain.setValueAtTime(0.0001, now);
-    gain1.gain.exponentialRampToValueAtTime(0.18, now + 0.025);
+    gain1.gain.exponentialRampToValueAtTime(0.25, now + 0.025);
     gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.50);
     osc1.connect(gain1);
     gain1.connect(ctx.destination);
@@ -5051,39 +5087,46 @@ function playLoudNotificationSound(force = false) {
     osc2.type = 'sine';
     osc2.frequency.setValueAtTime(880.00, now + 0.08);
     gain2.gain.setValueAtTime(0.0001, now + 0.08);
-    gain2.gain.exponentialRampToValueAtTime(0.20, now + 0.105);
+    gain2.gain.exponentialRampToValueAtTime(0.28, now + 0.105);
     gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.70);
     osc2.connect(gain2);
     gain2.connect(ctx.destination);
     osc2.start(now + 0.08);
     osc2.stop(now + 0.70);
-  } catch(e) { console.warn("Audio playback blocked", e); }
+  } catch(e) { console.warn("Chime oscillation error", e); }
 }
 
 function playSoftTickSound() {
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    if (ctx.state === 'suspended') ctx.resume();
+    const ctx = getSharedUserAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().then(() => _playUserTickOscillator(ctx)).catch(() => {});
+      return;
+    }
+    _playUserTickOscillator(ctx);
+  } catch(e) { console.warn("Audio playback blocked", e); }
+}
+
+function _playUserTickOscillator(ctx) {
+  try {
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
     
-    // Soft tick / click sound
     osc.type = 'sine';
     osc.frequency.setValueAtTime(800, now);
     osc.frequency.exponentialRampToValueAtTime(1200, now + 0.04);
     
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.15, now + 0.01);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
     
     osc.start(now);
     osc.stop(now + 0.09);
-  } catch(e) { console.warn("Audio playback blocked", e); }
+  } catch(e) {}
 }
 
 async function fetchTodaysAlertsAndBlink_User(){
@@ -5092,11 +5135,19 @@ async function fetchTodaysAlertsAndBlink_User(){
     const todayStr = formatter.format(new Date());
     
     const res = await fetch('/api/todays_alerts'); if(!res.ok) return; const data = await res.json();
-    if (!isFirstUserAlertFetch && data.length > lastUserAlertCount) {
+    let hasNewAlert = false;
+    if (Array.isArray(data)) {
+        data.forEach(alert => {
+            if (alert.id && !lastUserAlertIds.has(alert.id)) {
+                hasNewAlert = true;
+                lastUserAlertIds.add(alert.id);
+            }
+        });
+    }
+    if (!isFirstUserAlertFetch && hasNewAlert) {
         playLoudNotificationSound();
         triggerAlertFlashing();
     }
-    lastUserAlertCount = data.length;
     isFirstUserAlertFetch = false;
     
     if (!Array.isArray(data) || data.length === 0) return;

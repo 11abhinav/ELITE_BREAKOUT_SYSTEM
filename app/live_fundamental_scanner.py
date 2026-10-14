@@ -6826,6 +6826,19 @@ class QualityCompounderValueV2Scanner:
                     evidence_export_status = "EVIDENCE_EXPORT_FAILED"
                     logger.error(f"❌ [EVIDENCE_EXPORT_FAILED] Failed to export evidence bundle: {_exp_err}", exc_info=True)
 
+            # [SCHEDULED RUN COMPLETION ALERT TO ADMIN]
+            try:
+                from database import insert_notification
+                admin_title = f"✅ Quality Compounder Scan Complete ({today_str})"
+                admin_msg = (
+                    f"Quality Compounder ran for the day ({trigger_type}). "
+                    f"Generated {candidates_inserted} BUY alert(s) across {scanned_count} stocks scanned (Health: {_health_status})."
+                )
+                insert_notification("info", admin_title, admin_msg)
+                logger.info(f"📢 Dispatched scanner run completion notification to Admin: {admin_title}")
+            except Exception as notif_err:
+                logger.warning(f"Could not dispatch scanner completion notification: {notif_err}")
+
             return {
                 "status": _health_status,
                 "health": _health_status,
@@ -7837,6 +7850,19 @@ class QualityValueRecoveryScanner:
                             upsert_scanner_health(self.strategy_id, status=health_status, error_msg=None)
                         except Exception as comp_err:
                             logger.debug(f"complete_scanner_execution_run error: {comp_err}")
+
+                    # [SCHEDULED RUN COMPLETION ALERT TO ADMIN]
+                    try:
+                        from database import insert_notification
+                        admin_title = f"✅ Quality Value Recovery Scan Complete ({today_str})"
+                        admin_msg = (
+                            f"Quality Value Recovery ran for the day ({trigger_type}). "
+                            f"Generated {candidates_inserted} BUY alert(s) across {evaluated_count} stocks scanned (Health: {health_status})."
+                        )
+                        insert_notification("info", admin_title, admin_msg)
+                        logger.info(f"📢 Dispatched recovery scanner run completion notification to Admin: {admin_title}")
+                    except Exception as notif_err:
+                        logger.warning(f"Could not dispatch recovery completion notification: {notif_err}")
 
                     return {
                         "status": "OK",

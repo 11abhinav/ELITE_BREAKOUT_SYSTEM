@@ -147,11 +147,12 @@ self.addEventListener('push', event => {
     body: data.body || 'New alert from your scanners',
     icon: '/static/icons/icon-192.png',
     badge: '/static/icons/icon-72.png',
-    tag: data.tag || 'elite-alert',
+    tag: data.tag || (data.symbol ? `alert-${data.symbol}-${Date.now()}` : `elite-notif-${Date.now()}`),
     renotify: true,
     data: {
       url: data.url || '/',
       symbol: data.symbol || '',
+      alert_id: data.alert_id || null,
     },
     actions: [
       { action: 'view', title: 'View Alert' },

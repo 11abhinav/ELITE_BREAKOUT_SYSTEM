@@ -1939,6 +1939,20 @@ def run_technical_scan(
             except Exception as _pr_err:
                 logger.debug(f"Performance rebuild trigger on technical alerts: {_pr_err}")
 
+        # [SCHEDULED RUN COMPLETION ALERT TO ADMIN]
+        try:
+            from database import insert_notification
+            today_str = datetime.now(IST).strftime('%Y-%m-%d')
+            admin_title = f"✅ Technical Scanner Complete ({today_str})"
+            admin_msg = (
+                f"Technical Scanner ran for the day ({trigger_type}). "
+                f"Generated {alerts_saved} BUY alert(s) across {len(watchlist)} stocks evaluated in {duration}s."
+            )
+            insert_notification("info", admin_title, admin_msg)
+            logger.info(f"📢 Dispatched technical scanner run completion notification to Admin: {admin_title}")
+        except Exception as _notif_err:
+            logger.warning(f"Could not dispatch technical completion notification: {_notif_err}")
+
         return alerts_saved
 
     except Exception as exc:

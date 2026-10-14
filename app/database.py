@@ -330,19 +330,7 @@ _DB_INITIALIZED = False
 _INIT_LOCK = threading.Lock()
 
 
-
 def _insert_notification_sync(notif_type: str, title: str, message: str, symbol: str = None, alert_id: int = None):
-    # [SUPPRESSION RULE] Do not create notifications for routine scanner completions per admin requirement
-    title_lower = (title or "").lower()
-    if any(k in title_lower for k in [
-        "scanner ran successfully",
-        "scan completed",
-        "scan complete",
-        "builder completed",
-        "watchlist generation successful"
-    ]):
-        logger.debug(f"🔇 Suppressed scanner completion notification: {title}")
-        return
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -366,18 +354,21 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
         except Exception:
             pass
 
-        # [VERSION: ADMIN_MOBILE_PUSH_DISPATCH_v1.0] Dispatch WebPush to mobile devices whenever an admin notification occurs
+        # [ADMIN & USER WEBPUSH DISPATCH] Dispatch WebPush notification
         try:
             from push_service import send_push_to_all
+            target_url = "/admin" if notif_type in ("error", "warning", "info", "scanner_down", "admin") else "/"
+            bypass = True if notif_type in ("buy", "info", "scanner_down", "admin") else False
             send_push_to_all(
                 title=title,
                 body=message,
-                url="/admin" if notif_type in ("error", "warning") else "/",
+                url=target_url,
                 symbol=symbol or "",
-                alert_id=alert_id
+                alert_id=alert_id,
+                bypass_throttle=bypass
             )
         except Exception as push_err:
-            logger.debug(f"WebPush dispatch skipped for admin notification: {push_err}")
+            logger.debug(f"WebPush dispatch skipped: {push_err}")
     except Exception as e:
         logger.exception(f"Failed to insert notification")
 
@@ -3472,7 +3463,12 @@ def save_alert_if_new(
                 import push_service
                 title = f"🚨 {symbol} Breakout"
                 body = f"Buy Alert at ₹{entry_price} ({category})"
-                threading.Thread(target=push_service.send_push_to_all, args=(title, body, "/", symbol), daemon=True).start()
+                threading.Thread(
+                    target=push_service.send_push_to_all,
+                    args=(title, body, "/", symbol),
+                    kwargs={"bypass_throttle": True, "alert_id": alert_id},
+                    daemon=True
+                ).start()
             except Exception as e:
                 logger.exception(f"Failed to start push thread")
 
@@ -12426,7 +12422,6 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         rejection_reason, quality_gate_status, value_gate_status, tier,
                         ranking_score, signal_date, next_trading_day, reference_entry_open,
                         governance_status, context, signals, score,
-                        execution_state, entry_mode, actual_entry_price,
                         capital_allocated, shares_bought, remaining_shares
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -12443,6 +12438,7 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         shares_bought = COALESCE(NULLIF(alerts.shares_bought, 0), EXCLUDED.shares_bought),
                         remaining_shares = COALESCE(NULLIF(alerts.remaining_shares, 0), EXCLUDED.remaining_shares),
                         updated_at = NOW()
+                    RETURNING id, (xmax = 0) AS is_insert
                 """, (
                     sym,
                     breakout_type,
@@ -12474,9 +12470,41 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                     shares_bgt,
                     shares_bgt
                 ))
+                row_res = cur.fetchone()
+                alert_id = row_res[0] if row_res else None
+                is_insert = row_res[1] if row_res else True
                 conn.commit()
-                return True, "INSERTED_NEW_ALERT"
 
+                if is_insert:
+                    # 1. Insert In-App Notification (also dispatches WebPush to all subscribed users/admins)
+                    msg = f"{sym} | {scanner_name} | Buy at CMP: ₹{float(entry_px or 0.0):.2f} | Score: {candidate.get('ranking_score', 90)}"
+                    try:
+                        insert_notification('buy', f'Buy Alert / {scanner_name}', msg, sym, alert_id=alert_id)
+                    except Exception as ne:
+                        logger.debug(f"Failed to insert notification for {sym}: {ne}")
+
+                    # 2. Real-Time Web SSE Dispatch
+                    try:
+                        from dashboard_server import invalidate_all_dashboard_caches, notify_stream_clients
+                        invalidate_all_dashboard_caches()
+                        notify_stream_clients("alert", {
+                            "id": alert_id,
+                            "symbol": sym,
+                            "scanner": scanner_name,
+                            "entry_price": float(entry_px or 0.0),
+                            "category": "LIVE_PRODUCTION_WATCHLIST"
+                        })
+                    except Exception:
+                        pass
+
+                    # 3. Asynchronously rebuild performance_data.json
+                    try:
+                        from performance_tracker import trigger_performance_rebuild
+                        trigger_performance_rebuild()
+                    except Exception as _p_err:
+                        logger.debug(f"Performance rebuild trigger error: {_p_err}")
+
+                return True, "INSERTED_NEW_ALERT"
 
 def save_v2_exit_event(
     symbol: str,
