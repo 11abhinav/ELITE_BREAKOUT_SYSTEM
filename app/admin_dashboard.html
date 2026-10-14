@@ -5355,14 +5355,16 @@ function changeAdminPage(type, delta) {
             healthStyle = 'color:var(--win); font-weight:700;';
           }
 
-          // Format Last Run
-          let lastRunStr = '15:30 IST';
-          const rawTime = data.last_success || data.last_run || data.last_alert_at;
+          // Format Last Run with authentic Date and Time (Never hardcoded default)
+          let lastRunStr = 'Pending First Run';
+          const rawTime = data.last_run || data.last_success || data.updated_at || data.last_alert_at;
           if (rawTime) {
             try {
               const d = new Date(rawTime);
               if (!isNaN(d.getTime())) {
-                lastRunStr = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }) + ' IST';
+                const datePart = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short' });
+                const timePart = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+                lastRunStr = `${datePart}, ${timePart} IST`;
               } else {
                 lastRunStr = String(rawTime);
               }

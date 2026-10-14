@@ -574,30 +574,35 @@ def calculate_live_market_regime(sample_size: int = 200, cache_ttl_sec: float = 
     if _REGIME_CACHE["regime"] is not None and (now_mono - _REGIME_CACHE["timestamp"]) < cache_ttl_sec:
         return dict(_REGIME_CACHE["regime"])
 
-    # First check CSV if available for fast read
+    # First check CSV if available for fast read (ONLY if it matches today's date)
     regime_file = "reports/certification/FINAL_AUDIT_2026-09-26/regime_daycount_daily.csv"
     if os.path.exists(regime_file):
         try:
             import pandas as pd
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            today_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
             df = pd.read_csv(regime_file)
             if not df.empty:
                 col = "regime" if "regime" in df.columns else ("macro_regime" if "macro_regime" in df.columns else None)
                 if col:
                     last_row = df.iloc[-1]
-                    reg = str(last_row[col]).strip().upper()
-                    s50_pct = float(last_row.get("above_sma50_pct", 0.0)) * 100.0
-                    s200_pct = float(last_row.get("above_sma200_pct", 0.0)) * 100.0
-                    res = {
-                        "regime": reg,
-                        "above_sma50_pct": round(s50_pct, 1),
-                        "above_sma200_pct": round(s200_pct, 1),
-                        "detail": f"{round(s50_pct, 1)}% > SMA50",
-                        "date": str(last_row.get("date", "Latest")),
-                        "source": "REGIME_AUDIT_DAILY"
-                    }
-                    _REGIME_CACHE["regime"] = res
-                    _REGIME_CACHE["timestamp"] = now_mono
-                    return res
+                    file_date = str(last_row.get("date", "")).strip()
+                    if file_date == today_str:
+                        reg = str(last_row[col]).strip().upper()
+                        s50_pct = float(last_row.get("above_sma50_pct", 0.0)) * 100.0
+                        s200_pct = float(last_row.get("above_sma200_pct", 0.0)) * 100.0
+                        res = {
+                            "regime": reg,
+                            "above_sma50_pct": round(s50_pct, 1),
+                            "above_sma200_pct": round(s200_pct, 1),
+                            "detail": f"{round(s50_pct, 1)}% > SMA50",
+                            "date": file_date,
+                            "source": "REGIME_AUDIT_DAILY"
+                        }
+                        _REGIME_CACHE["regime"] = res
+                        _REGIME_CACHE["timestamp"] = now_mono
+                        return res
         except Exception:
             pass
 

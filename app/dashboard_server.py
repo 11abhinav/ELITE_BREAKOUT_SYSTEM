@@ -4840,6 +4840,7 @@ def api_scanner_status():
             result[sc] = {
                     "status":        row.get("status", "IDLE"),
                     "last_success":  row.get("last_success"),
+                    "last_run":      row.get("last_run") or row.get("last_success") or row.get("updated_at"),
                     "today_alerts":  len(today_trades),
                     "error":         row.get("error_msg"),
                     "updated_at":    row.get("updated_at"),
@@ -5077,7 +5078,11 @@ def _get_fallback_indices() -> dict:
 
     fallback["_strong_sectors"] = []
     fallback["_weak_sectors"] = []
-    fallback["_regime"] = {"regime": "BULL", "detail": "Baseline"}
+    try:
+        from engine.production.governance_registry import calculate_live_market_regime
+        fallback["_regime"] = calculate_live_market_regime()
+    except Exception:
+        fallback["_regime"] = {"regime": "BEAR", "detail": "Live Breadth"}
 
     _FALLBACK_INDICES_CACHE = {"ts": now, "data": fallback}
     return fallback
@@ -5207,6 +5212,12 @@ def api_indices():
                         bg_data[k]["prev_close"] = v["prev_close"]
                     if bg_data[k].get("pct_change") is None and v.get("pct_change") is not None:
                         bg_data[k]["pct_change"] = v["pct_change"]
+
+            try:
+                from engine.production.governance_registry import calculate_live_market_regime
+                bg_data["_regime"] = calculate_live_market_regime()
+            except Exception:
+                pass
 
             if bg_data:
                 payload = json.dumps(serialize_datetimes(bg_data), default=str)

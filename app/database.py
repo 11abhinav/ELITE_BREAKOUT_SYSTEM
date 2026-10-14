@@ -4939,9 +4939,18 @@ def get_all_scanner_health() -> list[dict]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
                 cur.execute("""
-                    SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for, processed_count, total_count, outcome, provider_stats, duration_seconds
-                    FROM scanner_health
-                    ORDER BY scanner_name
+                    SELECT sh.scanner_name, sh.status, sh.last_success, sh.today_alerts, sh.error_msg,
+                           sh.is_acknowledged, sh.updated_at, sh.error_severity, sh.error_count,
+                           sh.first_error_at, sh.retry_count, sh.scheduled_for, sh.processed_count,
+                           sh.total_count, sh.outcome, sh.provider_stats, sh.duration_seconds,
+                           COALESCE(eh.latest_run, sh.last_success, sh.updated_at) AS last_run
+                    FROM scanner_health sh
+                    LEFT JOIN (
+                        SELECT scanner_name, MAX(COALESCE(completed_at, started_at)) AS latest_run
+                        FROM scanner_execution_history
+                        GROUP BY scanner_name
+                    ) eh ON eh.scanner_name = sh.scanner_name
+                    ORDER BY sh.scanner_name
                 """)
                 rows = [dict(row) for row in cur.fetchall()]
                 ACTIVE_SCANNERS = {
@@ -5087,10 +5096,20 @@ def get_scanner_health(scanner_name: str) -> dict:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
                 cur.execute("""
-                    SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for, processed_count, total_count, outcome, provider_stats, duration_seconds
-                    FROM scanner_health
-                    WHERE scanner_name = %s
-                """, (norm_name,))
+                    SELECT sh.scanner_name, sh.status, sh.last_success, sh.today_alerts, sh.error_msg,
+                           sh.is_acknowledged, sh.updated_at, sh.error_severity, sh.error_count,
+                           sh.first_error_at, sh.retry_count, sh.scheduled_for, sh.processed_count,
+                           sh.total_count, sh.outcome, sh.provider_stats, sh.duration_seconds,
+                           COALESCE(eh.latest_run, sh.last_success, sh.updated_at) AS last_run
+                    FROM scanner_health sh
+                    LEFT JOIN (
+                        SELECT scanner_name, MAX(COALESCE(completed_at, started_at)) AS latest_run
+                        FROM scanner_execution_history
+                        WHERE scanner_name = %s
+                        GROUP BY scanner_name
+                    ) eh ON eh.scanner_name = sh.scanner_name
+                    WHERE sh.scanner_name = %s
+                """, (norm_name, norm_name))
                 row = cur.fetchone()
                 if row:
                     return dict(row)

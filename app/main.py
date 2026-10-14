@@ -2296,13 +2296,16 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
         current_regime = "BULL"
 
     if current_regime != "BULL":
-        logger.info(f"⏭️ [TECHNICAL PRE-FLIGHT] Suppressed: TECHNICAL is certified exclusively in BULL regime (Current: {current_regime}). Skipping execution to conserve CPU.")
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health("TECHNICAL", status="IDLE", error_msg=f"Suppressed: certified exclusively in BULL (Current: {current_regime})")
-        except Exception:
-            pass
-        return {"total_count": 0, "processed_count": 0, "status": "skipped", "reason": f"REGIME_NOT_CERTIFIED_{current_regime}"}
+        if trigger_type == "MANUAL":
+            logger.info(f"⚠️ [TECHNICAL MANUAL OVERRIDE] Running TECHNICAL scan under Admin MANUAL request despite macro regime ({current_regime}).")
+        else:
+            logger.info(f"⏭️ [TECHNICAL PRE-FLIGHT] Suppressed: TECHNICAL is certified exclusively in BULL regime (Current: {current_regime}). Skipping execution to conserve CPU.")
+            try:
+                from database import upsert_scanner_health
+                upsert_scanner_health("TECHNICAL", status="IDLE", error_msg=f"Suppressed: certified exclusively in BULL (Current: {current_regime})")
+            except Exception:
+                pass
+            return {"total_count": 0, "processed_count": 0, "status": "skipped", "reason": f"REGIME_NOT_CERTIFIED_{current_regime}"}
 
     logger.info(f"🚀 [SCANNER: TECHNICAL] Starting execution (trigger={trigger_type}, scheduler={scheduler_name})...")
     from technical_scanner import run_technical_scan
