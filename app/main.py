@@ -1097,6 +1097,16 @@ def run_system_scheduler():
             logger.info(f"✅ Wealth Engine (initial) completed successfully in {format_duration(duration_sec)}")
             telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_COMPLETE")
             telemetry.log_session_timeline("Completed Wealth Engine Initial Setup Cycle Successfully")
+            try:
+                from database import insert_notification
+                today_str = datetime.now(IST).strftime('%Y-%m-%d')
+                insert_notification(
+                    "info",
+                    f"✅ Wealth Engine Scan Complete ({today_str})",
+                    f"Wealth Engine ran for the day (SCHEDULED). Setup completed in {format_duration(duration_sec)}."
+                )
+            except Exception:
+                pass
             with MemoryProfiler("Cleanup - WEALTH", force_gc_cleanup=True):
                 pass
             return True
@@ -2387,6 +2397,18 @@ def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON"):
             record_source_watermark("BSE")
         except Exception:
             pass
+
+    try:
+        from database import insert_notification
+        today_str = datetime.now(IST).strftime('%Y-%m-%d')
+        filings_count = res.get("filings_found", 0) if isinstance(res, dict) else 0
+        insert_notification(
+            "info",
+            f"✅ Filing Watcher Sweep Complete ({today_str})",
+            f"Corporate Filing Watcher ran ({trigger_type}). Processed {filings_count} new corporate filing(s)."
+        )
+    except Exception:
+        pass
     return res
 
 
