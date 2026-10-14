@@ -2807,6 +2807,54 @@ def api_admin_data_availability_audits():
     return jsonify({"status": "ok", "total": 0, "records": []})
 
 
+@app.route("/api/corporate_filings", methods=["GET"])
+@app.route("/api/admin/corporate_filings", methods=["GET"])
+@login_required
+def api_get_corporate_filings():
+    """
+    Returns corporate filings discovered by the Filing Scanner, filtered by date and symbol.
+    Query params:
+      - date: YYYY-MM-DD (defaults to latest available date or today)
+      - symbol: optional equity symbol
+      - event_type: optional event filter (ALL, NEW_FILING, AMENDED, etc.)
+      - statement_type: optional statement type (ALL, ANNUAL, QUARTERLY)
+    """
+    try:
+        from database import (
+            get_corporate_filings_by_date,
+            get_corporate_filings_available_dates,
+            get_corporate_filings_summary
+        )
+        avail_dates = get_corporate_filings_available_dates()
+        default_date = avail_dates[0] if avail_dates else datetime.now(IST).strftime("%Y-%m-%d")
+        target_date = request.args.get("date", default_date).strip()
+        symbol = request.args.get("symbol", "").strip() or None
+        event_type = request.args.get("event_type", "ALL").strip()
+        statement_type = request.args.get("statement_type", "ALL").strip()
+        limit = int(request.args.get("limit", 1000))
+
+        filings = get_corporate_filings_by_date(
+            target_date=target_date,
+            symbol=symbol,
+            event_type=event_type,
+            statement_type=statement_type,
+            limit=limit
+        )
+        summary = get_corporate_filings_summary(target_date)
+
+        return jsonify({
+            "status": "success",
+            "selected_date": target_date,
+            "available_dates": avail_dates,
+            "summary": summary,
+            "total_count": len(filings),
+            "filings": filings,
+            "server_time": datetime.now(IST).isoformat()
+        })
+    except Exception as e:
+        logger.exception(f"[API_CORPORATE_FILINGS] Error fetching filings: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route("/admin/export/table/<table_name>")
 @app.route("/admin/export/<table>")

@@ -270,6 +270,40 @@ class FinancialFilingWatcher:
             self._save_state()
             self._log_event(event)
 
+            # Persist finding to corporate_filings_log database table & local cache
+            try:
+                try:
+                    from app.database import upsert_corporate_filing_finding
+                except ImportError:
+                    from database import upsert_corporate_filing_finding
+                facts = incoming_filing.get("facts", {})
+                upsert_corporate_filing_finding({
+                    "symbol": sym,
+                    "filing_id": filing_id,
+                    "exchange": event.exchange,
+                    "period_end": period_end,
+                    "statement_type": st_type,
+                    "basis": basis,
+                    "event_type": event_type.value,
+                    "revenue_cr": facts.get("revenue") or facts.get("mapped_revenue"),
+                    "operating_profit_cr": facts.get("operating_profit"),
+                    "pat_cr": facts.get("net_profit") or facts.get("pat"),
+                    "eps": facts.get("eps"),
+                    "roce_pct": facts.get("roce"),
+                    "roe_pct": facts.get("roe"),
+                    "debt_to_equity": facts.get("debt_to_equity") or facts.get("total_debt"),
+                    "operating_margin_pct": facts.get("operating_margin"),
+                    "net_margin_pct": facts.get("net_margin"),
+                    "shares_outstanding": facts.get("shares_outstanding"),
+                    "filing_broadcast_date": broadcast_time,
+                    "status": "INGESTED",
+                    "headline": f"{sym} {period_end} ({st_type}) Filing Event: {event_type.value}",
+                    "raw_facts": facts,
+                    "affected_metrics": affected_metrics,
+                })
+            except Exception as _log_err:
+                logger.debug(f"[filling scanner] Failed to log corporate filing event: {_log_err}")
+
             logger.info(
                 f"📢 [filling scanner] [FILING_EVENT: {event_type.value}] {sym}: filing_id={filing_id} "
                 f"period={period_end} ({st_type}) | affected={len(affected_metrics)} metrics"
@@ -422,7 +456,113 @@ class FinancialFilingWatcher:
         return SnapshotFreshnessStatus(status_str)
 
     # -------------------------------------------------------------------------
-    # 5. EXECUTION LIFECYCLE & TELEMETRY
+    # -------------------------------------------------------------------------
+    # 5. CORPORATE FILINGS AUDIT & FINDINGS DISCOVERY
+    # -------------------------------------------------------------------------
+
+    def audit_and_log_filings(
+        self,
+        target_symbols: Optional[List[str]] = None,
+        as_of_date: Optional[date] = None,
+        limit_symbols: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Scans filings across universe equities, categorizes findings,
+        persists each finding into the corporate_filings_log database table,
+        and returns list of logged findings.
+        """
+        as_of = as_of_date or date.today()
+        as_of_str = as_of.isoformat()
+        symbols = target_symbols or self.approved_symbols
+        if limit_symbols:
+            symbols = symbols[:limit_symbols]
+
+        try:
+            from app.database import upsert_corporate_filing_finding
+        except ImportError:
+            from database import upsert_corporate_filing_finding
+
+        findings: List[Dict[str, Any]] = []
+
+        for sym in symbols:
+            sym_u = sym.strip().upper()
+            raw_path = BASE_DIR / "data" / "pit_raw_filings" / f"{sym_u}.json"
+            if not raw_path.exists():
+                continue
+            try:
+                with open(raw_path, "r", encoding="utf-8") as f:
+                    filings = json.load(f)
+                if not filings or not isinstance(filings, list):
+                    continue
+
+                # Get latest annual and latest quarterly
+                annuals = [f for f in filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
+                quarterlies = [f for f in filings if str(f.get("statement_type", "")).upper() == "QUARTERLY"]
+
+                candidates_to_log = []
+                if annuals:
+                    candidates_to_log.append(annuals[-1])
+                if quarterlies:
+                    candidates_to_log.append(quarterlies[-1])
+
+                for item in candidates_to_log:
+                    fid = str(item.get("filing_id") or f"{sym_u}_{item.get('period_end_date', '')}_v1")
+                    period_end = str(item.get("period_end_date") or "")
+                    st_type = str(item.get("statement_type") or "QUARTERLY").upper()
+                    basis = str(item.get("basis") or "CONSOLIDATED").upper()
+                    rev = item.get("revenue") or item.get("mapped_revenue")
+                    pat = item.get("net_profit") or item.get("pat")
+                    op_prof = item.get("operating_profit")
+                    eps = item.get("eps")
+                    roce = item.get("roce")
+                    roe = item.get("roe")
+                    de = item.get("debt_to_equity") or item.get("total_debt")
+                    op_m = item.get("operating_margin")
+                    net_m = item.get("net_margin")
+                    shares = item.get("shares_outstanding")
+
+                    headline = f"{sym_u} {period_end} ({st_type}): Rev ₹{rev:,.1f} Cr, PAT ₹{pat:,.1f} Cr" if rev is not None and pat is not None else f"{sym_u} {period_end} {st_type} Filing Audited"
+                    if roce is not None:
+                        headline += f", ROCE {roce:.1f}%"
+
+                    finding_dict = {
+                        "filing_date": as_of_str,
+                        "discovered_at": datetime.now().isoformat(),
+                        "symbol": sym_u,
+                        "company_name": sym_u,
+                        "exchange": str(item.get("exchange") or "NSE"),
+                        "filing_id": fid,
+                        "period_end": period_end,
+                        "statement_type": st_type,
+                        "basis": basis,
+                        "event_type": "NEW_FILING" if st_type == "ANNUAL" else "QUARTERLY_RESULT",
+                        "revenue_cr": rev,
+                        "operating_profit_cr": op_prof,
+                        "pat_cr": pat,
+                        "eps": eps,
+                        "roce_pct": roce,
+                        "roe_pct": roe,
+                        "debt_to_equity": de,
+                        "operating_margin_pct": op_m,
+                        "net_margin_pct": net_m,
+                        "shares_outstanding": shares,
+                        "filing_broadcast_date": item.get("filing_date") or item.get("actual_publication_timestamp"),
+                        "status": "SNAPSHOT_UPDATED",
+                        "headline": headline,
+                        "raw_facts": item,
+                        "affected_metrics": self.resolve_dependent_metrics(st_type, {"facts": item})
+                    }
+                    upsert_corporate_filing_finding(finding_dict)
+                    findings.append(finding_dict)
+
+            except Exception as read_err:
+                logger.debug(f"[filling scanner] Error auditing filings for {sym_u}: {read_err}")
+
+        logger.info(f"📊 [filling scanner] Logged {len(findings)} filing findings for {as_of_str}.")
+        return findings
+
+    # -------------------------------------------------------------------------
+    # 6. EXECUTION LIFECYCLE & TELEMETRY
     # -------------------------------------------------------------------------
 
     def run_watcher_cycle(
@@ -530,6 +670,10 @@ class FinancialFilingWatcher:
                     f"Canonical PIT snapshot not found at {SNAPSHOT_PATH} after cycle completion."
                 )
 
+            # 4b. Audit and record discovered corporate filing findings into database table
+            findings = self.audit_and_log_filings(target_symbols=target_symbols, as_of_date=now_ist.date())
+            filings_found_count = len(findings)
+
             duration = round(time.time() - start_ts, 2)
             processed = total_count
 
@@ -566,19 +710,21 @@ class FinancialFilingWatcher:
                     quality_status="NORMAL",
                     total_stocks=processed,
                     fresh_data_count=processed,
-                    summary_notes=f"Processed {processed} equities in {duration}s. Rebuild: {rebuild_needed}.",
+                    summary_notes=f"Processed {processed} equities in {duration}s. Filings audited: {filings_found_count}. Rebuild: {rebuild_needed}.",
                     metrics_json={
                         "rebuild_needed": rebuild_needed,
                         "pending_symbols_resolved": len(pending_symbols),
                         "duration_seconds": duration,
+                        "filings_found": filings_found_count,
                     }
                 )
 
-            logger.info(f"✅ [filling scanner: COMPLETE] Successfully audited {processed} stocks in {duration}s.")
+            logger.info(f"✅ [filling scanner: COMPLETE] Successfully audited {processed} stocks, logged {filings_found_count} findings in {duration}s.")
             return {
                 "status": "SUCCESS",
                 "processed_count": processed,
                 "total_count": processed,
+                "filings_found": filings_found_count,
                 "duration_seconds": duration,
                 "rebuilt": rebuild_needed,
             }

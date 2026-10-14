@@ -3210,6 +3210,9 @@ function changeAdminPage(type, delta) {
         <button class="admin-tab-btn" data-tab="watchlist-users" onclick="switchAdminTab('watchlist-users')">
           <span>👥</span> User Management
         </button>
+        <button class="admin-tab-btn" data-tab="filings-discovery" onclick="switchAdminTab('filings-discovery')">
+          <span>📋</span> Corporate Filings
+        </button>
       </div>
 
 
@@ -3927,6 +3930,108 @@ function changeAdminPage(type, delta) {
       </div>
       <!-- END TAB 3: SCANNER HEALTH & SYSTEM ERRORS -->
 
+      <!-- TAB 3B: CORPORATE FILINGS DISCOVERY -->
+      <div id="tab-filings-discovery" class="tab-panel">
+        <div class="card" style="padding:22px; margin-bottom:24px;">
+          <!-- HEADER & CONTROLS -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:16px;">
+            <div>
+              <div class="card-title" style="display:flex; align-items:center; gap:8px; font-size:18px; font-weight:800; color:var(--text); margin-bottom:4px;">
+                <span>📋</span> Corporate Filings Discovery Engine
+                <span id="filingDatePill" style="font-size:12px; font-weight:700; background:rgba(37,99,235,0.15); color:var(--accent); padding:3px 10px; border-radius:14px; border:1px solid rgba(37,99,235,0.3);">Today</span>
+              </div>
+              <div style="font-size:12px; color:var(--muted); line-height:1.5;">
+                Exchange corporate filings, quarterly P&amp;L results, and annual audited balance sheet findings discovered during upstream sweeps.
+              </div>
+            </div>
+
+            <!-- CONTROLS: DATE PICKER & ACTIONS -->
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:8px; background:var(--card2); border:1px solid var(--border); padding:5px 12px; border-radius:8px;">
+                <label for="filingDateInput" style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Discovery Date:</label>
+                <input type="date" id="filingDateInput" style="background:transparent; border:none; color:var(--text); font-size:13px; font-weight:700; outline:none; cursor:pointer;" onchange="onFilingDateChange(this.value)">
+              </div>
+
+              <select id="filingAvailableDatesSelect" onchange="onFilingDateChange(this.value)" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;" title="Jump to date with findings">
+                <option value="">Jump to Date...</option>
+              </select>
+
+              <select id="filingEventTypeSelect" onchange="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;">
+                <option value="ALL">All Event Types</option>
+                <option value="NEW_FILING">New Filings</option>
+                <option value="QUARTERLY_RESULT">Quarterly Results</option>
+                <option value="AMENDED">Amended / Restated</option>
+                <option value="UNSEEN_PERIOD">Unseen Periods</option>
+              </select>
+
+              <select id="filingStatementSelect" onchange="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;">
+                <option value="ALL">All Statement Types</option>
+                <option value="ANNUAL">Annual (FY)</option>
+                <option value="QUARTERLY">Quarterly (Q)</option>
+              </select>
+
+              <input type="text" id="filingSymbolFilter" placeholder="Filter symbol (e.g. SHRIPISTON)..." onkeyup="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 12px; border-radius:8px; width:180px; outline:none;">
+
+              <button class="scanner-action-btn run" id="btnRunFilingScan" style="background:#2563eb; color:white; padding:6px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700;" onclick="triggerFilingScanFromUI()">
+                🔄 Run Filing Scan
+              </button>
+            </div>
+          </div>
+
+          <!-- SUMMARY KPI CARDS -->
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px;">
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Total Findings Found</div>
+              <div id="kpi-filings-total" style="font-size:24px; font-weight:800; color:var(--text);">0</div>
+              <div id="kpi-filings-date-sub" style="font-size:11px; color:var(--muted); margin-top:2px;">on selected date</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Annual Filings (FY)</div>
+              <div id="kpi-filings-annual" style="font-size:24px; font-weight:800; color:#10b981;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">audited reports</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Quarterly Filings (Q)</div>
+              <div id="kpi-filings-quarterly" style="font-size:24px; font-weight:800; color:#3b82f6;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">quarterly P&amp;L results</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">New Discoveries</div>
+              <div id="kpi-filings-new" style="font-size:24px; font-weight:800; color:#8b5cf6;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">snapshot updated</div>
+            </div>
+          </div>
+
+          <!-- FILINGS TABLE -->
+          <div class="tbl-wrap" style="overflow-x:auto;">
+            <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+              <thead>
+                <tr style="background:var(--card2); border-bottom:1px solid var(--border); text-align:left;">
+                  <th style="padding:10px 12px;">Time Discovered</th>
+                  <th style="padding:10px 12px;">Symbol &amp; Exchange</th>
+                  <th style="padding:10px 12px;">Period End</th>
+                  <th style="padding:10px 12px;">Statement &amp; Basis</th>
+                  <th style="padding:10px 12px;">Event Badge</th>
+                  <th style="padding:10px 12px; text-align:right;">Revenue (₹ Cr)</th>
+                  <th style="padding:10px 12px; text-align:right;">PAT (₹ Cr)</th>
+                  <th style="padding:10px 12px; text-align:right;">EPS (₹)</th>
+                  <th style="padding:10px 12px; text-align:right;">ROCE %</th>
+                  <th style="padding:10px 12px; text-align:center;">Status</th>
+                  <th style="padding:10px 12px; text-align:center;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-corporate-filings-body">
+                <tr>
+                  <td colspan="11" style="text-align:center; padding:30px; color:var(--muted);">
+                    Loading corporate filing findings for selected date...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- TAB 4: DATA & DATABASE EXPLORER -->
       <div id="tab-db-explorer" class="tab-panel">
 
@@ -4199,7 +4304,9 @@ function changeAdminPage(type, delta) {
         'users': 'watchlist-users',
         'watchlist': 'watchlist-users',
         'diagnostics': 'health-errors',
-        'errors': 'health-errors'
+        'errors': 'health-errors',
+        'filings': 'filings-discovery',
+        'corporate-filings': 'filings-discovery'
       };
       const resolvedTabId = tabAliasMap[tabId] || tabId;
       activeAdminTab = resolvedTabId;
@@ -4265,6 +4372,8 @@ function changeAdminPage(type, delta) {
       } else if (tabId === 'db-explorer') {
         if (typeof fetchDatabaseTablesSummary === 'function') fetchDatabaseTablesSummary();
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
+      } else if (tabId === 'filings-discovery') {
+        if (typeof loadCorporateFilingsDiscovery === 'function') loadCorporateFilingsDiscovery();
       }
     }
 
@@ -5420,6 +5529,9 @@ function changeAdminPage(type, delta) {
             `;
           }
           actionBtns += `<button class="scanner-action-btn log" onclick="openScannerHistory('${sc}')">📜 Logs</button>`;
+          if (sc === 'FILING_WATCHER') {
+            actionBtns += `<button class="scanner-action-btn" style="background:#2563eb; color:white; border-color:#3b82f6;" onclick="switchAdminTab('filings-discovery')">📋 Findings</button>`;
+          }
 
           html_buffer += `
             <div class="scanner-row ${statusClass}">
@@ -11984,6 +12096,301 @@ function closeMyWatchlistModal() {
   const sec = document.getElementById('my-watchlist-section');
   if (sec) {
     sec.style.display = 'none';
+  }
+}
+
+// -------------------------------------------------------------------------
+// CORPORATE FILINGS DISCOVERY JAVASCRIPT LOGIC
+// -------------------------------------------------------------------------
+let CURRENT_FILINGS_DATA = [];
+let CURRENT_SELECTED_FILING_DATE = '';
+
+async function loadCorporateFilingsDiscovery(targetDate) {
+  const tbody = document.getElementById('tbl-corporate-filings-body');
+  if (tbody && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--muted);">⏳ Loading corporate filing discoveries...</td></tr>`;
+  }
+
+  const queryDate = targetDate || CURRENT_SELECTED_FILING_DATE || '';
+  const url = `/api/corporate_filings?date=${encodeURIComponent(queryDate)}&_t=${Date.now()}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.status === 'success') {
+      CURRENT_SELECTED_FILING_DATE = data.selected_date;
+      CURRENT_FILINGS_DATA = data.filings || [];
+
+      // Update date input and pill
+      const dateInput = document.getElementById('filingDateInput');
+      if (dateInput) dateInput.value = data.selected_date;
+
+      const datePill = document.getElementById('filingDatePill');
+      if (datePill) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        datePill.textContent = (data.selected_date === todayStr) ? 'Today' : data.selected_date;
+      }
+
+      // Populate available dates dropdown
+      const datesSelect = document.getElementById('filingAvailableDatesSelect');
+      if (datesSelect && data.available_dates && data.available_dates.length > 0) {
+        let opts = `<option value="">Jump to Date (${data.available_dates.length} available)...</option>`;
+        data.available_dates.forEach(d => {
+          const isSel = (d === data.selected_date) ? 'selected' : '';
+          opts += `<option value="${d}" ${isSel}>${d}</option>`;
+        });
+        datesSelect.innerHTML = opts;
+      }
+
+      // Update KPI cards
+      const s = data.summary || {};
+      const totalEl = document.getElementById('kpi-filings-total');
+      if (totalEl) totalEl.textContent = Number(s.total || CURRENT_FILINGS_DATA.length).toLocaleString('en-IN');
+
+      const annualEl = document.getElementById('kpi-filings-annual');
+      if (annualEl) annualEl.textContent = Number(s.annual || 0).toLocaleString('en-IN');
+
+      const quarterlyEl = document.getElementById('kpi-filings-quarterly');
+      if (quarterlyEl) quarterlyEl.textContent = Number(s.quarterly || 0).toLocaleString('en-IN');
+
+      const newEl = document.getElementById('kpi-filings-new');
+      if (newEl) newEl.textContent = Number(s.new_filings || 0).toLocaleString('en-IN');
+
+      const dateSub = document.getElementById('kpi-filings-date-sub');
+      if (dateSub) dateSub.textContent = `on ${data.selected_date}`;
+
+      renderCorporateFilingsTable(CURRENT_FILINGS_DATA);
+    }
+  } catch (err) {
+    console.error('Failed to load corporate filings', err);
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--warn);">Failed to load corporate filings: ${err.message}</td></tr>`;
+    }
+  }
+}
+
+function onFilingDateChange(newDate) {
+  if (!newDate) return;
+  CURRENT_SELECTED_FILING_DATE = newDate;
+  loadCorporateFilingsDiscovery(newDate);
+}
+
+function filterCorporateFilings() {
+  const symFilter = (document.getElementById('filingSymbolFilter')?.value || '').trim().toUpperCase();
+  const eventFilter = document.getElementById('filingEventTypeSelect')?.value || 'ALL';
+  const statementFilter = document.getElementById('filingStatementSelect')?.value || 'ALL';
+
+  let filtered = CURRENT_FILINGS_DATA;
+
+  if (symFilter) {
+    filtered = filtered.filter(f => String(f.symbol || '').toUpperCase().includes(symFilter));
+  }
+  if (eventFilter && eventFilter !== 'ALL') {
+    filtered = filtered.filter(f => String(f.event_type || '').toUpperCase() === eventFilter);
+  }
+  if (statementFilter && statementFilter !== 'ALL') {
+    filtered = filtered.filter(f => String(f.statement_type || '').toUpperCase() === statementFilter);
+  }
+
+  renderCorporateFilingsTable(filtered);
+}
+
+function renderCorporateFilingsTable(filings) {
+  const tbody = document.getElementById('tbl-corporate-filings-body');
+  if (!tbody) return;
+
+  if (!filings || filings.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:36px; color:var(--muted);">No filing findings found matching your filters for this date.</td></tr>`;
+    return;
+  }
+
+  let html = '';
+  filings.forEach((f, idx) => {
+    const sym = f.symbol || 'UNKNOWN';
+    const exch = f.exchange || 'NSE';
+    const period = f.period_end || '-';
+    const stType = f.statement_type || 'QUARTERLY';
+    const basis = f.basis || 'CONSOLIDATED';
+    const eventType = f.event_type || 'NEW_FILING';
+
+    // Format time
+    let timeStr = '-';
+    if (f.discovered_at) {
+      try {
+        const d = new Date(f.discovered_at);
+        timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+      } catch (e) {
+        timeStr = String(f.discovered_at).slice(11, 16);
+      }
+    }
+
+    // Event Badge Color
+    let eventBadgeClass = 'background:rgba(37,99,235,0.15); color:#60a5fa; border:1px solid rgba(37,99,235,0.3);';
+    if (eventType === 'NEW_FILING') {
+      eventBadgeClass = 'background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);';
+    } else if (eventType.includes('AMEND') || eventType.includes('RESTATE')) {
+      eventBadgeClass = 'background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);';
+    } else if (eventType === 'UNSEEN_PERIOD') {
+      eventBadgeClass = 'background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3);';
+    }
+
+    // Number formatters
+    const revStr = (f.revenue_cr != null) ? `₹${Number(f.revenue_cr).toLocaleString('en-IN', {maximumFractionDigits:1})}` : '-';
+    const patVal = f.pat_cr;
+    let patStr = '-';
+    let patColor = 'inherit';
+    if (patVal != null) {
+      patStr = `₹${Number(patVal).toLocaleString('en-IN', {maximumFractionDigits:1})}`;
+      patColor = (patVal >= 0) ? '#10b981' : '#ef4444';
+    }
+    const epsStr = (f.eps != null) ? `₹${Number(f.eps).toFixed(2)}` : '-';
+    const roceVal = f.roce_pct;
+    let roceStr = '-';
+    let roceColor = 'inherit';
+    if (roceVal != null) {
+      roceStr = `${Number(roceVal).toFixed(1)}%`;
+      roceColor = (roceVal >= 20.0) ? '#10b981' : (roceVal >= 12.0 ? '#3b82f6' : '#9ca3af');
+    }
+
+    const stBadge = (stType === 'ANNUAL')
+      ? `<span style="background:rgba(16,185,129,0.12); color:#10b981; padding:2px 6px; border-radius:4px; font-weight:700;">ANNUAL</span>`
+      : `<span style="background:rgba(59,130,246,0.12); color:#3b82f6; padding:2px 6px; border-radius:4px; font-weight:700;">QUARTERLY</span>`;
+
+    const basisBadge = `<span style="font-size:10px; color:var(--muted);">${basis.toLowerCase()}</span>`;
+
+    html += `
+      <tr style="border-bottom:1px solid var(--border); transition:background 0.15s ease;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'">
+        <td style="padding:10px 12px; font-weight:600; white-space:nowrap; color:var(--muted);">${timeStr}</td>
+        <td style="padding:10px 12px; white-space:nowrap;">
+          <div style="font-weight:800; color:var(--text);">${sym}</div>
+          <div style="font-size:10px; color:var(--muted);">${exch}</div>
+        </td>
+        <td style="padding:10px 12px; font-weight:700; white-space:nowrap;">${period}</td>
+        <td style="padding:10px 12px; white-space:nowrap;">${stBadge} ${basisBadge}</td>
+        <td style="padding:10px 12px; white-space:nowrap;">
+          <span style="font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; ${eventBadgeClass}">
+            ${eventType}
+          </span>
+        </td>
+        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace;">${revStr}</td>
+        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${patColor};">${patStr}</td>
+        <td style="padding:10px 12px; text-align:right; font-weight:600; font-family:monospace;">${epsStr}</td>
+        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${roceColor};">${roceStr}</td>
+        <td style="padding:10px 12px; text-align:center;">
+          <span style="font-size:10px; font-weight:700; background:rgba(16,185,129,0.1); color:#10b981; padding:2px 6px; border-radius:4px; border:1px solid rgba(16,185,129,0.25);">
+            ${f.status || 'INGESTED'}
+          </span>
+        </td>
+        <td style="padding:10px 12px; text-align:center; white-space:nowrap;">
+          <button style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600;" onclick="openFilingDetailsModal(${idx})">
+            🔍 Details
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+}
+
+function openFilingDetailsModal(idx) {
+  const f = CURRENT_FILINGS_DATA[idx];
+  if (!f) return;
+
+  let modal = document.getElementById('filingDetailsModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'filingDetailsModal';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:100000; padding:20px;';
+    document.body.appendChild(modal);
+  }
+
+  const rawFactsPretty = (f.raw_facts && Object.keys(f.raw_facts).length > 0)
+    ? JSON.stringify(f.raw_facts, null, 2)
+    : 'No additional raw facts available';
+
+  const depsList = (f.affected_metrics && f.affected_metrics.length > 0)
+    ? f.affected_metrics.map(m => `<span style="background:var(--card3); border:1px solid var(--border); padding:2px 6px; border-radius:4px; font-size:10px; font-family:monospace;">${m}</span>`).join(' ')
+    : '<span style="color:var(--muted); font-size:11px;">None</span>';
+
+  modal.innerHTML = `
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:14px; max-width:680px; width:100%; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
+      <div style="padding:16px 20px; background:var(--card2); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-size:16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
+          <span>📋</span> ${f.symbol} · ${f.period_end} (${f.statement_type})
+        </div>
+        <button style="background:transparent; border:none; color:var(--muted); font-size:20px; cursor:pointer;" onclick="closeFilingDetailsModal()">✕</button>
+      </div>
+
+      <div style="padding:20px; overflow-y:auto; flex:1;">
+        <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;">
+          ${f.headline || 'Corporate Filing Findings Audit'}
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; font-size:12px;">
+          <div><strong style="color:var(--muted);">Filing ID:</strong> <span style="font-family:monospace;">${f.filing_id || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Filing Date:</strong> <span>${f.filing_date || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Exchange:</strong> <span>${f.exchange || 'NSE'}</span></div>
+          <div><strong style="color:var(--muted);">Basis:</strong> <span>${f.basis || 'CONSOLIDATED'}</span></div>
+          <div><strong style="color:var(--muted);">Discovered At:</strong> <span>${f.discovered_at || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Event:</strong> <span>${f.event_type || '-'}</span></div>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:6px;">Affected Downstream Metrics:</div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px;">
+            ${depsList}
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:6px;">Raw Normalized Facts:</div>
+          <pre style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:11px; max-height:220px; overflow-y:auto; color:var(--text); line-height:1.4;">${rawFactsPretty}</pre>
+        </div>
+      </div>
+
+      <div style="padding:12px 20px; background:var(--card2); border-top:1px solid var(--border); text-align:right;">
+        <button style="background:var(--card3); border:1px solid var(--border); color:var(--text); padding:6px 16px; border-radius:6px; font-size:12px; cursor:pointer; font-weight:700;" onclick="closeFilingDetailsModal()">
+          Close
+        </button>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function closeFilingDetailsModal() {
+  const modal = document.getElementById('filingDetailsModal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function triggerFilingScanFromUI() {
+  const btn = document.getElementById('btnRunFilingScan');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Scanning...';
+  }
+
+  try {
+    const res = await fetch('/api/admin/trigger_scanner/FILING_WATCHER', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok' || data.status === 'success') {
+      alert(`✅ Corporate Filing Sweep triggered successfully!\n${data.message || ''}`);
+    } else {
+      alert(`Notice: ${data.message || 'Trigger sent'}`);
+    }
+  } catch (e) {
+    console.error('Trigger error', e);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔄 Run Filing Scan';
+    }
+    // Refresh findings after a moment
+    setTimeout(() => {
+      loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE);
+    }, 2000);
   }
 }
 
