@@ -456,6 +456,229 @@ class FinancialFilingWatcher:
         return SnapshotFreshnessStatus(status_str)
 
     # -------------------------------------------------------------------------
+    # 4b. LIVE EXCHANGE FILINGS POLLING & DISCOVERY
+    # -------------------------------------------------------------------------
+
+    def poll_exchange_filings(
+        self,
+        target_symbols: Optional[List[str]] = None,
+        as_of_date: Optional[date] = None,
+        max_symbols: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Actively polls exchange sources (NSE XBRL API, BSE Corporate API, and FundamentalSourceRouter)
+        for newly published filings/earnings disclosures.
+        For every discovered filing:
+          1. Detects filing changes (NEW_FILING, UNSEEN_PERIOD, AMENDED_FILING, NO_CHANGE).
+          2. Immutably hashes and archives raw exchange payloads to data/exchange_financials/<SYM>/raw/.
+          3. Upserts raw facts into data/pit_raw_filings/<SYM>.json.
+          4. Logs discovery into corporate_filings_log database table & JSONL.
+          5. Marks snapshot_status = UPDATE_PENDING for symbol if new/amended data ingested.
+        """
+        as_of = as_of_date or date.today()
+        as_of_str = as_of.isoformat()
+        symbols = target_symbols or self.approved_symbols
+        if max_symbols:
+            symbols = symbols[:max_symbols]
+
+        logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str}...")
+
+        discovered_events: List[Dict[str, Any]] = []
+
+        try:
+            try:
+                from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+            except ImportError:
+                from data_providers.nse_xbrl_provider import NseXbrlProvider
+            nse_provider = NseXbrlProvider()
+        except Exception as e:
+            logger.warning(f"[filling scanner] Could not initialize NseXbrlProvider: {e}")
+            nse_provider = None
+
+        try:
+            try:
+                from app.data_providers.bse_corporate_provider import BseCorporateProvider
+            except ImportError:
+                from data_providers.bse_corporate_provider import BseCorporateProvider
+            bse_provider = BseCorporateProvider()
+        except Exception as e:
+            logger.warning(f"[filling scanner] Could not initialize BseCorporateProvider: {e}")
+            bse_provider = None
+
+        try:
+            from app.database import upsert_corporate_filing_finding
+        except ImportError:
+            from database import upsert_corporate_filing_finding
+
+        for sym in symbols:
+            sym_u = sym.strip().upper()
+            try:
+                raw_filings_list: List[Dict[str, Any]] = []
+
+                # 1. Poll NSE XBRL / Corporate Results
+                if nse_provider:
+                    try:
+                        nse_rows = nse_provider.discover_filings(sym_u)
+                        if nse_rows:
+                            for r in nse_rows:
+                                if isinstance(r, dict):
+                                    r_copy = dict(r)
+                                    r_copy["exchange"] = "NSE"
+                                    raw_filings_list.append(r_copy)
+                    except Exception as nse_err:
+                        logger.debug(f"[filling scanner] NSE discover failed for {sym_u}: {nse_err}")
+
+                # 2. Poll BSE Corporate Results if NSE had nothing or symbol is BSE-listed
+                if bse_provider and (not raw_filings_list or len(raw_filings_list) == 0):
+                    try:
+                        scrip = bse_provider.resolve_bse_scrip_code(sym_u)
+                        if scrip:
+                            bse_rows = bse_provider.fetch_raw_financials(sym_u)
+                            for r in bse_rows:
+                                raw_filings_list.append({
+                                    "exchange": "BSE",
+                                    "filing_id": getattr(r, "filing_id", None) or f"BSE_{sym_u}_{r.period_end_date}",
+                                    "period_end_date": r.period_end_date,
+                                    "statement_type": r.period_type,
+                                    "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                                    "revenue": r.revenue,
+                                    "net_profit": r.net_profit,
+                                    "operating_profit": r.ebit,
+                                    "eps": r.eps,
+                                    "total_debt": r.total_debt,
+                                    "total_equity": r.total_equity,
+                                    "shares_outstanding": r.shares_outstanding,
+                                    "filing_date": r.availability_date or as_of_str,
+                                    "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
+                                })
+                    except Exception as bse_err:
+                        logger.debug(f"[filling scanner] BSE discover failed for {sym_u}: {bse_err}")
+
+                if not raw_filings_list:
+                    continue
+
+                # Process discovered filings
+                for item in raw_filings_list:
+                    period_end = str(item.get("toDate") or item.get("period_end_date") or item.get("periodEnd") or "")[:10]
+                    if not period_end:
+                        continue
+                    
+                    st_type = str(item.get("period") or item.get("statement_type") or "QUARTERLY").upper()
+                    if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
+                        st_type = "ANNUAL"
+                    else:
+                        st_type = "QUARTERLY"
+
+                    basis = "STANDALONE" if ("standalone" in str(item.get("consolidated", "")).lower() or "non-consolidated" in str(item.get("consolidated", "")).lower()) else "CONSOLIDATED"
+                    fid = str(item.get("seqNumber") or item.get("filing_id") or f"{sym_u}_{period_end}_{st_type}_v1")
+                    bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
+
+                    raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
+
+                    # Run detect_filing_changes state engine
+                    meta_incoming = {
+                        "filing_id": fid,
+                        "period_end_date": period_end,
+                        "statement_type": st_type,
+                        "basis": basis,
+                        "broadcast_timestamp": bcast_time,
+                        "source_exchange": item.get("exchange", "NSE"),
+                        "revision_number": int(item.get("seqNumber") or 1) if str(item.get("seqNumber", "")).isdigit() else 1,
+                        "amended": str(item.get("reInd", "")).upper() == "Y",
+                        "facts": item,
+                    }
+
+                    event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes)
+
+                    # If this is a new, unseen, or amended filing, update data/pit_raw_filings/<SYM>.json
+                    if event.event_type != FilingEventType.NO_CHANGE:
+                        self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
+                        discovered_events.append(event.to_dict())
+
+            except Exception as sym_err:
+                logger.debug(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
+
+        logger.info(f"✅ [filling scanner] Exchange polling complete. Discovered {len(discovered_events)} new/amended filing events.")
+        return discovered_events
+
+    def _merge_into_pit_raw_filings(
+        self,
+        symbol: str,
+        new_item: Dict[str, Any],
+        period_end: str,
+        statement_type: str,
+        basis: str,
+    ) -> None:
+        """
+        Merges an exchange-discovered filing into the canonical data/pit_raw_filings/<SYM>.json
+        cache, updating or appending the period while maintaining historical records.
+        """
+        sym_u = symbol.strip().upper()
+        raw_dir = BASE_DIR / "data" / "pit_raw_filings"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        raw_path = raw_dir / f"{sym_u}.json"
+
+        existing_list: List[Dict[str, Any]] = []
+        if raw_path.exists():
+            try:
+                with open(raw_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        existing_list = data
+            except Exception:
+                existing_list = []
+
+        # Find if this period and statement_type already exists
+        matched_idx = None
+        for i, row in enumerate(existing_list):
+            r_period = str(row.get("period_end_date") or "")[:10]
+            r_type = str(row.get("statement_type") or "").upper()
+            if r_period == period_end and r_type == statement_type:
+                matched_idx = i
+                break
+
+        # Map facts
+        rev = new_item.get("revenueFromOperations") or new_item.get("totalIncome") or new_item.get("revenue") or new_item.get("revenue_cr")
+        pat = new_item.get("netProfitLossForPeriod") or new_item.get("profitBeforeTax") or new_item.get("netProfit") or new_item.get("pat") or new_item.get("pat_cr")
+        op_prof = new_item.get("ebit") or new_item.get("operatingProfit") or new_item.get("operating_profit")
+        eps = new_item.get("eps") or new_item.get("basicEps")
+        shares = new_item.get("shares_outstanding")
+
+        record_entry = {
+            "symbol": sym_u,
+            "period_end_date": period_end,
+            "statement_type": statement_type,
+            "basis": basis,
+            "revenue": float(rev) if rev is not None else None,
+            "net_profit": float(pat) if pat is not None else None,
+            "operating_profit": float(op_prof) if op_prof is not None else None,
+            "eps": float(eps) if eps is not None else None,
+            "shares_outstanding": float(shares) if shares is not None else None,
+            "filing_date": new_item.get("filingDate") or new_item.get("filing_date") or date.today().isoformat(),
+            "broadcast_timestamp": new_item.get("broadCastDate") or new_item.get("broadcast_timestamp"),
+            "exchange": new_item.get("exchange", "NSE"),
+            "filing_id": new_item.get("seqNumber") or new_item.get("filing_id"),
+        }
+
+        # Keep existing metrics if new item has None
+        if matched_idx is not None:
+            old = existing_list[matched_idx]
+            for k, v in old.items():
+                if record_entry.get(k) is None and v is not None:
+                    record_entry[k] = v
+            existing_list[matched_idx] = record_entry
+        else:
+            existing_list.append(record_entry)
+
+        # Sort chronologically
+        existing_list.sort(key=lambda x: str(x.get("period_end_date", "")))
+
+        tmp_path = f"{raw_path}.tmp.{os.getpid()}"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(existing_list, f, indent=2)
+        os.replace(tmp_path, raw_path)
+        logger.info(f"💾 [filling scanner] Successfully persisted fresh filing for {sym_u} ({period_end} {statement_type}) to {raw_path}.")
+
     # -------------------------------------------------------------------------
     # 5. CORPORATE FILINGS AUDIT & FINDINGS DISCOVERY
     # -------------------------------------------------------------------------
@@ -641,6 +864,14 @@ class FinancialFilingWatcher:
                 total_count=total_count,
                 run_id=run_ctx.run_id if run_ctx else None,
             )
+
+            # 2b. Actively poll live exchanges (NSE/BSE) for newly published filings
+            try:
+                poll_events = self.poll_exchange_filings(target_symbols=target_symbols, as_of_date=now_ist.date())
+                if poll_events:
+                    logger.info(f"📢 [filling scanner] Exchange poll ingested {len(poll_events)} new filing disclosures.")
+            except Exception as poll_err:
+                logger.warning(f"[filling scanner] Active exchange polling encountered non-fatal error: {poll_err}")
 
             # 3. Detect pending symbols or missing snapshot
             pending_symbols = [
