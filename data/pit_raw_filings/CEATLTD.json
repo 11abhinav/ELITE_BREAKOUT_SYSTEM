@@ -1018,35 +1018,5 @@
     "broadcast_timestamp": "30-Apr-2010 10:57:42",
     "exchange": "NSE",
     "filing_id": "73196"
-  },
-  {
-    "symbol": "CEATLTD",
-    "period_end_date": "31-Mar-202",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "shares_outstanding": null,
-    "filing_date": "28-May-2020 20:43",
-    "broadcast_timestamp": "28-May-2020 20:43:44",
-    "exchange": "NSE",
-    "filing_id": "1082320"
-  },
-  {
-    "symbol": "CEATLTD",
-    "period_end_date": "31-Mar-202",
-    "statement_type": "QUARTERLY",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "shares_outstanding": null,
-    "filing_date": "28-May-2020 20:43",
-    "broadcast_timestamp": "28-May-2020 20:43:43",
-    "exchange": "NSE",
-    "filing_id": "1082319"
   }
 ]
