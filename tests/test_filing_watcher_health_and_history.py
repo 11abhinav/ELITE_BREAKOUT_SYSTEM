@@ -34,6 +34,7 @@ from scripts.financial_filing_watcher import (
     SnapshotFreshnessStatus,
     _WATCHER_LOCK,
 )
+import app.database
 from app.database import (
     normalize_scanner_name,
     get_all_scanner_health,

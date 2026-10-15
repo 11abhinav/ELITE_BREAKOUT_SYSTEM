@@ -1570,6 +1570,16 @@ function changeAdminPage(type, delta) {
     thead th.sort-asc::after  { content: ' ▲'; color: var(--accent); font-size: 8px; }
     thead th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; }
 
+    .sdh-th-sortable {
+      cursor: pointer !important;
+      user-select: none !important;
+      transition: background 0.15s, color 0.15s !important;
+    }
+    .sdh-th-sortable:hover {
+      background: var(--card3) !important;
+      color: var(--accent) !important;
+    }
+
     tbody tr { border-bottom: 1px solid var(--border); transition: background .08s; }
     tbody tr:last-child { border-bottom: none; }
     tbody tr:hover { background: var(--card2); }
@@ -4048,27 +4058,133 @@ function changeAdminPage(type, delta) {
             </div>
 
             <!-- CONTROLS & SEARCH -->
-            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-              <div style="position:relative;">
-                <input type="text" id="sdhSearchInput" placeholder="🔍 Search symbol, company, reason, date..." oninput="filterStockDataHealth()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:7px 14px; border-radius:8px; width:260px; outline:none;">
+            <div style="display:flex; flex-direction:column; gap:10px; width:100%; margin-top:4px;">
+              <!-- TOP CONTROLS ROW -->
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                  <div style="position:relative;">
+                    <input type="text" id="sdhSearchInput" placeholder="🔍 Search symbol, company, reason, date, ISIN..." oninput="onSdhFilterChange()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:7px 14px; border-radius:8px; width:280px; outline:none;">
+                  </div>
+
+                  <!-- FILTER PILLS -->
+                  <div style="display:flex; background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:2px;">
+                    <button id="sdh-filter-btn-all" onclick="setSdhFilter('ALL')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:var(--accent); color:#000; border:none;">
+                      All (<span id="sdh-btn-all-count">0</span>)
+                    </button>
+                    <button id="sdh-filter-btn-stale" onclick="setSdhFilter('STALE')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;">
+                      ⚠️ Stale / Cool-off (<span id="sdh-btn-stale-count">0</span>)
+                    </button>
+                    <button id="sdh-filter-btn-fresh" onclick="setSdhFilter('FRESH')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;">
+                      ✅ Fresh &amp; Certified (<span id="sdh-btn-fresh-count">0</span>)
+                    </button>
+                  </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <button onclick="exportStockDataHealthCSV()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:7px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;" title="Export currently filtered and sorted records to CSV">
+                    📥 Export CSV
+                  </button>
+                  <button class="scanner-action-btn run" onclick="fetchStockDataHealth(true)" style="background:#2563eb; color:white; padding:7px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;">
+                    🔄 Refresh Audit
+                  </button>
+                </div>
               </div>
 
-              <!-- FILTER PILLS -->
-              <div style="display:flex; background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:2px;">
-                <button id="sdh-filter-btn-all" onclick="setSdhFilter('ALL')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:var(--accent); color:#000; border:none;">
-                  All (<span id="sdh-btn-all-count">0</span>)
-                </button>
-                <button id="sdh-filter-btn-stale" onclick="setSdhFilter('STALE')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;">
-                  ⚠️ Stale / Cool-off (<span id="sdh-btn-stale-count">0</span>)
-                </button>
-                <button id="sdh-filter-btn-fresh" onclick="setSdhFilter('FRESH')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;">
-                  ✅ Fresh &amp; Certified (<span id="sdh-btn-fresh-count">0</span>)
+              <!-- SECONDARY FILTER DROPDOWNS ROW -->
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 14px; background:var(--card2); border:1px solid var(--border); border-radius:8px; font-size:11px;">
+                <span style="font-weight:700; color:var(--muted); text-transform:uppercase; font-size:10px;">Filters:</span>
+
+                <!-- Scanner / Reason Filter -->
+                <select id="sdhScannerFilter" onchange="onSdhFilterChange()" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;">
+                  <option value="ALL">All Reasons &amp; Scanners</option>
+                  <option value="COOLOFF_ACTIVE">⚠️ Active Cool-off (Suppressed)</option>
+                  <option value="PIT_STALENESS">⏳ PIT Staleness (&gt;2Y)</option>
+                  <option value="TECHNICAL">Scanner: TECHNICAL</option>
+                  <option value="FUNDAMENTAL">Scanner: FUNDAMENTAL</option>
+                  <option value="QUALITY_COMPOUNDER">Scanner: QUALITY_COMPOUNDER</option>
+                  <option value="QUALITY_VALUE_RECOVERY">Scanner: QUALITY_VALUE_RECOVERY</option>
+                  <option value="REVERSAL">Scanner: REVERSAL</option>
+                  <option value="CERTIFIED">✅ Certified Provenance</option>
+                </select>
+
+                <!-- Market Cap Filter -->
+                <select id="sdhCapFilter" onchange="onSdhFilterChange()" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;">
+                  <option value="ALL">All Market Caps</option>
+                  <option value="MEGA">Mega Cap (&gt;₹1,00,000 Cr)</option>
+                  <option value="LARGE">Large Cap (₹20k–₹1,00,000 Cr)</option>
+                  <option value="MID">Mid Cap (₹5,000–₹20,000 Cr)</option>
+                  <option value="SMALL">Small / Micro (&lt;₹5,000 Cr)</option>
+                </select>
+
+                <!-- ROCE Filter -->
+                <select id="sdhRoceFilter" onchange="onSdhFilterChange()" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;">
+                  <option value="ALL">All ROCE 5Y</option>
+                  <option value="ELITE">Elite ROCE (≥ 20%)</option>
+                  <option value="HIGH">High ROCE (≥ 15%)</option>
+                  <option value="MODERATE">Moderate (10%–15%)</option>
+                  <option value="LOW">Low (&lt; 10%)</option>
+                </select>
+
+                <!-- Sales Growth Filter -->
+                <select id="sdhGrowthFilter" onchange="onSdhFilterChange()" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;">
+                  <option value="ALL">All Sales Growth</option>
+                  <option value="HIGH">High Growth (≥ 15%)</option>
+                  <option value="SOLID">Solid Growth (≥ 10%)</option>
+                  <option value="POSITIVE">Positive (&gt; 0%)</option>
+                  <option value="NEGATIVE">Negative (&lt; 0%)</option>
+                </select>
+
+                <!-- PE Valuation Filter -->
+                <select id="sdhPeFilter" onchange="onSdhFilterChange()" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;">
+                  <option value="ALL">All PE Levels</option>
+                  <option value="VALUE">Deep Value (&lt; 20x)</option>
+                  <option value="REASONABLE">Reasonable (20x–40x)</option>
+                  <option value="HIGH">High Valuation (&gt; 40x)</option>
+                </select>
+
+                <!-- Debt/Equity Filter -->
+                <select id="sdhDebtFilter" onchange="onSdhFilterChange()" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;">
+                  <option value="ALL">All Debt Levels</option>
+                  <option value="LOW">Low Debt (D/E ≤ 0.5x)</option>
+                  <option value="MODERATE">Moderate (0.5x–1.5x)</option>
+                  <option value="HIGH">High Debt (&gt; 1.5x)</option>
+                </select>
+
+                <div style="height:16px; width:1px; background:var(--border); margin:0 4px;"></div>
+
+                <!-- Sort By Dropdown -->
+                <span style="font-weight:700; color:var(--muted); text-transform:uppercase; font-size:10px;">Sort:</span>
+                <select id="sdhSortSelect" onchange="onSdhSortDropdownChange(this.value)" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;">
+                  <option value="symbol_asc">Symbol (A → Z)</option>
+                  <option value="symbol_desc">Symbol (Z → A)</option>
+                  <option value="mktcap_desc">Market Cap (High → Low)</option>
+                  <option value="mktcap_asc">Market Cap (Low → High)</option>
+                  <option value="cmp_desc">CMP ₹ (High → Low)</option>
+                  <option value="roce_desc">ROCE 5Y% (High → Low)</option>
+                  <option value="sales_desc">Sales CAGR% (High → Low)</option>
+                  <option value="pat_desc">PAT CAGR% (High → Low)</option>
+                  <option value="ev_ebitda_asc">EV/EBITDA (Low → High)</option>
+                  <option value="pe_asc">PE Ratio (Low → High)</option>
+                  <option value="de_asc">D/E Ratio (Low → High)</option>
+                  <option value="filings_desc">Filings in DB (High → Low)</option>
+                  <option value="period_desc">Latest Period (Newest First)</option>
+                  <option value="fetch_desc">Last Fetched (Newest First)</option>
+                </select>
+
+                <!-- Page Size -->
+                <select id="sdhPageSizeSelect" onchange="onSdhPageSizeChange(this.value)" style="background:var(--card); border:1px solid var(--border); color:var(--text); font-size:11px; padding:5px 8px; border-radius:6px; outline:none; cursor:pointer;" title="Stocks per page">
+                  <option value="50">50 / page</option>
+                  <option value="100" selected>100 / page</option>
+                  <option value="250">250 / page</option>
+                  <option value="500">500 / page</option>
+                  <option value="0">All Stocks</option>
+                </select>
+
+                <!-- Reset Button -->
+                <button onclick="resetSdhFilters()" style="background:transparent; border:1px solid var(--border); color:var(--muted); padding:5px 10px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Reset all search and dropdown filters">
+                  ↺ Reset
                 </button>
               </div>
-
-              <button class="scanner-action-btn run" onclick="fetchStockDataHealth(true)" style="background:#2563eb; color:white; padding:7px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;">
-                🔄 Refresh Audit
-              </button>
             </div>
           </div>
 
@@ -4101,33 +4217,75 @@ function changeAdminPage(type, delta) {
             <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px; min-width:1600px;">
               <thead style="position:sticky; top:0; z-index:10;">
                 <tr style="background:var(--card2); border-bottom:2px solid var(--border); text-align:left;">
-                  <th style="padding:10px 12px; min-width:180px; position:sticky; left:0; background:var(--card2); z-index:11;">Stock / Company</th>
-                  <th style="padding:10px 12px; width:130px; text-align:center;">Health Status</th>
-                  <th style="padding:10px 12px; width:130px; text-align:center;" title="When raw filings file was last written (proxy for last exchange fetch)">Last Fetched</th>
-                  <th style="padding:10px 12px; width:110px; text-align:center;">Latest Period</th>
-                  <th style="padding:10px 12px; width:80px; text-align:center;">Filings</th>
+                  <th onclick="sortStockDataHealth('symbol')" class="sdh-th-sortable" style="padding:10px 12px; min-width:180px; position:sticky; left:0; background:var(--card2); z-index:11; cursor:pointer; user-select:none;" title="Click to sort by Stock / Company">
+                    Stock / Company <span id="sdh-sort-symbol" style="color:var(--accent); font-size:10px; font-weight:800;">▲</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('health_status')" class="sdh-th-sortable" style="padding:10px 12px; width:130px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Health Status">
+                    Health Status <span id="sdh-sort-health_status" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('last_fetched')" class="sdh-th-sortable" style="padding:10px 12px; width:130px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Last Fetched date">
+                    Last Fetched <span id="sdh-sort-last_fetched" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('latest_period')" class="sdh-th-sortable" style="padding:10px 12px; width:110px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Latest Period">
+                    Latest Period <span id="sdh-sort-latest_period" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('filings_count')" class="sdh-th-sortable" style="padding:10px 12px; width:80px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Number of Filings in DB">
+                    Filings <span id="sdh-sort-filings_count" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
                   <th style="padding:10px 12px; min-width:280px;">Diagnostics / Periods</th>
                   <!-- Valuation -->
-                  <th style="padding:10px 12px; width:80px; text-align:right; color:#3b82f6;">CMP ₹</th>
-                  <th style="padding:10px 12px; width:100px; text-align:right; color:#3b82f6;">Mkt Cap Cr</th>
-                  <th style="padding:10px 12px; width:70px; text-align:right; color:#3b82f6;">PE</th>
-                  <th style="padding:10px 12px; width:90px; text-align:right; color:#3b82f6;">EV/EBITDA</th>
+                  <th onclick="sortStockDataHealth('cmp')" class="sdh-th-sortable" style="padding:10px 12px; width:80px; text-align:right; color:#3b82f6; cursor:pointer; user-select:none;" title="Click to sort by Current Market Price">
+                    CMP ₹ <span id="sdh-sort-cmp" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('market_cap_cr')" class="sdh-th-sortable" style="padding:10px 12px; width:100px; text-align:right; color:#3b82f6; cursor:pointer; user-select:none;" title="Click to sort by Market Cap">
+                    Mkt Cap Cr <span id="sdh-sort-market_cap_cr" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('current_pe')" class="sdh-th-sortable" style="padding:10px 12px; width:70px; text-align:right; color:#3b82f6; cursor:pointer; user-select:none;" title="Click to sort by PE Ratio">
+                    PE <span id="sdh-sort-current_pe" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('current_ev_ebitda')" class="sdh-th-sortable" style="padding:10px 12px; width:90px; text-align:right; color:#3b82f6; cursor:pointer; user-select:none;" title="Click to sort by EV/EBITDA">
+                    EV/EBITDA <span id="sdh-sort-current_ev_ebitda" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
                   <!-- Fundamentals -->
-                  <th style="padding:10px 12px; width:90px; text-align:right; color:#10b981;">ROCE 5Y%</th>
-                  <th style="padding:10px 12px; width:75px; text-align:right; color:#10b981;">ROE%</th>
-                  <th style="padding:10px 12px; width:90px; text-align:right; color:#10b981;">Sales CAGR%</th>
-                  <th style="padding:10px 12px; width:90px; text-align:right; color:#10b981;">PAT CAGR%</th>
-                  <th style="padding:10px 12px; width:80px; text-align:right; color:#10b981;">CFO/PAT</th>
-                  <th style="padding:10px 12px; width:70px; text-align:right; color:#10b981;">D/E</th>
+                  <th onclick="sortStockDataHealth('roce_5y_avg')" class="sdh-th-sortable" style="padding:10px 12px; width:90px; text-align:right; color:#10b981; cursor:pointer; user-select:none;" title="Click to sort by 5Y ROCE Average">
+                    ROCE 5Y% <span id="sdh-sort-roce_5y_avg" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('roe')" class="sdh-th-sortable" style="padding:10px 12px; width:75px; text-align:right; color:#10b981; cursor:pointer; user-select:none;" title="Click to sort by ROE">
+                    ROE% <span id="sdh-sort-roe" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('sales_cagr_5y')" class="sdh-th-sortable" style="padding:10px 12px; width:90px; text-align:right; color:#10b981; cursor:pointer; user-select:none;" title="Click to sort by 5Y Sales CAGR">
+                    Sales CAGR% <span id="sdh-sort-sales_cagr_5y" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('pat_cagr_5y')" class="sdh-th-sortable" style="padding:10px 12px; width:90px; text-align:right; color:#10b981; cursor:pointer; user-select:none;" title="Click to sort by 5Y PAT CAGR">
+                    PAT CAGR% <span id="sdh-sort-pat_cagr_5y" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('cfo_pat_5y_ratio')" class="sdh-th-sortable" style="padding:10px 12px; width:80px; text-align:right; color:#10b981; cursor:pointer; user-select:none;" title="Click to sort by CFO/PAT 5Y Ratio">
+                    CFO/PAT <span id="sdh-sort-cfo_pat_5y_ratio" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('debt_to_equity')" class="sdh-th-sortable" style="padding:10px 12px; width:70px; text-align:right; color:#10b981; cursor:pointer; user-select:none;" title="Click to sort by Debt to Equity">
+                    D/E <span id="sdh-sort-debt_to_equity" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
                   <!-- Financials -->
-                  <th style="padding:10px 12px; width:90px; text-align:right; color:#a78bfa;">Revenue Cr</th>
-                  <th style="padding:10px 12px; width:80px; text-align:right; color:#a78bfa;">PAT Cr</th>
-                  <th style="padding:10px 12px; width:80px; text-align:right; color:#a78bfa;">OCF Cr</th>
+                  <th onclick="sortStockDataHealth('revenue')" class="sdh-th-sortable" style="padding:10px 12px; width:90px; text-align:right; color:#a78bfa; cursor:pointer; user-select:none;" title="Click to sort by Revenue">
+                    Revenue Cr <span id="sdh-sort-revenue" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('net_profit')" class="sdh-th-sortable" style="padding:10px 12px; width:80px; text-align:right; color:#a78bfa; cursor:pointer; user-select:none;" title="Click to sort by Net Profit (PAT)">
+                    PAT Cr <span id="sdh-sort-net_profit" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('operating_cash_flow')" class="sdh-th-sortable" style="padding:10px 12px; width:80px; text-align:right; color:#a78bfa; cursor:pointer; user-select:none;" title="Click to sort by Operating Cash Flow">
+                    OCF Cr <span id="sdh-sort-operating_cash_flow" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
                   <!-- Shares -->
-                  <th style="padding:10px 12px; width:90px; text-align:right; color:#f59e0b;">Shares M</th>
-                  <th style="padding:10px 12px; width:90px; text-align:center; color:#f59e0b;">Dilution</th>
+                  <th onclick="sortStockDataHealth('shares_outstanding_m')" class="sdh-th-sortable" style="padding:10px 12px; width:90px; text-align:right; color:#f59e0b; cursor:pointer; user-select:none;" title="Click to sort by Shares Outstanding">
+                    Shares M <span id="sdh-sort-shares_outstanding_m" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
+                  <th onclick="sortStockDataHealth('share_dilution_3y_pct')" class="sdh-th-sortable" style="padding:10px 12px; width:90px; text-align:center; color:#f59e0b; cursor:pointer; user-select:none;" title="Click to sort by 3Y Share Dilution">
+                    Dilution <span id="sdh-sort-share_dilution_3y_pct" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
                   <!-- Provenance -->
-                  <th style="padding:10px 12px; width:120px; text-align:center; color:var(--muted);">Provenance</th>
+                  <th onclick="sortStockDataHealth('provenance_status')" class="sdh-th-sortable" style="padding:10px 12px; width:120px; text-align:center; color:var(--muted); cursor:pointer; user-select:none;" title="Click to sort by Provenance Status">
+                    Provenance <span id="sdh-sort-provenance_status" style="color:var(--muted); font-size:10px;">⇅</span>
+                  </th>
                   <th style="padding:10px 12px; width:130px; text-align:center;">Actions</th>
                 </tr>
               </thead>
@@ -4140,9 +4298,16 @@ function changeAdminPage(type, delta) {
               </tbody>
             </table>
           </div>
-          <div id="sdh-pagination-info" style="margin-top:14px; font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
-            <span id="sdh-showing-count">Showing 0 of 0 stocks</span>
-            <span style="font-style:italic;">💡 Click any symbol to inspect all historical statements. Scroll right for full data. Last Fetched = raw filings file mtime (exchange fetch proxy).</span>
+
+          <!-- PAGINATION CONTROLS & INFO BAR -->
+          <div id="sdh-pagination-info" style="margin-top:14px; font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span id="sdh-showing-count">Showing 0 of 0 stocks</span>
+              <div id="sdh-pagination-controls" style="display:inline-flex; align-items:center; gap:4px;">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+            <span style="font-style:italic;">💡 Click any column header to sort. Click symbol to view complete historical filings.</span>
           </div>
         </div>
       </div>
@@ -12628,6 +12793,11 @@ let SDH_FRESH_STOCKS = [];
 let SDH_ACTIVE_FILTER = 'ALL'; // 'ALL' | 'STALE' | 'FRESH'
 let SDH_CURRENT_MODAL_SYMBOL = null;
 let SDH_IS_FETCHING = false;
+let SDH_SORT_COL = 'symbol';
+let SDH_SORT_DIR = 1; // 1 = asc, -1 = desc
+let SDH_PAGE_SIZE = 100; // 50, 100, 250, 500, or 0 (all)
+let SDH_CURRENT_PAGE = 1;
+let SDH_FILTERED_ITEMS = [];
 
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
@@ -12688,6 +12858,7 @@ async function fetchStockDataHealth(force = false) {
 
 function setSdhFilter(filterType) {
   SDH_ACTIVE_FILTER = filterType;
+  SDH_CURRENT_PAGE = 1;
 
   const btnAll = document.getElementById('sdh-filter-btn-all');
   const btnStale = document.getElementById('sdh-filter-btn-stale');
@@ -12704,7 +12875,242 @@ function setSdhFilter(filterType) {
 }
 
 function filterStockDataHealth() {
+  onSdhFilterChange();
+}
+
+function onSdhFilterChange() {
+  SDH_CURRENT_PAGE = 1;
   renderStockDataHealthTable();
+}
+
+function onSdhPageSizeChange(val) {
+  SDH_PAGE_SIZE = parseInt(val, 10);
+  SDH_CURRENT_PAGE = 1;
+  renderStockDataHealthTable();
+}
+
+function changeSdhPage(delta) {
+  setSdhPage(SDH_CURRENT_PAGE + delta);
+}
+
+function setSdhPage(p) {
+  const totalPages = SDH_PAGE_SIZE > 0 ? (Math.ceil(SDH_FILTERED_ITEMS.length / SDH_PAGE_SIZE) || 1) : 1;
+  SDH_CURRENT_PAGE = Math.max(1, Math.min(p, totalPages));
+  renderStockDataHealthTable();
+}
+
+function resetSdhFilters() {
+  const searchInput = document.getElementById('sdhSearchInput');
+  if (searchInput) searchInput.value = '';
+  const fScanner = document.getElementById('sdhScannerFilter');
+  if (fScanner) fScanner.value = 'ALL';
+  const fCap = document.getElementById('sdhCapFilter');
+  if (fCap) fCap.value = 'ALL';
+  const fRoce = document.getElementById('sdhRoceFilter');
+  if (fRoce) fRoce.value = 'ALL';
+  const fGrowth = document.getElementById('sdhGrowthFilter');
+  if (fGrowth) fGrowth.value = 'ALL';
+  const fPe = document.getElementById('sdhPeFilter');
+  if (fPe) fPe.value = 'ALL';
+  const fDebt = document.getElementById('sdhDebtFilter');
+  if (fDebt) fDebt.value = 'ALL';
+
+  setSdhFilter('ALL');
+}
+
+function sortStockDataHealth(col) {
+  if (SDH_SORT_COL === col) {
+    SDH_SORT_DIR = -SDH_SORT_DIR;
+  } else {
+    SDH_SORT_COL = col;
+    // Default direction based on column type
+    const descByDefault = [
+      'cmp', 'market_cap_cr', 'roce_5y_avg', 'roe', 'sales_cagr_5y',
+      'pat_cagr_5y', 'filings_count', 'cfo_pat_5y_ratio', 'revenue',
+      'net_profit', 'operating_cash_flow', 'shares_outstanding_m',
+      'share_dilution_3y_pct', 'last_fetched', 'latest_period'
+    ];
+    SDH_SORT_DIR = descByDefault.includes(col) ? -1 : 1;
+  }
+  SDH_CURRENT_PAGE = 1;
+  syncSdhSortDropdown();
+  renderStockDataHealthTable();
+}
+
+function syncSdhSortDropdown() {
+  const sel = document.getElementById('sdhSortSelect');
+  if (!sel) return;
+  const colMap = {
+    'symbol': SDH_SORT_DIR === 1 ? 'symbol_asc' : 'symbol_desc',
+    'market_cap_cr': SDH_SORT_DIR === -1 ? 'mktcap_desc' : 'mktcap_asc',
+    'cmp': SDH_SORT_DIR === -1 ? 'cmp_desc' : 'cmp_desc',
+    'roce_5y_avg': 'roce_desc',
+    'sales_cagr_5y': 'sales_desc',
+    'pat_cagr_5y': 'pat_desc',
+    'current_ev_ebitda': 'ev_ebitda_asc',
+    'current_pe': 'pe_asc',
+    'debt_to_equity': 'de_asc',
+    'filings_count': 'filings_desc',
+    'latest_period': 'period_desc',
+    'last_fetched': 'fetch_desc',
+  };
+  const val = colMap[SDH_SORT_COL];
+  if (val && sel.querySelector(`option[value="${val}"]`)) {
+    sel.value = val;
+  }
+}
+
+function onSdhSortDropdownChange(val) {
+  const map = {
+    'symbol_asc': { col: 'symbol', dir: 1 },
+    'symbol_desc': { col: 'symbol', dir: -1 },
+    'mktcap_desc': { col: 'market_cap_cr', dir: -1 },
+    'mktcap_asc': { col: 'market_cap_cr', dir: 1 },
+    'cmp_desc': { col: 'cmp', dir: -1 },
+    'roce_desc': { col: 'roce_5y_avg', dir: -1 },
+    'sales_desc': { col: 'sales_cagr_5y', dir: -1 },
+    'pat_cagr_5y': { col: 'pat_cagr_5y', dir: -1 },
+    'ev_ebitda_asc': { col: 'current_ev_ebitda', dir: 1 },
+    'pe_asc': { col: 'current_pe', dir: 1 },
+    'de_asc': { col: 'debt_to_equity', dir: 1 },
+    'filings_desc': { col: 'filings_count', dir: -1 },
+    'period_desc': { col: 'latest_period', dir: -1 },
+    'fetch_desc': { col: 'last_fetched', dir: -1 },
+  };
+  if (map[val]) {
+    SDH_SORT_COL = map[val].col;
+    SDH_SORT_DIR = map[val].dir;
+    SDH_CURRENT_PAGE = 1;
+    renderStockDataHealthTable();
+  }
+}
+
+function renderSdhPaginationControls(totalPages) {
+  const container = document.getElementById('sdh-pagination-controls');
+  if (!container) return;
+
+  if (totalPages <= 1 || SDH_PAGE_SIZE === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+  const btnBase = 'padding:4px 9px; border-radius:5px; font-size:11px; font-weight:700; cursor:pointer; border:1px solid var(--border);';
+  const btnActive = 'background:var(--accent); color:#000;';
+  const btnInactive = 'background:var(--card2); color:var(--text);';
+  const btnDisabled = 'background:var(--card2); color:var(--muted); opacity:0.4; cursor:not-allowed;';
+
+  // First & Prev
+  if (SDH_CURRENT_PAGE > 1) {
+    html += `<button onclick="setSdhPage(1)" style="${btnBase} ${btnInactive}" title="First page">« First</button>`;
+    html += `<button onclick="changeSdhPage(-1)" style="${btnBase} ${btnInactive}" title="Previous page">‹ Prev</button>`;
+  } else {
+    html += `<button disabled style="${btnBase} ${btnDisabled}">« First</button>`;
+    html += `<button disabled style="${btnBase} ${btnDisabled}">‹ Prev</button>`;
+  }
+
+  // Page Numbers: show up to 5 windowed page buttons
+  let startP = Math.max(1, SDH_CURRENT_PAGE - 2);
+  let endP = Math.min(totalPages, startP + 4);
+  if (endP - startP < 4) {
+    startP = Math.max(1, endP - 4);
+  }
+
+  if (startP > 1) {
+    html += `<span style="color:var(--muted); font-size:11px; padding:0 3px;">...</span>`;
+  }
+
+  for (let p = startP; p <= endP; p++) {
+    const isCur = (p === SDH_CURRENT_PAGE);
+    html += `<button onclick="setSdhPage(${p})" style="${btnBase} ${isCur ? btnActive : btnInactive}">${p}</button>`;
+  }
+
+  if (endP < totalPages) {
+    html += `<span style="color:var(--muted); font-size:11px; padding:0 3px;">...</span>`;
+  }
+
+  // Next & Last
+  if (SDH_CURRENT_PAGE < totalPages) {
+    html += `<button onclick="changeSdhPage(1)" style="${btnBase} ${btnInactive}" title="Next page">Next ›</button>`;
+    html += `<button onclick="setSdhPage(${totalPages})" style="${btnBase} ${btnInactive}" title="Last page">Last »</button>`;
+  } else {
+    html += `<button disabled style="${btnBase} ${btnDisabled}">Next ›</button>`;
+    html += `<button disabled style="${btnBase} ${btnDisabled}">Last »</button>`;
+  }
+
+  container.innerHTML = html;
+}
+
+function exportStockDataHealthCSV() {
+  if (!SDH_FILTERED_ITEMS || SDH_FILTERED_ITEMS.length === 0) {
+    alert('No stock records to export under current filters.');
+    return;
+  }
+
+  const headers = [
+    'Symbol', 'Company Name', 'ISIN', 'Health Status', 'Last Fetched',
+    'Latest Period', 'Filings Count In DB', 'Diagnostics / Reason', 'Cooloff Until',
+    'CMP (Rs)', 'Market Cap (Cr)', 'PE', 'EV/EBITDA', 'ROCE 5Y (%)', 'ROE (%)',
+    'Sales CAGR 5Y (%)', 'PAT CAGR 5Y (%)', 'CFO/PAT', 'Debt/Equity',
+    'Revenue (Cr)', 'PAT (Cr)', 'Operating Cash Flow (Cr)',
+    'Shares Outstanding (M)', 'Dilution 3Y (%)', 'Provenance'
+  ];
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const rows = [headers.join(',')];
+
+  SDH_FILTERED_ITEMS.forEach(it => {
+    const isStale = it._is_stale;
+    const diagText = isStale
+      ? (it.missing_data_summary || it.reason || 'Data criteria not met')
+      : (Array.isArray(it.recent_periods) ? it.recent_periods.join(' ') : 'Complete');
+
+    const row = [
+      escapeCsv(it.symbol || ''),
+      escapeCsv(it.company_name || ''),
+      escapeCsv(it.isin || ''),
+      escapeCsv(isStale ? 'STALE' : 'FRESH'),
+      escapeCsv(isStale ? (it.cooloff_start_at ? it.cooloff_start_at.slice(0, 10) : '') : (it.last_fetched_at || it.as_of_date || '')),
+      escapeCsv(it.latest_period_in_db || it.latest_annual_period || ''),
+      escapeCsv(it.filings_count_in_db !== undefined ? it.filings_count_in_db : 0),
+      escapeCsv(diagText),
+      escapeCsv(it.cooloff_until ? it.cooloff_until.slice(0, 10) : ''),
+      escapeCsv(it.cmp !== null && it.cmp !== undefined ? it.cmp : ''),
+      escapeCsv(it.market_cap_cr !== null && it.market_cap_cr !== undefined ? it.market_cap_cr : ''),
+      escapeCsv(it.current_pe !== null && it.current_pe !== undefined ? it.current_pe : ''),
+      escapeCsv(it.current_ev_ebitda !== null && it.current_ev_ebitda !== undefined ? it.current_ev_ebitda : ''),
+      escapeCsv(it.roce_5y_avg !== null && it.roce_5y_avg !== undefined ? it.roce_5y_avg : ''),
+      escapeCsv(it.roe !== null && it.roe !== undefined ? it.roe : ''),
+      escapeCsv(it.sales_cagr_5y !== null && it.sales_cagr_5y !== undefined ? it.sales_cagr_5y : ''),
+      escapeCsv(it.pat_cagr_5y !== null && it.pat_cagr_5y !== undefined ? it.pat_cagr_5y : ''),
+      escapeCsv(it.cfo_pat_5y_ratio !== null && it.cfo_pat_5y_ratio !== undefined ? it.cfo_pat_5y_ratio : ''),
+      escapeCsv(it.debt_to_equity !== null && it.debt_to_equity !== undefined ? it.debt_to_equity : ''),
+      escapeCsv(it.revenue !== null && it.revenue !== undefined ? it.revenue : ''),
+      escapeCsv(it.net_profit !== null && it.net_profit !== undefined ? it.net_profit : ''),
+      escapeCsv(it.operating_cash_flow !== null && it.operating_cash_flow !== undefined ? it.operating_cash_flow : ''),
+      escapeCsv(it.shares_outstanding_m !== null && it.shares_outstanding_m !== undefined ? it.shares_outstanding_m : ''),
+      escapeCsv(it.share_dilution_3y_pct !== null && it.share_dilution_3y_pct !== undefined ? it.share_dilution_3y_pct : ''),
+      escapeCsv(isStale ? (it.source || 'STALE') : (it.provenance_status || 'CERTIFIED'))
+    ];
+    rows.push(row.join(','));
+  });
+
+  const csvContent = rows.join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `stock_data_health_${SDH_ACTIVE_FILTER.toLowerCase()}_${dateStr}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function renderStockDataHealthTable() {
@@ -12713,6 +13119,13 @@ function renderStockDataHealthTable() {
 
   const searchInput = document.getElementById('sdhSearchInput');
   const query = (searchInput ? searchInput.value : '').trim().toUpperCase();
+
+  const fScanner = document.getElementById('sdhScannerFilter') ? document.getElementById('sdhScannerFilter').value : 'ALL';
+  const fCap = document.getElementById('sdhCapFilter') ? document.getElementById('sdhCapFilter').value : 'ALL';
+  const fRoce = document.getElementById('sdhRoceFilter') ? document.getElementById('sdhRoceFilter').value : 'ALL';
+  const fGrowth = document.getElementById('sdhGrowthFilter') ? document.getElementById('sdhGrowthFilter').value : 'ALL';
+  const fPe = document.getElementById('sdhPeFilter') ? document.getElementById('sdhPeFilter').value : 'ALL';
+  const fDebt = document.getElementById('sdhDebtFilter') ? document.getElementById('sdhDebtFilter').value : 'ALL';
 
   // Combine lists with discriminator flag
   let items = [];
@@ -12723,22 +13136,272 @@ function renderStockDataHealthTable() {
     SDH_FRESH_STOCKS.forEach(s => items.push({ ...s, _is_stale: false }));
   }
 
-  // Filter by search query
+  // 1. Text Search Filter
   if (query) {
     items = items.filter(it => {
       const sym = (it.symbol || '').toUpperCase();
       const comp = (it.company_name || '').toUpperCase();
       const reason = (it.reason || '').toUpperCase();
       const miss = (it.missing_data_summary || '').toUpperCase();
+      const isin = (it.isin || '').toUpperCase();
       const latestPeriod = (it.latest_period_in_db || it.latest_annual_period || '').toUpperCase();
-      return sym.includes(query) || comp.includes(query) || reason.includes(query) || miss.includes(query) || latestPeriod.includes(query);
+      const prov = (it.provenance_status || '').toUpperCase();
+      return sym.includes(query) || comp.includes(query) || reason.includes(query) || miss.includes(query) || isin.includes(query) || latestPeriod.includes(query) || prov.includes(query);
     });
   }
 
+  // 2. Scanner / Reason Filter
+  if (fScanner !== 'ALL') {
+    items = items.filter(it => {
+      if (fScanner === 'COOLOFF_ACTIVE') return !!it._is_stale;
+      if (fScanner === 'PIT_STALENESS') {
+        return (it.reason || '').includes('PIT_STALENESS') || (it.missing_data_summary || '').includes('PIT');
+      }
+      if (fScanner === 'CERTIFIED') return (it.provenance_status === 'CERTIFIED');
+      return (it.scanner || '').toUpperCase() === fScanner;
+    });
+  }
+
+  // 3. Market Cap Filter
+  if (fCap !== 'ALL') {
+    items = items.filter(it => {
+      const mc = it.market_cap_cr;
+      if (mc === null || mc === undefined || isNaN(mc)) return false;
+      if (fCap === 'MEGA') return mc >= 100000;
+      if (fCap === 'LARGE') return mc >= 20000 && mc < 100000;
+      if (fCap === 'MID') return mc >= 5000 && mc < 20000;
+      if (fCap === 'SMALL') return mc < 5000;
+      return true;
+    });
+  }
+
+  // 4. ROCE 5Y Filter
+  if (fRoce !== 'ALL') {
+    items = items.filter(it => {
+      const r = it.roce_5y_avg;
+      if (r === null || r === undefined || isNaN(r)) return false;
+      if (fRoce === 'ELITE') return r >= 20;
+      if (fRoce === 'HIGH') return r >= 15;
+      if (fRoce === 'MODERATE') return r >= 10 && r < 15;
+      if (fRoce === 'LOW') return r < 10;
+      return true;
+    });
+  }
+
+  // 5. Sales Growth Filter
+  if (fGrowth !== 'ALL') {
+    items = items.filter(it => {
+      const g = it.sales_cagr_5y;
+      if (g === null || g === undefined || isNaN(g)) return false;
+      if (fGrowth === 'HIGH') return g >= 15;
+      if (fGrowth === 'SOLID') return g >= 10;
+      if (fGrowth === 'POSITIVE') return g > 0;
+      if (fGrowth === 'NEGATIVE') return g < 0;
+      return true;
+    });
+  }
+
+  // 6. PE Filter
+  if (fPe !== 'ALL') {
+    items = items.filter(it => {
+      const pe = it.current_pe;
+      if (pe === null || pe === undefined || isNaN(pe)) return false;
+      if (fPe === 'VALUE') return pe > 0 && pe < 20;
+      if (fPe === 'REASONABLE') return pe >= 20 && pe <= 40;
+      if (fPe === 'HIGH') return pe > 40;
+      return true;
+    });
+  }
+
+  // 7. Debt / Equity Filter
+  if (fDebt !== 'ALL') {
+    items = items.filter(it => {
+      const de = it.debt_to_equity;
+      if (de === null || de === undefined || isNaN(de)) return false;
+      if (fDebt === 'LOW') return de <= 0.5;
+      if (fDebt === 'MODERATE') return de > 0.5 && de <= 1.5;
+      if (fDebt === 'HIGH') return de > 1.5;
+      return true;
+    });
+  }
+
+  // Multi-type, Null-safe Sorting
+  items.sort((a, b) => {
+    let aVal, bVal;
+    let isNum = false;
+
+    switch (SDH_SORT_COL) {
+      case 'symbol':
+        aVal = (a.symbol || '').toUpperCase();
+        bVal = (b.symbol || '').toUpperCase();
+        break;
+      case 'health_status':
+        aVal = a._is_stale ? 'STALE' : 'FRESH';
+        bVal = b._is_stale ? 'STALE' : 'FRESH';
+        break;
+      case 'last_fetched':
+        aVal = a._is_stale ? (a.cooloff_start_at || '') : (a.last_fetched_at || a.as_of_date || '');
+        bVal = b._is_stale ? (b.cooloff_start_at || '') : (b.last_fetched_at || b.as_of_date || '');
+        break;
+      case 'latest_period':
+        aVal = a.latest_period_in_db || a.latest_annual_period || '';
+        bVal = b.latest_period_in_db || b.latest_annual_period || '';
+        break;
+      case 'filings_count':
+        aVal = a.filings_count_in_db !== undefined ? a.filings_count_in_db : 0;
+        bVal = b.filings_count_in_db !== undefined ? b.filings_count_in_db : 0;
+        isNum = true;
+        break;
+      case 'cmp':
+        aVal = a.cmp;
+        bVal = b.cmp;
+        isNum = true;
+        break;
+      case 'market_cap_cr':
+        aVal = a.market_cap_cr;
+        bVal = b.market_cap_cr;
+        isNum = true;
+        break;
+      case 'current_pe':
+        aVal = a.current_pe;
+        bVal = b.current_pe;
+        isNum = true;
+        break;
+      case 'current_ev_ebitda':
+        aVal = a.current_ev_ebitda;
+        bVal = b.current_ev_ebitda;
+        isNum = true;
+        break;
+      case 'roce_5y_avg':
+        aVal = a.roce_5y_avg;
+        bVal = b.roce_5y_avg;
+        isNum = true;
+        break;
+      case 'roe':
+        aVal = a.roe;
+        bVal = b.roe;
+        isNum = true;
+        break;
+      case 'sales_cagr_5y':
+        aVal = a.sales_cagr_5y;
+        bVal = b.sales_cagr_5y;
+        isNum = true;
+        break;
+      case 'pat_cagr_5y':
+        aVal = a.pat_cagr_5y;
+        bVal = b.pat_cagr_5y;
+        isNum = true;
+        break;
+      case 'cfo_pat_5y_ratio':
+        aVal = a.cfo_pat_5y_ratio;
+        bVal = b.cfo_pat_5y_ratio;
+        isNum = true;
+        break;
+      case 'debt_to_equity':
+        aVal = a.debt_to_equity;
+        bVal = b.debt_to_equity;
+        isNum = true;
+        break;
+      case 'revenue':
+        aVal = a.revenue;
+        bVal = b.revenue;
+        isNum = true;
+        break;
+      case 'net_profit':
+        aVal = a.net_profit;
+        bVal = b.net_profit;
+        isNum = true;
+        break;
+      case 'operating_cash_flow':
+        aVal = a.operating_cash_flow;
+        bVal = b.operating_cash_flow;
+        isNum = true;
+        break;
+      case 'shares_outstanding_m':
+        aVal = a.shares_outstanding_m;
+        bVal = b.shares_outstanding_m;
+        isNum = true;
+        break;
+      case 'share_dilution_3y_pct':
+        aVal = a.share_dilution_3y_pct;
+        bVal = b.share_dilution_3y_pct;
+        isNum = true;
+        break;
+      case 'provenance_status':
+        aVal = (a.provenance_status || '').toUpperCase();
+        bVal = (b.provenance_status || '').toUpperCase();
+        break;
+      default:
+        aVal = (a.symbol || '').toUpperCase();
+        bVal = (b.symbol || '').toUpperCase();
+    }
+
+    // Always sort null/undefined/NaN to the bottom
+    const aNull = (aVal === null || aVal === undefined || (isNum && isNaN(aVal)) || aVal === '');
+    const bNull = (bVal === null || bVal === undefined || (isNum && isNaN(bVal)) || bVal === '');
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+
+    if (isNum) {
+      return (Number(aVal) - Number(bVal)) * SDH_SORT_DIR;
+    } else {
+      return String(aVal).localeCompare(String(bVal)) * SDH_SORT_DIR;
+    }
+  });
+
+  SDH_FILTERED_ITEMS = items;
+
+  // Update sort indicators on all table headers
+  const sortCols = [
+    'symbol', 'health_status', 'last_fetched', 'latest_period', 'filings_count',
+    'cmp', 'market_cap_cr', 'current_pe', 'current_ev_ebitda', 'roce_5y_avg',
+    'roe', 'sales_cagr_5y', 'pat_cagr_5y', 'cfo_pat_5y_ratio', 'debt_to_equity',
+    'revenue', 'net_profit', 'operating_cash_flow', 'shares_outstanding_m',
+    'share_dilution_3y_pct', 'provenance_status'
+  ];
+  sortCols.forEach(col => {
+    const el = document.getElementById(`sdh-sort-${col}`);
+    if (el) {
+      if (col === SDH_SORT_COL) {
+        el.textContent = SDH_SORT_DIR === 1 ? '▲' : '▼';
+        el.style.color = 'var(--accent)';
+        el.style.fontWeight = '800';
+      } else {
+        el.textContent = '⇅';
+        el.style.color = 'var(--muted)';
+        el.style.fontWeight = 'normal';
+      }
+    }
+  });
+
+  // Pagination calculation
+  let paginatedItems = items;
+  let totalPages = 1;
+  let startIndex = 0;
+  let endIndex = items.length;
+
+  if (SDH_PAGE_SIZE > 0 && items.length > 0) {
+    totalPages = Math.ceil(items.length / SDH_PAGE_SIZE);
+    SDH_CURRENT_PAGE = Math.max(1, Math.min(SDH_CURRENT_PAGE, totalPages));
+    startIndex = (SDH_CURRENT_PAGE - 1) * SDH_PAGE_SIZE;
+    endIndex = Math.min(startIndex + SDH_PAGE_SIZE, items.length);
+    paginatedItems = items.slice(startIndex, endIndex);
+  }
+
+  // Update Showing Count
   const showingCountEl = document.getElementById('sdh-showing-count');
   if (showingCountEl) {
-    showingCountEl.textContent = `Showing ${items.length} stocks (${SDH_ACTIVE_FILTER === 'ALL' ? 'All' : (SDH_ACTIVE_FILTER === 'STALE' ? 'Stale Only' : 'Fresh Only')})`;
+    if (items.length === 0) {
+      showingCountEl.textContent = `Showing 0 of 0 stocks`;
+    } else if (SDH_PAGE_SIZE > 0) {
+      showingCountEl.textContent = `Showing ${startIndex + 1}–${endIndex} of ${items.length} stocks (${SDH_ACTIVE_FILTER === 'ALL' ? 'All' : (SDH_ACTIVE_FILTER === 'STALE' ? 'Stale Only' : 'Fresh Only')})`;
+    } else {
+      showingCountEl.textContent = `Showing all ${items.length} stocks (${SDH_ACTIVE_FILTER === 'ALL' ? 'All' : (SDH_ACTIVE_FILTER === 'STALE' ? 'Stale Only' : 'Fresh Only')})`;
+    }
   }
+
+  renderSdhPaginationControls(totalPages);
 
   if (items.length === 0) {
     tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">No stocks found matching current filters.</td></tr>`;
@@ -12746,7 +13409,7 @@ function renderStockDataHealthTable() {
   }
 
   let html = '';
-  items.forEach(it => {
+  paginatedItems.forEach(it => {
     const sym = it.symbol || 'UNKNOWN';
     const comp = it.company_name || sym;
     const isStale = it._is_stale;
@@ -12804,8 +13467,6 @@ function renderStockDataHealthTable() {
     else if (it.share_dilution_3y_pct !== null && it.share_dilution_3y_pct !== undefined)
       dilBadge = numCell(it.share_dilution_3y_pct, '#f59e0b', '%', 1, null, null, null);
     else dilBadge = `<span style="color:var(--muted);">—</span>`;
-
-    const NA = `<td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;"><span style="color:var(--muted);">—</span></td>`;
 
     html += `
       <tr style="border-bottom:1px solid var(--border); transition:background 0.12s ease;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'">
