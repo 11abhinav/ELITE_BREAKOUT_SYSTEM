@@ -13130,13 +13130,26 @@ function renderStockDataHealthTable() {
   const fPe = document.getElementById('sdhPeFilter') ? document.getElementById('sdhPeFilter').value : 'ALL';
   const fDebt = document.getElementById('sdhDebtFilter') ? document.getElementById('sdhDebtFilter').value : 'ALL';
 
-  // Combine lists with discriminator flag
+  // Combine lists with discriminator flag ensuring strict symbol mutual exclusivity
   let items = [];
+  const seenSymbols = new Set();
   if (SDH_ACTIVE_FILTER === 'ALL' || SDH_ACTIVE_FILTER === 'STALE') {
-    SDH_STALE_STOCKS.forEach(s => items.push({ ...s, _is_stale: true }));
+    SDH_STALE_STOCKS.forEach(s => {
+      const sym = (s.symbol || '').toUpperCase();
+      if (sym && !seenSymbols.has(sym)) {
+        seenSymbols.add(sym);
+        items.push({ ...s, _is_stale: true });
+      }
+    });
   }
   if (SDH_ACTIVE_FILTER === 'ALL' || SDH_ACTIVE_FILTER === 'FRESH') {
-    SDH_FRESH_STOCKS.forEach(s => items.push({ ...s, _is_stale: false }));
+    SDH_FRESH_STOCKS.forEach(s => {
+      const sym = (s.symbol || '').toUpperCase();
+      if (sym && !seenSymbols.has(sym)) {
+        seenSymbols.add(sym);
+        items.push({ ...s, _is_stale: false });
+      }
+    });
   }
 
   // 1. Text Search Filter
@@ -13497,62 +13510,62 @@ function renderStockDataHealthTable() {
         <td style="padding:7px 10px; vertical-align:middle;">${diagHtml}</td>
         <!-- CMP -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.cmp, 'var(--accent)', '', 2, null, null, null)}
+          ${numCell(it.cmp, 'var(--accent)', '', 2, null, null, null)}
         </td>
         <!-- MKT CAP CR -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.market_cap_cr, '#3b82f6', '', 1, null, null, null)}
+          ${numCell(it.market_cap_cr, '#3b82f6', '', 1, null, null, null)}
         </td>
         <!-- PE -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.current_pe, '#3b82f6', 'x', 1, null, null, null)}
+          ${numCell(it.current_pe, '#3b82f6', 'x', 1, null, null, null)}
         </td>
         <!-- EV/EBITDA -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.current_ev_ebitda, '#3b82f6', 'x', 1, null, null, null)}
+          ${numCell(it.current_ev_ebitda, '#3b82f6', 'x', 1, null, null, null)}
         </td>
         <!-- ROCE 5Y -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.roce_5y_avg, null, '%', 1, 15, '#10b981', 'var(--text)')}
+          ${numCell(it.roce_5y_avg, null, '%', 1, 15, '#10b981', 'var(--text)')}
         </td>
         <!-- ROE -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.roe, null, '%', 1, 15, '#10b981', 'var(--text)')}
+          ${numCell(it.roe, null, '%', 1, 15, '#10b981', 'var(--text)')}
         </td>
         <!-- SALES CAGR 5Y -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.sales_cagr_5y, null, '%', 1, 12, '#10b981', 'var(--text)')}
+          ${numCell(it.sales_cagr_5y, null, '%', 1, 12, '#10b981', 'var(--text)')}
         </td>
         <!-- PAT CAGR 5Y -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.pat_cagr_5y, null, '%', 1, 12, '#10b981', 'var(--text)')}
+          ${numCell(it.pat_cagr_5y, null, '%', 1, 12, '#10b981', 'var(--text)')}
         </td>
         <!-- CFO/PAT -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.cfo_pat_5y_ratio, null, 'x', 2, 0.8, '#10b981', 'var(--text)')}
+          ${numCell(it.cfo_pat_5y_ratio, null, 'x', 2, 0.8, '#10b981', 'var(--text)')}
         </td>
         <!-- D/E -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : (it.debt_to_equity !== null && it.debt_to_equity !== undefined ? `<span style="font-weight:700; color:${it.debt_to_equity > 1.5 ? '#ef4444' : '#10b981'};">${parseFloat(it.debt_to_equity).toFixed(2)}x</span>` : '<span style="color:var(--muted);">—</span>')}
+          ${it.debt_to_equity !== null && it.debt_to_equity !== undefined ? `<span style="font-weight:700; color:${it.debt_to_equity > 1.5 ? '#ef4444' : '#10b981'};">${parseFloat(it.debt_to_equity).toFixed(2)}x</span>` : '<span style="color:var(--muted);">—</span>'}
         </td>
         <!-- REVENUE CR -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.revenue, '#a78bfa', '', 1, null, null, null)}
+          ${numCell(it.revenue, '#a78bfa', '', 1, null, null, null)}
         </td>
         <!-- PAT CR -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.net_profit, '#a78bfa', '', 1, null, null, null)}
+          ${numCell(it.net_profit, '#a78bfa', '', 1, null, null, null)}
         </td>
         <!-- OCF CR -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.operating_cash_flow, '#a78bfa', '', 1, null, null, null)}
+          ${numCell(it.operating_cash_flow, '#a78bfa', '', 1, null, null, null)}
         </td>
         <!-- SHARES M -->
         <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
-          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.shares_outstanding_m, '#f59e0b', 'M', 1, null, null, null)}
+          ${numCell(it.shares_outstanding_m, '#f59e0b', 'M', 1, null, null, null)}
         </td>
         <!-- DILUTION -->
-        <td style="padding:7px 10px; text-align:center; vertical-align:middle;">${isStale ? '<span style="color:var(--muted);">—</span>' : dilBadge}</td>
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle;">${dilBadge}</td>
         <!-- PROVENANCE -->
         <td style="padding:7px 10px; text-align:center; vertical-align:middle;">
           <span style="font-size:10px; font-weight:800; color:${provColor}; font-family:monospace;" title="${it.provenance_hash || ''}">${isStale ? (it.source || 'STALE') : prov}</span>

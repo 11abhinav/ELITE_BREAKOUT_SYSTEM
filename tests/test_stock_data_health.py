@@ -96,8 +96,14 @@ def test_api_stock_data_health_endpoints():
         assert data1["status"] == "success"
         assert "summary" in data1
         assert "stale_stocks" in data1
-        assert "fresh_stocks" in data1
         assert data1["summary"]["total_universe"] > 0
+
+        # Verify strict mutual exclusivity between stale and fresh stocks
+        stale_syms = {s["symbol"] for s in data1["stale_stocks"]}
+        fresh_syms = {f["symbol"] for f in data1["fresh_stocks"]}
+        overlap = stale_syms.intersection(fresh_syms)
+        assert len(overlap) == 0, f"Duplicate symbols found in both stale and fresh: {overlap}"
+        assert data1["summary"]["total_universe"] == len(stale_syms) + len(fresh_syms)
 
         # 2. Stock Filings Detail
         res2 = client.get("/api/admin/stock_filings/INFY")

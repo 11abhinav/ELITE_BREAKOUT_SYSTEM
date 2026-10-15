@@ -2869,7 +2869,9 @@ def api_admin_stock_data_health():
     try:
         from database import get_stale_stocks_audit, get_fresh_stocks_audit
         stale_stocks = get_stale_stocks_audit()
-        fresh_stocks = get_fresh_stocks_audit(limit=2000)
+        stale_syms = {s["symbol"] for s in stale_stocks}
+        raw_fresh = get_fresh_stocks_audit(limit=2000)
+        fresh_stocks = [f for f in raw_fresh if f["symbol"] not in stale_syms]
 
         total = len(stale_stocks) + len(fresh_stocks)
         coverage_pct = round((len(fresh_stocks) / total * 100), 1) if total > 0 else 0.0

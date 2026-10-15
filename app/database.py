@@ -9510,15 +9510,57 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                     "source": "COOLOFF_CACHE"
                 }
 
-    # 3. Check canonical snapshot for DATA_STALE or filing gaps
+    # 3. Check canonical snapshot for DATA_STALE, filing gaps, and enrich existing stale items
     try:
         snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
         if snap_path.exists():
             snap_df = pd.read_parquet(snap_path)
+
+            def _val(x, round_n=2):
+                if x is None or pd.isna(x):
+                    return None
+                try:
+                    return round(float(x), round_n)
+                except Exception:
+                    return None
+
             for _, row in snap_df.iterrows():
                 sym = str(row.get("symbol", "")).strip().upper()
-                if not sym or sym in stale_map:
+                if not sym:
                     continue
+
+                # If symbol is already in stale_map (from cooloff journal or local cooloff cache),
+                # enrich it with snapshot market metrics and fundamentals
+                if sym in stale_map:
+                    item = stale_map[sym]
+                    if not item.get("latest_annual_period"):
+                        item["latest_annual_period"] = str(row.get("latest_annual_period") or "")
+                    if not item.get("isin"):
+                        item["isin"] = str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or "")
+                    item["cmp"] = _val(row.get("cmp"))
+                    item["market_cap_cr"] = _val(row.get("market_cap"), 1)
+                    item["enterprise_value"] = _val(row.get("enterprise_value"), 1)
+                    item["current_pe"] = _val(row.get("current_pe"))
+                    item["pe_3y_median"] = _val(row.get("pe_3y_median"))
+                    item["current_ev_ebitda"] = _val(row.get("current_ev_ebitda"))
+                    item["ev_ebitda_3y_median"] = _val(row.get("ev_ebitda_3y_median"))
+                    item["roce_5y_avg"] = _val(row.get("roce_5y_avg"))
+                    item["roce"] = _val(row.get("roce"))
+                    item["roe"] = _val(row.get("roe"))
+                    item["sales_cagr_5y"] = _val(row.get("sales_cagr_5y"))
+                    item["pat_cagr_5y"] = _val(row.get("pat_cagr_5y"))
+                    item["cfo_pat_5y_ratio"] = _val(row.get("cfo_pat_5y_ratio"))
+                    item["debt_to_equity"] = _val(row.get("debt_to_equity"))
+                    item["shares_outstanding_m"] = _val(row.get("shares_outstanding_m"), 2)
+                    item["share_dilution_3y_pct"] = _val(row.get("share_dilution_3y_pct"), 2)
+                    item["share_dilution_status"] = str(row.get("share_dilution_status") or "")
+                    item["revenue"] = _val(row.get("revenue"), 1)
+                    item["net_profit"] = _val(row.get("net_profit"), 1)
+                    item["operating_cash_flow"] = _val(row.get("operating_cash_flow"), 1)
+                    item["ebitda"] = _val(row.get("ebitda"), 1)
+                    item["provenance_status"] = str(row.get("provenance_status") or "PARTIAL")
+                    continue
+
                 freshness = str(row.get("pit_freshness_status", "")).upper()
                 snap_st = str(row.get("snapshot_status", "")).upper()
                 has_gap = bool(row.get("filing_gap_detected", False))
@@ -9539,7 +9581,30 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         "days_remaining": 7.0,
                         "status": "STALE_SNAPSHOT",
                         "source": "CANONICAL_SNAPSHOT",
-                        "latest_annual_period": str(row.get("latest_annual_period") or "")
+                        "latest_annual_period": str(row.get("latest_annual_period") or ""),
+                        "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
+                        "cmp": _val(row.get("cmp")),
+                        "market_cap_cr": _val(row.get("market_cap"), 1),
+                        "enterprise_value": _val(row.get("enterprise_value"), 1),
+                        "current_pe": _val(row.get("current_pe")),
+                        "pe_3y_median": _val(row.get("pe_3y_median")),
+                        "current_ev_ebitda": _val(row.get("current_ev_ebitda")),
+                        "ev_ebitda_3y_median": _val(row.get("ev_ebitda_3y_median")),
+                        "roce_5y_avg": _val(row.get("roce_5y_avg")),
+                        "roce": _val(row.get("roce")),
+                        "roe": _val(row.get("roe")),
+                        "sales_cagr_5y": _val(row.get("sales_cagr_5y")),
+                        "pat_cagr_5y": _val(row.get("pat_cagr_5y")),
+                        "cfo_pat_5y_ratio": _val(row.get("cfo_pat_5y_ratio")),
+                        "debt_to_equity": _val(row.get("debt_to_equity")),
+                        "shares_outstanding_m": _val(row.get("shares_outstanding_m"), 2),
+                        "share_dilution_3y_pct": _val(row.get("share_dilution_3y_pct"), 2),
+                        "share_dilution_status": str(row.get("share_dilution_status") or ""),
+                        "revenue": _val(row.get("revenue"), 1),
+                        "net_profit": _val(row.get("net_profit"), 1),
+                        "operating_cash_flow": _val(row.get("operating_cash_flow"), 1),
+                        "ebitda": _val(row.get("ebitda"), 1),
+                        "provenance_status": str(row.get("provenance_status") or "PARTIAL")
                     }
     except Exception as e:
         logger.debug(f"[STALE_AUDIT] Snapshot check note: {e}")
@@ -9598,6 +9663,29 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
         logger.debug(f"[FRESH_AUDIT] Error loading snapshot: {e}")
         return []
 
+    # Fetch active cool-off symbols to ensure strict mutual exclusivity
+    active_cooloff_symbols = set()
+    now_dt = datetime.now(IST)
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT symbol
+                        FROM symbol_cooloff_journal
+                        WHERE cooloff_until > %s
+                    """, (now_dt,))
+                    for r in cur.fetchall():
+                        active_cooloff_symbols.add(str(r[0]).strip().upper())
+    except Exception as e:
+        logger.debug(f"[FRESH_AUDIT] DB cooloff query note: {e}")
+
+    with _LOCAL_COOLOFF_LOCK:
+        for (sym, _), rec in _LOCAL_COOLOFF_CACHE.items():
+            until = rec.get("cooloff_until")
+            if until and until > now_dt:
+                active_cooloff_symbols.add(str(sym).strip().upper())
+
     raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
 
     # Filter to valid, non-stale rows
@@ -9613,7 +9701,7 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
 
     for _, row in valid_df.iterrows():
         sym = str(row.get("symbol", "")).strip().upper()
-        if not sym:
+        if not sym or sym in active_cooloff_symbols:
             continue
 
         comp_name = sec_master.get(sym, {}).get("company_name", sym)
