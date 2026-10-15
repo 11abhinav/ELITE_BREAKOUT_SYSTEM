@@ -1057,7 +1057,7 @@ function changeAdminPage(type, delta) {
       border-radius: var(--radius);
       padding: 12px 18px;
       display: grid;
-      grid-template-columns: 330px 1fr 280px;
+      grid-template-columns: 320px 1fr 240px;
       align-items: center;
       gap: 16px;
       min-width: 1260px;
@@ -1091,7 +1091,7 @@ function changeAdminPage(type, delta) {
       align-items: center;
       gap: 12px;
       min-width: 0;
-      width: 330px;
+      width: 320px;
     }
     .status-indicator-dot {
       width: 9px;
@@ -1160,26 +1160,26 @@ function changeAdminPage(type, delta) {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      max-width: 310px;
+      max-width: 300px;
     }
 
     .scanner-col-stats {
       display: grid;
-      grid-template-columns: 200px 135px 145px 155px;
+      grid-template-columns: minmax(215px, 1.4fr) minmax(115px, 0.8fr) minmax(135px, 0.9fr) minmax(150px, 1fr);
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       justify-content: start;
     }
     .stat-pill {
       background: var(--card2);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 4px 8px;
+      padding: 5px 9px;
       font-size: 11px;
       font-family: var(--font-mono);
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1200,7 +1200,7 @@ function changeAdminPage(type, delta) {
       justify-content: flex-end;
       gap: 6px;
       flex-shrink: 0;
-      width: 280px;
+      width: 240px;
     }
     .scanner-action-btn {
       padding: 5px 10px;
@@ -5474,12 +5474,6 @@ function changeAdminPage(type, delta) {
             dotClass = 'running';
             healthVal = '● IN QUEUE';
             healthStyle = 'color:var(--amber); font-weight:700;';
-          } else if (sc === 'DAILY_BUILDER') {
-            healthVal = '100% Verified';
-            healthStyle = 'color:var(--win); font-weight:700;';
-          } else if (sc === 'FILING_WATCHER') {
-            healthVal = 'ACTIVE';
-            healthStyle = 'color:var(--win); font-weight:700;';
           }
 
           // Format Last Run with authentic Date and Time (Never hardcoded default)
@@ -5493,7 +5487,7 @@ function changeAdminPage(type, delta) {
               if (d && !isNaN(d.getTime())) {
                 const datePart = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
                 if (isDateOnly) {
-                  lastRunStr = `${datePart} (EOD Session)`;
+                  lastRunStr = `${datePart} (EOD)`;
                 } else {
                   const timePart = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
                   lastRunStr = `${datePart}, ${timePart} IST`;
@@ -5504,37 +5498,20 @@ function changeAdminPage(type, delta) {
             } catch(e) { lastRunStr = String(rawTime); }
           }
 
-          // Scanned / Universe pill
-          let scannedLbl = 'Scanned:';
-          let scannedVal = data.total_count != null ? Number(data.total_count).toLocaleString('en-IN') : '2,184';
-          if (sc === 'DAILY_BUILDER') {
-            scannedLbl = 'Universe:';
-            scannedVal = `${data.processed_count != null ? Number(data.processed_count).toLocaleString('en-IN') : '2,184'} / ${data.total_count != null ? Number(data.total_count).toLocaleString('en-IN') : '2,184'}`;
-          } else if (sc === 'FILING_WATCHER') {
-            scannedLbl = 'Heartbeat:';
-            scannedVal = data.last_heartbeat || 'Live (2s ago)';
-          }
+          // 1. UNIFORM COLUMN: Scanned across ALL scanners
+          const scannedLbl = 'Scanned:';
+          let scannedCount = data.total_count != null ? data.total_count : (data.processed_count != null ? data.processed_count : 2184);
+          const scannedVal = Number(scannedCount).toLocaleString('en-IN');
 
-          // Today's alerts / Duration / Filings pill
-          let alertLbl = "Today's Alerts:";
-          let alertVal = `${data.today_alerts || 0} alert${data.today_alerts === 1 ? '' : 's'}`;
-          let alertHighlight = (data.today_alerts > 0) ? 'highlight green' : '';
-          if (sc === 'DAILY_BUILDER') {
-            alertLbl = 'Duration:';
-            alertVal = `${data.duration_sec ? Number(data.duration_sec).toFixed(1) : '42.8'}s`;
-            alertHighlight = '';
-          } else if (sc === 'FILING_WATCHER') {
-            alertLbl = 'Filings Audited:';
-            alertVal = `${data.today_alerts != null ? data.today_alerts : 142} today`;
-            alertHighlight = '';
-          }
+          // 2. UNIFORM COLUMN: Today's Alerts across ALL scanners
+          const alertLbl = "Today's Alerts:";
+          const alertVal = `${data.today_alerts || 0} alert${data.today_alerts === 1 ? '' : 's'}`;
+          const alertHighlight = (data.today_alerts > 0) ? 'highlight green' : '';
 
-          // Health pill label
-          let healthLbl = 'Health:';
-          if (sc === 'DAILY_BUILDER') healthLbl = 'Integrity:';
-          else if (sc === 'FILING_WATCHER') healthLbl = 'Pre-Buy Fence:';
+          // 3. UNIFORM COLUMN: Health across ALL scanners
+          const healthLbl = 'Health:';
 
-          // Action buttons
+          // Action buttons: 100% uniform across ALL scanners
           let actionBtns = '';
           if (isRunning || isQueued) {
             actionBtns = `<button class="scanner-action-btn pause" onclick="toggleScannerStop(event, '${sc}', 'stop')" title="Stop Scanner">🛑 Stop</button>`;
@@ -5547,9 +5524,6 @@ function changeAdminPage(type, delta) {
             `;
           }
           actionBtns += `<button class="scanner-action-btn log" onclick="openScannerHistory('${sc}')">📜 Logs</button>`;
-          if (sc === 'FILING_WATCHER') {
-            actionBtns += `<button class="scanner-action-btn" style="background:#2563eb; color:white; border-color:#3b82f6;" onclick="switchAdminTab('filings-discovery')">📋 Findings</button>`;
-          }
 
           html_buffer += `
             <div class="scanner-row ${statusClass}">
