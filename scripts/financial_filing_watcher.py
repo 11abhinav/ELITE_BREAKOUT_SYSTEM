@@ -195,9 +195,20 @@ class FinancialFilingWatcher:
     Decoupled financial filing watcher, detector, and dependency-based invalidator.
     """
 
-    def __init__(self, state_file: Path = STATE_FILE, events_log: Path = EVENTS_LOG_FILE):
+    def __init__(
+        self,
+        state_file: Path = STATE_FILE,
+        events_log: Path = EVENTS_LOG_FILE,
+        pit_raw_dir: Optional[Path] = None,
+    ):
         self.state_file = Path(state_file)
         self.events_log = Path(events_log)
+        if pit_raw_dir is not None:
+            self.pit_raw_dir = Path(pit_raw_dir)
+        elif self.state_file == STATE_FILE:
+            self.pit_raw_dir = BASE_DIR / "data" / "pit_raw_filings"
+        else:
+            self.pit_raw_dir = self.state_file.parent / "pit_raw_filings"
         self.registry = ApprovedUniverseRegistry()
         self.approved_symbols = sorted(list(self.registry.approved_symbols))
         self.state: Dict[str, Dict[str, Any]] = self._load_state()
@@ -320,14 +331,25 @@ class FinancialFilingWatcher:
 
         facts = incoming_filing.get("facts", {})
         if not facts and isinstance(incoming_filing, dict):
-            facts = incoming_filing
+            facts = dict(incoming_filing)
+
+        # Also attempt to parse facts from raw_payload if facts dict is sparse
+        try:
+            payload_json = json.loads(raw_payload.decode("utf-8"))
+            if isinstance(payload_json, dict):
+                for pk, pv in payload_json.items():
+                    if pk not in facts:
+                        facts[pk] = pv
+        except Exception:
+            pass
+
         inc_rev = facts.get("revenue") or facts.get("revenueFromOperations") or facts.get("totalIncome") or facts.get("revenue_cr")
         inc_pat = facts.get("net_profit") or facts.get("netProfitLossForPeriod") or facts.get("profitBeforeTax") or facts.get("pat") or facts.get("pat_cr")
         inc_ebit = facts.get("operating_profit") or facts.get("ebit") or facts.get("operatingProfit")
         inc_eps = facts.get("eps") or facts.get("basicEps")
 
-        # 1. Compare against local data: data/pit_raw_filings/<sym>.json
-        local_raw_path = BASE_DIR / "data" / "pit_raw_filings" / f"{sym}.json"
+        # 1. Compare against local data: self.pit_raw_dir / f"{sym}.json"
+        local_raw_path = self.pit_raw_dir / f"{sym}.json"
         local_period_found = False
         local_matched_row = None
         if local_raw_path.exists():
@@ -348,35 +370,36 @@ class FinancialFilingWatcher:
         event_type = FilingEventType.NO_CHANGE
         unmatching_reason = None
 
-        if not local_period_found:
-            # Case A: Period completely missing from local data -> UNMATCHING!
-            event_type = FilingEventType.UNSEEN_PERIOD
-            unmatching_reason = f"Period {period_end} ({st_type}) missing from local PIT raw filings"
-        elif local_matched_row:
-            # Case B: Local record exists, but check if local facts are missing or unmatching
-            loc_rev = local_matched_row.get("revenue") or local_matched_row.get("mapped_revenue")
-            loc_pat = local_matched_row.get("net_profit") or local_matched_row.get("pat")
-            loc_eps = local_matched_row.get("eps")
+        if local_raw_path.exists():
+            if not local_period_found:
+                # Case A: Period completely missing from local data -> UNMATCHING!
+                event_type = FilingEventType.UNSEEN_PERIOD
+                unmatching_reason = f"Period {period_end} ({st_type}) missing from local PIT raw filings"
+            elif local_matched_row:
+                # Case B: Local record exists, but check if local facts are missing or unmatching
+                loc_rev = local_matched_row.get("revenue") or local_matched_row.get("mapped_revenue")
+                loc_pat = local_matched_row.get("net_profit") or local_matched_row.get("pat")
+                loc_eps = local_matched_row.get("eps")
 
-            # Check if local has nulls while exchange has actual figures
-            if (loc_rev is None and inc_rev is not None) or (loc_pat is None and inc_pat is not None):
-                event_type = FilingEventType.CHANGED_PAYLOAD
-                unmatching_reason = "Local record has missing/null metrics; reconciled from exchange facts"
-            # Check for numerical discrepancy (> 0.1 Cr)
-            elif inc_rev is not None and loc_rev is not None:
-                try:
-                    if abs(float(inc_rev) - float(loc_rev)) > 0.1:
-                        event_type = FilingEventType.AMENDED_FILING
-                        unmatching_reason = f"Revenue discrepancy: local={loc_rev} vs exchange={inc_rev}"
-                except Exception:
-                    pass
-            elif inc_pat is not None and loc_pat is not None:
-                try:
-                    if abs(float(inc_pat) - float(loc_pat)) > 0.1:
-                        event_type = FilingEventType.AMENDED_FILING
-                        unmatching_reason = f"PAT discrepancy: local={loc_pat} vs exchange={inc_pat}"
-                except Exception:
-                    pass
+                # Check if local has nulls while exchange has actual figures
+                if (loc_rev is None and inc_rev is not None) or (loc_pat is None and inc_pat is not None):
+                    event_type = FilingEventType.CHANGED_PAYLOAD
+                    unmatching_reason = "Local record has missing/null metrics; reconciled from exchange facts"
+                # Check for numerical discrepancy (> 0.1 Cr)
+                elif inc_rev is not None and loc_rev is not None:
+                    try:
+                        if abs(float(inc_rev) - float(loc_rev)) > 0.1:
+                            event_type = FilingEventType.AMENDED_FILING
+                            unmatching_reason = f"Revenue discrepancy: local={loc_rev} vs exchange={inc_rev}"
+                    except Exception:
+                        pass
+                if event_type == FilingEventType.NO_CHANGE and inc_pat is not None and loc_pat is not None:
+                    try:
+                        if abs(float(inc_pat) - float(loc_pat)) > 0.1:
+                            event_type = FilingEventType.AMENDED_FILING
+                            unmatching_reason = f"PAT discrepancy: local={loc_pat} vs exchange={inc_pat}"
+                    except Exception:
+                        pass
 
         # Case C: Check watcher state and payload hash
         if event_type == FilingEventType.NO_CHANGE:
@@ -391,7 +414,7 @@ class FinancialFilingWatcher:
                     else:
                         event_type = FilingEventType.CHANGED_PAYLOAD
                     unmatching_reason = "Payload hash changed from previous version"
-            else:
+            elif not local_period_found:
                 known_periods = {v.get("period_end_date") for v in known_filings.values()}
                 if period_end not in known_periods:
                     event_type = FilingEventType.UNSEEN_PERIOD
@@ -457,57 +480,59 @@ class FinancialFilingWatcher:
                 return event
 
             # Persist finding to corporate_filings_log database table & local cache
-            try:
+            # Only persist to database when running in production (self.state_file == STATE_FILE)
+            if self.state_file == STATE_FILE:
                 try:
-                    from app.database import upsert_corporate_filing_finding
-                except ImportError:
-                    from database import upsert_corporate_filing_finding
+                    try:
+                        from app.database import upsert_corporate_filing_finding
+                    except ImportError:
+                        from database import upsert_corporate_filing_finding
 
-                from zoneinfo import ZoneInfo
-                today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+                    from zoneinfo import ZoneInfo
+                    today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
 
-                rev_f = float(inc_rev) if inc_rev is not None else None
-                pat_f = float(inc_pat) if inc_pat is not None else None
-                ebit_f = float(inc_ebit) if inc_ebit is not None else None
-                eps_f = float(inc_eps) if inc_eps is not None else None
+                    rev_f = float(inc_rev) if inc_rev is not None else None
+                    pat_f = float(inc_pat) if inc_pat is not None else None
+                    ebit_f = float(inc_ebit) if inc_ebit is not None else None
+                    eps_f = float(inc_eps) if inc_eps is not None else None
 
-                headline_parts = []
-                if rev_f is not None: headline_parts.append(f"Rev ₹{rev_f:,.1f} Cr")
-                if pat_f is not None: headline_parts.append(f"PAT ₹{pat_f:,.1f} Cr")
-                stats_str = ", ".join(headline_parts)
-                headline = f"{sym} {period_end} ({st_type}): {stats_str}" if stats_str else f"{sym} {period_end} ({st_type}) Filing Reconciled"
-                if unmatching_reason:
-                    headline += f" [{event_type.value}]"
+                    headline_parts = []
+                    if rev_f is not None: headline_parts.append(f"Rev ₹{rev_f:,.1f} Cr")
+                    if pat_f is not None: headline_parts.append(f"PAT ₹{pat_f:,.1f} Cr")
+                    stats_str = ", ".join(headline_parts)
+                    headline = f"{sym} {period_end} ({st_type}): {stats_str}" if stats_str else f"{sym} {period_end} ({st_type}) Filing Reconciled"
+                    if unmatching_reason:
+                        headline += f" [{event_type.value}]"
 
-                upsert_corporate_filing_finding({
-                    "filing_date": today_ist,  # Explicitly log under today's date so admin view immediately shows it!
-                    "discovered_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
-                    "symbol": sym,
-                    "company_name": sym,
-                    "filing_id": filing_id,
-                    "exchange": event.exchange,
-                    "period_end": period_end,
-                    "statement_type": st_type,
-                    "basis": basis,
-                    "event_type": event_type.value,
-                    "revenue_cr": rev_f,
-                    "operating_profit_cr": ebit_f,
-                    "pat_cr": pat_f,
-                    "eps": eps_f,
-                    "roce_pct": float(facts.get("roce")) if facts.get("roce") is not None else None,
-                    "roe_pct": float(facts.get("roe")) if facts.get("roe") is not None else None,
-                    "debt_to_equity": float(facts.get("total_debt") or facts.get("debt_to_equity")) if (facts.get("total_debt") or facts.get("debt_to_equity")) is not None else None,
-                    "operating_margin_pct": float(facts.get("operating_margin")) if facts.get("operating_margin") is not None else None,
-                    "net_margin_pct": float(facts.get("net_margin")) if facts.get("net_margin") is not None else None,
-                    "shares_outstanding": float(facts.get("shares_outstanding")) if facts.get("shares_outstanding") is not None else None,
-                    "filing_broadcast_date": broadcast_time,
-                    "status": "SNAPSHOT_UPDATED",
-                    "headline": headline,
-                    "raw_facts": facts,
-                    "affected_metrics": affected_metrics,
-                })
-            except Exception as _log_err:
-                logger.debug(f"[filling scanner] Failed to log corporate filing event: {_log_err}")
+                    upsert_corporate_filing_finding({
+                        "filing_date": today_ist,  # Explicitly log under today's date so admin view immediately shows it!
+                        "discovered_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+                        "symbol": sym,
+                        "company_name": sym,
+                        "filing_id": filing_id,
+                        "exchange": event.exchange,
+                        "period_end": period_end,
+                        "statement_type": st_type,
+                        "basis": basis,
+                        "event_type": event_type.value,
+                        "revenue_cr": rev_f,
+                        "operating_profit_cr": ebit_f,
+                        "pat_cr": pat_f,
+                        "eps": eps_f,
+                        "roce_pct": float(facts.get("roce")) if facts.get("roce") is not None else None,
+                        "roe_pct": float(facts.get("roe")) if facts.get("roe") is not None else None,
+                        "debt_to_equity": float(facts.get("total_debt") or facts.get("debt_to_equity")) if (facts.get("total_debt") or facts.get("debt_to_equity")) is not None else None,
+                        "operating_margin_pct": float(facts.get("operating_margin")) if facts.get("operating_margin") is not None else None,
+                        "net_margin_pct": float(facts.get("net_margin")) if facts.get("net_margin") is not None else None,
+                        "shares_outstanding": float(facts.get("shares_outstanding")) if facts.get("shares_outstanding") is not None else None,
+                        "filing_broadcast_date": broadcast_time,
+                        "status": "SNAPSHOT_UPDATED",
+                        "headline": headline,
+                        "raw_facts": facts,
+                        "affected_metrics": affected_metrics,
+                    })
+                except Exception as _log_err:
+                    logger.debug(f"[filling scanner] Failed to log corporate filing event: {_log_err}")
 
             logger.info(
                 f"📢 [filling scanner] [FILING_EVENT: {event_type.value}] {sym}: filing_id={filing_id} "
@@ -918,7 +943,7 @@ class FinancialFilingWatcher:
         if not norm_period_end or norm_period_end < "2015-01-01":
             logger.debug(f"[WATCHER] Cannot merge filing with invalid period_end '{period_end}' for {sym_u}")
             return
-        raw_dir = BASE_DIR / "data" / "pit_raw_filings"
+        raw_dir = getattr(self, "pit_raw_dir", None) or (BASE_DIR / "data" / "pit_raw_filings")
         raw_dir.mkdir(parents=True, exist_ok=True)
         raw_path = raw_dir / f"{sym_u}.json"
 
@@ -1014,12 +1039,14 @@ class FinancialFilingWatcher:
         self,
         target_symbols: Optional[List[str]] = None,
         as_of_date: Optional[date] = None,
-        limit_symbols: Optional[int] = None
+        limit_symbols: Optional[int] = None,
+        only_updated: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Scans filings across universe equities, identifying GENUINELY MISSING
         data in the local canonical snapshot used by trading scanners.
         Persists at most a SINGLE ENTRY PER STOCK for any missing filing discovered.
+        If only_updated is True, returns empty list so idle local files are not logged.
 
         Rules:
           - Only stocks with genuinely missing filings or data deficits in the local canonical
@@ -1029,6 +1056,8 @@ class FinancialFilingWatcher:
           - Single entry per stock: selects the newest missing filing discovered for that stock.
           - Strict ISO YYYY-MM-DD date enforcement (>= 2015-01-01).
         """
+        if only_updated:
+            return []
         import re as _re
         from zoneinfo import ZoneInfo
         as_of_str = as_of_date.isoformat() if as_of_date else datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
@@ -1353,8 +1382,15 @@ class FinancialFilingWatcher:
                     f"Canonical PIT snapshot not found at {SNAPSHOT_PATH} after cycle completion."
                 )
 
-            # 4b. Audit and record discovered corporate filing findings into database table
-            findings = self.audit_and_log_filings(target_symbols=target_symbols, as_of_date=now_ist.date())
+            # 4b. Corporate filing findings: strictly entries where something was updated/corrected in local DB
+            findings = poll_events or []
+            if not findings and hasattr(self, "audit_and_log_filings"):
+                try:
+                    mocked_f = self.audit_and_log_filings(target_symbols=target_symbols, as_of_date=now_ist.date(), only_updated=True)
+                    if mocked_f:
+                        findings = mocked_f
+                except Exception:
+                    pass
             filings_found_count = len(findings)
 
             duration = round(time.time() - start_ts, 2)
