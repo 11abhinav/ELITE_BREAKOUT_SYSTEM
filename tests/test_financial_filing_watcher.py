@@ -129,12 +129,16 @@ def test_pre_buy_gate_blocks_when_update_pending(monkeypatch):
 
     # Mock FinancialFilingWatcher to simulate UPDATE_PENDING for TCS
     class MockWatcher:
+        def __init__(self, *args, **kwargs):
+            pass
+
         def get_symbol_freshness_status(self, symbol):
             if symbol == "TCS":
                 return SnapshotFreshnessStatus.UPDATE_PENDING
             return SnapshotFreshnessStatus.FRESH
 
     monkeypatch.setattr("scripts.financial_filing_watcher.FinancialFilingWatcher", MockWatcher)
+    monkeypatch.setattr("app.financial_data_integrity._mark_update_pending", lambda *args, **kwargs: None)
 
     bundle = BUYEvidenceBundle(
         scan_run_id="TEST_RUN",

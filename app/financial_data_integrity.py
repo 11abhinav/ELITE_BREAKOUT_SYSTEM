@@ -2187,17 +2187,22 @@ def check_pre_buy_source_freshness_fence(
                 )
 
         # 3. Check filing watcher state
+        try:
+            from scripts.financial_filing_watcher import FinancialFilingWatcher, SnapshotFreshnessStatus
+            watcher = FinancialFilingWatcher(state_file=state_file)
+            f_status = watcher.get_symbol_freshness_status(sym_clean)
+            if f_status == SnapshotFreshnessStatus.UPDATE_PENDING:
+                return False, f"UPDATE_PENDING: New or amended filing detected for {sym_clean}, recalculation required"
+            elif f_status == SnapshotFreshnessStatus.INVALID:
+                return False, f"SNAPSHOT_INVALID: Filing snapshot marked INVALID for {sym_clean}"
+        except Exception:
+            pass
+
         if os.path.exists(state_file):
             try:
                 with open(state_file, "r") as sf:
                     st_data = json.load(sf)
                 sym_st = st_data.get(sym_clean, {})
-                status_str = sym_st.get("snapshot_status", "FRESH")
-                if status_str == "UPDATE_PENDING":
-                    return False, f"UPDATE_PENDING: New or amended filing detected for {sym_clean}, recalculation required"
-                elif status_str == "INVALID":
-                    return False, f"SNAPSHOT_INVALID: Filing snapshot marked INVALID for {sym_clean}"
-
                 w_latest_date = sym_st.get("latest_filing_date")
                 if w_latest_date and canonical_period_end and str(w_latest_date) > str(canonical_period_end):
                     return False, f"UNPROCESSED_WATCHER_FILING: Watcher detected filing {w_latest_date} > canonical {canonical_period_end}"

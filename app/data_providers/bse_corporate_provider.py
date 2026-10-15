@@ -148,9 +148,8 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or ""
     )
     period_end = _parse_date_to_iso(period_end_raw)
-    if not period_end:
-        period_end = str(period_end_raw).strip() if period_end_raw else None
-    if not period_end:
+    import re as _re_bse
+    if not period_end or not _re_bse.match(r"^\d{4}-\d{2}-\d{2}$", period_end):
         return None
 
     from_date_raw = row.get("FromDate") or row.get("fromDate") or lower_row.get("fromdate")

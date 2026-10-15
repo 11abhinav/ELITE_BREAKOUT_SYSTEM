@@ -763,50 +763,5 @@
     "raw_NII": null,
     "mapped_revenue": 1665.0,
     "mapping_rule": "REVENUE_DIRECT"
-  },
-  {
-    "symbol": "TATATECH",
-    "period_end_date": "30-Jun-202",
-    "statement_type": "QUARTERLY",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "shares_outstanding": null,
-    "filing_date": "18-Jul-2024 16:28",
-    "broadcast_timestamp": "18-Jul-2024 16:28:09",
-    "exchange": "NSE",
-    "filing_id": "1177613"
-  },
-  {
-    "symbol": "TATATECH",
-    "period_end_date": "30-Sep-202",
-    "statement_type": "QUARTERLY",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "shares_outstanding": null,
-    "filing_date": "28-Oct-2024 18:26",
-    "broadcast_timestamp": "28-Oct-2024 18:26:27",
-    "exchange": "NSE",
-    "filing_id": "1183137"
-  },
-  {
-    "symbol": "TATATECH",
-    "period_end_date": "31-Dec-202",
-    "statement_type": "QUARTERLY",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "shares_outstanding": null,
-    "filing_date": "25-Jan-2024 17:29",
-    "broadcast_timestamp": "25-Jan-2024 17:29:39",
-    "exchange": "NSE",
-    "filing_id": "1163088"
   }
 ]

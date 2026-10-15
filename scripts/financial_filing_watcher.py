@@ -146,17 +146,24 @@ def _normalize_iso_date(val: Any) -> Optional[str]:
     s = str(val).strip()
     import re
     if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
-        return s
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            return s
+        except ValueError:
+            return None
     try:
         from app.data_providers.nse_xbrl_provider import _parse_date_to_iso
         res = _parse_date_to_iso(s)
-        if res:
+        if res and re.match(r"^\d{4}-\d{2}-\d{2}$", res):
             return res
     except Exception:
         pass
-    for fmt in ("%d-%b-%Y", "%d-%b-%y", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
+    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(s[:11].strip(), fmt).strftime("%Y-%m-%d")
+            clean_token = s.split()[0]
+            d = datetime.strptime(clean_token, fmt).strftime("%Y-%m-%d")
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", d):
+                return d
         except Exception:
             pass
     return None
@@ -699,11 +706,18 @@ class FinancialFilingWatcher:
 
                 # Process discovered filings
                 for item in raw_filings_list:
+                    # ── CRITICAL: normalize period BEFORE anything else ──
+                    # Exchange APIs return dates as "30-Jun-2015", "31-Mar-2016", etc.
+                    # We must normalize to ISO YYYY-MM-DD HERE, not downstream,
+                    # to avoid storing corrupt truncated strings like "30-Jun-201".
                     raw_p = item.get("toDate") or item.get("period_end_date") or item.get("periodEnd") or ""
-                    period_end = _normalize_iso_date(raw_p) or str(raw_p)[:10]
-                    if not period_end or len(period_end) < 10:
+                    period_end = _normalize_iso_date(str(raw_p).strip())
+                    # Strict ISO YYYY-MM-DD guard — reject anything that doesn't parse cleanly
+                    import re as _re
+                    if not period_end or not _re.match(r'^\d{4}-\d{2}-\d{2}$', period_end):
+                        logger.debug(f"[filling scanner] Skipping item for {sym_u} — unparseable period: '{raw_p}'")
                         continue
-                    
+
                     st_type = str(item.get("period") or item.get("statement_type") or "QUARTERLY").upper()
                     if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
                         st_type = "ANNUAL"
@@ -713,6 +727,9 @@ class FinancialFilingWatcher:
                     basis = "STANDALONE" if ("standalone" in str(item.get("consolidated", "")).lower() or "non-consolidated" in str(item.get("consolidated", "")).lower()) else "CONSOLIDATED"
                     fid = str(item.get("seqNumber") or item.get("filing_id") or f"{sym_u}_{period_end}_{st_type}_v1")
                     bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
+
+                    # Stamp the normalized ISO period back onto item so downstream uses clean dates
+                    item["period_end_date"] = period_end
 
                     raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
 
@@ -841,11 +858,19 @@ class FinancialFilingWatcher:
     ) -> List[Dict[str, Any]]:
         """
         Scans filings across universe equities, categorizes findings,
-        persists each finding into the corporate_filings_log database table,
+        persists latest Annual and latest Quarterly records per symbol
+        into the corporate_filings_log database table and local cache,
         and returns list of logged findings.
+
+        Rules:
+          - Only records with valid ISO YYYY-MM-DD period_end_date (>= 2015-01-01) are processed.
+          - Sorts valid filings chronologically by ISO date ascending.
+          - Picks the latest valid ANNUAL filing and latest valid QUARTERLY filing per symbol.
+          - filing_id is keyed as {sym_u}_{period_end}_{statement_type}_v1 for idempotent upserts.
         """
+        import re as _re
         from zoneinfo import ZoneInfo
-        as_of_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
+        as_of_str = as_of_date.isoformat() if as_of_date else datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
         symbols = target_symbols or self.approved_symbols
         if limit_symbols:
             symbols = symbols[:limit_symbols]
@@ -868,36 +893,52 @@ class FinancialFilingWatcher:
                 if not filings or not isinstance(filings, list):
                     continue
 
-                # Get latest annual and latest quarterly
-                annuals = [f for f in filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
-                quarterlies = [f for f in filings if str(f.get("statement_type", "")).upper() == "QUARTERLY"]
+                # ── STRICT ISO DATE FILTER ──
+                def _is_valid_iso(r: Dict[str, Any]) -> bool:
+                    p = _normalize_iso_date(str(r.get("period_end_date") or ""))
+                    return bool(p and _re.match(r'^\d{4}-\d{2}-\d{2}$', p) and p >= "2015-01-01")
 
-                candidates_to_log = []
+                valid_filings = [r for r in filings if _is_valid_iso(r)]
+                if not valid_filings:
+                    continue
+
+                # Sort all valid filings by parsed ISO date ascending
+                def _sort_key(r: Dict[str, Any]) -> str:
+                    return _normalize_iso_date(str(r.get("period_end_date") or "")) or ""
+
+                valid_filings.sort(key=_sort_key)
+
+                # Pick latest ANNUAL and latest QUARTERLY
+                annuals     = [r for r in valid_filings if str(r.get("statement_type", "")).upper() == "ANNUAL"]
+                quarterlies = [r for r in valid_filings if str(r.get("statement_type", "")).upper() == "QUARTERLY"]
+
+                candidates = []
                 if annuals:
-                    candidates_to_log.append(annuals[-1])
+                    candidates.append(annuals[-1])
                 if quarterlies:
-                    candidates_to_log.append(quarterlies[-1])
+                    candidates.append(quarterlies[-1])
 
-                for item in candidates_to_log:
-                    raw_p = item.get("period_end_date") or ""
-                    period_end = _normalize_iso_date(raw_p) or str(raw_p)[:10]
-                    fid = str(item.get("filing_id") or f"{sym_u}_{period_end}_v1")
+                for item in candidates:
+                    period_end = _normalize_iso_date(str(item.get("period_end_date") or ""))
+                    if not period_end:
+                        continue
                     st_type = str(item.get("statement_type") or "QUARTERLY").upper()
                     basis = str(item.get("basis") or "CONSOLIDATED").upper()
-                    rev = item.get("revenue") or item.get("mapped_revenue")
-                    pat = item.get("net_profit") or item.get("pat")
-                    op_prof = item.get("operating_profit") or item.get("ebit")
+
+                    rev = item.get("revenue") if item.get("revenue") is not None else item.get("mapped_revenue")
+                    pat = item.get("net_profit") if item.get("net_profit") is not None else item.get("pat")
+                    op_prof = item.get("operating_profit") if item.get("operating_profit") is not None else item.get("ebit")
                     eps = item.get("eps")
                     roce = item.get("roce")
                     roe = item.get("roe")
-                    debt = item.get("total_debt") or item.get("debt")
-                    equity = item.get("total_equity") or item.get("equity")
+                    debt = item.get("total_debt") if item.get("total_debt") is not None else item.get("debt")
+                    equity = item.get("total_equity") if item.get("total_equity") is not None else item.get("equity")
                     de = item.get("debt_to_equity")
                     op_m = item.get("operating_margin")
                     net_m = item.get("net_margin")
                     shares = item.get("shares_outstanding")
 
-                    # Derived metrics fallback if not directly provided
+                    # Derived metrics fallback
                     if de is None and debt is not None and equity is not None:
                         try:
                             eq_f = float(equity)
@@ -906,17 +947,17 @@ class FinancialFilingWatcher:
                         except Exception:
                             pass
 
-                    if roce is None and op_prof is not None and equity is not None:
+                    if roce is None and op_prof is not None and equity is not None and st_type == "ANNUAL":
                         try:
                             eq_f = float(equity)
-                            d_f = float(debt) if debt is not None else 0.0
+                            d_f  = float(debt) if debt is not None else 0.0
                             cap_emp = eq_f + d_f
                             if cap_emp > 0:
                                 roce = round((float(op_prof) / cap_emp) * 100.0, 2)
                         except Exception:
                             pass
 
-                    if roe is None and pat is not None and equity is not None:
+                    if roe is None and pat is not None and equity is not None and st_type == "ANNUAL":
                         try:
                             eq_f = float(equity)
                             if eq_f > 0:
@@ -940,9 +981,15 @@ class FinancialFilingWatcher:
                         except Exception:
                             pass
 
-                    headline = f"{sym_u} {period_end} ({st_type}): Rev ₹{rev:,.1f} Cr, PAT ₹{pat:,.1f} Cr" if rev is not None and pat is not None else f"{sym_u} {period_end} {st_type} Filing Audited"
-                    if roce is not None:
+                    # Headline formation
+                    if rev is not None and pat is not None:
+                        headline = f"{sym_u} {period_end} ({st_type}): Rev ₹{rev:,.1f} Cr, PAT ₹{pat:,.1f} Cr"
+                    else:
+                        headline = f"{sym_u} {period_end} {st_type} Filing Discovered"
+                    if roce is not None and st_type == "ANNUAL":
                         headline += f", ROCE {roce:.1f}%"
+
+                    fid = f"{sym_u}_{period_end}_{st_type}_v1"
 
                     finding_dict = {
                         "filing_date": as_of_str,
@@ -971,13 +1018,19 @@ class FinancialFilingWatcher:
                         "raw_facts": item,
                         "affected_metrics": self.resolve_dependent_metrics(st_type, {"facts": item})
                     }
-                    upsert_corporate_filing_finding(finding_dict)
                     findings.append(finding_dict)
 
             except Exception as read_err:
                 logger.debug(f"[filling scanner] Error auditing filings for {sym_u}: {read_err}")
 
-        logger.info(f"📊 [filling scanner] Logged {len(findings)} filing findings for {as_of_str}.")
+        # Batch persist all findings to database and local cache
+        try:
+            from app.database import batch_upsert_corporate_filings
+        except ImportError:
+            from database import batch_upsert_corporate_filings
+        batch_upsert_corporate_filings(findings)
+
+        logger.info(f"📊 [filling scanner] Logged {len(findings)} filing findings across universe for {as_of_str}.")
         return findings
 
     # -------------------------------------------------------------------------

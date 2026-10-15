@@ -93,6 +93,8 @@ def test_successful_watcher_cycle_records_history_and_ok_health(monkeypatch):
         watcher = FinancialFilingWatcher(state_file=state_file, events_log=events_log)
         # Mock invalidate_and_rebuild_snapshot to return True
         monkeypatch.setattr(watcher, "invalidate_and_rebuild_snapshot", lambda **kwargs: True)
+        monkeypatch.setattr(watcher, "poll_exchange_filings", lambda **kwargs: [])
+        monkeypatch.setattr(watcher, "audit_and_log_filings", lambda **kwargs: [{"symbol": "TCS"}])
 
         res = watcher.run_watcher_cycle(trigger_type="TEST", scheduler_name="PYTEST")
         assert res["status"] == "SUCCESS"
@@ -146,6 +148,7 @@ def test_failed_watcher_cycle_marks_down_and_records_failures(monkeypatch):
         monkeypatch.setattr("scripts.financial_filing_watcher.SNAPSHOT_PATH", snap_path)
 
         watcher = FinancialFilingWatcher(state_file=state_file, events_log=events_log)
+        monkeypatch.setattr(watcher, "poll_exchange_filings", lambda **kwargs: [])
 
         # Force rebuild failure
         def mock_failing_rebuild(**kwargs):
@@ -202,4 +205,4 @@ def test_admin_dashboard_html_contains_filing_watcher():
 
     assert "'FILING_WATCHER'" in content
     assert "Filing Watcher" in content
-    assert "Filings Audited:" in content or "Pre-Buy Fence:" in content
+    assert "XBRL FENCE" in content or "Freshness Fence" in content or "Corporate Filings Discovery" in content

@@ -12713,7 +12713,11 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     discovered_at = str(filing.get("discovered_at") or datetime.now(IST).isoformat())
     company_name = str(filing.get("company_name") or sym)
     exchange = str(filing.get("exchange") or "NSE").upper()
-    period_end = str(filing.get("period_end") or filing.get("period_end_date") or "")
+    period_end = str(filing.get("period_end") or filing.get("period_end_date") or "").strip()
+    import re as _re_db
+    if not _re_db.match(r"^\d{4}-\d{2}-\d{2}$", period_end):
+        logger.debug(f"[CORPORATE_FILINGS] Rejected filing with invalid period_end: '{period_end}' for {sym}")
+        return False
     st_type = str(filing.get("statement_type") or "QUARTERLY").upper()
     basis = str(filing.get("basis") or "CONSOLIDATED").upper()
     event_type = str(filing.get("event_type") or "NEW_FILING").upper()
@@ -12822,11 +12826,38 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     except Exception as pg_err:
         logger.debug(f"[CORPORATE_FILINGS] PG upsert note: {pg_err}")
 
-    # 3. Synchronize with local JSONL cache
+    # 3. Synchronize with local JSONL cache (idempotent, deduplicated on symbol + period_end + statement_type + basis)
     try:
         CORPORATE_FILINGS_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(CORPORATE_FILINGS_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(_sanitize_for_json(record)) + "\n")
+        existing_records = []
+        target_key = (sym, period_end, st_type, basis)
+        replaced = False
+        if CORPORATE_FILINGS_LOG_FILE.exists():
+            with open(CORPORATE_FILINGS_LOG_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        r = json.loads(line)
+                        p_end_r = str(r.get("period_end") or "").strip()
+                        if not _re_db.match(r"^\d{4}-\d{2}-\d{2}$", p_end_r):
+                            continue
+                        r_key = (str(r.get("symbol", "")).strip().upper(), p_end_r, str(r.get("statement_type", "")).upper(), str(r.get("basis", "")).upper())
+                        if r_key == target_key:
+                            existing_records.append(record)
+                            replaced = True
+                        else:
+                            existing_records.append(r)
+                    except Exception:
+                        continue
+        if not replaced:
+            existing_records.append(record)
+
+        tmp_log = CORPORATE_FILINGS_LOG_FILE.with_suffix(f".tmp.{os.getpid()}")
+        with open(tmp_log, "w", encoding="utf-8") as f:
+            for r in existing_records:
+                f.write(json.dumps(_sanitize_for_json(r)) + "\n")
+        tmp_log.replace(CORPORATE_FILINGS_LOG_FILE)
     except Exception as io_err:
         logger.debug(f"[CORPORATE_FILINGS] Local cache write warning: {io_err}")
 
@@ -12835,15 +12866,176 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
 
 def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
     """
-    Batch inserts or updates multiple corporate filing findings.
+    Batch inserts or updates multiple corporate filing findings in PostgreSQL and local JSONL.
     """
     if not filings:
         return 0
-    count = 0
-    for f in filings:
-        if upsert_corporate_filing_finding(f):
-            count += 1
-    return count
+    init_db()
+
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    import re as _re_batch
+
+    valid_records = []
+    for filing in filings:
+        if not filing or not isinstance(filing, dict):
+            continue
+        sym = str(filing.get("symbol", "")).strip().upper()
+        if not sym:
+            continue
+        period_end = str(filing.get("period_end") or filing.get("period_end_date") or "").strip()
+        if not _re_batch.match(r"^\d{4}-\d{2}-\d{2}$", period_end):
+            continue
+
+        filing_id = str(filing.get("filing_id") or f"{sym}_{period_end}_{filing.get('statement_type', 'Q')}_v1")
+        filing_date = str(filing.get("filing_date") or filing.get("discovered_date") or datetime.now(IST).strftime("%Y-%m-%d"))[:10]
+        discovered_at = str(filing.get("discovered_at") or datetime.now(IST).isoformat())
+        company_name = str(filing.get("company_name") or sym)
+        exchange = str(filing.get("exchange") or "NSE").upper()
+        st_type = str(filing.get("statement_type") or "QUARTERLY").upper()
+        basis = str(filing.get("basis") or "CONSOLIDATED").upper()
+        event_type = str(filing.get("event_type") or "NEW_FILING").upper()
+
+        def _to_float(v):
+            try:
+                return float(v) if v is not None and not pd.isna(v) else None
+            except Exception:
+                return None
+
+        revenue_cr = _to_float(filing.get("revenue_cr") if "revenue_cr" in filing else filing.get("revenue"))
+        op_profit_cr = _to_float(filing.get("operating_profit_cr") if "operating_profit_cr" in filing else filing.get("operating_profit"))
+        pat_cr = _to_float(filing.get("pat_cr") if "pat_cr" in filing else (filing.get("net_profit") if "net_profit" in filing else filing.get("pat")))
+        eps = _to_float(filing.get("eps"))
+        roce_pct = _to_float(filing.get("roce_pct") if "roce_pct" in filing else filing.get("roce"))
+        roe_pct = _to_float(filing.get("roe_pct") if "roe_pct" in filing else filing.get("roe"))
+        debt_to_equity = _to_float(filing.get("debt_to_equity") if "debt_to_equity" in filing else filing.get("de_ratio"))
+        op_margin_pct = _to_float(filing.get("operating_margin_pct") if "operating_margin_pct" in filing else filing.get("operating_margin"))
+        net_margin_pct = _to_float(filing.get("net_margin_pct") if "net_margin_pct" in filing else filing.get("net_margin"))
+        shares_outstanding = _to_float(filing.get("shares_outstanding"))
+        broadcast_date = str(filing.get("filing_broadcast_date") or filing.get("broadcast_timestamp") or filing_date)
+        status = str(filing.get("status") or "INGESTED").upper()
+        headline = str(filing.get("headline") or f"{sym} {period_end} {st_type} Results Discovered")
+        source_url = str(filing.get("source_url") or "")
+        raw_facts = filing.get("raw_facts") if isinstance(filing.get("raw_facts"), dict) else {}
+        affected_metrics = filing.get("affected_metrics") if isinstance(filing.get("affected_metrics"), list) else []
+
+        valid_records.append({
+            "filing_date": filing_date,
+            "discovered_at": discovered_at,
+            "symbol": sym,
+            "company_name": company_name,
+            "exchange": exchange,
+            "filing_id": filing_id,
+            "period_end": period_end,
+            "statement_type": st_type,
+            "basis": basis,
+            "event_type": event_type,
+            "revenue_cr": revenue_cr,
+            "operating_profit_cr": op_profit_cr,
+            "pat_cr": pat_cr,
+            "eps": eps,
+            "roce_pct": roce_pct,
+            "roe_pct": roe_pct,
+            "debt_to_equity": debt_to_equity,
+            "operating_margin_pct": op_margin_pct,
+            "net_margin_pct": net_margin_pct,
+            "shares_outstanding": shares_outstanding,
+            "filing_broadcast_date": broadcast_date,
+            "status": status,
+            "headline": headline,
+            "source_url": source_url,
+            "raw_facts": raw_facts,
+            "affected_metrics": affected_metrics,
+        })
+
+    if not valid_records:
+        return 0
+
+    # 1. PostgreSQL Batch Upsert
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    for rec in valid_records:
+                        cur.execute("""
+                            INSERT INTO corporate_filings_log (
+                                filing_date, discovered_at, symbol, company_name, exchange,
+                                filing_id, period_end, statement_type, basis, event_type,
+                                revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
+                                roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
+                                shares_outstanding, filing_broadcast_date, status, headline,
+                                source_url, raw_facts, affected_metrics, updated_at
+                            ) VALUES (
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s,
+                                %s::jsonb, %s::jsonb, NOW()
+                            )
+                            ON CONFLICT (symbol, filing_id, statement_type, basis) DO UPDATE SET
+                                filing_date = EXCLUDED.filing_date,
+                                discovered_at = EXCLUDED.discovered_at,
+                                event_type = EXCLUDED.event_type,
+                                revenue_cr = COALESCE(EXCLUDED.revenue_cr, corporate_filings_log.revenue_cr),
+                                operating_profit_cr = COALESCE(EXCLUDED.operating_profit_cr, corporate_filings_log.operating_profit_cr),
+                                pat_cr = COALESCE(EXCLUDED.pat_cr, corporate_filings_log.pat_cr),
+                                eps = COALESCE(EXCLUDED.eps, corporate_filings_log.eps),
+                                roce_pct = COALESCE(EXCLUDED.roce_pct, corporate_filings_log.roce_pct),
+                                roe_pct = COALESCE(EXCLUDED.roe_pct, corporate_filings_log.roe_pct),
+                                debt_to_equity = COALESCE(EXCLUDED.debt_to_equity, corporate_filings_log.debt_to_equity),
+                                operating_margin_pct = COALESCE(EXCLUDED.operating_margin_pct, corporate_filings_log.operating_margin_pct),
+                                net_margin_pct = COALESCE(EXCLUDED.net_margin_pct, corporate_filings_log.net_margin_pct),
+                                status = EXCLUDED.status,
+                                headline = EXCLUDED.headline,
+                                raw_facts = EXCLUDED.raw_facts,
+                                affected_metrics = EXCLUDED.affected_metrics,
+                                updated_at = NOW();
+                        """, (
+                            rec["filing_date"], rec["discovered_at"], rec["symbol"], rec["company_name"], rec["exchange"],
+                            rec["filing_id"], rec["period_end"], rec["statement_type"], rec["basis"], rec["event_type"],
+                            rec["revenue_cr"], rec["operating_profit_cr"], rec["pat_cr"], rec["eps"], rec["roce_pct"],
+                            rec["roe_pct"], rec["debt_to_equity"], rec["operating_margin_pct"], rec["net_margin_pct"],
+                            rec["shares_outstanding"], rec["filing_broadcast_date"], rec["status"], rec["headline"],
+                            rec["source_url"], json.dumps(_sanitize_for_json(rec["raw_facts"])),
+                            json.dumps(_sanitize_for_json(rec["affected_metrics"]))
+                        ))
+                    conn.commit()
+    except Exception as pg_err:
+        logger.debug(f"[CORPORATE_FILINGS] PG batch upsert note: {pg_err}")
+
+    # 2. Local JSONL cache batch sync (Single atomic read-modify-write)
+    try:
+        CORPORATE_FILINGS_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        record_map = {}
+        if CORPORATE_FILINGS_LOG_FILE.exists():
+            with open(CORPORATE_FILINGS_LOG_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        r = json.loads(line)
+                        p = str(r.get("period_end") or "").strip()
+                        if not _re_batch.match(r"^\d{4}-\d{2}-\d{2}$", p):
+                            continue
+                        k = (str(r.get("symbol", "")).strip().upper(), p, str(r.get("statement_type", "")).upper(), str(r.get("basis", "")).upper())
+                        record_map[k] = r
+                    except Exception:
+                        continue
+
+        for rec in valid_records:
+            k = (rec["symbol"], rec["period_end"], rec["statement_type"], rec["basis"])
+            record_map[k] = rec
+
+        tmp_log = CORPORATE_FILINGS_LOG_FILE.with_suffix(f".tmp.{os.getpid()}")
+        with open(tmp_log, "w", encoding="utf-8") as f:
+            for r in record_map.values():
+                f.write(json.dumps(_sanitize_for_json(r)) + "\n")
+        tmp_log.replace(CORPORATE_FILINGS_LOG_FILE)
+    except Exception as io_err:
+        logger.debug(f"[CORPORATE_FILINGS] Local cache batch write warning: {io_err}")
+
+    return len(valid_records)
 
 
 def get_corporate_filings_by_date(
@@ -12873,7 +13065,7 @@ def get_corporate_filings_by_date(
                                shares_outstanding, filing_broadcast_date, status, headline,
                                source_url, raw_facts, affected_metrics
                         FROM corporate_filings_log
-                        WHERE 1=1
+                        WHERE period_end ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
                     """
                     params = []
                     if target_date:
@@ -12916,6 +13108,7 @@ def get_corporate_filings_by_date(
     if CORPORATE_FILINGS_LOG_FILE.exists():
         try:
             seen_keys = set()
+            import re as _re_q
             with open(CORPORATE_FILINGS_LOG_FILE, "r", encoding="utf-8") as f:
                 for line in reversed(f.readlines()):
                     if not line.strip():
@@ -12924,7 +13117,10 @@ def get_corporate_filings_by_date(
                         rec = json.loads(line)
                     except Exception:
                         continue
-                    key = (rec.get("symbol"), rec.get("filing_id"), rec.get("statement_type"), rec.get("basis"))
+                    p_end = str(rec.get("period_end") or "").strip()
+                    if not _re_q.match(r"^\d{4}-\d{2}-\d{2}$", p_end):
+                        continue
+                    key = (str(rec.get("symbol", "")).strip().upper(), p_end, str(rec.get("statement_type", "")).upper(), str(rec.get("basis", "")).upper())
                     if key in seen_keys:
                         continue
                     seen_keys.add(key)
@@ -12958,6 +13154,7 @@ def get_corporate_filings_available_dates(limit: int = 60) -> List[str]:
                     cur.execute("""
                         SELECT DISTINCT filing_date::text
                         FROM corporate_filings_log
+                        WHERE period_end ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
                         ORDER BY filing_date::text DESC
                         LIMIT %s
                     """, (limit,))
@@ -12973,13 +13170,17 @@ def get_corporate_filings_available_dates(limit: int = 60) -> List[str]:
     if CORPORATE_FILINGS_LOG_FILE.exists():
         try:
             s_dates = set()
+            import re as _re_dt
             with open(CORPORATE_FILINGS_LOG_FILE, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         try:
                             rec = json.loads(line)
+                            p_end = str(rec.get("period_end") or "").strip()
+                            if not _re_dt.match(r"^\d{4}-\d{2}-\d{2}$", p_end):
+                                continue
                             d = rec.get("filing_date")
-                            if d:
+                            if d and _re_dt.match(r"^\d{4}-\d{2}-\d{2}$", str(d)[:10]):
                                 s_dates.add(str(d)[:10])
                         except Exception:
                             continue
