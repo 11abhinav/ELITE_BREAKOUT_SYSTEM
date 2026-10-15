@@ -9133,6 +9133,125 @@ def remove_symbol_from_cooloff(symbol: str, scanner: str = "ALL") -> bool:
         return False
 
 
+def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> Dict[str, Any]:
+    """
+    [ADMIN STALE DATA REMOVAL & SCANNER UNBLOCK OVERRIDE]
+    Forcefully removes a stock from the stale data / 7-day cool-off suppression table:
+      1. Evicts the symbol from symbol_cooloff_journal in PostgreSQL/SQLite for all scanners.
+      2. Evicts the symbol from _LOCAL_COOLOFF_CACHE across all scanners.
+      3. Clears dynamic quarantine in PitRecoveryStatusStore.
+      4. Restores pit_freshness_status to 'FRESH', snapshot_status to 'FRESH', and clears
+         filing_gap_detected in data/canonical_pit_rebuilt.parquet so scanners can immediately process it.
+      5. Clears in-memory shared snapshot cache.
+      6. Emits an audit log and registers an admin notification.
+    """
+    if not symbol:
+        return {"ok": False, "error": "Invalid symbol"}
+
+    sym_u = str(symbol).strip().upper()
+    now_dt = datetime.now(IST)
+    deleted_from_db = False
+    deleted_from_cache = False
+    quarantine_cleared = False
+    snapshot_restored = False
+    prev_reasons = []
+
+    # 1. Clear _LOCAL_COOLOFF_CACHE
+    with _LOCAL_COOLOFF_LOCK:
+        keys_to_del = [k for k in _LOCAL_COOLOFF_CACHE if k[0] == sym_u]
+        if keys_to_del:
+            deleted_from_cache = True
+            for k in keys_to_del:
+                r = _LOCAL_COOLOFF_CACHE[k].get("reason", "COOLOFF")
+                prev_reasons.append(f"Cache:{r}")
+                del _LOCAL_COOLOFF_CACHE[k]
+
+    # 2. Delete from symbol_cooloff_journal in DB
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("SELECT reason, scanner FROM symbol_cooloff_journal WHERE symbol = %s", (sym_u,))
+                    rows = cur.fetchall()
+                    if rows:
+                        deleted_from_db = True
+                        for r in rows:
+                            prev_reasons.append(f"DB:{r[0]} ({r[1]})")
+                        cur.execute("DELETE FROM symbol_cooloff_journal WHERE symbol = %s", (sym_u,))
+                conn.commit()
+    except Exception as e:
+        logger.error(f"[REMOVE_STALE] Error deleting {sym_u} from symbol_cooloff_journal: {e}")
+
+    # 3. Clear PitRecoveryStatusStore quarantine
+    try:
+        try:
+            from app.pit_recovery_cache import get_pit_recovery_store
+        except ImportError:
+            from pit_recovery_cache import get_pit_recovery_store
+        store = get_pit_recovery_store()
+        if store.is_quarantined_for_scanner(sym_u, scanner_family="ALL"):
+            quarantine_cleared = True
+        store.clear_quarantine(sym_u)
+    except Exception as q_err:
+        logger.debug(f"[REMOVE_STALE] Quarantine clear error for {sym_u}: {q_err}")
+
+    # 4. Update canonical snapshot to FRESH
+    try:
+        import pandas as pd
+        import os
+        from pathlib import Path
+        snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+        if snap_path.exists():
+            snap_df = pd.read_parquet(snap_path)
+            if "symbol" in snap_df.columns:
+                mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym_u
+                if mask.any():
+                    snap_df.loc[mask, "pit_freshness_status"] = "FRESH"
+                    if "snapshot_status" in snap_df.columns:
+                        snap_df.loc[mask, "snapshot_status"] = "FRESH"
+                    if "filing_gap_detected" in snap_df.columns:
+                        snap_df.loc[mask, "filing_gap_detected"] = False
+                    
+                    tmp_snap = snap_path.with_suffix(f".tmp.{os.getpid()}")
+                    snap_df.to_parquet(tmp_snap, index=False)
+                    tmp_snap.replace(snap_path)
+                    snapshot_restored = True
+                    try:
+                        from app.financial_data_integrity import clear_shared_snapshot_cache
+                        clear_shared_snapshot_cache()
+                    except Exception:
+                        pass
+    except Exception as s_err:
+        logger.debug(f"[REMOVE_STALE] Snapshot update error for {sym_u}: {s_err}")
+
+    reasons_str = ", ".join(set(prev_reasons)) if prev_reasons else "Manual Admin Unblock"
+    logger.info(
+        f"🔓 [MANUAL_STALE_REMOVAL] {sym_u} removed from stale table / cool-off journal by {admin_user} "
+        f"(prev reasons: {reasons_str}). Symbol is now unblocked and ready for scanner processing."
+    )
+
+    try:
+        insert_notification(
+            notif_type="admin",
+            title=f"Stale Removal: {sym_u} Unblocked",
+            message=f"{sym_u} was removed from the stale cool-off table by {admin_user}. Scanners can now process it.",
+            symbol=sym_u
+        )
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "symbol": sym_u,
+        "deleted_from_db": deleted_from_db,
+        "deleted_from_cache": deleted_from_cache,
+        "quarantine_cleared": quarantine_cleared,
+        "snapshot_restored": snapshot_restored,
+        "previous_reasons": reasons_str,
+        "message": f"{sym_u} successfully removed from stale data table and unblocked for scanner processing."
+    }
+
+
 def cleanup_expired_cooloffs() -> int:
     """Removes expired cool-off records from database."""
     try:

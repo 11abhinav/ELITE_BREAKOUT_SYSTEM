@@ -22,6 +22,7 @@ from database import (
     get_fresh_stocks_audit,
     get_stock_filings_detail,
     validate_and_restore_stock,
+    remove_stale_stock_from_cooloff,
 )
 from dashboard_server import app, _session_cache
 
@@ -111,3 +112,19 @@ def test_api_stock_data_health_endpoints():
         data3 = res3.get_json()
         assert data3["status"] == "success"
         assert "result" in data3
+
+        # 4. Remove stale stock from cool-off table
+        res4 = client.post("/api/admin/remove_stale_stock", json={"symbol": "INFY"})
+        assert res4.status_code == 200
+        data4 = res4.get_json()
+        assert data4["status"] == "success"
+        assert "INFY" in data4["message"]
+
+
+def test_remove_stale_stock_from_cooloff():
+    res = remove_stale_stock_from_cooloff("TEST_MOCK_SYM")
+    assert isinstance(res, dict)
+    assert res["ok"] is True
+    assert res["symbol"] == "TEST_MOCK_SYM"
+    assert "message" in res
+

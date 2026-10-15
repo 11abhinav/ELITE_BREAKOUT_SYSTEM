@@ -4322,7 +4322,10 @@ function changeAdminPage(type, delta) {
               <span id="modal-sdh-company" style="font-size:14px; color:var(--muted); font-weight:600;">Company Name</span>
               <span id="modal-sdh-status-badge"></span>
             </div>
-            <div style="display:flex; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button id="modal-sdh-btn-remove-stale" onclick="removeStaleStockFromModal()" style="display:none; background:rgba(239,68,68,0.18); color:#ef4444; border:1px solid rgba(239,68,68,0.4); padding:6px 14px; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; align-items:center; gap:6px;" title="Remove from stale data table and unblock for scanner processing">
+                🔓 Remove from Stale Table
+              </button>
               <button id="modal-sdh-btn-validate" onclick="validateStockFromModal()" style="background:#10b981; color:#000; border:none; padding:6px 14px; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">
                 ⚡ Validate &amp; Restore
               </button>
@@ -13557,8 +13560,9 @@ function renderStockDataHealthTable() {
         <!-- ACTIONS -->
         <td style="padding:7px 10px; text-align:center; vertical-align:middle;">
           <div style="display:flex; align-items:center; justify-content:center; gap:4px; flex-wrap:nowrap;">
-            <button onclick="openStockFilingsModal('${sym}')" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:3px 7px; border-radius:5px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">📋 Filings</button>
-            <button onclick="validateStockFromUI('${sym}')" style="background:#10b981; color:#000; border:none; padding:3px 7px; border-radius:5px; font-size:10px; font-weight:800; cursor:pointer; white-space:nowrap;">⚡</button>
+            <button onclick="openStockFilingsModal('${sym}')" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:3px 7px; border-radius:5px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;" title="View complete historical filings and diagnostics">📋 Filings</button>
+            <button onclick="validateStockFromUI('${sym}')" style="background:#10b981; color:#000; border:none; padding:3px 7px; border-radius:5px; font-size:10px; font-weight:800; cursor:pointer; white-space:nowrap;" title="Validate data completeness and restore if valid">⚡</button>
+            ${isStale ? `<button onclick="removeStaleStockFromUI('${sym}')" style="background:rgba(239,68,68,0.18); color:#ef4444; border:1px solid rgba(239,68,68,0.4); padding:3px 7px; border-radius:5px; font-size:10px; font-weight:800; cursor:pointer; white-space:nowrap;" title="Remove ${sym} from Stale Data table and unblock for scanner processing">🔓 Unblock</button>` : ''}
           </div>
         </td>
       </tr>
@@ -13634,6 +13638,11 @@ function renderSdhModalContent(data) {
     } else {
       statusEl.innerHTML = `<span style="background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:11px; font-weight:800; padding:2px 8px; border-radius:6px;">✅ CERTIFIED FRESH</span>`;
     }
+  }
+
+  const btnRemoveStaleModal = document.getElementById('modal-sdh-btn-remove-stale');
+  if (btnRemoveStaleModal) {
+    btnRemoveStaleModal.style.display = isStale ? 'inline-flex' : 'none';
   }
 
   // Status Banner
@@ -13880,6 +13889,40 @@ async function validateStockFromUI(symbol) {
   } catch (err) {
     alert(`Failed to validate ${symbol}: ${err.message}`);
   }
+}
+
+async function removeStaleStockFromUI(symbol) {
+  if (!symbol) return;
+  const confirmed = confirm(
+    `Are you sure you want to remove ${symbol} from the Stale Data table?\n\n` +
+    `This will unblock ${symbol} across all 7-day cool-off journals and clear suppressions so that production scanners (Technical, Fundamental, Quality Compounder, Quality Value Recovery) will immediately process it.`
+  );
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch('/api/admin/remove_stale_stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol })
+    });
+    const data = await res.json();
+    if (data.status === 'success') {
+      alert(`✅ ${symbol} UNBLOCKED!\n\n${data.message || 'Removed from stale data table. Scanners will now process this stock.'}`);
+      fetchStockDataHealth(true);
+    } else {
+      alert(`❌ Failed to remove ${symbol} from stale table: ${data.message || 'Unknown error'}`);
+    }
+  } catch (err) {
+    console.error('Error removing stale stock:', err);
+    alert(`⚠️ Network or server error removing ${symbol} from stale table: ${err.message}`);
+  }
+}
+
+async function removeStaleStockFromModal() {
+  if (!SDH_CURRENT_MODAL_SYMBOL) return;
+  const sym = SDH_CURRENT_MODAL_SYMBOL;
+  await removeStaleStockFromUI(sym);
+  closeSdhModal();
 }
 
 // [VERSION: ADMIN_DB_EXPLORER_JS_v1.0] Database Explorer Frontend Logic

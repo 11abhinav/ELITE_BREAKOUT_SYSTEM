@@ -2944,6 +2944,40 @@ def api_admin_validate_stock():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/admin/remove_stale_stock", methods=["POST"])
+@login_required
+@csrf.exempt
+def api_admin_remove_stale_stock():
+    """
+    Forcefully removes a stock from the stale data / 7-day cool-off table,
+    unblocking it across all cool-off journals so scanners immediately process it.
+    """
+    try:
+        from database import remove_stale_stock_from_cooloff
+        req_json = request.get_json(silent=True) or {}
+        symbol = req_json.get("symbol") or request.form.get("symbol", "")
+        symbol = str(symbol).strip().upper()
+        if not symbol:
+            return jsonify({"status": "error", "message": "Missing 'symbol' parameter"}), 400
+
+        user_name = session.get("username", "Admin")
+        res = remove_stale_stock_from_cooloff(symbol, admin_user=user_name)
+        if res.get("ok"):
+            return jsonify({
+                "status": "success",
+                "message": res.get("message", f"{symbol} removed from stale table."),
+                "data": res
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": res.get("error", "Failed to remove stock from stale table")
+            }), 400
+    except Exception as e:
+        logger.exception(f"[API_REMOVE_STALE_STOCK] Error for {symbol}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 
 @app.route("/admin/export/table/<table_name>")
 @app.route("/admin/export/<table>")
