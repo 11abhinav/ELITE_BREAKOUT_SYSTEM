@@ -519,7 +519,29 @@ class NseXbrlProvider:
                 return False
 
     def _get(self, url: str, symbol: str) -> Optional[list]:
-        """GET with session-refresh + bounded retry. Returns parsed JSON or None."""
+        """GET corporate results. Per user directive: Directly tries ScraperAPI first. Only if scraper token not working, falls back to direct NSE session."""
+        # 1. DIRECTLY TRY WITH SCRAPER API FIRST
+        try:
+            try:
+                from app.pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+            except ImportError:
+                from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+            if get_scraper_api_key():
+                s_resp = fetch_via_scraperapi(url, timeout=35, country_code="in")
+                if s_resp is not None and s_resp.status_code == 200:
+                    try:
+                        data = s_resp.json()
+                        self.http_success_count += 1
+                        logger.info(f"✅ [NSE:SCRAPERAPI] Directly fetched corporate results for {symbol} via ScraperAPI")
+                        return data
+                    except Exception:
+                        pass
+                else:
+                    logger.warning(f"[NSE:SCRAPERAPI] ScraperAPI call for {symbol} returned status {getattr(s_resp, 'status_code', None)}. Falling back to direct session without scraper...")
+        except Exception as s_err:
+            logger.debug(f"[NSE:SCRAPERAPI] ScraperAPI failed for {symbol}: {s_err}. Falling back to direct session without scraper...")
+
+        # 2. ONLY IF SCRAPER TOKEN NOT WORKING / FAILS, TRY WITHOUT SCRAPER
         if not self._initialized:
             self._init_session()
 
@@ -575,7 +597,6 @@ class NseXbrlProvider:
                     time.sleep(1.0)
                     continue
                 logger.error(f"[NSE] {symbol}: Request error: {e}")
-                return None
 
         return None
 
@@ -661,6 +682,8 @@ class NseXbrlProvider:
         """
         Downloads the XBRL document to local cache, returning the absolute path.
         If already cached and non-empty, skips download and returns local path immediately.
+        Per user directive: Directly tries ScraperAPI first (bypasses NSE 30s timeouts & HTTP/2 stream errors).
+        Only if scraper token not working / fails, falls back to direct fetch without scraper.
         """
         fn = os.path.basename(xbrl_url)
         if not fn or not fn.endswith(".xml"):
@@ -671,8 +694,30 @@ class NseXbrlProvider:
         if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
             return local_path
 
+        # 1. DIRECTLY TRY WITH SCRAPER API FIRST
         try:
-            resp = self.session.get(xbrl_url, headers=_HEADERS, timeout=30)
+            try:
+                from app.pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+            except ImportError:
+                from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+            if get_scraper_api_key():
+                s_resp = fetch_via_scraperapi(xbrl_url, timeout=45, country_code="in")
+                if s_resp is not None and s_resp.status_code == 200 and s_resp.content:
+                    tmp_p = f"{local_path}.tmp.{os.getpid()}"
+                    with open(tmp_p, "wb") as f_out:
+                        f_out.write(s_resp.content)
+                    os.replace(tmp_p, local_path)
+                    self.xbrl_documents_downloaded += 1
+                    logger.info(f"✅ [NSE:SCRAPERAPI] Directly downloaded XBRL {fn} via ScraperAPI ({len(s_resp.content)} bytes)")
+                    return local_path
+                else:
+                    logger.warning(f"[NSE:SCRAPERAPI] ScraperAPI returned status {getattr(s_resp, 'status_code', None)} for {fn}. Falling back to direct fetch without scraper...")
+        except Exception as s_err:
+            logger.debug(f"[NSE:SCRAPERAPI] ScraperAPI download failed for {xbrl_url}: {s_err}. Falling back to direct fetch without scraper...")
+
+        # 2. ONLY IF SCRAPER TOKEN NOT WORKING / FAILS, TRY WITHOUT SCRAPER
+        try:
+            resp = self.session.get(xbrl_url, headers=_HEADERS, timeout=10)
             if resp.status_code == 200 and resp.content:
                 tmp_p = f"{local_path}.tmp.{os.getpid()}"
                 with open(tmp_p, "wb") as f_out:
@@ -682,11 +727,11 @@ class NseXbrlProvider:
                 return local_path
             else:
                 self.xbrl_download_failures += 1
-                logger.warning(f"[NSE] Failed to download XBRL {xbrl_url}: HTTP {resp.status_code}")
+                logger.warning(f"[NSE] Direct fetch failed for XBRL {xbrl_url}: HTTP {resp.status_code}")
                 return None
         except Exception as e:
             self.xbrl_download_failures += 1
-            logger.warning(f"[NSE] Exception downloading XBRL {xbrl_url}: {e}")
+            logger.warning(f"[NSE] Direct fetch exception for XBRL {xbrl_url}: {e}")
             return None
 
     def parse_xbrl_document(
@@ -1020,6 +1065,7 @@ class NseXbrlProvider:
         self,
         symbol: str,
         statement_basis: Optional[ConsolidationType] = None,
+        min_period_end_date: Optional[str] = None,
     ) -> List[RawFinancialRecord]:
         """
         Executes the two-layer discovery and XBRL ingestion pipeline for symbol:
@@ -1041,6 +1087,10 @@ class NseXbrlProvider:
         all_records: List[RawFinancialRecord] = []
         doc_count = 0
         for f in active_filings:
+            to_d = _parse_date_to_iso(f.get("toDate") or f.get("period_end_date"))
+            if min_period_end_date and to_d and to_d < min_period_end_date:
+                continue
+
             xbrl_url = f.get("xbrl")
             if not xbrl_url:
                 continue

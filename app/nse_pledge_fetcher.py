@@ -24,7 +24,10 @@ from datetime import datetime, date
 from typing import Dict, List, Tuple, Any, Optional
 from zoneinfo import ZoneInfo
 
-from config import DATA_DIR
+try:
+    from app.config import DATA_DIR
+except ImportError:
+    from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 IST_ZONE = ZoneInfo("Asia/Kolkata")
@@ -153,18 +156,57 @@ import time
 
 def download_official_nse_pledged_csv() -> Tuple[str, Optional[str]]:
     """
-    [RULE 67 CHANGE-RATIONALE: NSE_PLEDGE_RESILIENT_FETCH_v2.0]
-    Downloads the official bulk Pledged Data CSV from NSE using a resilient multi-tier cascade:
-      Tier 1: Direct curl_cffi with Chrome 120 TLS fingerprint (bypasses heavy HTML page hang, requests CSV directly after home handshake).
-      Tier 2: Direct curl_cffi retry with Safari/Chrome110 profile and backoff.
-      Tier 3: ScraperAPI proxy fallback with country_code='in' (bypasses foreign/datacenter Akamai IP blocks from Contabo VPS).
-      Tier 4: Crawlora proxy fallback.
+    Downloads the official bulk Pledged Data CSV from NSE.
+    Per user directive: Directly tries ScraperAPI first (bypasses foreign/datacenter Akamai IP blocks from Contabo VPS).
+    Only if ScraperAPI token is not working or fails, falls back to direct curl_cffi attempts.
     Returns (csv_text, error_message).
     """
     tier_errors = []
 
     # ─────────────────────────────────────────────────────────────────────────────
-    # Tier 1 & Tier 2: Direct curl_cffi attempts (Chrome 120, Safari 15.5)
+    # Tier 1: ScraperAPI Proxy (DIRECT FIRST — routes via Indian residential IPs)
+    # ─────────────────────────────────────────────────────────────────────────────
+    try:
+        import requests as py_requests
+        try:
+            from app.pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+        except ImportError:
+            from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+
+        for _ in range(2):
+            api_key = get_scraper_api_key()
+            if not api_key:
+                break
+            try:
+                payload = {
+                    'api_key': api_key,
+                    'url': NSE_PLEDGED_CSV_URL,
+                    'country_code': 'in',
+                    'render': 'false'
+                }
+                resp = py_requests.get('https://api.scraperapi.com/', params=payload, timeout=35)
+                if resp.status_code in [401, 403, 429]:
+                    reason = resp.text.strip()[:100]
+                    mark_key_exhausted_today(api_key, reason=f"HTTP {resp.status_code}: {reason}")
+                    tier_errors.append(f"scraperapi: HTTP {resp.status_code}")
+                    continue
+                elif resp.status_code == 200:
+                    csv_text = resp.text.lstrip("\ufeff")
+                    if csv_text and "NAME OF COMPANY" in csv_text:
+                        logger.info(f"✅ [NSE_PLEDGE_DOWNLOAD] Successfully downloaded official NSE CSV directly via ScraperAPI ({len(csv_text)} bytes)")
+                        return csv_text, None
+                    else:
+                        tier_errors.append("scraperapi: payload empty or missing expected headers")
+                else:
+                    tier_errors.append(f"scraperapi: HTTP {resp.status_code}")
+            except Exception as scraper_err:
+                tier_errors.append(f"scraperapi: {str(scraper_err)[:80]}")
+                time.sleep(1.0)
+    except Exception as exc:
+        logger.debug(f"ScraperAPI fetch error: {exc}")
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # Tier 2: Direct curl_cffi attempts (Chrome 120, Safari 15.5) ONLY IF SCRAPER FAILS
     # ─────────────────────────────────────────────────────────────────────────────
     try:
         from curl_cffi import requests as c_requests
@@ -192,7 +234,7 @@ def download_official_nse_pledged_csv() -> Tuple[str, Optional[str]]:
                 if r_home.status_code != 200:
                     logger.debug(f"⚠️ NSE home handshake status {r_home.status_code} (Profile: {profile})")
 
-                # Step 2: Fetch the bulk CSV payload directly without stalling on heavy dynamic HTML page
+                # Step 2: Fetch the bulk CSV payload directly
                 r_csv = session.get(NSE_PLEDGED_CSV_URL, headers=headers, timeout=25)
                 if r_csv.status_code == 200:
                     csv_text = r_csv.text.lstrip("\ufeff")  # Strip UTF-8 BOM if present
@@ -208,70 +250,6 @@ def download_official_nse_pledged_csv() -> Tuple[str, Optional[str]]:
                 tier_errors.append(f"direct_{profile}: {err_str[:80]}")
                 logger.debug(f"⚠️ [NSE_PLEDGE_DIRECT] Tier {idx} ({profile}) direct fetch error: {err_str}")
                 time.sleep(1.0)
-
-    # ─────────────────────────────────────────────────────────────────────────────
-    # Tier 3: ScraperAPI Proxy Fallback (routes via Indian residential/datacenter IPs)
-    # ─────────────────────────────────────────────────────────────────────────────
-    try:
-        import requests as py_requests
-        from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
-
-        for _ in range(2):
-            api_key = get_scraper_api_key()
-            if not api_key:
-                break
-            try:
-                payload = {
-                    'api_key': api_key,
-                    'url': NSE_PLEDGED_CSV_URL,
-                    'country_code': 'in',
-                    'render': 'false'
-                }
-                resp = py_requests.get('https://api.scraperapi.com/', params=payload, timeout=35)
-                if resp.status_code in [401, 403, 429]:
-                    reason = resp.text.strip()[:100]
-                    mark_key_exhausted_today(api_key, reason=f"HTTP {resp.status_code}: {reason}")
-                    tier_errors.append(f"scraperapi: HTTP {resp.status_code}")
-                    continue
-                elif resp.status_code == 200:
-                    csv_text = resp.text.lstrip("\ufeff")
-                    if csv_text and "NAME OF COMPANY" in csv_text:
-                        logger.info(f"✅ [NSE_PLEDGE_DOWNLOAD] Successfully downloaded official NSE CSV via ScraperAPI ({len(csv_text)} bytes)")
-                        return csv_text, None
-                    else:
-                        tier_errors.append("scraperapi: payload empty or missing expected headers")
-                else:
-                    tier_errors.append(f"scraperapi: HTTP {resp.status_code}")
-            except Exception as scraper_err:
-                tier_errors.append(f"scraperapi: {str(scraper_err)[:80]}")
-                time.sleep(1.0)
-    except Exception as exc:
-        logger.debug(f"ScraperAPI fallback error: {exc}")
-
-    # ─────────────────────────────────────────────────────────────────────────────
-    # Tier 4: Crawlora Proxy Fallback
-    # ─────────────────────────────────────────────────────────────────────────────
-    try:
-        import requests as py_requests
-        from pledge_scraper import get_crawlora_api_key
-        crawlora_key = get_crawlora_api_key()
-        if crawlora_key:
-            try:
-                crawlora_url = f"https://api.crawlora.com/v1/fetch?api_key={crawlora_key}&url={NSE_PLEDGED_CSV_URL}"
-                resp = py_requests.get(crawlora_url, timeout=35)
-                if resp.status_code == 200:
-                    csv_text = resp.text.lstrip("\ufeff")
-                    if csv_text and "NAME OF COMPANY" in csv_text:
-                        logger.info(f"✅ [NSE_PLEDGE_DOWNLOAD] Successfully downloaded official NSE CSV via Crawlora ({len(csv_text)} bytes)")
-                        return csv_text, None
-                    else:
-                        tier_errors.append("crawlora: payload empty or missing expected headers")
-                else:
-                    tier_errors.append(f"crawlora: HTTP {resp.status_code}")
-            except Exception as crawlora_err:
-                tier_errors.append(f"crawlora: {str(crawlora_err)[:80]}")
-    except Exception as exc:
-        logger.debug(f"Crawlora fallback error: {exc}")
 
     # ─────────────────────────────────────────────────────────────────────────────
     # All tiers exhausted: log sanitized warning summary

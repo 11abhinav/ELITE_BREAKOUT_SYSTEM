@@ -136,7 +136,10 @@ def is_promoter_client(symbol: str, client_name: str) -> bool:
         
     return False
 
-from data_registry import registry
+try:
+    from app.data_registry import registry
+except ImportError:
+    from data_registry import registry
 
 def load_cache_if_needed():
     import os
@@ -232,9 +235,32 @@ def get_nse_bulk_block_deals() -> list:
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     
     for url in urls:
+        resp = None
+        # 1. Directly try ScraperAPI first
         try:
-            resp = requests.get(url, headers=headers, timeout=15)
-            if resp.status_code == 200:
+            try:
+                from app.pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+            except ImportError:
+                from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+            scraper_key = get_scraper_api_key()
+            if scraper_key:
+                s_resp = requests.get('https://api.scraperapi.com/', params={'api_key': scraper_key, 'url': url, 'country_code': 'in'}, timeout=25)
+                if s_resp.status_code == 200 and not ("<html" in s_resp.text.lower() or "<!doctype" in s_resp.text.lower()):
+                    resp = s_resp
+                elif s_resp.status_code in (401, 403, 429):
+                    mark_key_exhausted_today(scraper_key)
+        except Exception as scraper_err:
+            logger.debug(f"ScraperAPI deal fetch failed: {scraper_err}")
+
+        # 2. Only if ScraperAPI fails / unavailable, try direct fetch without scraper
+        if resp is None:
+            try:
+                resp = requests.get(url, headers=headers, timeout=15)
+            except Exception as e:
+                logger.debug(f"Direct deal fetch failed for {url}: {e}")
+
+        if resp is not None and resp.status_code == 200:
+            try:
                 df = pd.read_csv(io.StringIO(resp.text))
                 for _, row in df.iterrows():
                     all_deals.append({
@@ -243,8 +269,8 @@ def get_nse_bulk_block_deals() -> list:
                         'buyOrSell': row.get('Buy/Sell', ''),
                         'remarks': row.get('Remarks', '')
                     })
-        except Exception as e:
-            logger.debug(f"Failed to fetch {url}: {e}")
+            except Exception as parse_err:
+                logger.debug(f"Deal CSV parse failed for {url}: {parse_err}")
             
     return all_deals
 

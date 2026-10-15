@@ -402,37 +402,68 @@ class BseCorporateProvider:
         raw_rows = []
         for flag in ([primary_flag] if statement_basis else [primary_flag, fallback_flag]):
             url = f"{_BSE_FIN_RESULTS_URL}?scripcode={scrip_code}&flag={flag}"
+            flag_rows_found = False
+
+            # 1. DIRECTLY TRY WITH SCRAPER API FIRST (bypasses BSE cloud IP 401/403 blocks)
             try:
-                resp = self.session.get(url, timeout=_TIMEOUT)
-                if resp.status_code == 200:
-                    self.http_success_count += 1
-                    try:
-                        data = resp.json()
-                        rows = data if isinstance(data, list) else data.get("Table", data.get("data", data.get("results", [])))
-                        if rows:
-                            raw_rows.extend(rows)
-                            self.filings_discovered += len(rows)
-                            # If primary flag returned data and no specific statement basis forced, don't mix with fallback flag
-                            if not statement_basis:
-                                break
-                    except Exception:
+                try:
+                    from app.pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+                except ImportError:
+                    from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+
+                if get_scraper_api_key():
+                    s_resp = fetch_via_scraperapi(url, timeout=_TIMEOUT * 2, country_code="in")
+                    if s_resp is not None and s_resp.status_code == 200:
+                        try:
+                            data = s_resp.json()
+                            rows = data if isinstance(data, list) else data.get("Table", data.get("data", data.get("results", [])))
+                            if rows:
+                                raw_rows.extend(rows)
+                                self.filings_discovered += len(rows)
+                                self.http_success_count += 1
+                                flag_rows_found = True
+                                logger.info(f"✅ [BSE:SCRAPERAPI] Directly fetched {len(rows)} records for {symbol} via ScraperAPI")
+                                if not statement_basis:
+                                    break
+                        except Exception:
+                            pass
+                    else:
+                        logger.warning(f"[BSE:SCRAPERAPI] ScraperAPI returned status {getattr(s_resp, 'status_code', None)} for {symbol}. Falling back to direct BSE fetch...")
+            except Exception as s_err:
+                logger.debug(f"[BSE:SCRAPERAPI] ScraperAPI failed for {symbol}: {s_err}. Falling back to direct BSE fetch...")
+
+            # 2. ONLY IF SCRAPER TOKEN NOT WORKING / NO DATA, TRY WITHOUT SCRAPER
+            if not flag_rows_found:
+                try:
+                    resp = self.session.get(url, timeout=_TIMEOUT)
+                    if resp.status_code == 200:
+                        self.http_success_count += 1
+                        try:
+                            data = resp.json()
+                            rows = data if isinstance(data, list) else data.get("Table", data.get("data", data.get("results", [])))
+                            if rows:
+                                raw_rows.extend(rows)
+                                self.filings_discovered += len(rows)
+                                if not statement_basis:
+                                    break
+                        except Exception:
+                            pass
+                    elif resp.status_code in (401, 403):
+                        self.bse_auth_or_403_blocks += 1
+                        self.http_error_count += 1
+                        self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
+                        self.last_error[symbol] = f"HTTP {resp.status_code} (Gateway Auth / Feed Access Required)"
+                        logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) HTTP {resp.status_code}")
+                    elif resp.status_code in (404, 400):
                         pass
-                elif resp.status_code in (401, 403):
-                    self.bse_auth_or_403_blocks += 1
+                    else:
+                        self.http_error_count += 1
+                        self.last_error[symbol] = f"HTTP {resp.status_code}"
+                except requests.RequestException as req_err:
                     self.http_error_count += 1
-                    self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
-                    self.last_error[symbol] = f"HTTP {resp.status_code} (Gateway Auth / Feed Access Required)"
-                    logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) HTTP {resp.status_code}")
-                elif resp.status_code in (404, 400):
-                    pass
-                else:
-                    self.http_error_count += 1
-                    self.last_error[symbol] = f"HTTP {resp.status_code}"
-            except requests.RequestException as req_err:
-                self.http_error_count += 1
-                self.last_status[symbol] = "BSE_HTTP_ERROR"
-                self.last_error[symbol] = str(req_err)
-                logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) request error: {req_err}")
+                    self.last_status[symbol] = "BSE_HTTP_ERROR"
+                    self.last_error[symbol] = str(req_err)
+                    logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) request error: {req_err}")
 
         self.last_raw_count[symbol] = len(raw_rows)
 

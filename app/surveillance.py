@@ -2,13 +2,12 @@ import os
 import requests
 import time
 import logging
-from config import WATCHLIST_PATH
-
-import threading
-
-logger = logging.getLogger(__name__)
-
-from data_registry import registry
+try:
+    from app.config import WATCHLIST_PATH
+    from app.data_registry import registry
+except ImportError:
+    from config import WATCHLIST_PATH
+    from data_registry import registry
 import threading
 
 _BLACKLIST_TTL = 30 * 60  # 30 minutes
@@ -90,20 +89,14 @@ def get_live_blacklist() -> set[str]:
             max_retries = 2
             for attempt in range(max_retries):
                 try:
-                    from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+                    try:
+                        from app.pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+                    except ImportError:
+                        from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
                     api_key = get_scraper_api_key()
                     
                     def fetch_nse_json(url: str):
-                        from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
-                        
-                        # 1. Direct nsepython (PRIMARY)
-                        try:
-                            import nsepython
-                            return nsepython.nsefetch(url)
-                        except Exception as nse_err:
-                            logger.debug(f"nsepython fetch failed for {url}: {nse_err}")
-
-                        # 2. ScraperAPI Attempt (SECONDARY BACKUP)
+                        # 1. ScraperAPI (DIRECT FIRST)
                         curr_key = get_scraper_api_key()
                         if curr_key:
                             try:
@@ -126,8 +119,15 @@ def get_live_blacklist() -> set[str]:
                                     logger.warning(f"⚠️ ScraperAPI returned unexpected status {resp.status_code} for {url}: {resp.text[:150]}")
                             except Exception as scraper_err:
                                 logger.debug(f"ScraperAPI fetch failed for {url}: {scraper_err}")
-                        
-                        raise Exception(f"Failed to fetch {url} via nsepython and ScraperAPI fallback")
+
+                        # 2. Direct nsepython (ONLY IF SCRAPER FAILS / UNAVAILABLE)
+                        try:
+                            import nsepython
+                            return nsepython.nsefetch(url)
+                        except Exception as nse_err:
+                            logger.debug(f"nsepython fetch failed for {url}: {nse_err}")
+
+                        raise Exception(f"Failed to fetch {url} via ScraperAPI and direct nsepython fallback")
 
                     asm_res = fetch_nse_json("https://www.nseindia.com/api/reportASM")
                     if isinstance(asm_res, dict):

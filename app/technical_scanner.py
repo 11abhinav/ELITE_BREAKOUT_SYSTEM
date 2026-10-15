@@ -1728,6 +1728,7 @@ def run_technical_scan(
                 interval="1d",
                 requester="TECHNICAL",
                 run_ctx=real_run_ctx,
+                required_indicators={"EMA20", "ATR", "ATR_14", "Volume_SMA20", "SMA50", "SMA200", "RSI"},
             )
 
         qualified_candidates: List[Dict[str, Any]] = []
@@ -1742,7 +1743,10 @@ def run_technical_scan(
             "final_alerts": 0,
         }
 
-        for symbol in watchlist:
+        for idx, symbol in enumerate(watchlist, 1):
+            if idx % 50 == 0 or idx == len(watchlist):
+                logger.info(f"⏳ [TECHNICAL] Evaluated {idx}/{len(watchlist)} stocks ({len(qualified_candidates)} qualified)...")
+
             df = all_1d.get(symbol)
             if df is None or df.empty:
                 if real_run_ctx:

@@ -91,7 +91,26 @@ class ConstituentService:
                     response = None
                     max_retries = 2
                     for attempt in range(max_retries):
-                        # Attempt 1: Direct Session fetch (PRIMARY - fast 100ms with browser headers)
+                        # Attempt 1: ScraperAPI Proxy (DIRECT FIRST)
+                        try:
+                            try:
+                                from app.pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+                            except ImportError:
+                                from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+                            scraper_key = get_scraper_api_key()
+                            if scraper_key:
+                                logger.info(f"🌐 [SCRAPERAPI DIRECT] Fetching {name} constituents via ScraperAPI...")
+                                s_resp = requests.get("https://api.scraperapi.com/", params={"api_key": scraper_key, "url": url, "country_code": "in"}, timeout=25)
+                                if s_resp and s_resp.status_code in (401, 403, 429):
+                                    mark_key_exhausted_today(scraper_key)
+                                elif s_resp and s_resp.status_code == 200 and len(s_resp.content) > 100:
+                                    response = s_resp
+                                    logger.info(f"✅ [SCRAPERAPI SUCCESS] Downloaded {name} constituents ({len(s_resp.content)} bytes)")
+                                    break
+                        except Exception as scraper_err:
+                            logger.warning(f"⚠️ [SCRAPERAPI ERROR] ScraperAPI fetch for {name}: {scraper_err}")
+
+                        # Attempt 2: Direct Session fetch (ONLY IF SCRAPER FAILS / UNAVAILABLE)
                         try:
                             res = session.get(url, timeout=10)
                             if res is not None and res.status_code == 200 and len(res.content) > 100:
@@ -100,22 +119,6 @@ class ConstituentService:
                                 break
                         except Exception as direct_err:
                             logger.warning(f"⚠️ [NSE DIRECT FETCH FAIL] {name}: {direct_err}")
-
-                        # Attempt 2: ScraperAPI Proxy (SECONDARY BACKUP)
-                        try:
-                            from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
-                            scraper_key = get_scraper_api_key()
-                            if scraper_key:
-                                logger.info(f"🌐 [SCRAPERAPI BACKUP] Fetching {name} constituents via ScraperAPI...")
-                                s_resp = requests.get("http://api.scraperapi.com", params={"api_key": scraper_key, "url": url}, timeout=20)
-                                if s_resp and s_resp.status_code in (401, 403, 429):
-                                    mark_key_exhausted_today(scraper_key)
-                                elif s_resp and s_resp.status_code == 200 and len(s_resp.content) > 100:
-                                    response = s_resp
-                                    logger.info(f"✅ [SCRAPERAPI SUCCESS] Downloaded {name} constituents ({len(s_resp.content)} bytes)")
-                                    break
-                        except Exception as scraper_err:
-                            logger.warning(f"⚠️ [SCRAPERAPI ERROR] ScraperAPI fallback for {name}: {scraper_err}")
 
                         if attempt < max_retries - 1:
                             time.sleep(2)

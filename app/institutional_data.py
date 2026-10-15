@@ -80,24 +80,29 @@ def get_institutional_buys() -> dict[str, list[str]]:
     def process_url(url, deal_type):
         for attempt in range(3):
             try:
-                logger.info(f"🔄 Attempting to fetch {deal_type} deals from {url} (Attempt {attempt+1})")
-                r = session.get(url, timeout=15)
-                
-                # If direct request fails or gets HTML block page, try ScraperAPI
-                if r.status_code != 200 or "<html" in r.text.lower() or "<!doctype" in r.text.lower():
+                r = None
+                # 1. DIRECTLY TRY WITH SCRAPER API FIRST
+                try:
+                    from app.pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+                except ImportError:
                     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
-                    scraper_key = get_scraper_api_key()
-                    if scraper_key:
-                        try:
-                            logger.info(f"🌐 [SCRAPERAPI BACKUP] Requesting {deal_type} deals: {url}")
-                            s_resp = requests.get("http://api.scraperapi.com", params={"api_key": scraper_key, "url": url}, timeout=30)
-                            if s_resp is not None and s_resp.status_code in (401, 403, 429):
-                                mark_key_exhausted_today(scraper_key)
-                            elif s_resp is not None and s_resp.status_code == 200:
-                                logger.info(f"✅ [SCRAPERAPI SUCCESS] HTTP 200 for {deal_type} deals ({len(s_resp.content)} bytes)")
-                                r = s_resp
-                        except Exception as scraper_err:
-                            logger.warning(f"❌ [SCRAPERAPI ERROR] ScraperAPI fetch failed for {deal_type}: {scraper_err}")
+                scraper_key = get_scraper_api_key()
+                if scraper_key:
+                    try:
+                        logger.info(f"🌐 [SCRAPERAPI DIRECT] Requesting {deal_type} deals (Attempt {attempt+1}): {url}")
+                        s_resp = requests.get("https://api.scraperapi.com/", params={"api_key": scraper_key, "url": url, "country_code": "in"}, timeout=30)
+                        if s_resp is not None and s_resp.status_code in (401, 403, 429):
+                            mark_key_exhausted_today(scraper_key)
+                        elif s_resp is not None and s_resp.status_code == 200 and not ("<html" in s_resp.text.lower() or "<!doctype" in s_resp.text.lower()):
+                            logger.info(f"✅ [SCRAPERAPI SUCCESS] HTTP 200 for {deal_type} deals ({len(s_resp.content)} bytes)")
+                            r = s_resp
+                    except Exception as scraper_err:
+                        logger.warning(f"❌ [SCRAPERAPI ERROR] ScraperAPI fetch failed for {deal_type}: {scraper_err}")
+
+                # 2. ONLY IF SCRAPER FAILS / UNAVAILABLE, TRY WITHOUT SCRAPER
+                if r is None:
+                    logger.info(f"🔄 Attempting direct fetch for {deal_type} deals from {url} (Attempt {attempt+1})")
+                    r = session.get(url, timeout=15)
 
                 if r.status_code == 200:
                     text = r.text.strip()

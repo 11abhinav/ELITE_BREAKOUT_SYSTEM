@@ -27,57 +27,58 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
             s = requests.Session()
         
         # Hit main page to get cookies
-        try:
-            s.get('https://www.nseindia.com', headers=headers, timeout=15)
-        except Exception as landing_err:
-            logger.debug(f"NSE landing page hit warning: {landing_err}")
-        
-        import time
-        time.sleep(1.0)
-        
         response = None
+        last_status = None
+
+        # 1. DIRECTLY TRY WITH SCRAPER API FIRST (bypasses NSE Akamai blocks and download timeouts)
         try:
-            r = s.get(pdf_url, headers=headers, stream=True, timeout=30)
-            last_status = r.status_code
-            if r.status_code == 200:
-                response = r
-            elif r.status_code == 404:
-                logger.warning(f"⚠️ [PDF NOT FOUND] HTTP 404 Not Found — PDF does not exist on NSE archives: {pdf_url}")
-                return ""
-            else:
-                logger.warning(f"⚠️ [PDF FETCH WARN] HTTP {r.status_code} received from NSE archives for: {pdf_url}")
-        except Exception as direct_err:
-            logger.debug(f"Direct PDF fetch error: {direct_err}")
-
-        if response is None:
-            from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
-            crawlora_key = get_crawlora_api_key()
-            if crawlora_key:
-                try:
-                    c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': pdf_url}, stream=True, timeout=30)
-                    last_status = c_resp.status_code
-                    if c_resp.status_code == 200:
-                        response = c_resp
-                    elif c_resp.status_code in (401, 429):
-                        mark_crawlora_key_exhausted_today(crawlora_key)
-                except Exception as crawlora_err:
-                    logger.debug(f"Crawlora PDF fetch failed: {crawlora_err}")
-
-        if response is None:
+            try:
+                from app.pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+            except ImportError:
+                from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
             scraper_key = get_scraper_api_key()
             if scraper_key:
                 try:
-                    s_resp = requests.get('https://api.scraperapi.com/', params={'api_key': scraper_key, 'url': pdf_url}, stream=True, timeout=30)
+                    s_resp = requests.get(
+                        'https://api.scraperapi.com/',
+                        params={'api_key': scraper_key, 'url': pdf_url, 'country_code': 'in'},
+                        stream=True,
+                        timeout=35
+                    )
                     last_status = s_resp.status_code
                     if s_resp.status_code == 200:
                         response = s_resp
+                        logger.info(f"✅ [PDF:SCRAPERAPI] Directly fetched PDF via ScraperAPI: {pdf_url}")
                     elif s_resp.status_code in (401, 403, 429):
                         mark_key_exhausted_today(scraper_key)
                 except Exception as scraper_err:
                     logger.debug(f"ScraperAPI PDF fetch failed: {scraper_err}")
+        except Exception as err:
+            logger.debug(f"ScraperAPI import/init error: {err}")
+
+        # 2. ONLY IF SCRAPER TOKEN NOT WORKING / FAILS, TRY WITHOUT SCRAPER
+        if response is None:
+            try:
+                s = get_requests_session()
+                try:
+                    s.get('https://www.nseindia.com', headers=headers, timeout=15)
+                except Exception:
+                    pass
+                time.sleep(1.0)
+                r = s.get(pdf_url, headers=headers, stream=True, timeout=30)
+                last_status = r.status_code
+                if r.status_code == 200:
+                    response = r
+                elif r.status_code == 404:
+                    logger.warning(f"⚠️ [PDF NOT FOUND] HTTP 404 Not Found — PDF does not exist on NSE archives: {pdf_url}")
+                    return ""
+                else:
+                    logger.warning(f"⚠️ [PDF FETCH WARN] HTTP {r.status_code} received from NSE archives for: {pdf_url}")
+            except Exception as direct_err:
+                logger.debug(f"Direct PDF fetch error: {direct_err}")
 
         if response is None:
-            logger.error(f"❌ [PDF FETCH FAILURE] Failed to fetch PDF from {pdf_url} (Last HTTP Status: {last_status}) via Crawlora & ScraperAPI")
+            logger.error(f"❌ [PDF FETCH FAILURE] Failed to fetch PDF from {pdf_url} (Last HTTP Status: {last_status})")
             return ""
         
         # Write to a temp file

@@ -595,7 +595,14 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                             last_dt = pd.to_datetime(last_val)
                             if last_dt.date() < now_ist.date():
                                 # Append today's completed session candle with live CMP
-                                today_date_val = now_ist.date() if t_col == 'Date' else pd.Timestamp(now_ist.date())
+                                # Preserve identical column dtype to prevent pd.to_datetime mixed-type exception fallback
+                                if isinstance(last_val, str):
+                                    today_date_val = f"{now_ist.date().isoformat()}T00:00:00+05:30" if "T" in last_val else now_ist.date().isoformat()
+                                elif isinstance(last_val, pd.Timestamp):
+                                    today_date_val = pd.Timestamp(now_ist.date()).tz_localize(last_val.tzinfo) if last_val.tzinfo is not None else pd.Timestamp(now_ist.date())
+                                else:
+                                    today_date_val = now_ist.date() if t_col == 'Date' else pd.Timestamp(now_ist.date())
+
                                 new_row = {col: None for col in df_val.columns}
                                 for p_col in ("Open", "High", "Low", "Close"):
                                     if p_col in df_val.columns:

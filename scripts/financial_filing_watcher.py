@@ -757,16 +757,36 @@ class FinancialFilingWatcher:
         except ImportError:
             from database import upsert_corporate_filing_finding
 
-        for sym in symbols:
+        # Pre-load snapshot cache ONCE in memory to avoid 886 repeated parquet disk reads
+        snap_lookup: Dict[str, Any] = {}
+        try:
+            if SNAPSHOT_PATH.exists():
+                import pandas as _pd_p
+                _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status"])
+                for _, _r in _sdf.iterrows():
+                    snap_lookup[str(_r["symbol"]).strip().upper()] = _r
+        except Exception as _snap_err:
+            logger.debug(f"[filling scanner] Could not pre-load snapshot lookup: {_snap_err}")
+
+        for idx, sym in enumerate(symbols, 1):
+            if idx % 50 == 0 or idx == len(symbols):
+                logger.info(f"⏳ [filling scanner] Polled {idx}/{len(symbols)} symbols ({len(discovered_events)} new disclosures found)...")
             sym_u = sym.strip().upper()
             try:
+                snap_row = snap_lookup.get(sym_u)
+                snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
+                freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
+                # If stock is already fresh, only poll for periods on or after that annual date.
+                # Otherwise bound to last 2 years to prevent downloading dead 2018-2021 XML archives.
+                min_poll_date = snap_annual if (snap_annual and freshness in ("FRESH", "VALID")) else f"{as_of.year - 2}-01-01"
+
                 raw_filings_list: List[Dict[str, Any]] = []
 
                 # 1. Poll NSE XBRL / Corporate Results
                 if nse_provider:
                     try:
-                        # Attempt to fetch rich parsed XBRL financials first
-                        nse_records = nse_provider.fetch_raw_financials(sym_u)
+                        # Attempt to fetch rich parsed XBRL financials first (filtered to recent periods)
+                        nse_records = nse_provider.fetch_raw_financials(sym_u, min_period_end_date=min_poll_date)
                         if nse_records:
                             for r in nse_records:
                                 norm_p = _normalize_iso_date(r.period_end_date)
@@ -882,21 +902,7 @@ class FinancialFilingWatcher:
 
                 valid_items.sort(key=lambda x: str(x.get("period_end_date", "")))
 
-                # Check against canonical snapshot to avoid processing already-known historical periods
-                snap_row = None
-                try:
-                    if SNAPSHOT_PATH.exists():
-                        import pandas as _pd_p
-                        _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status"])
-                        _match = _sdf[_sdf["symbol"].str.upper() == sym_u]
-                        if not _match.empty:
-                            snap_row = _match.iloc[0]
-                except Exception:
-                    pass
-
-                snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
-                freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
-
+                # Check against pre-loaded canonical snapshot to avoid processing already-known historical periods
                 if snap_row is not None and snap_annual and freshness in ("FRESH", "VALID"):
                     candidate_items = [it for it in valid_items if str(it.get("period_end_date"))[:10] > snap_annual]
                 else:

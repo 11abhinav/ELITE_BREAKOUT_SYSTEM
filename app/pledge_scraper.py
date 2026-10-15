@@ -1,6 +1,7 @@
 import os
 import requests
 import logging
+from typing import Optional, Dict, Any, List, Tuple
 from bs4 import BeautifulSoup
 import re
 import random
@@ -9,9 +10,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from functools import lru_cache
 from tenacity import retry, stop_after_attempt, wait_exponential
-from database import get_connection, init_db
-from data_fetch_status import mark_success, mark_failure
-from config import DATA_DIR
+try:
+    from app.database import get_connection, init_db, get_system_state, save_system_state
+    from app.data_fetch_status import mark_success, mark_failure
+    from app.config import DATA_DIR
+except ImportError:
+    from database import get_connection, init_db, get_system_state, save_system_state
+    from data_fetch_status import mark_success, mark_failure
+    from config import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +56,6 @@ def _init_proxy_key_state():
 
         # 2. Load blacklisted keys & sticky active working keys from PostgreSQL DB system_state
         try:
-            from database import get_system_state
             db_json_str = get_system_state("exhausted_proxy_keys_v1")
             if db_json_str:
                 db_data = json.loads(db_json_str)
@@ -179,7 +184,6 @@ def set_active_scraper_key(key: str):
         if _active_scraper_key_ram != key:
             _active_scraper_key_ram = key
             try:
-                from database import save_system_state
                 save_system_state("active_scraper_key_v1", key)
             except Exception:
                 pass
@@ -193,15 +197,19 @@ def set_active_crawlora_key(key: str):
         if _active_crawlora_key_ram != key:
             _active_crawlora_key_ram = key
             try:
-                from database import save_system_state
                 save_system_state("active_crawlora_key_v1", key)
             except Exception:
                 pass
 
 def get_scraper_api_key() -> str:
-    """Parse comma-separated SCRAPERAPI_KEY env var and return the active key (used sticky until exhausted)."""
+    """Parse comma-separated SCRAPERAPI_KEY or SCRAPER_API_KEY env var and return the active key (used sticky until exhausted)."""
     _init_proxy_key_state()
-    keys_str = os.getenv("SCRAPERAPI_KEY", "")
+    keys_str = (
+        os.getenv("SCRAPERAPI_KEY", "")
+        or os.getenv("SCRAPER_API_KEY", "")
+        or os.getenv("SCRAPERAPI_KEY_LIST", "")
+        or os.getenv("SCRAPER_KEY", "")
+    )
     if not keys_str:
         return ""
     keys = [k.strip() for k in keys_str.split(',') if k.strip()]
@@ -220,34 +228,59 @@ def get_scraper_api_key() -> str:
     return ""
 
 def get_crawlora_api_key() -> str:
-    """Parse comma-separated CRAWLORA_API_KEY env var and return the active key (used sticky until exhausted)."""
-    _init_proxy_key_state()
-    keys_str = os.getenv("CRAWLORA_API_KEY", "")
-    if not keys_str:
-        logger.warning("⚠️ [CRAWLORA] CRAWLORA_API_KEY environment variable is EMPTY or NOT SET!")
-        return ""
-    keys = [k.strip() for k in keys_str.split(',') if k.strip()]
-
-    # 1. Use sticky active working key first if valid & not blacklisted
-    global _active_crawlora_key_ram
-    if _active_crawlora_key_ram and _active_crawlora_key_ram in keys and not _is_key_exhausted_today(f"crawlora_{_active_crawlora_key_ram}"):
-        masked_key = f"{_active_crawlora_key_ram[:4]}...{_active_crawlora_key_ram[-4:]}" if len(_active_crawlora_key_ram) > 8 else "CONFIG_KEY"
-        logger.debug(f"🔑 [CRAWLORA STICKY ACTIVE KEY] Reusing active working key [{masked_key}]")
-        return _active_crawlora_key_ram
-
-    # 2. Find next non-exhausted key
-    for k in keys:
-        if not _is_key_exhausted_today(f"crawlora_{k}"):
-            masked_key = f"{k[:4]}...{k[-4:]}" if len(k) > 8 else "CONFIG_KEY"
-            logger.info(f"🔑 [CRAWLORA] Selected active API key [{masked_key}] (out of {len(keys)} total key(s))")
-            set_active_crawlora_key(k)
-            return k
-            
-    logger.warning("⚠️ [CRAWLORA] All provided Crawlora API keys are marked EXHAUSTED for the next 7 days!")
+    """DEPRECATED: Crawlora is strictly disabled per user directive. Always returns empty string."""
     return ""
 
 def mark_crawlora_key_exhausted_today(key: str):
-    mark_key_exhausted_today(f"crawlora_{key}")
+    """DEPRECATED: Crawlora disabled."""
+    pass
+
+def fetch_via_scraperapi(
+    url: str,
+    params: Optional[dict] = None,
+    timeout: int = 35,
+    country_code: str = "in",
+    stream: bool = False,
+    headers: Optional[dict] = None,
+) -> Optional[requests.Response]:
+    """
+    Executes an HTTP GET via ScraperAPI with automatic sticky key rotation,
+    handling 401/403/429 key exhaustion and country-routing (default India).
+    """
+    scraper_key = get_scraper_api_key()
+    if not scraper_key:
+        return None
+
+    import urllib.parse
+    final_url = url
+    if params:
+        query_string = urllib.parse.urlencode(params)
+        final_url = f"{url}?{query_string}" if "?" not in url else f"{url}&{query_string}"
+
+    payload = {
+        "api_key": scraper_key,
+        "url": final_url,
+        "country_code": country_code,
+        "render": "false",
+    }
+    try:
+        masked_key = f"{scraper_key[:4]}...{scraper_key[-4:]}" if len(scraper_key) > 8 else "CONFIG_KEY"
+        logger.info(f"🌐 [SCRAPERAPI FETCH] Routing URL via ScraperAPI (key: {masked_key}, country: {country_code}): {url}")
+        resp = requests.get("https://api.scraperapi.com/", params=payload, timeout=timeout, stream=stream)
+        if resp.status_code in (401, 403, 429):
+            mark_key_exhausted_today(scraper_key, reason=f"HTTP {resp.status_code}: {resp.text[:100]}")
+            # Try once more with next key
+            next_key = get_scraper_api_key()
+            if next_key and next_key != scraper_key:
+                payload["api_key"] = next_key
+                resp = requests.get("https://api.scraperapi.com/", params=payload, timeout=timeout, stream=stream)
+                if resp.status_code in (401, 403, 429):
+                    mark_key_exhausted_today(next_key, reason=f"HTTP {resp.status_code}: {resp.text[:100]}")
+                    return None
+        return resp
+    except Exception as e:
+        logger.warning(f"⚠️ [SCRAPERAPI ERROR] Request to {url} failed: {e}")
+        return None
 
 def _get_fail_file():
     return os.path.join(DATA_DIR, "pledge_failures.json")
