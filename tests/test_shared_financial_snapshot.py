@@ -244,7 +244,8 @@ def test_quality_scanner_respects_update_pending():
     import pandas as pd
     scanner.load_pit_dataset = lambda: pd.DataFrame(mock_pit_df)
 
-    res = scanner.scan_universe(trigger_type="MANUAL", scheduler_name="TEST")
+    with patch("app.live_prices.get_live_prices", return_value={"PENDING_STOCK": 500.0}):
+        res = scanner.scan_universe(trigger_type="MANUAL", scheduler_name="TEST")
 
     # Must have 0 BUY candidates because snapshot_status is UPDATE_PENDING
     assert res.get("candidate_count", 0) == 0

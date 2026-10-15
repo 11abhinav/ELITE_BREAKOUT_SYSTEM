@@ -50,7 +50,7 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -455,12 +455,22 @@ def check_pit_freshness(
     scan_date: Optional[date] = None,
     max_staleness_years: float = MAX_PIT_STALENESS_YEARS,
     fy_end_month: Optional[int] = None,
+    latest_quarterly_period: Any = None,
+    enforce_quarterly: bool = False,
 ) -> IntegrityResult:
     """
-    Validates that the latest annual filing in the PIT dataset is recent enough.
+    Validates that the latest annual filing in the PIT dataset is recent enough
+    AND that the company is not missing expected quarterly results.
 
-    A PIT dataset that passes the row-count minimum but has a stale
-    latest_annual_period (e.g. FY2010 in a 2026 scan) MUST be blocked.
+    Two-layer staleness check:
+      Layer 1 (Annual): A PIT dataset with latest_annual_period older than
+        max_staleness_years is blocked as DATA_STALE.
+      Layer 2 (Quarterly): Even if the annual filing is recent, if the scan_date
+        is past the SEBI 45-day reporting deadline for a quarterly period and the
+        local data has no matching quarterly filing, the stock is flagged as
+        DATA_STALE_QUARTERLY. This prevents stocks from appearing FRESH when
+        they have announced new quarterly results that the system hasn't ingested.
+
     Supports dynamic company-specific fiscal calendars (e.g. Dec FY for ABB India).
 
     Args:
@@ -469,9 +479,11 @@ def check_pit_freshness(
         scan_date: The date of the scan. Defaults to today (IST).
         max_staleness_years: Maximum allowed years between latest filing and scan.
         fy_end_month: Optional explicit company FY-end month (1-12).
+        latest_quarterly_period: The period_end_date of the most recent quarterly
+            row in local PIT data. Used for quarterly staleness enforcement.
 
     Returns:
-        IntegrityResult with status VALID or DATA_STALE.
+        IntegrityResult with status VALID, DATA_STALE, or DATA_STALE.
     """
     if scan_date is None:
         try:
@@ -518,6 +530,7 @@ def check_pit_freshness(
         "max_staleness_years": max_staleness_years,
     }
 
+    # ── Layer 1: Annual staleness check ──
     if staleness_years > max_staleness_years:
         logger.error(
             f"[PIT_STALENESS] {symbol}: latest_annual_period={latest_dt} is "
@@ -546,9 +559,92 @@ def check_pit_freshness(
             detail=detail,
         )
 
+    # ── Layer 2: Quarterly earnings cycle staleness check ──
+    # SEBI mandates listed companies publish quarterly results within 45 days
+    # of quarter end. If the scan_date is past that deadline and our local data
+    # doesn't have the expected quarterly filing, the stock is stale.
+    # Evaluated when latest_quarterly_period is tracked or when enforce_quarterly is requested.
+    if latest_quarterly_period is None and not enforce_quarterly:
+        detail["quarterly_staleness_check"] = "SKIPPED_NOT_ENFORCED"
+    else:
+        # Indian standard quarter ends (March FY): Jun 30, Sep 30, Dec 31, Mar 31
+        # For non-March FY companies, quarters shift accordingly.
+        # We add a 15-day grace period beyond the 45-day SEBI deadline to account
+        # for processing and ingestion delays (total 60 days after quarter end).
+        QUARTERLY_REPORTING_GRACE_DAYS = 60  # 45 days SEBI deadline + 15 days ingestion grace
+
+        # Determine the latest quarterly period we should expect to have ingested
+        # based on the scan_date and the company's fiscal year calendar.
+        fy_end_m = target_fy_month  # Already computed above
+        # Standard quarter-end months relative to FY end (e.g. FY ending March → Q1=Jun, Q2=Sep, Q3=Dec, Q4=Mar)
+        q_end_months = [
+            (fy_end_m + 3) % 12 or 12,   # Q1 end
+            (fy_end_m + 6) % 12 or 12,   # Q2 end
+            (fy_end_m + 9) % 12 or 12,   # Q3 end
+            fy_end_m,                      # Q4 end (= FY end, annual)
+        ]
+
+        # Build quarter-end dates for the last 12 months before scan_date
+        expected_quarter_ends = []
+        for q_m in q_end_months:
+            q_day = 31 if q_m in (1, 3, 5, 7, 8, 10, 12) else (30 if q_m in (4, 6, 9, 11) else 28)
+            # Check both current year and previous year
+            for y_offset in [0, -1]:
+                try:
+                    q_end = date(scan_date.year + y_offset, q_m, q_day)
+                except ValueError:
+                    # Handle Feb 29 edge case
+                    q_end = date(scan_date.year + y_offset, q_m, 28)
+                # The reporting deadline for this quarter is quarter_end + grace days
+                reporting_deadline = q_end + timedelta(days=QUARTERLY_REPORTING_GRACE_DAYS)
+                # Only consider quarters where: quarter already ended AND deadline has passed
+                if q_end < scan_date and reporting_deadline <= scan_date:
+                    expected_quarter_ends.append(q_end)
+
+        if expected_quarter_ends:
+            # The most recent quarter whose reporting deadline has passed
+            expected_quarter_ends.sort()
+            expected_latest_quarter = expected_quarter_ends[-1]
+
+            # Determine what we actually have: the latest of annual or quarterly period
+            latest_data_dt = latest_dt  # annual period
+            if latest_quarterly_period is not None:
+                q_dt = _parse_date_fast(latest_quarterly_period)
+                if q_dt is not None and q_dt > latest_data_dt:
+                    latest_data_dt = q_dt
+
+            # If our latest data is older than the expected quarter, flag as stale
+            if latest_data_dt < expected_latest_quarter:
+                quarterly_gap_days = (scan_date - expected_latest_quarter).days
+                detail["expected_latest_quarter"] = str(expected_latest_quarter)
+                detail["latest_data_period"] = str(latest_data_dt)
+                detail["latest_quarterly_period"] = str(latest_quarterly_period) if latest_quarterly_period else None
+                detail["quarterly_gap_days"] = quarterly_gap_days
+                detail["quarterly_staleness_check"] = "FAILED"
+
+                logger.warning(
+                    f"[PIT_QUARTERLY_STALENESS] {symbol}: expected quarterly period "
+                    f"{expected_latest_quarter} results by now (scan={scan_date}, "
+                    f"deadline passed {quarterly_gap_days}d ago), but latest local data "
+                    f"is only {latest_data_dt}. Marking DATA_STALE."
+                )
+                return IntegrityResult(
+                    status=DataStatus.DATA_STALE,
+                    reason=(
+                        f"PIT_QUARTERLY_STALE: expected Q ending {expected_latest_quarter} "
+                        f"(deadline passed {quarterly_gap_days}d ago) but latest local "
+                        f"period is {latest_data_dt}"
+                    ),
+                    detail=detail,
+                )
+
+            detail["quarterly_staleness_check"] = "PASSED"
+        else:
+            detail["quarterly_staleness_check"] = "NO_EXPECTED_QUARTERS"
+
     logger.debug(
         f"[PIT_FRESHNESS] {symbol}: latest_annual_period={latest_dt}, "
-        f"staleness={staleness_years:.1f}Y — PASS"
+        f"staleness={staleness_years:.1f}Y — PASS (quarterly check: {detail.get('quarterly_staleness_check', 'N/A')})"
     )
     return IntegrityResult(
         status=DataStatus.VALID,

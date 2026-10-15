@@ -173,6 +173,19 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     pit_eligible_annual.sort(key=lambda x: str(x.get("period_end_date", "")))
 
+    quarterly_filings = [
+        f for f in filings
+        if str(f.get("statement_type", "")).upper() == "QUARTERLY"
+        and str(f.get("basis") or "CONSOLIDATED").upper() in (StatementBasis.CONSOLIDATED, "NONE", "")
+    ]
+    pit_eligible_quarterly = []
+    for f in quarterly_filings:
+        pit_date_str = str(f.get("pit_eligible_from") or f.get("filing_date") or f.get("period_end_date") or "")[:10]
+        if pit_date_str and pit_date_str <= as_of_str:
+            pit_eligible_quarterly.append(f)
+    pit_eligible_quarterly.sort(key=lambda x: str(x.get("period_end_date", "")))
+    latest_quarterly = pit_eligible_quarterly[-1].get("period_end_date") if pit_eligible_quarterly else None
+
     # Structural Listing-Age Gate (< 5 years trading history on exchange)
     p_path = os.path.join(BASE_DIR, "data", "history", "1d", f"{sym_u}.parquet")
     is_structural_ineligible = False
@@ -213,7 +226,13 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     # Freshness Check (C1)
     latest_period = pit_eligible_annual[-1].get("period_end_date") if pit_eligible_annual else None
-    freshness = check_pit_freshness(sym_u, latest_period, scan_date=as_of, fy_end_month=fy_end_month)
+    freshness = check_pit_freshness(
+        sym_u,
+        latest_period,
+        scan_date=as_of,
+        fy_end_month=fy_end_month,
+        latest_quarterly_period=latest_quarterly,
+    )
 
     # Gap Detection (C2): Check for gaps in the 5Y evaluation window (and record full history gaps)
     gaps_full = detect_annual_fiscal_gaps(pit_eligible_annual) if len(pit_eligible_annual) >= 2 else []
@@ -394,6 +413,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "isin": str(latest_f.get("isin", "")),
         "as_of_date": as_of.isoformat(),
         "latest_annual_period": str(latest_period or ""),
+        "latest_quarterly_period": str(latest_quarterly or ""),
         "pit_freshness_status": freshness.status.value,
         "pit_staleness_years": freshness.detail.get("pit_staleness_years"),
         "filing_gap_detected": has_gaps,

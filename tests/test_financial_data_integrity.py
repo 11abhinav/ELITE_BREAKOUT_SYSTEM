@@ -176,6 +176,42 @@ class TestPITStaleness:
         )
         assert result.detail["pit_staleness_years"] > 14.0
 
+    def test_quarterly_staleness_blocks_when_reporting_deadline_passed(self):
+        """Latest Q is Dec-2025, but scan is Oct-2026. Jun-2026 Q1 deadline passed -> STALE."""
+        result = check_pit_freshness(
+            "HCLTECH",
+            "2026-03-31",
+            scan_date=date(2026, 10, 15),
+            latest_quarterly_period="2025-12-31",
+        )
+        assert result.status == DataStatus.DATA_STALE
+        assert "PIT_QUARTERLY_STALE" in result.reason
+        assert result.detail["quarterly_staleness_check"] == "FAILED"
+
+    def test_quarterly_freshness_passes_when_latest_quarter_is_recent(self):
+        """Latest Q is Jun-2026, scan is Oct-2026. Sep-2026 Q2 deadline is Nov -> VALID."""
+        result = check_pit_freshness(
+            "HCLTECH",
+            "2026-03-31",
+            scan_date=date(2026, 10, 15),
+            latest_quarterly_period="2026-06-30",
+        )
+        assert result.ok
+        assert result.status == DataStatus.VALID
+        assert result.detail["quarterly_staleness_check"] == "PASSED"
+
+    def test_enforce_quarterly_without_quarterly_data_fails(self):
+        """enforce_quarterly=True with no quarterly data on Oct-2026 scan -> STALE."""
+        result = check_pit_freshness(
+            "INFY",
+            "2025-03-31",
+            scan_date=date(2026, 10, 15),
+            latest_quarterly_period=None,
+            enforce_quarterly=True,
+        )
+        assert result.status == DataStatus.DATA_STALE
+        assert "PIT_QUARTERLY_STALE" in result.reason
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # C2 — ANNUAL FILING GAP DETECTION

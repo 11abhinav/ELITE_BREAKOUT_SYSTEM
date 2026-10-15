@@ -692,7 +692,8 @@ class FinancialFilingWatcher:
         Returns: FRESH, UPDATE_PENDING, STALE, or INVALID.
         """
         if os.path.exists(self.state_file):
-            self.state = self._load_state()
+            disk_state = self._load_state()
+            self.state = {**disk_state, **self.state}
         sym = symbol.strip().upper()
         entry = self.state.get(sym)
         if not entry:
@@ -788,24 +789,45 @@ class FinancialFilingWatcher:
                                     "filing_date": r.availability_date or as_of_str,
                                     "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
                                 })
-                        else:
-                            # Fallback to discover_filings metadata
+
+                        # ALWAYS also run discover_filings to capture recently announced
+                        # results that don't yet have XBRL documents. The .xml filter
+                        # in deduplicate_and_filter_filings drops these, but they contain
+                        # valid financial data from corporate announcements.
+                        try:
                             nse_rows = nse_provider.discover_filings(sym_u)
                             if nse_rows:
+                                # Build set of periods already captured from XBRL parsing
+                                existing_periods = {
+                                    (_normalize_iso_date(it.get("period_end_date")), str(it.get("statement_type", "")).upper())
+                                    for it in raw_filings_list
+                                    if it.get("exchange") == "NSE"
+                                }
                                 for r in nse_rows:
                                     if isinstance(r, dict):
                                         r_copy = dict(r)
                                         r_copy["exchange"] = "NSE"
-                                        # Normalize period_end_date if present
                                         p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
                                         if p_end and p_end >= "2015-01-01":
-                                            r_copy["period_end_date"] = p_end
-                                            raw_filings_list.append(r_copy)
+                                            # Determine statement type from raw row
+                                            raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
+                                            st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
+                                            # Only add if this period+type wasn't already captured from XBRL
+                                            if (p_end, st) not in existing_periods:
+                                                r_copy["period_end_date"] = p_end
+                                                r_copy["statement_type"] = st
+                                                raw_filings_list.append(r_copy)
+                        except Exception as disc_err:
+                            logger.debug(f"[filling scanner] NSE discover_filings supplement failed for {sym_u}: {disc_err}")
+
                     except Exception as nse_err:
                         logger.debug(f"[filling scanner] NSE discover/fetch failed for {sym_u}: {nse_err}")
 
-                # 2. Poll BSE Corporate Results if NSE had nothing or symbol is BSE-listed
-                if bse_provider and (not raw_filings_list or len(raw_filings_list) == 0):
+                # 2. Poll BSE Corporate Results — ALWAYS poll regardless of NSE results
+                # Previously BSE was only checked if NSE returned nothing, which caused
+                # newly announced quarterly results to be missed when NSE returned
+                # historical XBRL records but not the latest corporate announcement.
+                if bse_provider:
                     try:
                         scrip = bse_provider.resolve_bse_scrip_code(sym_u)
                         if scrip:
@@ -813,6 +835,14 @@ class FinancialFilingWatcher:
                             for r in bse_rows:
                                 norm_p = _normalize_iso_date(r.period_end_date)
                                 if not norm_p or norm_p < "2015-01-01":
+                                    continue
+                                # Dedup: skip if we already have this period from NSE
+                                already_exists = any(
+                                    _normalize_iso_date(existing.get("period_end_date")) == norm_p
+                                    and existing.get("statement_type", "").upper() == (r.period_type or "").upper()
+                                    for existing in raw_filings_list
+                                )
+                                if already_exists:
                                     continue
                                 raw_filings_list.append({
                                     "exchange": "BSE",

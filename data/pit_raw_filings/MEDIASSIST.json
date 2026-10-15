@@ -13,6 +13,7 @@
     "ebit": 103.61,
     "capital_employed": 383.68,
     "eps": null,
+    "shares_outstanding": null,
     "unit": "crore",
     "currency": "INR",
     "source_record_hash": "9cee8431463eb9ca0dda2484b4635d3048b45472a0137858e3316e34e80c9d19"
@@ -31,6 +32,7 @@
     "ebit": 84.39,
     "capital_employed": 481.33000000000004,
     "eps": null,
+    "shares_outstanding": null,
     "unit": "crore",
     "currency": "INR",
     "source_record_hash": "5d4fca5687d20c35264c8af2b01d264067ad2a74cbebee24acea0f443b83e24e"
@@ -49,6 +51,7 @@
     "ebit": 111.79,
     "capital_employed": 552.16,
     "eps": null,
+    "shares_outstanding": null,
     "unit": "crore",
     "currency": "INR",
     "source_record_hash": "30639894bac00aa1496f451804288dedf565c8c0438e3829d7b1f9c888707c0c"
@@ -67,6 +70,7 @@
     "ebit": 80.35,
     "capital_employed": 852.4000000000001,
     "eps": null,
+    "shares_outstanding": null,
     "unit": "crore",
     "currency": "INR",
     "source_record_hash": "521e6072be5b89b6223e60c08ab6fd6d0d5244c0389eab9ccf4bc707e7e29b46"
