@@ -2496,6 +2496,9 @@ function changeAdminPage(type, delta) {
     .notification-item-meta { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted2); }
     .notification-type-buy  { color: var(--win); }
     .notification-type-sell { color: var(--warn); }
+    .notification-type-restored { color: #10b981; font-weight: 700; }
+    .notification-type-stale { color: #f59e0b; font-weight: 700; }
+    .notification-type-admin { color: #3b82f6; font-weight: 700; }
 
     /* ─────────────────────────────────────────
        BLINK ROW (alert flash)
@@ -3225,6 +3228,9 @@ function changeAdminPage(type, delta) {
         <button class="admin-tab-btn" data-tab="universe-health" onclick="switchAdminTab('universe-health')">
           <span>🌐</span> Universe Health
         </button>
+        <button class="admin-tab-btn" data-tab="stock-data-health" onclick="switchAdminTab('stock-data-health')">
+          <span>📊</span> Stock Data Health
+        </button>
         <button class="admin-tab-btn" data-tab="watchlist-users" onclick="switchAdminTab('watchlist-users')">
           <span>👥</span> User Management
         </button>
@@ -3601,31 +3607,7 @@ function changeAdminPage(type, delta) {
         </div>
       </div>
 
-      <!-- ── 6. COMPACT SCANNER HEALTH & ORCHESTRATION (1 ROW PER SCANNER) ── -->
-      <!-- [RULE 67 CHANGE-RATIONALE]: Restored row-wise Scanner Health & Automation Control component on Tab 1 -->
-      <section class="card" style="margin-top: 24px; padding: 20px 24px; margin-bottom: 28px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size:15px; font-weight:800; color:var(--text); text-transform:uppercase; letter-spacing:0.6px; display:flex; align-items:center; gap:8px;">
-              🛡️ Scanner Health &amp; Automation Control
-            </span>
-            <span id="all-scanners-status-pill-tab1" style="font-size:11px; padding:2px 8px; border-radius:12px; background:rgba(16,185,129,0.1); color:var(--win); border:1px solid rgba(16,185,129,0.25); font-weight:700;">
-              All Systems Operational
-            </span>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <button onclick="toggleAllScanners('resume')" style="padding:5px 12px; border-radius:6px; background:rgba(16,185,129,0.12); color:var(--win); border:1px solid rgba(16,185,129,0.3); font-size:11px; font-weight:700; cursor:pointer;">▶ Start All</button>
-            <button onclick="toggleAllScanners('pause')" style="padding:5px 12px; border-radius:6px; background:rgba(239,68,68,0.1); color:var(--loss); border:1px solid rgba(239,68,68,0.25); font-size:11px; font-weight:700; cursor:pointer;">⏸ Pause All</button>
-            <button onclick="refreshMasterSymbolsUniverse()" style="padding:5px 12px; border-radius:6px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; font-size:11px; font-weight:700; cursor:pointer;">⚡ Sync Master Stock List</button>
-            <button onclick="switchAdminTab('health-errors')" style="padding:5px 12px; border-radius:6px; background:var(--card2); color:var(--accent); border:1px solid var(--border); font-size:11px; font-weight:700; cursor:pointer;">📜 Full Telemetry →</button>
-          </div>
-        </div>
-
-        <!-- Compact 1-Row Per Scanner Table -->
-        <div class="scanner-rows-list" id="scannerGridTab1">
-          <!-- Rendered Dynamically -->
-        </div>
-      </section>
+      <!-- Scanner Health moved to Health & Errors tab (tab-health-errors) -->
 
       <!-- DRILL PANEL -->
       <div id="drill-panel">
@@ -3999,14 +3981,14 @@ function changeAdminPage(type, delta) {
           <!-- SUMMARY KPI CARDS -->
           <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px;">
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
-              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Total Findings Found</div>
+              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Missing Stocks Discovered</div>
               <div id="kpi-filings-total" style="font-size:24px; font-weight:800; color:var(--text);">0</div>
-              <div id="kpi-filings-date-sub" style="font-size:11px; color:var(--muted); margin-top:2px;">on selected date</div>
+              <div id="kpi-filings-date-sub" style="font-size:11px; color:var(--muted); margin-top:2px;">single entry per stock</div>
             </div>
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
               <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Annual Filings (FY)</div>
               <div id="kpi-filings-annual" style="font-size:24px; font-weight:800; color:#10b981;">0</div>
-              <div style="font-size:11px; color:var(--muted); margin-top:2px;">audited reports</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">audited annual reports</div>
             </div>
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
               <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Quarterly Filings (Q)</div>
@@ -4014,9 +3996,9 @@ function changeAdminPage(type, delta) {
               <div style="font-size:11px; color:var(--muted); margin-top:2px;">quarterly P&amp;L results</div>
             </div>
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
-              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">New Discoveries</div>
-              <div id="kpi-filings-new" style="font-size:24px; font-weight:800; color:#8b5cf6;">0</div>
-              <div style="font-size:11px; color:var(--muted); margin-top:2px;">snapshot updated</div>
+              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Snapshot Ingested</div>
+              <div id="kpi-filings-new" style="font-size:24px; font-weight:800; color:#8b5cf6;">100%</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">ready for scanner runs</div>
             </div>
           </div>
 
@@ -4026,15 +4008,15 @@ function changeAdminPage(type, delta) {
               <thead>
                 <tr style="background:var(--card2); border-bottom:1px solid var(--border); text-align:left;">
                   <th style="padding:10px 12px;">Time Discovered</th>
-                  <th style="padding:10px 12px;">Symbol &amp; Exchange</th>
-                  <th style="padding:10px 12px;">Period End</th>
-                  <th style="padding:10px 12px;">Statement &amp; Basis</th>
-                  <th style="padding:10px 12px;">Event Badge</th>
+                  <th style="padding:10px 12px;">Stock &amp; Exchange</th>
+                  <th style="padding:10px 12px;">Missing Filing Period</th>
+                  <th style="padding:10px 12px;">Statement &amp; Scope</th>
+                  <th style="padding:10px 12px;">Gap Discovery Type</th>
                   <th style="padding:10px 12px; text-align:right;">Revenue (₹ Cr)</th>
                   <th style="padding:10px 12px; text-align:right;">PAT (₹ Cr)</th>
                   <th style="padding:10px 12px; text-align:right;">EPS (₹)</th>
                   <th style="padding:10px 12px; text-align:right;">ROCE %</th>
-                  <th style="padding:10px 12px; text-align:center;">Status</th>
+                  <th style="padding:10px 12px; text-align:center;">Snapshot Status</th>
                   <th style="padding:10px 12px; text-align:center;">Actions</th>
                 </tr>
               </thead>
@@ -4046,6 +4028,146 @@ function changeAdminPage(type, delta) {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3C: STOCK DATA HEALTH (STALE & FRESH AUDIT) -->
+      <div id="tab-stock-data-health" class="tab-panel">
+        <div class="card" style="padding:22px; margin-bottom:24px;">
+          <!-- HEADER & CONTROLS -->
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:16px;">
+            <div>
+              <div class="card-title" style="display:flex; align-items:center; gap:8px; font-size:18px; font-weight:800; color:var(--text); margin-bottom:4px;">
+                <span>📊</span> Stock Data Health &amp; Filing Completeness Engine
+                <span id="sdhLiveBadge" style="font-size:11px; font-weight:700; background:rgba(16,185,129,0.15); color:#10b981; padding:3px 10px; border-radius:14px; border:1px solid rgba(16,185,129,0.3);">REAL UPSTOX / XBRL DATA</span>
+              </div>
+              <div style="font-size:12px; color:var(--muted); line-height:1.5;">
+                Full transparency across all tracked universe stocks. Inspect stocks currently suppressed under the <strong>7-day cool-off rule</strong> with missing data diagnostics, audit fresh stocks with their latest and historical filings, view previous statements stored in local DB, and run on-demand validation.
+              </div>
+            </div>
+
+            <!-- CONTROLS & SEARCH -->
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <div style="position:relative;">
+                <input type="text" id="sdhSearchInput" placeholder="🔍 Search symbol, company, reason, date..." oninput="filterStockDataHealth()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:7px 14px; border-radius:8px; width:260px; outline:none;">
+              </div>
+
+              <!-- FILTER PILLS -->
+              <div style="display:flex; background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:2px;">
+                <button id="sdh-filter-btn-all" onclick="setSdhFilter('ALL')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:var(--accent); color:#000; border:none;">
+                  All (<span id="sdh-btn-all-count">0</span>)
+                </button>
+                <button id="sdh-filter-btn-stale" onclick="setSdhFilter('STALE')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;">
+                  ⚠️ Stale / Cool-off (<span id="sdh-btn-stale-count">0</span>)
+                </button>
+                <button id="sdh-filter-btn-fresh" onclick="setSdhFilter('FRESH')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;">
+                  ✅ Fresh &amp; Certified (<span id="sdh-btn-fresh-count">0</span>)
+                </button>
+              </div>
+
+              <button class="scanner-action-btn run" onclick="fetchStockDataHealth(true)" style="background:#2563eb; color:white; padding:7px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;">
+                🔄 Refresh Audit
+              </button>
+            </div>
+          </div>
+
+          <!-- SUMMARY KPI CARDS -->
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Total Universe Stocks</div>
+              <div id="kpi-sdh-total" style="font-size:26px; font-weight:800; color:var(--text);">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">tracked in canonical master</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:#f59e0b; text-transform:uppercase; margin-bottom:4px;">Stale / Suppressed Stocks</div>
+              <div id="kpi-sdh-stale" style="font-size:26px; font-weight:800; color:#f59e0b;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">7-day cool-off active (excluded)</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase; margin-bottom:4px;">Fresh &amp; Certified Stocks</div>
+              <div id="kpi-sdh-fresh" style="font-size:26px; font-weight:800; color:#10b981;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">100% complete &amp; scanner-ready</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; text-align:center;">
+              <div style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase; margin-bottom:4px;">Data Health Coverage</div>
+              <div id="kpi-sdh-coverage" style="font-size:26px; font-weight:800; color:var(--accent);">0.0%</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">fail-closed integrity passing</div>
+            </div>
+          </div>
+
+          <!-- STOCKS DATA TABLE -->
+          <div class="tbl-wrap" style="overflow-x:auto; max-height:70vh;">
+            <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px; min-width:1600px;">
+              <thead style="position:sticky; top:0; z-index:10;">
+                <tr style="background:var(--card2); border-bottom:2px solid var(--border); text-align:left;">
+                  <th style="padding:10px 12px; min-width:180px; position:sticky; left:0; background:var(--card2); z-index:11;">Stock / Company</th>
+                  <th style="padding:10px 12px; width:130px; text-align:center;">Health Status</th>
+                  <th style="padding:10px 12px; width:130px; text-align:center;" title="When raw filings file was last written (proxy for last exchange fetch)">Last Fetched</th>
+                  <th style="padding:10px 12px; width:110px; text-align:center;">Latest Period</th>
+                  <th style="padding:10px 12px; width:80px; text-align:center;">Filings</th>
+                  <th style="padding:10px 12px; min-width:280px;">Diagnostics / Periods</th>
+                  <!-- Valuation -->
+                  <th style="padding:10px 12px; width:80px; text-align:right; color:#3b82f6;">CMP ₹</th>
+                  <th style="padding:10px 12px; width:100px; text-align:right; color:#3b82f6;">Mkt Cap Cr</th>
+                  <th style="padding:10px 12px; width:70px; text-align:right; color:#3b82f6;">PE</th>
+                  <th style="padding:10px 12px; width:90px; text-align:right; color:#3b82f6;">EV/EBITDA</th>
+                  <!-- Fundamentals -->
+                  <th style="padding:10px 12px; width:90px; text-align:right; color:#10b981;">ROCE 5Y%</th>
+                  <th style="padding:10px 12px; width:75px; text-align:right; color:#10b981;">ROE%</th>
+                  <th style="padding:10px 12px; width:90px; text-align:right; color:#10b981;">Sales CAGR%</th>
+                  <th style="padding:10px 12px; width:90px; text-align:right; color:#10b981;">PAT CAGR%</th>
+                  <th style="padding:10px 12px; width:80px; text-align:right; color:#10b981;">CFO/PAT</th>
+                  <th style="padding:10px 12px; width:70px; text-align:right; color:#10b981;">D/E</th>
+                  <!-- Financials -->
+                  <th style="padding:10px 12px; width:90px; text-align:right; color:#a78bfa;">Revenue Cr</th>
+                  <th style="padding:10px 12px; width:80px; text-align:right; color:#a78bfa;">PAT Cr</th>
+                  <th style="padding:10px 12px; width:80px; text-align:right; color:#a78bfa;">OCF Cr</th>
+                  <!-- Shares -->
+                  <th style="padding:10px 12px; width:90px; text-align:right; color:#f59e0b;">Shares M</th>
+                  <th style="padding:10px 12px; width:90px; text-align:center; color:#f59e0b;">Dilution</th>
+                  <!-- Provenance -->
+                  <th style="padding:10px 12px; width:120px; text-align:center; color:var(--muted);">Provenance</th>
+                  <th style="padding:10px 12px; width:130px; text-align:center;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tbl-sdh-body">
+                <tr>
+                  <td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">
+                    ⏳ Loading universe stock data health audit...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="sdh-pagination-info" style="margin-top:14px; font-size:12px; color:var(--muted); display:flex; justify-content:space-between; align-items:center;">
+            <span id="sdh-showing-count">Showing 0 of 0 stocks</span>
+            <span style="font-style:italic;">💡 Click any symbol to inspect all historical statements. Scroll right for full data. Last Fetched = raw filings file mtime (exchange fetch proxy).</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL: STOCK FILINGS & HISTORICAL STATEMENTS DETAIL -->
+      <div id="modal-sdh-filings-detail" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;">
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; width:100%; max-width:1150px; max-height:92vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,0.5);">
+          <!-- MODAL HEADER -->
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border); background:var(--card2);">
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+              <span id="modal-sdh-symbol" style="font-size:18px; font-weight:800; font-family:monospace; color:var(--text);">SYMBOL</span>
+              <span id="modal-sdh-company" style="font-size:14px; color:var(--muted); font-weight:600;">Company Name</span>
+              <span id="modal-sdh-status-badge"></span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <button id="modal-sdh-btn-validate" onclick="validateStockFromModal()" style="background:#10b981; color:#000; border:none; padding:6px 14px; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                ⚡ Validate &amp; Restore
+              </button>
+              <button onclick="closeSdhModal()" style="background:transparent; border:none; color:var(--muted); font-size:22px; cursor:pointer; padding:0 6px;">✕</button>
+            </div>
+          </div>
+
+          <!-- MODAL BODY -->
+          <div id="modal-sdh-body" style="padding:20px; overflow-y:auto; flex:1;">
+            <!-- DYNAMIC CONTENT INSERTED BY JS -->
           </div>
         </div>
       </div>
@@ -4324,7 +4446,10 @@ function changeAdminPage(type, delta) {
         'diagnostics': 'health-errors',
         'errors': 'health-errors',
         'filings': 'filings-discovery',
-        'corporate-filings': 'filings-discovery'
+        'corporate-filings': 'filings-discovery',
+        'stale-stocks': 'stock-data-health',
+        'stock-health': 'stock-data-health',
+        'data-health': 'stock-data-health'
       };
       const resolvedTabId = tabAliasMap[tabId] || tabId;
       activeAdminTab = resolvedTabId;
@@ -4392,6 +4517,9 @@ function changeAdminPage(type, delta) {
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
       } else if (tabId === 'filings-discovery') {
         if (typeof loadCorporateFilingsDiscovery === 'function') loadCorporateFilingsDiscovery();
+      } else if (tabId === 'stock-data-health') {
+        // Always force-fetch to ensure stale and fresh stocks are current (bypass 30s idempotency guard)
+        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(true);
       }
     }
 
@@ -4564,10 +4692,15 @@ function changeAdminPage(type, delta) {
         });
     }
 
-    async function loadData(forceRebuild = false) {
+    async function loadData(forceRebuild = false, bust = false) {
       try {
-        const url = forceRebuild ? `/data/performance_data.json?rebuild=true&t=${Date.now()}` : '/data/performance_data.json';
-        const r = await fetch(url, { cache: forceRebuild ? 'no-store' : 'default' });
+        // Always bust browser cache on auto-refresh polls to prevent stale JSON being returned
+        const cacheBust = forceRebuild || bust ? `&_t=${Date.now()}` : '';
+        const url = forceRebuild
+          ? `/data/performance_data.json?rebuild=true${cacheBust}`
+          : `/data/performance_data.json?${cacheBust}`;
+        const cacheMode = (forceRebuild || bust) ? 'no-store' : 'default';
+        const r = await fetch(url, { cache: cacheMode });
         if (r.ok) return await r.json();
       } catch (e) {
         console.warn('Failed to load performance data from /data/performance_data.json', e);
@@ -8874,10 +9007,15 @@ async function initDashboard() {
   }
   schedulePingViewer();
 
-  // Auto-Refresh Every 3 Minutes
+  // ── AUTO-REFRESH KPIs & TRADES EVERY 60 SECONDS (setInterval — cannot silently stop on error) ──
+  let _isRefreshingAllData = false;
   async function refreshAllData() {
+    // Single-flight guard: skip cycle if previous fetch is still in-flight
+    if (_isRefreshingAllData) return;
+    _isRefreshingAllData = true;
     try {
-      const data = await loadData();
+      // bust=true forces cache bypass on every automatic poll
+      const data = await loadData(false, true);
       if (data && data.trades) {
         ALL_TRADES = (data.trades || []).map(t => {
           if (t) t.scanner = normalizeScannerName(t.scanner);
@@ -8888,16 +9026,27 @@ async function initDashboard() {
         renderExposureBar(ALL_TRADES);
         updateScannerChipCounts(ALL_TRADES);
         await fetchSignalLadder();
-        renderTradeTable();
+        renderTradeTable();   // re-renders KPI hero cards + small tiles
         updateSim();
         await loadCapitalInfo();
+
+        // Update generated-at timestamp indicator
+        const genEl = document.getElementById('gen-time');
+        if (genEl && data.generated_at) {
+          genEl.textContent = 'Updated: ' + new Date(data.generated_at).toLocaleString('en-IN', {timeZone:'Asia/Kolkata'});
+        }
       }
       if (diagnosticsLoaded) {
         await loadDiagnostics();
       }
-    } catch (e) { console.error("Error in refreshAllData:", e); }
-    setTimeout(refreshAllData, 180000);
+    } catch (e) {
+      console.error('Error in refreshAllData:', e);
+    } finally {
+      _isRefreshingAllData = false;
+    }
   }
+  // Runs every 60 seconds — setInterval never silently stops on a single network error
+  setInterval(refreshAllData, 60000);
 }
 
 function togglePreviewAnalytics() {
@@ -9387,6 +9536,21 @@ async function generateAIModal() {
 
     .notification-type-sell {
       color: var(--warn);
+    }
+
+    .notification-type-restored {
+      color: #10b981;
+      font-weight: 700;
+    }
+
+    .notification-type-stale {
+      color: #f59e0b;
+      font-weight: 700;
+    }
+
+    .notification-type-admin {
+      color: #3b82f6;
+      font-weight: 700;
     }
 
     /* ─────────────────────────────────────────
@@ -9927,7 +10091,11 @@ async function fetchNotifications() {
                 newNotifs = true;
             }
             
-            const typeClass = n.type === 'buy' ? 'notification-type-buy' : 'notification-type-sell';
+            let typeClass = 'notification-type-sell';
+            if (n.type === 'buy') typeClass = 'notification-type-buy';
+            else if (n.type === 'restored' || (n.title && n.title.includes('Restored'))) typeClass = 'notification-type-restored';
+            else if (n.type === 'stale' || (n.title && (n.title.includes('Stale Data') || n.title.includes('Marked Stale')))) typeClass = 'notification-type-stale';
+            else if (n.type === 'admin') typeClass = 'notification-type-admin';
             const unseenClass = !n.is_seen ? 'unseen' : '';
             
             html += `
@@ -12187,20 +12355,76 @@ function filterCorporateFilings() {
   renderCorporateFilingsTable(filtered);
 }
 
+function formatProperFilingDate(dStr) {
+  if (!dStr || dStr === '-' || dStr === 'INVALID_DATE') return '-';
+  const s = String(dStr).trim();
+  // If already DD-Mon-YYYY (e.g. 31-Mar-2026)
+  if (/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(s)) return s;
+  // If ISO YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const parts = s.split('-');
+    const year = parts[0];
+    const monthIdx = parseInt(parts[1], 10) - 1;
+    const day = parts[2];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    if (monthIdx >= 0 && monthIdx < 12) {
+      return `${day}-${months[monthIdx]}-${year}`;
+    }
+  }
+  // Try Date parsing
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, '0');
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const year = d.getFullYear();
+      if (year >= 2015) {
+        return `${day}-${months[d.getMonth()]}-${year}`;
+      }
+    }
+  } catch (e) {}
+  return s;
+}
+
 function renderCorporateFilingsTable(filings) {
   const tbody = document.getElementById('tbl-corporate-filings-body');
   if (!tbody) return;
 
   if (!filings || filings.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:36px; color:var(--muted);">No filing findings found matching your filters for this date.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:36px; color:var(--muted);">No missing filing findings found matching your filters for this date.</td></tr>`;
     return;
   }
 
+  // Enforce strictly ONE line per stock report per date (selecting latest period report)
+  const uniqueFilings = [];
+  const seenSymbols = new Set();
+  const sorted = [...filings].sort((a, b) => String(b.period_end || '').localeCompare(String(a.period_end || '')));
+  sorted.forEach(f => {
+    const sym = String(f.symbol || '').trim().toUpperCase();
+    if (!sym || seenSymbols.has(sym)) return;
+    seenSymbols.add(sym);
+    uniqueFilings.push(f);
+  });
+
+  // Keep global data aligned for modal lookups
+  CURRENT_FILINGS_DATA = uniqueFilings;
+
+  // Sync KPI cards with unique distinct stocks
+  const totalEl = document.getElementById('kpi-filings-total');
+  if (totalEl) totalEl.textContent = uniqueFilings.length.toLocaleString('en-IN');
+  const annCount = uniqueFilings.filter(f => String(f.statement_type || '').toUpperCase() === 'ANNUAL').length;
+  const qtrCount = uniqueFilings.filter(f => String(f.statement_type || '').toUpperCase() === 'QUARTERLY').length;
+  const annEl = document.getElementById('kpi-filings-annual');
+  if (annEl) annEl.textContent = annCount.toLocaleString('en-IN');
+  const qtrEl = document.getElementById('kpi-filings-quarterly');
+  if (qtrEl) qtrEl.textContent = qtrCount.toLocaleString('en-IN');
+
   let html = '';
-  filings.forEach((f, idx) => {
+  uniqueFilings.forEach((f, idx) => {
     const sym = f.symbol || 'UNKNOWN';
     const exch = f.exchange || 'NSE';
-    const period = f.period_end || '-';
+    const rawPeriod = f.period_end || '-';
+    const periodDisplay = formatProperFilingDate(rawPeriod);
     const stType = f.statement_type || 'QUARTERLY';
     const basis = f.basis || 'CONSOLIDATED';
     const eventType = f.event_type || 'NEW_FILING';
@@ -12216,14 +12440,21 @@ function renderCorporateFilingsTable(filings) {
       }
     }
 
-    // Event Badge Color
-    let eventBadgeClass = 'background:rgba(37,99,235,0.15); color:#60a5fa; border:1px solid rgba(37,99,235,0.3);';
-    if (eventType === 'NEW_FILING') {
-      eventBadgeClass = 'background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3);';
-    } else if (eventType.includes('AMEND') || eventType.includes('RESTATE')) {
-      eventBadgeClass = 'background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3);';
-    } else if (eventType === 'UNSEEN_PERIOD') {
-      eventBadgeClass = 'background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3);';
+    // Gap Discovery Type Badge & Description
+    let badgeHtml = '';
+    let reasonSub = 'Snapshot Updated';
+    if (eventType === 'MISSING_FROM_SNAPSHOT') {
+      badgeHtml = `<span style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.35);">NOT IN LOCAL SNAPSHOT</span>`;
+      reasonSub = 'Missing from local DB';
+    } else if (eventType === 'NEW_FILING_AHEAD_OF_SNAPSHOT') {
+      badgeHtml = `<span style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.35);">NEWER THAN SNAPSHOT</span>`;
+      reasonSub = 'Ahead of local annual';
+    } else if (eventType === 'SNAPSHOT_GAP_RECOVERY') {
+      badgeHtml = `<span style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.35);">GAP DATA RESTORED</span>`;
+      reasonSub = 'Missing metrics restored';
+    } else {
+      badgeHtml = `<span style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.35);">${eventType}</span>`;
+      reasonSub = 'Exchange filing found';
     }
 
     // Number formatters
@@ -12245,32 +12476,33 @@ function renderCorporateFilingsTable(filings) {
     }
 
     const stBadge = (stType === 'ANNUAL')
-      ? `<span style="background:rgba(16,185,129,0.12); color:#10b981; padding:2px 6px; border-radius:4px; font-weight:700;">ANNUAL</span>`
-      : `<span style="background:rgba(59,130,246,0.12); color:#3b82f6; padding:2px 6px; border-radius:4px; font-weight:700;">QUARTERLY</span>`;
+      ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:2px 7px; border-radius:4px; font-weight:800; font-size:10px; border:1px solid rgba(16,185,129,0.3);">ANNUAL</span>`
+      : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; padding:2px 7px; border-radius:4px; font-weight:800; font-size:10px; border:1px solid rgba(59,130,246,0.3);">QUARTERLY</span>`;
 
     const basisBadge = `<span style="font-size:10px; color:var(--muted);">${basis.toLowerCase()}</span>`;
 
     html += `
       <tr style="border-bottom:1px solid var(--border); transition:background 0.15s ease;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'">
-        <td style="padding:10px 12px; font-weight:600; white-space:nowrap; color:var(--muted);">${timeStr}</td>
+        <td style="padding:10px 12px; font-weight:600; white-space:nowrap; color:var(--muted); font-size:11px;">${timeStr}</td>
         <td style="padding:10px 12px; white-space:nowrap;">
-          <div style="font-weight:800; color:var(--text);">${sym}</div>
-          <div style="font-size:10px; color:var(--muted);">${exch}</div>
+          <div style="font-weight:800; color:var(--text); font-size:13px;">${sym}</div>
+          <div style="font-size:10px; color:var(--muted);">${exch} · <span style="color:#10b981; font-weight:700;">1 Missing Filing Found</span></div>
         </td>
-        <td style="padding:10px 12px; font-weight:700; white-space:nowrap;">${period}</td>
+        <td style="padding:10px 12px; white-space:nowrap;">
+          <div style="font-weight:800; color:var(--text); font-size:12px;">${periodDisplay}</div>
+          <div style="font-size:10px; color:var(--muted);">${reasonSub}</div>
+        </td>
         <td style="padding:10px 12px; white-space:nowrap;">${stBadge} ${basisBadge}</td>
         <td style="padding:10px 12px; white-space:nowrap;">
-          <span style="font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; ${eventBadgeClass}">
-            ${eventType}
-          </span>
+          ${badgeHtml}
         </td>
         <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace;">${revStr}</td>
         <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${patColor};">${patStr}</td>
         <td style="padding:10px 12px; text-align:right; font-weight:600; font-family:monospace;">${epsStr}</td>
         <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${roceColor};">${roceStr}</td>
-        <td style="padding:10px 12px; text-align:center;">
-          <span style="font-size:10px; font-weight:700; background:rgba(16,185,129,0.1); color:#10b981; padding:2px 6px; border-radius:4px; border:1px solid rgba(16,185,129,0.25);">
-            ${f.status || 'INGESTED'}
+        <td style="padding:10px 12px; text-align:center; white-space:nowrap;">
+          <span style="font-size:10px; font-weight:800; background:rgba(16,185,129,0.12); color:#10b981; padding:2px 8px; border-radius:4px; border:1px solid rgba(16,185,129,0.3);">
+            INGESTED
           </span>
         </td>
         <td style="padding:10px 12px; text-align:center; white-space:nowrap;">
@@ -12305,11 +12537,14 @@ function openFilingDetailsModal(idx) {
     ? f.affected_metrics.map(m => `<span style="background:var(--card3); border:1px solid var(--border); padding:2px 6px; border-radius:4px; font-size:10px; font-family:monospace;">${m}</span>`).join(' ')
     : '<span style="color:var(--muted); font-size:11px;">None</span>';
 
+  const formattedPeriod = formatProperFilingDate(f.period_end);
+  const formattedFilingDate = formatProperFilingDate(f.filing_date);
+
   modal.innerHTML = `
     <div style="background:var(--card); border:1px solid var(--border); border-radius:14px; max-width:680px; width:100%; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
       <div style="padding:16px 20px; background:var(--card2); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
         <div style="font-size:16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
-          <span>📋</span> ${f.symbol} · ${f.period_end} (${f.statement_type})
+          <span>📋</span> ${f.symbol} · ${formattedPeriod} (${f.statement_type})
         </div>
         <button style="background:transparent; border:none; color:var(--muted); font-size:20px; cursor:pointer;" onclick="closeFilingDetailsModal()">✕</button>
       </div>
@@ -12321,11 +12556,11 @@ function openFilingDetailsModal(idx) {
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; font-size:12px;">
           <div><strong style="color:var(--muted);">Filing ID:</strong> <span style="font-family:monospace;">${f.filing_id || '-'}</span></div>
-          <div><strong style="color:var(--muted);">Filing Date:</strong> <span>${f.filing_date || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Filing Date:</strong> <span>${formattedFilingDate}</span></div>
           <div><strong style="color:var(--muted);">Exchange:</strong> <span>${f.exchange || 'NSE'}</span></div>
           <div><strong style="color:var(--muted);">Basis:</strong> <span>${f.basis || 'CONSOLIDATED'}</span></div>
           <div><strong style="color:var(--muted);">Discovered At:</strong> <span>${f.discovered_at || '-'}</span></div>
-          <div><strong style="color:var(--muted);">Event:</strong> <span>${f.event_type || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Discovery Reason:</strong> <span>${f.event_type || '-'}</span></div>
         </div>
 
         <div style="margin-bottom:16px;">
@@ -12382,6 +12617,607 @@ async function triggerFilingScanFromUI() {
     setTimeout(() => {
       loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE);
     }, 2000);
+  }
+}
+
+// =====================================================================================
+// [FEATURE: STOCK DATA HEALTH & FILINGS COMPLETENESS AUDIT]
+// =====================================================================================
+let SDH_STALE_STOCKS = [];
+let SDH_FRESH_STOCKS = [];
+let SDH_ACTIVE_FILTER = 'ALL'; // 'ALL' | 'STALE' | 'FRESH'
+let SDH_CURRENT_MODAL_SYMBOL = null;
+let SDH_IS_FETCHING = false;
+
+async function fetchStockDataHealth(force = false) {
+  if (SDH_IS_FETCHING && !force) return;
+  SDH_IS_FETCHING = true;
+
+  const tbody = document.getElementById('tbl-sdh-body');
+  if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
+    tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
+  }
+
+  try {
+    const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    if (data.status === 'success') {
+      SDH_STALE_STOCKS = data.stale_stocks || [];
+      SDH_FRESH_STOCKS = data.fresh_stocks || [];
+
+      const summary = data.summary || {};
+      const total = summary.total_universe || (SDH_STALE_STOCKS.length + SDH_FRESH_STOCKS.length);
+      const staleCount = summary.stale_count !== undefined ? summary.stale_count : SDH_STALE_STOCKS.length;
+      const freshCount = summary.fresh_count !== undefined ? summary.fresh_count : SDH_FRESH_STOCKS.length;
+      const coverage = summary.coverage_pct !== undefined ? summary.coverage_pct : (total > 0 ? (freshCount / total * 100).toFixed(1) : 0);
+
+      // Update KPI cards
+      const elTotal = document.getElementById('kpi-sdh-total');
+      if (elTotal) elTotal.textContent = Number(total).toLocaleString('en-IN');
+
+      const elStale = document.getElementById('kpi-sdh-stale');
+      if (elStale) elStale.textContent = Number(staleCount).toLocaleString('en-IN');
+
+      const elFresh = document.getElementById('kpi-sdh-fresh');
+      if (elFresh) elFresh.textContent = Number(freshCount).toLocaleString('en-IN');
+
+      const elCov = document.getElementById('kpi-sdh-coverage');
+      if (elCov) elCov.textContent = `${coverage}%`;
+
+      // Update Filter button count pills
+      const btnAll = document.getElementById('sdh-btn-all-count');
+      if (btnAll) btnAll.textContent = total;
+      const btnStale = document.getElementById('sdh-btn-stale-count');
+      if (btnStale) btnStale.textContent = staleCount;
+      const btnFresh = document.getElementById('sdh-btn-fresh-count');
+      if (btnFresh) btnFresh.textContent = freshCount;
+
+      renderStockDataHealthTable();
+    } else {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || 'Unknown error'}</td></tr>`;
+    }
+  } catch (err) {
+    console.error('Error fetching stock data health:', err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">⚠️ Network or server error loading stock data health.</td></tr>`;
+  } finally {
+    SDH_IS_FETCHING = false;
+  }
+}
+
+function setSdhFilter(filterType) {
+  SDH_ACTIVE_FILTER = filterType;
+
+  const btnAll = document.getElementById('sdh-filter-btn-all');
+  const btnStale = document.getElementById('sdh-filter-btn-stale');
+  const btnFresh = document.getElementById('sdh-filter-btn-fresh');
+
+  const activeStyle = 'padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:var(--accent); color:#000; border:none;';
+  const inactiveStyle = 'padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;';
+
+  if (btnAll) btnAll.style.cssText = (filterType === 'ALL') ? activeStyle : inactiveStyle;
+  if (btnStale) btnStale.style.cssText = (filterType === 'STALE') ? activeStyle : inactiveStyle;
+  if (btnFresh) btnFresh.style.cssText = (filterType === 'FRESH') ? activeStyle : inactiveStyle;
+
+  renderStockDataHealthTable();
+}
+
+function filterStockDataHealth() {
+  renderStockDataHealthTable();
+}
+
+function renderStockDataHealthTable() {
+  const tbody = document.getElementById('tbl-sdh-body');
+  if (!tbody) return;
+
+  const searchInput = document.getElementById('sdhSearchInput');
+  const query = (searchInput ? searchInput.value : '').trim().toUpperCase();
+
+  // Combine lists with discriminator flag
+  let items = [];
+  if (SDH_ACTIVE_FILTER === 'ALL' || SDH_ACTIVE_FILTER === 'STALE') {
+    SDH_STALE_STOCKS.forEach(s => items.push({ ...s, _is_stale: true }));
+  }
+  if (SDH_ACTIVE_FILTER === 'ALL' || SDH_ACTIVE_FILTER === 'FRESH') {
+    SDH_FRESH_STOCKS.forEach(s => items.push({ ...s, _is_stale: false }));
+  }
+
+  // Filter by search query
+  if (query) {
+    items = items.filter(it => {
+      const sym = (it.symbol || '').toUpperCase();
+      const comp = (it.company_name || '').toUpperCase();
+      const reason = (it.reason || '').toUpperCase();
+      const miss = (it.missing_data_summary || '').toUpperCase();
+      const latestPeriod = (it.latest_period_in_db || it.latest_annual_period || '').toUpperCase();
+      return sym.includes(query) || comp.includes(query) || reason.includes(query) || miss.includes(query) || latestPeriod.includes(query);
+    });
+  }
+
+  const showingCountEl = document.getElementById('sdh-showing-count');
+  if (showingCountEl) {
+    showingCountEl.textContent = `Showing ${items.length} stocks (${SDH_ACTIVE_FILTER === 'ALL' ? 'All' : (SDH_ACTIVE_FILTER === 'STALE' ? 'Stale Only' : 'Fresh Only')})`;
+  }
+
+  if (items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">No stocks found matching current filters.</td></tr>`;
+    return;
+  }
+
+  let html = '';
+  items.forEach(it => {
+    const sym = it.symbol || 'UNKNOWN';
+    const comp = it.company_name || sym;
+    const isStale = it._is_stale;
+    const dbFilingsCount = it.filings_count_in_db !== undefined ? it.filings_count_in_db : 0;
+    const latestPeriod = it.latest_period_in_db || it.latest_annual_period || '—';
+
+    // Status Badge
+    let statusBadge = '';
+    if (isStale) {
+      statusBadge = `<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; white-space:nowrap;">⚠️ STALE</span>`;
+    } else {
+      statusBadge = `<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; white-space:nowrap;">✅ FRESH</span>`;
+    }
+
+    // Diagnostics / Completeness Summary
+    let diagHtml = '';
+    if (isStale) {
+      const summaryText = (it.missing_data_summary || it.reason || 'Data criteria not met').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const daysLeft = it.days_remaining !== undefined ? it.days_remaining : 7.0;
+      const untilDate = it.cooloff_until ? it.cooloff_until.slice(0, 10) : '';
+      diagHtml = `<div style="color:#ef4444; font-weight:700; font-size:11px; margin-bottom:2px; line-height:1.3;">${summaryText}</div>
+        <div style="font-size:10px; color:var(--muted);">Scanner: ${it.scanner || 'ALL'} &nbsp;|&nbsp; ⏳ ${daysLeft}d left (until ${untilDate})</div>`;
+    } else {
+      let recentBadges = '';
+      if (Array.isArray(it.recent_periods) && it.recent_periods.length > 0) {
+        recentBadges = it.recent_periods.map(p =>
+          `<span style="background:rgba(16,185,129,0.12); color:#10b981; padding:1px 5px; border-radius:4px; font-size:10px; font-family:monospace;">${p}</span>`
+        ).join(' ');
+      }
+      diagHtml = recentBadges || `<span style="color:var(--muted); font-size:11px;">Complete annual &amp; quarterly disclosures</span>`;
+    }
+
+    // Helper: render a numeric cell with optional color threshold
+    const numCell = (val, color, suffix, decimals, threshold, goodColor, badColor) => {
+      goodColor = goodColor || '#10b981';
+      badColor = badColor || 'var(--text)';
+      if (val === null || val === undefined) return `<span style="color:var(--muted);">—</span>`;
+      const n = typeof val === 'number' ? val : parseFloat(val);
+      if (isNaN(n)) return `<span style="color:var(--muted);">—</span>`;
+      const c = (threshold !== null && threshold !== undefined) ? (n >= threshold ? goodColor : badColor) : color;
+      return `<span style="font-weight:700; color:${c};">${n.toFixed(decimals)}${suffix}</span>`;
+    };
+
+    const isin = it.isin || '';
+    const lastFetched = it.last_fetched_at || it.as_of_date || '—';
+    const prov = it.provenance_status || 'CERTIFIED';
+    const provColor = prov === 'CERTIFIED' ? '#10b981' : (prov === 'PARTIAL' ? '#f59e0b' : '#ef4444');
+
+    // Dilution badge
+    const dilStatus = it.share_dilution_status || '';
+    let dilBadge = '';
+    if (dilStatus === 'CLEAN') dilBadge = `<span style="color:#10b981; font-weight:700; font-size:10px;">CLEAN</span>`;
+    else if (dilStatus === 'DILUTED') dilBadge = `<span style="color:#f59e0b; font-weight:700; font-size:10px;">DILUTED</span>`;
+    else if (dilStatus === 'HIGH_DILUTION') dilBadge = `<span style="color:#ef4444; font-weight:700; font-size:10px;">HIGH-DIL</span>`;
+    else if (it.share_dilution_3y_pct !== null && it.share_dilution_3y_pct !== undefined)
+      dilBadge = numCell(it.share_dilution_3y_pct, '#f59e0b', '%', 1, null, null, null);
+    else dilBadge = `<span style="color:var(--muted);">—</span>`;
+
+    const NA = `<td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;"><span style="color:var(--muted);">—</span></td>`;
+
+    html += `
+      <tr style="border-bottom:1px solid var(--border); transition:background 0.12s ease;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'">
+        <!-- STOCK / COMPANY (sticky) -->
+        <td style="padding:8px 12px; vertical-align:middle; position:sticky; left:0; background:var(--card); z-index:2; border-right:1px solid var(--border); min-width:180px;">
+          <div style="display:flex; flex-direction:column; gap:1px;">
+            <a href="javascript:void(0)" onclick="openStockFilingsModal('${sym}')" style="font-size:13px; font-weight:800; font-family:monospace; color:var(--accent); text-decoration:none;">${sym}</a>
+            <div style="font-size:10px; color:var(--muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${comp.replace(/</g,'&lt;')}</div>
+            ${isin ? `<div style="font-size:9px; color:var(--muted); font-family:monospace; opacity:0.6;">${isin}</div>` : ''}
+          </div>
+        </td>
+        <!-- HEALTH STATUS -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle;">${statusBadge}</td>
+        <!-- LAST FETCHED -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle; font-family:monospace; font-size:11px; color:${isStale ? '#f59e0b' : 'var(--muted)'};">
+          ${isStale ? (it.cooloff_start_at ? it.cooloff_start_at.slice(0,10) : '—') : lastFetched}
+        </td>
+        <!-- LATEST PERIOD -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle; font-family:monospace; font-weight:700; font-size:11px;">${latestPeriod}</td>
+        <!-- FILINGS COUNT -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle;">
+          <span style="font-size:11px; font-weight:800; padding:2px 7px; border-radius:10px; background:rgba(37,99,235,0.12); color:#3b82f6; border:1px solid rgba(37,99,235,0.25);">${dbFilingsCount}</span>
+        </td>
+        <!-- DIAGNOSTICS -->
+        <td style="padding:7px 10px; vertical-align:middle;">${diagHtml}</td>
+        <!-- CMP -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.cmp, 'var(--accent)', '', 2, null, null, null)}
+        </td>
+        <!-- MKT CAP CR -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.market_cap_cr, '#3b82f6', '', 1, null, null, null)}
+        </td>
+        <!-- PE -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.current_pe, '#3b82f6', 'x', 1, null, null, null)}
+        </td>
+        <!-- EV/EBITDA -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.current_ev_ebitda, '#3b82f6', 'x', 1, null, null, null)}
+        </td>
+        <!-- ROCE 5Y -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.roce_5y_avg, null, '%', 1, 15, '#10b981', 'var(--text)')}
+        </td>
+        <!-- ROE -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.roe, null, '%', 1, 15, '#10b981', 'var(--text)')}
+        </td>
+        <!-- SALES CAGR 5Y -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.sales_cagr_5y, null, '%', 1, 12, '#10b981', 'var(--text)')}
+        </td>
+        <!-- PAT CAGR 5Y -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.pat_cagr_5y, null, '%', 1, 12, '#10b981', 'var(--text)')}
+        </td>
+        <!-- CFO/PAT -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.cfo_pat_5y_ratio, null, 'x', 2, 0.8, '#10b981', 'var(--text)')}
+        </td>
+        <!-- D/E -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : (it.debt_to_equity !== null && it.debt_to_equity !== undefined ? `<span style="font-weight:700; color:${it.debt_to_equity > 1.5 ? '#ef4444' : '#10b981'};">${parseFloat(it.debt_to_equity).toFixed(2)}x</span>` : '<span style="color:var(--muted);">—</span>')}
+        </td>
+        <!-- REVENUE CR -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.revenue, '#a78bfa', '', 1, null, null, null)}
+        </td>
+        <!-- PAT CR -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.net_profit, '#a78bfa', '', 1, null, null, null)}
+        </td>
+        <!-- OCF CR -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.operating_cash_flow, '#a78bfa', '', 1, null, null, null)}
+        </td>
+        <!-- SHARES M -->
+        <td style="padding:7px 10px; text-align:right; vertical-align:middle; font-family:monospace;">
+          ${isStale ? '<span style="color:var(--muted);">—</span>' : numCell(it.shares_outstanding_m, '#f59e0b', 'M', 1, null, null, null)}
+        </td>
+        <!-- DILUTION -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle;">${isStale ? '<span style="color:var(--muted);">—</span>' : dilBadge}</td>
+        <!-- PROVENANCE -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle;">
+          <span style="font-size:10px; font-weight:800; color:${provColor}; font-family:monospace;" title="${it.provenance_hash || ''}">${isStale ? (it.source || 'STALE') : prov}</span>
+        </td>
+        <!-- ACTIONS -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:4px; flex-wrap:nowrap;">
+            <button onclick="openStockFilingsModal('${sym}')" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:3px 7px; border-radius:5px; font-size:10px; font-weight:700; cursor:pointer; white-space:nowrap;">📋 Filings</button>
+            <button onclick="validateStockFromUI('${sym}')" style="background:#10b981; color:#000; border:none; padding:3px 7px; border-radius:5px; font-size:10px; font-weight:800; cursor:pointer; white-space:nowrap;">⚡</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+}
+
+async function openStockFilingsModal(symbol) {
+  const modal = document.getElementById('modal-sdh-filings-detail');
+  if (!modal) return;
+
+  SDH_CURRENT_MODAL_SYMBOL = symbol;
+  const symEl = document.getElementById('modal-sdh-symbol');
+  const compEl = document.getElementById('modal-sdh-company');
+  const statusEl = document.getElementById('modal-sdh-status-badge');
+  const bodyEl = document.getElementById('modal-sdh-body');
+
+  if (symEl) symEl.textContent = symbol;
+  if (compEl) compEl.textContent = 'Loading company details...';
+  if (statusEl) statusEl.innerHTML = '';
+  if (bodyEl) {
+    bodyEl.innerHTML = `
+      <div style="text-align:center; padding:60px 20px; color:var(--muted);">
+        <div style="font-size:24px; margin-bottom:10px;">⏳</div>
+        <div>Loading complete filing disclosures &amp; local DB history for <strong>${symbol}</strong>...</div>
+      </div>
+    `;
+  }
+
+  modal.style.display = 'flex';
+
+  try {
+    const res = await fetch(`/api/admin/stock_filings/${encodeURIComponent(symbol)}?_t=${Date.now()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const resData = await res.json();
+
+    if (resData.status === 'success' && resData.data) {
+      renderSdhModalContent(resData.data);
+    } else {
+      if (bodyEl) {
+        bodyEl.innerHTML = `<div style="color:#ef4444; padding:30px; text-align:center;">Failed to load filings: ${resData.message || 'Unknown error'}</div>`;
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching stock filings detail:', err);
+    if (bodyEl) {
+      bodyEl.innerHTML = `<div style="color:#ef4444; padding:30px; text-align:center;">Network error loading filings detail for ${symbol}.</div>`;
+    }
+  }
+}
+
+function renderSdhModalContent(data) {
+  const sym = data.symbol || SDH_CURRENT_MODAL_SYMBOL;
+  const comp = data.company_name || sym;
+  const isStale = data.is_stale;
+  const cooloff = data.cooloff_info;
+  const snap = data.canonical_snapshot || {};
+  const filings = data.filings || [];
+
+  const symEl = document.getElementById('modal-sdh-symbol');
+  const compEl = document.getElementById('modal-sdh-company');
+  const statusEl = document.getElementById('modal-sdh-status-badge');
+  const bodyEl = document.getElementById('modal-sdh-body');
+
+  if (symEl) symEl.textContent = sym;
+  if (compEl) compEl.textContent = comp;
+
+  if (statusEl) {
+    if (isStale) {
+      statusEl.innerHTML = `<span style="background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:11px; font-weight:800; padding:2px 8px; border-radius:6px;">⚠️ 7-DAY COOL-OFF ACTIVE</span>`;
+    } else {
+      statusEl.innerHTML = `<span style="background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:11px; font-weight:800; padding:2px 8px; border-radius:6px;">✅ CERTIFIED FRESH</span>`;
+    }
+  }
+
+  // Status Banner
+  let bannerHtml = '';
+  if (isStale) {
+    bannerHtml = `
+      <div style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:8px; padding:12px 16px; margin-bottom:16px;">
+        <div style="font-size:12px; font-weight:700; color:#f59e0b; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+          <span>⚠️</span> CURRENTLY EXCLUDED UNDER 7-DAY COOL-OFF RULE
+        </div>
+        <div style="font-size:12px; color:var(--text); line-height:1.5;">
+          <strong>Reason:</strong> ${cooloff ? cooloff.reason : 'Data staleness or missing statements'}<br>
+          <strong>Cool-off Period:</strong> From ${cooloff ? cooloff.cooloff_start_at : 'Recent'} until <strong>${cooloff ? cooloff.cooloff_until : '7 days'}</strong>
+        </div>
+      </div>
+    `;
+  } else {
+    bannerHtml = `
+      <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:8px; padding:12px 16px; margin-bottom:16px;">
+        <div style="font-size:12px; font-weight:700; color:#10b981; display:flex; align-items:center; gap:6px;">
+          <span>✅</span> ALL DATA CRITERIA SATISFIED — CERTIFIED FOR PRODUCTION SCANNERS
+        </div>
+      </div>
+    `;
+  }
+
+  // Validation Console Placeholder
+  const consoleHtml = `
+    <div id="modal-sdh-validation-console" style="display:none; margin-bottom:16px; background:#0f172a; border:1px solid #1e293b; border-radius:8px; padding:12px 16px; font-family:monospace; font-size:11.5px;">
+    </div>
+  `;
+
+  // Snapshot Metrics Grid
+  const fmtNum = (v, suffix = '') => (v !== null && v !== undefined && !isNaN(v)) ? `${v}${suffix}` : '—';
+  const metricsGridHtml = `
+    <div style="margin-bottom:20px;">
+      <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+        <span>📈</span> Canonical PIT Snapshot Metrics (Point-in-Time Frozen)
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px;">
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">CMP (Quote)</div>
+          <div style="font-size:16px; font-weight:800; color:var(--text);">₹${fmtNum(snap.cmp)}</div>
+        </div>
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">Market Cap</div>
+          <div style="font-size:16px; font-weight:800; color:var(--text);">₹${fmtNum(snap.market_cap ? Math.round(snap.market_cap) : null, ' Cr')}</div>
+        </div>
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">5Y ROCE Avg</div>
+          <div style="font-size:16px; font-weight:800; color:${(snap.roce_5y_avg || 0) >= 15 ? '#10b981' : 'var(--text)'};">${fmtNum(snap.roce_5y_avg, '%')}</div>
+        </div>
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">5Y Sales CAGR</div>
+          <div style="font-size:16px; font-weight:800; color:${(snap.sales_cagr_5y || 0) >= 12 ? '#10b981' : 'var(--text)'};">${fmtNum(snap.sales_cagr_5y, '%')}</div>
+        </div>
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">5Y PAT CAGR</div>
+          <div style="font-size:16px; font-weight:800; color:var(--text);">${fmtNum(snap.pat_cagr_5y, '%')}</div>
+        </div>
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">Debt to Equity</div>
+          <div style="font-size:16px; font-weight:800; color:var(--text);">${fmtNum(snap.debt_to_equity)}</div>
+        </div>
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">P/E (Trailing)</div>
+          <div style="font-size:16px; font-weight:800; color:var(--text);">${fmtNum(snap.current_pe)}</div>
+        </div>
+        <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase;">Filing Staleness</div>
+          <div style="font-size:16px; font-weight:800; color:${(snap.pit_staleness_years || 0) > 2.0 ? '#ef4444' : '#10b981'};">${fmtNum(snap.pit_staleness_years, 'Y')}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Filings Table
+  let filingsRowsHtml = '';
+  if (filings.length === 0) {
+    filingsRowsHtml = `<tr><td colspan="11" style="text-align:center; padding:26px; color:var(--muted);">No financial statement records present in local DB (data/pit_raw_filings/${sym}.json).</td></tr>`;
+  } else {
+    filings.forEach(f => {
+      const pEnd = f.period_end_date || '—';
+      const stType = f.statement_type || 'QUARTERLY';
+      const basis = f.basis || 'CONSOLIDATED';
+      const rev = f.revenue_cr !== null && f.revenue_cr !== undefined ? `₹${Number(f.revenue_cr).toFixed(1)} Cr` : '—';
+      const pat = f.net_profit_cr !== null && f.net_profit_cr !== undefined ? `₹${Number(f.net_profit_cr).toFixed(1)} Cr` : '—';
+      const ebit = f.operating_profit_cr !== null && f.operating_profit_cr !== undefined ? `₹${Number(f.operating_profit_cr).toFixed(1)} Cr` : '—';
+      const eps = f.eps !== null && f.eps !== undefined ? `₹${Number(f.eps).toFixed(2)}` : '—';
+      const roce = f.roce_pct !== null && f.roce_pct !== undefined ? `${Number(f.roce_pct).toFixed(1)}%` : '—';
+      const debt = f.total_debt_cr !== null && f.total_debt_cr !== undefined ? `₹${Number(f.total_debt_cr).toFixed(1)} Cr` : '—';
+      const ocf = f.operating_cash_flow_cr !== null && f.operating_cash_flow_cr !== undefined ? `₹${Number(f.operating_cash_flow_cr).toFixed(1)} Cr` : '—';
+      const fDate = f.filing_date || (f.broadcast_timestamp ? String(f.broadcast_timestamp).slice(0, 10) : '—');
+      const src = f.source || 'NSE';
+
+      const typeBadge = stType === 'ANNUAL'
+        ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; font-weight:800; font-size:10px; padding:2px 6px; border-radius:4px;">ANNUAL (FY)</span>`
+        : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; font-weight:800; font-size:10px; padding:2px 6px; border-radius:4px;">QUARTERLY (Q)</span>`;
+
+      filingsRowsHtml += `
+        <tr style="border-bottom:1px solid var(--border); font-size:11.5px;">
+          <td style="padding:7px 10px; font-family:monospace; font-weight:700; color:var(--text);">${pEnd}</td>
+          <td style="padding:7px 10px; text-align:center;">${typeBadge}</td>
+          <td style="padding:7px 10px; font-size:10.5px; color:var(--muted);">${basis}</td>
+          <td style="padding:7px 10px; font-weight:600; text-align:right;">${rev}</td>
+          <td style="padding:7px 10px; font-weight:600; text-align:right; color:${(f.net_profit_cr || 0) >= 0 ? 'var(--text)' : '#ef4444'};">${pat}</td>
+          <td style="padding:7px 10px; text-align:right;">${ebit}</td>
+          <td style="padding:7px 10px; text-align:right;">${eps}</td>
+          <td style="padding:7px 10px; text-align:right; font-weight:700; color:${(f.roce_pct || 0) >= 15 ? '#10b981' : 'var(--text)'};">${roce}</td>
+          <td style="padding:7px 10px; text-align:right;">${debt}</td>
+          <td style="padding:7px 10px; text-align:right;">${ocf}</td>
+          <td style="padding:7px 10px; font-size:10.5px; color:var(--muted);">${fDate} (${src})</td>
+        </tr>
+      `;
+    });
+  }
+
+  const tableHtml = `
+    <div>
+      <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+        <span>📋 Historical Financial Disclosures in Local DB (${filings.length} Statements Stored)</span>
+        <span style="font-size:11px; color:var(--muted); font-weight:normal;">Location: data/pit_raw_filings/${sym}.json</span>
+      </div>
+      <div style="max-height:340px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
+        <table style="width:100%; border-collapse:collapse; font-size:11.5px;">
+          <thead>
+            <tr style="background:var(--card2); border-bottom:1px solid var(--border); text-align:left; position:sticky; top:0; z-index:2;">
+              <th style="padding:8px 10px;">Period End</th>
+              <th style="padding:8px 10px; text-align:center;">Type</th>
+              <th style="padding:8px 10px;">Basis</th>
+              <th style="padding:8px 10px; text-align:right;">Revenue</th>
+              <th style="padding:8px 10px; text-align:right;">PAT</th>
+              <th style="padding:8px 10px; text-align:right;">Operating Profit</th>
+              <th style="padding:8px 10px; text-align:right;">EPS</th>
+              <th style="padding:8px 10px; text-align:right;">ROCE</th>
+              <th style="padding:8px 10px; text-align:right;">Debt</th>
+              <th style="padding:8px 10px; text-align:right;">OCF</th>
+              <th style="padding:8px 10px;">Filing Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filingsRowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  if (bodyEl) {
+    bodyEl.innerHTML = bannerHtml + consoleHtml + metricsGridHtml + tableHtml;
+  }
+}
+
+function closeSdhModal() {
+  const modal = document.getElementById('modal-sdh-filings-detail');
+  if (modal) modal.style.display = 'none';
+  SDH_CURRENT_MODAL_SYMBOL = null;
+}
+
+async function validateStockFromModal() {
+  if (!SDH_CURRENT_MODAL_SYMBOL) return;
+  const sym = SDH_CURRENT_MODAL_SYMBOL;
+  const consoleEl = document.getElementById('modal-sdh-validation-console');
+
+  if (consoleEl) {
+    consoleEl.style.display = 'block';
+    consoleEl.innerHTML = `<span style="color:#38bdf8;">⚡ Running live on-demand validation for ${sym}...</span>`;
+  }
+
+  try {
+    const res = await fetch('/api/admin/validate_stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: sym })
+    });
+    const data = await res.json();
+
+    if (data.status === 'success' && data.result) {
+      const r = data.result;
+      const isPerfect = r.is_data_perfect;
+      const restored = r.restored;
+
+      let logHtml = `
+        <div style="color:${isPerfect ? '#10b981' : '#ef4444'}; font-weight:700; margin-bottom:6px;">
+          ${isPerfect ? '✅ DATA INTEGRITY VERIFIED PERFECT' : '❌ DATA INTEGRITY CHECK FAILED'}
+        </div>
+        <div style="color:#cbd5e1; line-height:1.6;">
+          • 1D Price Candles: ${r.has_price_candles ? `<span style="color:#10b981;">FOUND (${r.candle_count || '50+'} bars)</span>` : '<span style="color:#ef4444;">MISSING / INSUFFICIENT</span>'}<br>
+          • Canonical Snapshot: ${r.has_canonical_snapshot ? '<span style="color:#10b981;">FOUND</span>' : '<span style="color:#ef4444;">MISSING</span>'}<br>
+          • Raw Filings: ${r.has_raw_filings ? `<span style="color:#10b981;">FOUND (${r.raw_filings_count} statements)</span>` : '<span style="color:#ef4444;">MISSING</span>'}<br>
+          • Filing Staleness: ${r.staleness_years !== null ? `<span style="color:${r.staleness_years <= 2.0 ? '#10b981' : '#ef4444'};">${r.staleness_years.toFixed(1)}Y (limit 2.0Y)</span>` : '—'}<br>
+          • Filing Gap Detected: ${r.filing_gap_detected ? '<span style="color:#ef4444;">YES (GAP FOUND)</span>' : '<span style="color:#10b981;">NO (CLEAN SEQUENCE)</span>'}<br>
+          ${r.missing_metrics && r.missing_metrics.length > 0 ? `<div style="color:#f87171; margin-top:4px;">Missing / Failed Checks: ${r.missing_metrics.join(', ')}</div>` : ''}
+          <div style="margin-top:6px; font-weight:700; color:${restored ? '#10b981' : (isPerfect ? '#38bdf8' : '#ef4444')};">
+            Verdict: ${r.verdict} ${restored ? '🎉 (Stock Unblocked & Stale Entry Cleared!)' : ''}
+          </div>
+        </div>
+      `;
+
+      if (consoleEl) consoleEl.innerHTML = logHtml;
+
+      // If restored, re-fetch detail and refresh background audit
+      if (restored) {
+        setTimeout(() => {
+          openStockFilingsModal(sym);
+          fetchStockDataHealth(true);
+        }, 1500);
+      }
+    } else {
+      if (consoleEl) {
+        consoleEl.innerHTML = `<span style="color:#ef4444;">❌ Validation error: ${data.message || 'Unknown'}</span>`;
+      }
+    }
+  } catch (err) {
+    if (consoleEl) {
+      consoleEl.innerHTML = `<span style="color:#ef4444;">❌ Network error running validation: ${err.message}</span>`;
+    }
+  }
+}
+
+async function validateStockFromUI(symbol) {
+  try {
+    const res = await fetch('/api/admin/validate_stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol })
+    });
+    const data = await res.json();
+
+    if (data.status === 'success' && data.result) {
+      const r = data.result;
+      if (r.restored) {
+        alert(`🎉 STALE STOCK RESTORED: ${symbol}\nData has been verified perfect! The 7-day cool-off suppression has been cleared and the stock is now active for all scanners.`);
+        fetchStockDataHealth(true);
+      } else if (r.is_data_perfect) {
+        alert(`✅ ${symbol} DATA PERFECT: All 1D price candles, statements, and fundamental metrics are 100% complete.`);
+      } else {
+        const issues = (r.missing_metrics || []).join('\n• ');
+        alert(`⚠️ ${symbol} VALIDATION FAILED:\n• ${issues || 'Required data criteria not met'}`);
+      }
+    } else {
+      alert(`Validation error: ${data.message || 'Unknown'}`);
+    }
+  } catch (err) {
+    alert(`Failed to validate ${symbol}: ${err.message}`);
   }
 }
 

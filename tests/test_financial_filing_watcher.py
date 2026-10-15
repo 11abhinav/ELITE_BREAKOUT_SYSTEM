@@ -157,3 +157,96 @@ def test_pre_buy_gate_blocks_when_update_pending(monkeypatch):
     result = pre_buy_data_integrity_gate(bundle)
     assert not result.ok
     assert any("UPDATE_PENDING" in r for r in bundle.blocking_reasons)
+
+
+def test_stale_stock_restoration_on_new_filing(monkeypatch):
+    import app.database as db
+    from app.database import (
+        mark_symbol_stale,
+        get_active_cooloff_symbols,
+        check_and_restore_stale_stock,
+        remove_symbol_from_cooloff,
+    )
+
+    notifications_sent = []
+    def mock_insert_notification(notif_type, title, message, symbol=None, alert_id=None):
+        notifications_sent.append({
+            "type": notif_type,
+            "title": title,
+            "message": message,
+            "symbol": symbol
+        })
+
+    monkeypatch.setattr(db, "insert_notification", mock_insert_notification)
+
+    sym = "TEST_RESTORE_UNIT"
+    # Ensure starting clean
+    remove_symbol_from_cooloff(sym, "ALL")
+    remove_symbol_from_cooloff(sym, "FUNDAMENTAL")
+
+    # 1. Place symbol into cooloff / mark stale -> Should dispatch Stale Data notification
+    res = mark_symbol_stale(sym, reason="STALE_DATA_TEST", scanner="FUNDAMENTAL", duration_days=7, notify_admin=True)
+    assert res is True
+    cooloffs = get_active_cooloff_symbols("FUNDAMENTAL")
+    assert sym in cooloffs
+
+    assert len(notifications_sent) == 1
+    assert notifications_sent[0]["title"] == f"Stale Data: {sym}"
+    assert notifications_sent[0]["symbol"] == sym
+    assert "Marking as stale data" in notifications_sent[0]["message"]
+
+    # 2. Call check_and_restore_stale_stock -> Should dispatch Stale Stock Restored notification
+    restored = check_and_restore_stale_stock(sym, source="UNIT_TEST", period_end="2025-03-31", notify_admin=True)
+    assert restored is True
+
+    assert len(notifications_sent) == 2
+    assert notifications_sent[1]["title"] == f"Stale Stock Restored: {sym}"
+    assert notifications_sent[1]["symbol"] == sym
+    assert "Fresh financial data" in notifications_sent[1]["message"]
+
+    # 3. Verify symbol is evicted from active cooloff
+    cooloffs_after = get_active_cooloff_symbols("FUNDAMENTAL")
+    assert sym not in cooloffs_after
+
+    # 4. Calling again for the same now-clean symbol should return False (not stale) and send no new notifications
+    restored_again = check_and_restore_stale_stock(sym, source="UNIT_TEST")
+    assert restored_again is False
+    assert len(notifications_sent) == 2
+
+
+def test_event_logging_date_normalization_not_truncated(temp_watcher):
+    watcher, tmpdir = temp_watcher
+    symbol = "CEATLTD"
+
+    # Raw exchange filing with dd-MMM-yyyy format in toDate
+    filing_meta = {
+        "filing_id": "CEATLTD_20150630_v1",
+        "toDate": "30-Jun-2015",
+        "statement_type": "QUARTERLY",
+        "basis": "CONSOLIDATED",
+        "facts": {"revenue": 1500, "net_profit": 120, "toDate": "30-Jun-2015"}
+    }
+    payload = b'{"filing_id": "CEATLTD_20150630_v1", "rev": 1500}'
+
+    event = watcher.detect_filing_changes(symbol, filing_meta, payload)
+
+    # 1. Verify FilingEvent has full normalized ISO date, NOT truncated 9-char '30-Jun-201'
+    assert event.period_end_date == "2015-06-30"
+    assert len(event.period_end_date) == 10
+    assert event.to_dict()["period_end_date"] == "2015-06-30"
+
+    # 2. Verify state file stored normalized date
+    state_entry = watcher.state.get("CEATLTD", {})
+    assert state_entry.get("latest_filing_date") == "2015-06-30"
+    assert state_entry.get("filings", {}).get("CEATLTD_20150630_v1", {}).get("period_end_date") == "2015-06-30"
+
+    # 3. Verify event log file contains normalized ISO date
+    with open(watcher.events_log, "r") as f:
+        log_line = f.readline()
+        logged_event = json.loads(log_line)
+        assert logged_event["period_end_date"] == "2015-06-30"
+        assert len(logged_event["period_end_date"]) == 10
+
+
+
+

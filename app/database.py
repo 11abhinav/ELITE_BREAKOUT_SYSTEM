@@ -8926,12 +8926,14 @@ def add_symbol_to_cooloff(
     reason: str,
     scanner: str = "ALL",
     duration_days: int = 7,
-    provider_failures: Optional[Any] = None
+    provider_failures: Optional[Any] = None,
+    notify_admin: bool = True
 ) -> bool:
     """
     [7-DAY DATA FAILURE COOL-OFF GATE]
-    Puts a stock whose required data is missing/invalid across all validated providers into a 7-day cool-off.
+    Puts a stock whose required data is missing/invalid/stale across all validated providers into a 7-day cool-off.
     Active cool-off stocks are excluded at universe initialization on subsequent runs, reducing scanned_count.
+    Sends an admin notification alerting that the stock has been marked as stale data.
     """
     if not symbol or not isinstance(symbol, str):
         return False
@@ -8950,7 +8952,12 @@ def add_symbol_to_cooloff(
     now_dt = datetime.now(IST)
     until_dt = now_dt + timedelta(days=duration_days)
 
+    is_new_stale = False
     with _LOCAL_COOLOFF_LOCK:
+        # Check if symbol was already actively in cool-off
+        existing = _LOCAL_COOLOFF_CACHE.get((sym, scan))
+        if not existing or (existing.get("cooloff_until") and existing.get("cooloff_until") <= now_dt):
+            is_new_stale = True
         _LOCAL_COOLOFF_CACHE[(sym, scan)] = {
             "symbol": sym,
             "reason": reason_clean,
@@ -8964,6 +8971,16 @@ def add_symbol_to_cooloff(
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
+                    if is_new_stale:
+                        cur.execute("""
+                            SELECT cooloff_until FROM symbol_cooloff_journal
+                            WHERE symbol = %s AND (scanner = %s OR scanner = 'ALL')
+                              AND cooloff_until > %s
+                        """, (sym, scan, now_dt))
+                        row = cur.fetchone()
+                        if row and row[0] and row[0] > now_dt:
+                            is_new_stale = False
+
                     cur.execute("""
                         INSERT INTO symbol_cooloff_journal (
                             symbol, reason, scanner, cooloff_start_at, cooloff_until, provider_failures, created_at, updated_at
@@ -8998,7 +9015,48 @@ def add_symbol_to_cooloff(
     except Exception:
         pass
 
+    # Admin notification for marking stock as stale data
+    if notify_admin and is_new_stale:
+        try:
+            title = f"Stale Data: {sym}"
+            msg = (
+                f"Marking as stale data: {sym}. Reason: {reason_clean}. "
+                f"Entered into cool-off table ({scan}) to not be processed for {duration_days} days "
+                f"(until {until_dt.strftime('%Y-%m-%d')})."
+            )
+            insert_notification(
+                notif_type="admin",
+                title=title,
+                message=msg,
+                symbol=sym
+            )
+        except Exception as notif_err:
+            logger.debug(f"[COOLOFF_NOTIF] Admin notification error for {sym}: {notif_err}")
+
     return True
+
+
+def mark_symbol_stale(
+    symbol: str,
+    reason: str = "DATA_STALE",
+    scanner: str = "ALL",
+    duration_days: int = 7,
+    provider_failures: Optional[Any] = None,
+    notify_admin: bool = True
+) -> bool:
+    """
+    Explicit helper to mark a stock as stale data and enter it into the cool-off table
+    so it is not processed by scanners. Shows an admin notification with the stock name.
+    """
+    return add_symbol_to_cooloff(
+        symbol=symbol,
+        reason=reason,
+        scanner=scanner,
+        duration_days=duration_days,
+        provider_failures=provider_failures,
+        notify_admin=notify_admin
+    )
+
 
 
 def get_active_cooloff_symbols(scanner: str = "ALL") -> set:
@@ -9092,6 +9150,681 @@ def cleanup_expired_cooloffs() -> int:
     except Exception as e:
         logger.debug(f"Cleanup cooloffs notice: {e}")
         return 0
+
+
+def check_and_restore_stale_stock(
+    symbol: str,
+    source: str = "FILING_WATCHER",
+    period_end: Optional[str] = None,
+    notify_admin: bool = True
+) -> bool:
+    """
+    [STALE STOCK RESTORATION & UNBLOCKING GATE]
+    Whenever new financial data or filings are fetched for any stock:
+      1. Checks if the same stock was previously marked stale or entered into cool-off / suppression table
+         (symbol_cooloff_journal, _LOCAL_COOLOFF_CACHE, pit_recovery_cache, or canonical snapshot).
+      2. If previously stale: removes it from symbol_cooloff_journal and _LOCAL_COOLOFF_CACHE
+         across all scanners (FUNDAMENTAL, QUALITY_COMPOUNDER, QUALITY_VALUE_RECOVERY, ALL).
+      3. Clears dynamic quarantine in PitRecoveryStatusStore.
+      4. Restores snapshot freshness in data/canonical_pit_rebuilt.parquet (updates pit_freshness_status
+         to 'FRESH', clears filing_gap_detected, updates latest_period) so scanners immediately
+         re-evaluate if the data is complete and tradeable.
+      5. Dispatches an admin notification: 'Stale Stock Restored: <symbol>' so admin is alerted.
+
+    Returns True if the stock was stale and has been restored, False otherwise.
+    """
+    if not symbol:
+        return False
+    sym = str(symbol).strip().upper()
+    was_stale = False
+    stale_reasons = []
+
+    # 1. Check & evict from _LOCAL_COOLOFF_CACHE
+    with _LOCAL_COOLOFF_LOCK:
+        keys_to_del = [k for k in _LOCAL_COOLOFF_CACHE if k[0] == sym]
+        if keys_to_del:
+            was_stale = True
+            for k in keys_to_del:
+                r = _LOCAL_COOLOFF_CACHE.get(k, {}).get("reason", "COOLOFF")
+                stale_reasons.append(f"Cache:{r}")
+                del _LOCAL_COOLOFF_CACHE[k]
+
+    # 2. Check & delete from symbol_cooloff_journal in database
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT reason, scanner FROM symbol_cooloff_journal WHERE symbol = %s",
+                        (sym,)
+                    )
+                    rows = cur.fetchall()
+                    if rows:
+                        was_stale = True
+                        for row in rows:
+                            stale_reasons.append(f"DB:{row[0]} ({row[1]})")
+                        cur.execute(
+                            "DELETE FROM symbol_cooloff_journal WHERE symbol = %s",
+                            (sym,)
+                        )
+                conn.commit()
+    except Exception as db_err:
+        logger.debug(f"[STALE_RESTORE] Cool-off DB check/evict note for {sym}: {db_err}")
+
+    # 3. Check & clear PitRecoveryStatusStore quarantine
+    try:
+        try:
+            from app.pit_recovery_cache import get_pit_recovery_store
+        except ImportError:
+            from pit_recovery_cache import get_pit_recovery_store
+        store = get_pit_recovery_store()
+        if store.is_quarantined_for_scanner(sym, scanner_family="ALL"):
+            was_stale = True
+            stale_reasons.append("QuarantineCache")
+        store.clear_quarantine(sym)
+    except Exception as q_err:
+        logger.debug(f"[STALE_RESTORE] Quarantine clear note for {sym}: {q_err}")
+
+    # 4. Check & update canonical snapshot if marked STALE or having fiscal gaps
+    try:
+        import pandas as pd
+        from pathlib import Path
+        snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+        if snap_path.exists():
+            snap_df = pd.read_parquet(snap_path)
+            if "symbol" in snap_df.columns:
+                mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym
+                if mask.any():
+                    row = snap_df.loc[mask].iloc[0]
+                    curr_status = str(row.get("pit_freshness_status", "")).upper()
+                    snap_status = str(row.get("snapshot_status", "")).upper()
+                    has_gap = bool(row.get("filing_gap_detected", False))
+                    if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap:
+                        was_stale = True
+                        stale_reasons.append(f"Snapshot:{curr_status or 'GAP'}")
+                        snap_df.loc[mask, "pit_freshness_status"] = "FRESH"
+                        if "snapshot_status" in snap_df.columns:
+                            snap_df.loc[mask, "snapshot_status"] = "FRESH"
+                        if "filing_gap_detected" in snap_df.columns:
+                            snap_df.loc[mask, "filing_gap_detected"] = False
+                        if period_end:
+                            if "latest_annual_period" in snap_df.columns and ("ANNUAL" in str(source).upper() or "-03-31" in str(period_end)):
+                                snap_df.loc[mask, "latest_annual_period"] = str(period_end)[:10]
+                        tmp_snap = snap_path.with_suffix(f".tmp.{os.getpid()}")
+                        snap_df.to_parquet(tmp_snap, index=False)
+                        tmp_snap.replace(snap_path)
+                        try:
+                            from app.financial_data_integrity import clear_shared_snapshot_cache
+                            clear_shared_snapshot_cache()
+                        except Exception:
+                            pass
+    except Exception as snap_err:
+        logger.debug(f"[STALE_RESTORE] Snapshot status update note for {sym}: {snap_err}")
+
+    # 5. Notify admin if stock was previously stale
+    if was_stale:
+        reasons_summary = ", ".join(stale_reasons) if stale_reasons else "Previously Cool-off/Stale"
+        logger.info(
+            f"🔄 [STALE_STOCK_RESTORED] {sym} was previously marked stale ({reasons_summary}). "
+            f"Removed from suppression. Fresh data ({period_end or 'Latest'}) available. Scanners can now review."
+        )
+        if notify_admin:
+            try:
+                title = f"Stale Stock Restored: {sym}"
+                msg = (
+                    f"Fresh financial data ({period_end or 'Latest Period'}) fetched via {source}. "
+                    f"Cool-off/staleness suppression removed ({reasons_summary}). "
+                    f"Scanners are now reviewing if data is complete and tradeable."
+                )
+                insert_notification(
+                    notif_type="admin",
+                    title=title,
+                    message=msg,
+                    symbol=sym
+                )
+            except Exception as notif_err:
+                logger.debug(f"[STALE_RESTORE] Admin notification error for {sym}: {notif_err}")
+
+    return was_stale
+
+
+def get_stale_stocks_audit() -> List[Dict[str, Any]]:
+    """
+    Returns all stocks currently marked as stale or in the 7-day cool-off suppression table.
+    Shows the exact reason and what data is missing.
+    """
+    import os, json
+    import pandas as pd
+    from datetime import datetime, timedelta
+    now_dt = datetime.now(IST)
+
+    stale_map = {}
+
+    # Security master for company names
+    sec_master = {}
+    sm_path = Path(__file__).resolve().parent.parent / "data" / "bse_security_master.json"
+    if sm_path.exists():
+        try:
+            with open(sm_path, "r", encoding="utf-8") as f:
+                sec_master = json.load(f)
+        except Exception:
+            pass
+
+    def _format_missing_data(reason: str, failures: Any) -> str:
+        r_upper = str(reason or "").upper()
+        if "PIT_STALENESS" in r_upper or "PIT_DATA_STALE" in r_upper:
+            return "Annual financial statements are >2.0 years stale. Newer exchange annual filings required."
+        elif "PRICE_HISTORY" in r_upper or "INSUFFICIENT_LOOKBACK" in r_upper:
+            return "1D OHLCV market price history missing or insufficient lookback (<50 bars)."
+        elif "APPROVED_PROVIDERS_EXHAUSTED" in r_upper or "FUNDAMENTAL_DATA_INSUFFICIENT" in r_upper or "PIT_DATA_MISSING" in r_upper:
+            return "Core fundamental metrics (ROCE, Sales/PAT CAGR, OCF) missing from verified exchange XBRL."
+        elif "RECOVERY_DATA_INSUFFICIENT" in r_upper:
+            return "Quality Value Recovery metrics missing (drawdown, valuation compression, or debt/equity)."
+        elif "STALE_PRICE_DATA" in r_upper:
+            return "CMP quote is stale or missing live market session closing bar."
+        elif "FILING_GAP" in r_upper:
+            return "Historical fiscal year gap detected in filing sequence (missing annual year)."
+        elif failures:
+            return f"Provider verification failed: {str(failures)[:120]}"
+        return r_upper or "Data quality criteria not met"
+
+    # 1. Query symbol_cooloff_journal in DB
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT symbol, scanner, reason, provider_failures, cooloff_start_at, cooloff_until, created_at
+                        FROM symbol_cooloff_journal
+                        WHERE cooloff_until > %s
+                        ORDER BY cooloff_until DESC
+                    """, (now_dt,))
+                    rows = cur.fetchall()
+                    for r in rows:
+                        sym = str(r[0]).strip().upper()
+                        scan = str(r[1] or "ALL").strip().upper()
+                        reason = str(r[2] or "DATA_STALE")
+                        pf = r[3]
+                        start_at = r[4]
+                        until_dt = r[5]
+                        
+                        days_left = round((until_dt - now_dt).total_seconds() / 86400.0, 1) if until_dt else 7.0
+                        comp_name = sec_master.get(sym, {}).get("company_name", sym)
+
+                        stale_map[sym] = {
+                            "symbol": sym,
+                            "company_name": comp_name,
+                            "scanner": scan,
+                            "reason": reason,
+                            "missing_data_summary": _format_missing_data(reason, pf),
+                            "provider_failures": pf,
+                            "cooloff_start_at": start_at.isoformat() if hasattr(start_at, "isoformat") else str(start_at),
+                            "cooloff_until": until_dt.isoformat() if hasattr(until_dt, "isoformat") else str(until_dt),
+                            "days_remaining": max(0.0, days_left),
+                            "status": "STALE_COOLOFF",
+                            "source": "COOLOFF_JOURNAL"
+                        }
+    except Exception as e:
+        logger.debug(f"[STALE_AUDIT] DB cooloff query note: {e}")
+
+    # 2. Check _LOCAL_COOLOFF_CACHE
+    with _LOCAL_COOLOFF_LOCK:
+        for (sym, scan), rec in _LOCAL_COOLOFF_CACHE.items():
+            until = rec.get("cooloff_until")
+            if until and until > now_dt and sym not in stale_map:
+                reason = rec.get("reason", "DATA_STALE")
+                pf = rec.get("provider_failures")
+                days_left = round((until - now_dt).total_seconds() / 86400.0, 1)
+                comp_name = sec_master.get(sym, {}).get("company_name", sym)
+                stale_map[sym] = {
+                    "symbol": sym,
+                    "company_name": comp_name,
+                    "scanner": scan,
+                    "reason": reason,
+                    "missing_data_summary": _format_missing_data(reason, pf),
+                    "provider_failures": pf,
+                    "cooloff_start_at": rec.get("cooloff_start_at", now_dt).isoformat() if hasattr(rec.get("cooloff_start_at"), "isoformat") else str(rec.get("cooloff_start_at")),
+                    "cooloff_until": until.isoformat() if hasattr(until, "isoformat") else str(until),
+                    "days_remaining": max(0.0, days_left),
+                    "status": "STALE_COOLOFF",
+                    "source": "COOLOFF_CACHE"
+                }
+
+    # 3. Check canonical snapshot for DATA_STALE or filing gaps
+    try:
+        snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+        if snap_path.exists():
+            snap_df = pd.read_parquet(snap_path)
+            for _, row in snap_df.iterrows():
+                sym = str(row.get("symbol", "")).strip().upper()
+                if not sym or sym in stale_map:
+                    continue
+                freshness = str(row.get("pit_freshness_status", "")).upper()
+                snap_st = str(row.get("snapshot_status", "")).upper()
+                has_gap = bool(row.get("filing_gap_detected", False))
+                staleness_years = float(row.get("pit_staleness_years") or 0.0)
+
+                if freshness in ("DATA_STALE", "STALE") or snap_st == "STALE" or staleness_years > 2.0 or has_gap:
+                    reason = f"PIT_STALENESS_{round(staleness_years, 1)}Y" if staleness_years > 2.0 else ("FILING_GAP_DETECTED" if has_gap else "DATA_STALE")
+                    comp_name = sec_master.get(sym, {}).get("company_name", sym)
+                    stale_map[sym] = {
+                        "symbol": sym,
+                        "company_name": comp_name,
+                        "scanner": "ALL",
+                        "reason": reason,
+                        "missing_data_summary": _format_missing_data(reason, row.get("filing_gaps")),
+                        "provider_failures": str(row.get("filing_gaps") or ""),
+                        "cooloff_start_at": str(row.get("as_of_date") or now_dt.strftime("%Y-%m-%d")),
+                        "cooloff_until": (now_dt + timedelta(days=7)).isoformat(),
+                        "days_remaining": 7.0,
+                        "status": "STALE_SNAPSHOT",
+                        "source": "CANONICAL_SNAPSHOT",
+                        "latest_annual_period": str(row.get("latest_annual_period") or "")
+                    }
+    except Exception as e:
+        logger.debug(f"[STALE_AUDIT] Snapshot check note: {e}")
+
+    # Enrich with latest period present in local raw filings
+    raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+    for sym, item in stale_map.items():
+        raw_p = raw_dir / f"{sym}.json"
+        if raw_p.exists():
+            try:
+                with open(raw_p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list) and len(data) > 0:
+                    item["filings_count_in_db"] = len(data)
+                    item["latest_period_in_db"] = str(data[-1].get("period_end_date") or "")
+                else:
+                    item["filings_count_in_db"] = 0
+                    item["latest_period_in_db"] = "None"
+            except Exception:
+                item["filings_count_in_db"] = 0
+                item["latest_period_in_db"] = "Error"
+        else:
+            item["filings_count_in_db"] = 0
+            item["latest_period_in_db"] = "No local file"
+
+    return sorted(list(stale_map.values()), key=lambda x: x["symbol"])
+
+
+def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
+    """
+    Returns all stocks with proper, certified data in canonical snapshot and local DB.
+    Returns comprehensive admin-visible data: latest filing period, last_fetched_at (file mtime),
+    filings count, all fundamental metrics, valuation, share data, and provenance fields.
+    """
+    import os, json
+    import pandas as pd
+    from datetime import datetime
+
+    fresh_list = []
+    sec_master = {}
+    sm_path = Path(__file__).resolve().parent.parent / "data" / "bse_security_master.json"
+    if sm_path.exists():
+        try:
+            with open(sm_path, "r", encoding="utf-8") as f:
+                sec_master = json.load(f)
+        except Exception:
+            pass
+
+    snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+    if not snap_path.exists():
+        return []
+
+    try:
+        snap_df = pd.read_parquet(snap_path)
+    except Exception as e:
+        logger.debug(f"[FRESH_AUDIT] Error loading snapshot: {e}")
+        return []
+
+    raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+
+    # Filter to valid, non-stale rows
+    mask = (
+        (snap_df["pit_freshness_status"] == "VALID") &
+        (snap_df["filing_gap_detected"] == False) &
+        (snap_df["pit_staleness_years"] <= 2.0)
+    )
+    if "snapshot_status" in snap_df.columns:
+        mask = mask & (snap_df["snapshot_status"] != "STALE")
+
+    valid_df = snap_df.loc[mask]
+
+    for _, row in valid_df.iterrows():
+        sym = str(row.get("symbol", "")).strip().upper()
+        if not sym:
+            continue
+
+        comp_name = sec_master.get(sym, {}).get("company_name", sym)
+        annual_period = str(row.get("latest_annual_period") or "")[:10]
+        as_of = str(row.get("as_of_date") or "")
+        isin = str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or "")
+
+        filings_count = int(row.get("annual_filing_count") or 0)
+        recent_periods = []
+        last_fetched_at = None
+        raw_p = raw_dir / f"{sym}.json"
+        if raw_p.exists():
+            try:
+                # File modification time is a reliable proxy for when data was last fetched from exchange
+                mtime = raw_p.stat().st_mtime
+                last_fetched_at = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                with open(raw_p, "r", encoding="utf-8") as f:
+                    r_data = json.load(f)
+                if isinstance(r_data, list):
+                    filings_count = len(r_data)
+                    for stmt in r_data[-5:]:
+                        p_end = str(stmt.get("period_end_date") or "")
+                        st_t = str(stmt.get("statement_type") or "A")[:1]
+                        if p_end:
+                            recent_periods.append(f"{p_end} ({st_t})")
+            except Exception:
+                pass
+
+        def _val(x, round_n=2):
+            if x is None or pd.isna(x):
+                return None
+            try:
+                return round(float(x), round_n)
+            except Exception:
+                return None
+
+        fresh_list.append({
+            "symbol": sym,
+            "company_name": comp_name,
+            "isin": isin,
+            "status": "FRESH",
+            "provenance_status": str(row.get("provenance_status") or "CERTIFIED"),
+            "recovery_status": str(row.get("recovery_status") or ""),
+            "provenance_hash": str(row.get("provenance_hash") or "")[:16],
+            "latest_annual_period": annual_period,
+            "as_of_date": as_of,
+            "last_fetched_at": last_fetched_at or as_of,
+            "pit_staleness_years": _val(row.get("pit_staleness_years"), 2),
+            "annual_filing_count": filings_count,
+            "filings_count_in_db": filings_count,
+            "recent_periods": recent_periods,
+            # Market / Valuation
+            "cmp": _val(row.get("cmp")),
+            "market_cap_cr": _val(row.get("market_cap"), 1),
+            "enterprise_value": _val(row.get("enterprise_value"), 1),
+            "current_pe": _val(row.get("current_pe")),
+            "pe_3y_median": _val(row.get("pe_3y_median")),
+            "current_ev_ebitda": _val(row.get("current_ev_ebitda")),
+            "ev_ebitda_3y_median": _val(row.get("ev_ebitda_3y_median")),
+            # Fundamentals
+            "roce_5y_avg": _val(row.get("roce_5y_avg")),
+            "roce": _val(row.get("roce")),
+            "roe": _val(row.get("roe")),
+            "sales_cagr_5y": _val(row.get("sales_cagr_5y")),
+            "pat_cagr_5y": _val(row.get("pat_cagr_5y")),
+            "cfo_pat_5y_ratio": _val(row.get("cfo_pat_5y_ratio")),
+            "debt_to_equity": _val(row.get("debt_to_equity")),
+            # Share data
+            "shares_outstanding_m": _val(row.get("shares_outstanding_m"), 2),
+            "share_dilution_3y_pct": _val(row.get("share_dilution_3y_pct"), 2),
+            "share_dilution_status": str(row.get("share_dilution_status") or ""),
+            # Raw financials (in Cr)
+            "revenue": _val(row.get("revenue"), 1),
+            "net_profit": _val(row.get("net_profit"), 1),
+            "operating_cash_flow": _val(row.get("operating_cash_flow"), 1),
+            "ebitda": _val(row.get("ebitda"), 1),
+        })
+        if len(fresh_list) >= limit:
+            break
+
+    return sorted(fresh_list, key=lambda x: x["symbol"])
+
+
+def get_stock_filings_detail(symbol: str) -> Dict[str, Any]:
+    """
+    Returns the complete list of previous statements in local DB (pit_raw_filings/<sym>.json),
+    the snapshot row, cool-off status, and validation diagnosis for any stock.
+    """
+    import os, json
+    import pandas as pd
+    from datetime import datetime
+
+    sym_u = str(symbol or "").strip().upper()
+    if not sym_u:
+        return {"error": "Invalid symbol"}
+
+    sec_master = {}
+    sm_path = Path(__file__).resolve().parent.parent / "data" / "bse_security_master.json"
+    if sm_path.exists():
+        try:
+            with open(sm_path, "r", encoding="utf-8") as f:
+                sec_master = json.load(f)
+        except Exception:
+            pass
+
+    comp_name = sec_master.get(sym_u, {}).get("company_name", sym_u)
+
+    # 1. Check cooloff status
+    is_stale = False
+    cooloff_rec = None
+    with _LOCAL_COOLOFF_LOCK:
+        for (s, sc), rec in _LOCAL_COOLOFF_CACHE.items():
+            if s == sym_u:
+                is_stale = True
+                cooloff_rec = {
+                    "scanner": sc,
+                    "reason": rec.get("reason"),
+                    "cooloff_start_at": str(rec.get("cooloff_start_at")),
+                    "cooloff_until": str(rec.get("cooloff_until")),
+                }
+
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT scanner, reason, provider_failures, cooloff_start_at, cooloff_until
+                        FROM symbol_cooloff_journal
+                        WHERE symbol = %s AND cooloff_until > NOW()
+                    """, (sym_u,))
+                    row = cur.fetchone()
+                    if row:
+                        is_stale = True
+                        cooloff_rec = {
+                            "scanner": row[0],
+                            "reason": row[1],
+                            "provider_failures": row[2],
+                            "cooloff_start_at": str(row[3]),
+                            "cooloff_until": str(row[4]),
+                        }
+    except Exception:
+        pass
+
+    # 2. Canonical snapshot data
+    snap_data = None
+    snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+    if snap_path.exists():
+        try:
+            sdf = pd.read_parquet(snap_path)
+            match = sdf[sdf["symbol"].str.upper() == sym_u]
+            if not match.empty:
+                r = match.iloc[0].to_dict()
+                snap_data = {
+                    k: (None if (isinstance(v, float) and pd.isna(v)) else v)
+                    for k, v in r.items()
+                }
+        except Exception:
+            pass
+
+    # 3. All historical raw filings from local DB
+    filings = []
+    raw_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings" / f"{sym_u}.json"
+    if raw_p.exists():
+        try:
+            with open(raw_p, "r", encoding="utf-8") as f:
+                raw_list = json.load(f)
+            if isinstance(raw_list, list):
+                for item in raw_list:
+                    def _get_f(k):
+                        val = item.get(k)
+                        if val is None:
+                            return None
+                        try:
+                            return float(val)
+                        except Exception:
+                            return str(val)
+
+                    filings.append({
+                        "period_end_date": str(item.get("period_end_date") or ""),
+                        "statement_type": str(item.get("statement_type") or "QUARTERLY").upper(),
+                        "basis": str(item.get("basis") or "CONSOLIDATED").upper(),
+                        "revenue_cr": _get_f("revenue") or _get_f("mapped_revenue"),
+                        "net_profit_cr": _get_f("net_profit") or _get_f("pat"),
+                        "operating_profit_cr": _get_f("operating_profit") or _get_f("ebit"),
+                        "eps": _get_f("eps"),
+                        "roce_pct": _get_f("roce"),
+                        "roe_pct": _get_f("roe"),
+                        "total_debt_cr": _get_f("total_debt"),
+                        "total_equity_cr": _get_f("total_equity"),
+                        "operating_cash_flow_cr": _get_f("operating_cash_flow"),
+                        "shares_outstanding_m": _get_f("shares_outstanding"),
+                        "operating_margin_pct": _get_f("operating_margin"),
+                        "net_margin_pct": _get_f("net_margin"),
+                        "filing_date": item.get("filing_date"),
+                        "broadcast_timestamp": item.get("broadcast_timestamp") or item.get("broadCastDate"),
+                        "source": item.get("source_provider") or item.get("source") or item.get("exchange", "NSE"),
+                        "filing_id": item.get("filing_id") or item.get("seqNumber"),
+                    })
+        except Exception as e:
+            logger.debug(f"[FILINGS_DETAIL] Error reading raw filings for {sym_u}: {e}")
+
+    # Sort filings chronologically descending (latest first)
+    filings.sort(key=lambda x: x.get("period_end_date", ""), reverse=True)
+
+    return {
+        "symbol": sym_u,
+        "company_name": comp_name,
+        "is_stale": is_stale,
+        "cooloff_info": cooloff_rec,
+        "total_filings_count": len(filings),
+        "latest_filing": filings[0] if filings else None,
+        "canonical_snapshot": snap_data,
+        "filings": filings,
+    }
+
+
+def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
+    """
+    Validates a stock's data completeness and staleness status on demand.
+    If the stock was in cool-off/stale and its data is now complete, restores it!
+    """
+    import os, json
+    import pandas as pd
+    from datetime import datetime
+
+    sym_u = str(symbol or "").strip().upper()
+    if not sym_u:
+        return {"ok": False, "error": "Invalid symbol"}
+
+    checks = {
+        "symbol": sym_u,
+        "has_canonical_snapshot": False,
+        "has_raw_filings": False,
+        "has_price_candles": False,
+        "staleness_years": None,
+        "filing_gap_detected": False,
+        "missing_metrics": [],
+        "was_stale": False,
+        "restored": False,
+    }
+
+    # 1. Check raw filings
+    raw_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings" / f"{sym_u}.json"
+    latest_period = None
+    if raw_p.exists():
+        try:
+            with open(raw_p, "r", encoding="utf-8") as f:
+                r_data = json.load(f)
+            if isinstance(r_data, list) and len(r_data) > 0:
+                checks["has_raw_filings"] = True
+                checks["raw_filings_count"] = len(r_data)
+                latest_period = r_data[-1].get("period_end_date")
+                checks["latest_raw_period"] = latest_period
+        except Exception:
+            pass
+
+    # 2. Check 1D OHLCV market price candles
+    p_1d = Path(__file__).resolve().parent.parent / "data" / "historical_1d_candles" / f"{sym_u}.parquet"
+    if p_1d.exists():
+        try:
+            df_px = pd.read_parquet(p_1d)
+            if len(df_px) >= 50:
+                checks["has_price_candles"] = True
+                checks["candle_count"] = len(df_px)
+            else:
+                checks["missing_metrics"].append(f"Insufficient 1D price candles (found {len(df_px)}, min 50)")
+        except Exception:
+            checks["missing_metrics"].append("Failed to read 1D price candles parquet")
+    else:
+        checks["missing_metrics"].append("1D price history file missing")
+
+    # 3. Check canonical snapshot
+    snap_p = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+    if snap_p.exists():
+        try:
+            sdf = pd.read_parquet(snap_p)
+            match = sdf[sdf["symbol"].str.upper() == sym_u]
+            if not match.empty:
+                checks["has_canonical_snapshot"] = True
+                row = match.iloc[0]
+                checks["staleness_years"] = float(row.get("pit_staleness_years") or 0.0)
+                checks["filing_gap_detected"] = bool(row.get("filing_gap_detected", False))
+                checks["latest_annual_period"] = str(row.get("latest_annual_period") or "")
+
+                if checks["staleness_years"] > 2.0:
+                    checks["missing_metrics"].append(f"PIT staleness ({checks['staleness_years']:.1f}Y exceeds 2.0Y limit)")
+                if checks["filing_gap_detected"]:
+                    checks["missing_metrics"].append("Fiscal annual filing gap detected in historical series")
+                if pd.isna(row.get("roce_5y_avg")) and pd.isna(row.get("roce")):
+                    checks["missing_metrics"].append("ROCE metric missing")
+                if pd.isna(row.get("sales_cagr_5y")):
+                    checks["missing_metrics"].append("5Y Sales CAGR missing")
+                if pd.isna(row.get("pat_cagr_5y")):
+                    checks["missing_metrics"].append("5Y PAT CAGR missing")
+                if pd.isna(row.get("debt_to_equity")):
+                    checks["missing_metrics"].append("Debt-to-Equity ratio missing")
+            else:
+                checks["missing_metrics"].append("Symbol not found in canonical PIT snapshot")
+        except Exception as e:
+            checks["missing_metrics"].append(f"Error checking snapshot: {e}")
+    else:
+        checks["missing_metrics"].append("Canonical snapshot parquet file not found")
+
+    is_valid = (
+        checks["has_canonical_snapshot"] and
+        checks["has_raw_filings"] and
+        checks["has_price_candles"] and
+        checks["staleness_years"] is not None and
+        checks["staleness_years"] <= 2.0 and
+        not checks["filing_gap_detected"] and
+        len([m for m in checks["missing_metrics"] if "missing" in m.lower() or "exceeds" in m.lower()]) == 0
+    )
+
+    checks["is_data_perfect"] = is_valid
+
+    # 4. If valid, check if it was marked stale and restore it!
+    if is_valid:
+        restored = check_and_restore_stale_stock(
+            symbol=sym_u,
+            source="ADMIN_MANUAL_VALIDATION",
+            period_end=latest_period,
+            notify_admin=True
+        )
+        checks["was_stale"] = restored
+        checks["restored"] = restored
+        checks["verdict"] = "DATA_PERFECT_RESTORED" if restored else "DATA_PERFECT_ALREADY_FRESH"
+    else:
+        checks["verdict"] = "VALIDATION_FAILED"
+
+    return checks
+
 
 
 def get_active_breakout_watchlist() -> list:
@@ -12691,10 +13424,33 @@ from pathlib import Path
 CORPORATE_FILINGS_LOG_FILE = Path(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "corporate_filings_log.jsonl"))
 
 
+def _db_norm_date(val: Any) -> Optional[str]:
+    """Strictly normalizes any date representation to ISO YYYY-MM-DD (>= 2015-01-01)."""
+    if not val:
+        return None
+    s = str(val).strip()
+    import re as _re_db
+    if _re_db.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        try:
+            datetime.strptime(s, "%Y-%m-%d")
+            return s if s >= "2015-01-01" else None
+        except ValueError:
+            return None
+    for fmt in ("%d-%b-%Y", "%d-%b-%y", "%d-%B-%Y", "%d-%B-%y", "%d-%m-%Y", "%d-%m-%y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
+        try:
+            d = datetime.strptime(s.split()[0], fmt).strftime("%Y-%m-%d")
+            if _re_db.match(r"^\d{4}-\d{2}-\d{2}$", d) and d >= "2015-01-01":
+                return d
+        except Exception:
+            pass
+    return None
+
+
 def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     """
     Inserts or updates a corporate filing finding in PostgreSQL (corporate_filings_log)
     and synchronizes with local JSONL cache (data/corporate_filings_log.jsonl).
+    Guarantees single entry per stock (sym).
     """
     if not filing:
         return False
@@ -12708,16 +13464,17 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     if not sym:
         return False
 
-    filing_id = str(filing.get("filing_id") or f"{sym}_{filing.get('period_end', '')}_{filing.get('statement_type', 'Q')}_v1")
+    raw_period = str(filing.get("period_end") or filing.get("period_end_date") or "").strip()
+    period_end = _db_norm_date(raw_period)
+    if not period_end:
+        logger.debug(f"[CORPORATE_FILINGS] Rejected filing with invalid period_end: '{raw_period}' for {sym}")
+        return False
+
+    filing_id = str(filing.get("filing_id") or f"{sym}_{period_end}_{filing.get('statement_type', 'Q')}_v1")
     filing_date = str(filing.get("filing_date") or filing.get("discovered_date") or datetime.now(IST).strftime("%Y-%m-%d"))[:10]
     discovered_at = str(filing.get("discovered_at") or datetime.now(IST).isoformat())
     company_name = str(filing.get("company_name") or sym)
     exchange = str(filing.get("exchange") or "NSE").upper()
-    period_end = str(filing.get("period_end") or filing.get("period_end_date") or "").strip()
-    import re as _re_db
-    if not _re_db.match(r"^\d{4}-\d{2}-\d{2}$", period_end):
-        logger.debug(f"[CORPORATE_FILINGS] Rejected filing with invalid period_end: '{period_end}' for {sym}")
-        return False
     st_type = str(filing.get("statement_type") or "QUARTERLY").upper()
     basis = str(filing.get("basis") or "CONSOLIDATED").upper()
     event_type = str(filing.get("event_type") or "NEW_FILING").upper()
@@ -12774,64 +13531,89 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
         "affected_metrics": affected_metrics,
     }
 
-    # 2. Postgres Upsert
+    # 2. Postgres Upsert (Strictly ONE finding row per stock per filing_date)
     try:
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
                     cur.execute("""
-                        INSERT INTO corporate_filings_log (
-                            filing_date, discovered_at, symbol, company_name, exchange,
-                            filing_id, period_end, statement_type, basis, event_type,
-                            revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
-                            roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
-                            shares_outstanding, filing_broadcast_date, status, headline,
-                            source_url, raw_facts, affected_metrics, updated_at
-                        ) VALUES (
-                            %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s,
-                            %s::jsonb, %s::jsonb, NOW()
-                        )
-                        ON CONFLICT (symbol, filing_id, statement_type, basis) DO UPDATE SET
-                            filing_date = EXCLUDED.filing_date,
-                            discovered_at = EXCLUDED.discovered_at,
-                            event_type = EXCLUDED.event_type,
-                            revenue_cr = COALESCE(EXCLUDED.revenue_cr, corporate_filings_log.revenue_cr),
-                            operating_profit_cr = COALESCE(EXCLUDED.operating_profit_cr, corporate_filings_log.operating_profit_cr),
-                            pat_cr = COALESCE(EXCLUDED.pat_cr, corporate_filings_log.pat_cr),
-                            eps = COALESCE(EXCLUDED.eps, corporate_filings_log.eps),
-                            roce_pct = COALESCE(EXCLUDED.roce_pct, corporate_filings_log.roce_pct),
-                            roe_pct = COALESCE(EXCLUDED.roe_pct, corporate_filings_log.roe_pct),
-                            debt_to_equity = COALESCE(EXCLUDED.debt_to_equity, corporate_filings_log.debt_to_equity),
-                            operating_margin_pct = COALESCE(EXCLUDED.operating_margin_pct, corporate_filings_log.operating_margin_pct),
-                            net_margin_pct = COALESCE(EXCLUDED.net_margin_pct, corporate_filings_log.net_margin_pct),
-                            status = EXCLUDED.status,
-                            headline = EXCLUDED.headline,
-                            raw_facts = EXCLUDED.raw_facts,
-                            affected_metrics = EXCLUDED.affected_metrics,
-                            updated_at = NOW();
-                    """, (
-                        filing_date, discovered_at, sym, company_name, exchange,
-                        filing_id, period_end, st_type, basis, event_type,
-                        revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
-                        roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
-                        shares_outstanding, broadcast_date, status, headline,
-                        source_url, json.dumps(_sanitize_for_json(raw_facts)),
-                        json.dumps(_sanitize_for_json(affected_metrics))
-                    ))
-                    conn.commit()
+                        SELECT id, period_end FROM corporate_filings_log
+                        WHERE symbol = %s AND filing_date = %s
+                    """, (sym, filing_date))
+                    existing_row = cur.fetchone()
+
+                    if existing_row:
+                        exist_id, exist_p_end = existing_row[0], str(existing_row[1] or "")
+                        # Only update if the incoming filing is for the same or a newer period_end
+                        if period_end >= exist_p_end:
+                            cur.execute("""
+                                UPDATE corporate_filings_log SET
+                                    discovered_at = %s,
+                                    period_end = %s,
+                                    filing_id = %s,
+                                    statement_type = %s,
+                                    basis = %s,
+                                    event_type = %s,
+                                    revenue_cr = COALESCE(%s, revenue_cr),
+                                    operating_profit_cr = COALESCE(%s, operating_profit_cr),
+                                    pat_cr = COALESCE(%s, pat_cr),
+                                    eps = COALESCE(%s, eps),
+                                    roce_pct = COALESCE(%s, roce_pct),
+                                    roe_pct = COALESCE(%s, roe_pct),
+                                    debt_to_equity = COALESCE(%s, debt_to_equity),
+                                    operating_margin_pct = COALESCE(%s, operating_margin_pct),
+                                    net_margin_pct = COALESCE(%s, net_margin_pct),
+                                    shares_outstanding = COALESCE(%s, shares_outstanding),
+                                    status = %s,
+                                    headline = %s,
+                                    raw_facts = %s::jsonb,
+                                    affected_metrics = %s::jsonb,
+                                    updated_at = NOW()
+                                WHERE id = %s
+                            """, (
+                                discovered_at, period_end, filing_id, st_type, basis, event_type,
+                                revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
+                                roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
+                                shares_outstanding, status, headline,
+                                json.dumps(_sanitize_for_json(raw_facts)),
+                                json.dumps(_sanitize_for_json(affected_metrics)),
+                                exist_id
+                            ))
+                            conn.commit()
+                    else:
+                        cur.execute("""
+                            INSERT INTO corporate_filings_log (
+                                filing_date, discovered_at, symbol, company_name, exchange,
+                                filing_id, period_end, statement_type, basis, event_type,
+                                revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
+                                roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
+                                shares_outstanding, filing_broadcast_date, status, headline,
+                                source_url, raw_facts, affected_metrics, updated_at
+                            ) VALUES (
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s,
+                                %s::jsonb, %s::jsonb, NOW()
+                            )
+                        """, (
+                            filing_date, discovered_at, sym, company_name, exchange,
+                            filing_id, period_end, st_type, basis, event_type,
+                            revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
+                            roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
+                            shares_outstanding, broadcast_date, status, headline,
+                            source_url, json.dumps(_sanitize_for_json(raw_facts)),
+                            json.dumps(_sanitize_for_json(affected_metrics))
+                        ))
+                        conn.commit()
     except Exception as pg_err:
         logger.debug(f"[CORPORATE_FILINGS] PG upsert note: {pg_err}")
 
-    # 3. Synchronize with local JSONL cache (idempotent, deduplicated on symbol + period_end + statement_type + basis)
+    # 3. Synchronize with local JSONL cache (idempotent, single entry per stock)
     try:
         CORPORATE_FILINGS_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        existing_records = []
-        target_key = (sym, period_end, st_type, basis)
-        replaced = False
+        record_map = {}
         if CORPORATE_FILINGS_LOG_FILE.exists():
             with open(CORPORATE_FILINGS_LOG_FILE, "r", encoding="utf-8") as f:
                 for line in f:
@@ -12840,26 +13622,45 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
                     try:
                         r = json.loads(line)
                         p_end_r = str(r.get("period_end") or "").strip()
-                        if not _re_db.match(r"^\d{4}-\d{2}-\d{2}$", p_end_r):
+                        if not _re_db.match(r"^\d{4}-\d{2}-\d{2}$", p_end_r) or p_end_r < "2015-01-01":
                             continue
-                        r_key = (str(r.get("symbol", "")).strip().upper(), p_end_r, str(r.get("statement_type", "")).upper(), str(r.get("basis", "")).upper())
-                        if r_key == target_key:
-                            existing_records.append(record)
-                            replaced = True
-                        else:
-                            existing_records.append(r)
+                        r_sym = str(r.get("symbol", "")).strip().upper()
+                        if r_sym:
+                            if r_sym in record_map:
+                                old_p = str(record_map[r_sym].get("period_end") or "")
+                                if p_end_r >= old_p:
+                                    record_map[r_sym] = r
+                            else:
+                                record_map[r_sym] = r
                     except Exception:
                         continue
-        if not replaced:
-            existing_records.append(record)
+
+        # Upsert incoming record for sym: keep if same or newer period_end
+        if sym in record_map:
+            exist_p = str(record_map[sym].get("period_end") or "")
+            if period_end >= exist_p:
+                record_map[sym] = record
+        else:
+            record_map[sym] = record
 
         tmp_log = CORPORATE_FILINGS_LOG_FILE.with_suffix(f".tmp.{os.getpid()}")
         with open(tmp_log, "w", encoding="utf-8") as f:
-            for r in existing_records:
+            for r in record_map.values():
                 f.write(json.dumps(_sanitize_for_json(r)) + "\n")
         tmp_log.replace(CORPORATE_FILINGS_LOG_FILE)
     except Exception as io_err:
         logger.debug(f"[CORPORATE_FILINGS] Local cache write warning: {io_err}")
+
+    # 4. Check if stock was previously marked stale/cool-off and restore it
+    try:
+        check_and_restore_stale_stock(
+            symbol=sym,
+            source="CORPORATE_FILING_WATCHER",
+            period_end=period_end,
+            notify_admin=True
+        )
+    except Exception as restore_err:
+        logger.debug(f"[CORPORATE_FILINGS] check_and_restore_stale_stock note for {sym}: {restore_err}")
 
     return True
 
@@ -12876,15 +13677,16 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
     IST = ZoneInfo("Asia/Kolkata")
     import re as _re_batch
 
-    valid_records = []
+    valid_map = {}
     for filing in filings:
         if not filing or not isinstance(filing, dict):
             continue
         sym = str(filing.get("symbol", "")).strip().upper()
         if not sym:
             continue
-        period_end = str(filing.get("period_end") or filing.get("period_end_date") or "").strip()
-        if not _re_batch.match(r"^\d{4}-\d{2}-\d{2}$", period_end):
+        raw_period = str(filing.get("period_end") or filing.get("period_end_date") or "").strip()
+        period_end = _db_norm_date(raw_period)
+        if not period_end:
             continue
 
         filing_id = str(filing.get("filing_id") or f"{sym}_{period_end}_{filing.get('statement_type', 'Q')}_v1")
@@ -12919,7 +13721,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
         raw_facts = filing.get("raw_facts") if isinstance(filing.get("raw_facts"), dict) else {}
         affected_metrics = filing.get("affected_metrics") if isinstance(filing.get("affected_metrics"), list) else []
 
-        valid_records.append({
+        rec_item = {
             "filing_date": filing_date,
             "discovered_at": discovered_at,
             "symbol": sym,
@@ -12946,7 +13748,15 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
             "source_url": source_url,
             "raw_facts": raw_facts,
             "affected_metrics": affected_metrics,
-        })
+        }
+        # Deduplicate per symbol: keep latest period_end
+        if sym in valid_map:
+            if period_end >= valid_map[sym]["period_end"]:
+                valid_map[sym] = rec_item
+        else:
+            valid_map[sym] = rec_item
+
+    valid_records = list(valid_map.values())
 
     if not valid_records:
         return 0
@@ -13004,7 +13814,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
     except Exception as pg_err:
         logger.debug(f"[CORPORATE_FILINGS] PG batch upsert note: {pg_err}")
 
-    # 2. Local JSONL cache batch sync (Single atomic read-modify-write)
+    # 2. Local JSONL cache batch sync (Single atomic read-modify-write, single entry per stock)
     try:
         CORPORATE_FILINGS_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         record_map = {}
@@ -13016,15 +13826,16 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
                     try:
                         r = json.loads(line)
                         p = str(r.get("period_end") or "").strip()
-                        if not _re_batch.match(r"^\d{4}-\d{2}-\d{2}$", p):
+                        if not _re_batch.match(r"^\d{4}-\d{2}-\d{2}$", p) or p < "2015-01-01":
                             continue
-                        k = (str(r.get("symbol", "")).strip().upper(), p, str(r.get("statement_type", "")).upper(), str(r.get("basis", "")).upper())
-                        record_map[k] = r
+                        k = str(r.get("symbol", "")).strip().upper()
+                        if k:
+                            record_map[k] = r
                     except Exception:
                         continue
 
         for rec in valid_records:
-            k = (rec["symbol"], rec["period_end"], rec["statement_type"], rec["basis"])
+            k = rec["symbol"]
             record_map[k] = rec
 
         tmp_log = CORPORATE_FILINGS_LOG_FILE.with_suffix(f".tmp.{os.getpid()}")
@@ -13034,6 +13845,18 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
         tmp_log.replace(CORPORATE_FILINGS_LOG_FILE)
     except Exception as io_err:
         logger.debug(f"[CORPORATE_FILINGS] Local cache batch write warning: {io_err}")
+
+    # Check and restore any stocks that were previously marked stale
+    for rec in valid_records:
+        try:
+            check_and_restore_stale_stock(
+                symbol=rec["symbol"],
+                source="BATCH_FILINGS_INGESTION",
+                period_end=rec.get("period_end"),
+                notify_admin=True
+            )
+        except Exception as res_err:
+            logger.debug(f"[CORPORATE_FILINGS] Batch stale restore note for {rec.get('symbol')}: {res_err}")
 
     return len(valid_records)
 
@@ -13047,18 +13870,20 @@ def get_corporate_filings_by_date(
 ) -> List[Dict[str, Any]]:
     """
     Fetches corporate filing findings for a specific date (or all recent).
+    Strictly guarantees a SINGLE ENTRY PER STOCK for missing filings.
     First queries PostgreSQL, seamlessly falling back to local JSONL cache.
     """
     init_db()
     results = []
 
-    # 1. Try PostgreSQL
+    # 1. Try PostgreSQL (Guaranteed SINGLE entry per stock using DISTINCT ON)
     try:
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
                     query = """
-                        SELECT id, filing_date, discovered_at, symbol, company_name, exchange,
+                        SELECT DISTINCT ON (symbol)
+                               id, filing_date, discovered_at, symbol, company_name, exchange,
                                filing_id, period_end, statement_type, basis, event_type,
                                revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
                                roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
@@ -13066,6 +13891,7 @@ def get_corporate_filings_by_date(
                                source_url, raw_facts, affected_metrics
                         FROM corporate_filings_log
                         WHERE period_end ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                          AND period_end >= '2015-01-01'
                     """
                     params = []
                     if target_date:
@@ -13080,8 +13906,8 @@ def get_corporate_filings_by_date(
                     if statement_type and statement_type != "ALL":
                         query += " AND statement_type = %s"
                         params.append(statement_type.strip().upper())
-                    query += " ORDER BY discovered_at DESC, id DESC LIMIT %s"
-                    params.append(limit)
+                    query += " ORDER BY symbol, period_end DESC, discovered_at DESC LIMIT %s"
+                    params.append(limit * 2)
                     cur.execute(query, tuple(params))
                     rows = cur.fetchall()
                     if rows:
@@ -13100,17 +13926,19 @@ def get_corporate_filings_by_date(
                             if d.get("discovered_at"):
                                 d["discovered_at"] = str(d["discovered_at"])
                             results.append(d)
-                        return results
+                        results.sort(key=lambda x: (str(x.get("discovered_at") or ""), str(x.get("period_end") or "")), reverse=True)
+                        return results[:limit]
     except Exception as pg_err:
         logger.debug(f"[CORPORATE_FILINGS] PG fetch note: {pg_err}")
 
-    # 2. Fallback to local JSONL cache
+    # 2. Fallback to local JSONL cache (Guaranteed single entry per stock)
     if CORPORATE_FILINGS_LOG_FILE.exists():
         try:
-            seen_keys = set()
+            seen_symbols = set()
             import re as _re_q
+            matching_items = []
             with open(CORPORATE_FILINGS_LOG_FILE, "r", encoding="utf-8") as f:
-                for line in reversed(f.readlines()):
+                for line in f:
                     if not line.strip():
                         continue
                     try:
@@ -13118,24 +13946,30 @@ def get_corporate_filings_by_date(
                     except Exception:
                         continue
                     p_end = str(rec.get("period_end") or "").strip()
-                    if not _re_q.match(r"^\d{4}-\d{2}-\d{2}$", p_end):
+                    if not _re_q.match(r"^\d{4}-\d{2}-\d{2}$", p_end) or p_end < "2015-01-01":
                         continue
-                    key = (str(rec.get("symbol", "")).strip().upper(), p_end, str(rec.get("statement_type", "")).upper(), str(rec.get("basis", "")).upper())
-                    if key in seen_keys:
+                    sym_k = str(rec.get("symbol", "")).strip().upper()
+                    if not sym_k:
                         continue
-                    seen_keys.add(key)
-
                     if target_date and str(rec.get("filing_date")) != str(target_date):
                         continue
-                    if symbol and str(rec.get("symbol", "")).upper() != symbol.strip().upper():
+                    if symbol and sym_k != symbol.strip().upper():
                         continue
                     if event_type and event_type != "ALL" and str(rec.get("event_type", "")).upper() != event_type.strip().upper():
                         continue
                     if statement_type and statement_type != "ALL" and str(rec.get("statement_type", "")).upper() != statement_type.strip().upper():
                         continue
-                    results.append(rec)
-                    if len(results) >= limit:
-                        break
+                    matching_items.append(rec)
+
+            matching_items.sort(key=lambda x: (str(x.get("period_end") or ""), str(x.get("discovered_at") or "")), reverse=True)
+            for rec in matching_items:
+                sym_k = str(rec.get("symbol", "")).strip().upper()
+                if sym_k in seen_symbols:
+                    continue
+                seen_symbols.add(sym_k)
+                results.append(rec)
+                if len(results) >= limit:
+                    break
         except Exception as io_err:
             logger.debug(f"[CORPORATE_FILINGS] Fallback read warning: {io_err}")
 

@@ -2856,6 +2856,95 @@ def api_get_corporate_filings():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/admin/stock_data_health", methods=["GET"])
+@app.route("/api/stock_data_health", methods=["GET"])
+@login_required
+def api_admin_stock_data_health():
+    """
+    Returns audit of all stocks in the tracked universe:
+    - All stocks marked as stale or currently suppressed under 7-day cool-off
+    - All stocks with certified, fresh data along with their latest filing and total filing counts
+    - Summary metrics (total universe, stale count, fresh count, coverage %)
+    """
+    try:
+        from database import get_stale_stocks_audit, get_fresh_stocks_audit
+        stale_stocks = get_stale_stocks_audit()
+        fresh_stocks = get_fresh_stocks_audit(limit=2000)
+
+        total = len(stale_stocks) + len(fresh_stocks)
+        coverage_pct = round((len(fresh_stocks) / total * 100), 1) if total > 0 else 0.0
+
+        return jsonify({
+            "status": "success",
+            "summary": {
+                "total_universe": total,
+                "stale_count": len(stale_stocks),
+                "fresh_count": len(fresh_stocks),
+                "coverage_pct": coverage_pct,
+                "cooloff_suppression_days": 7,
+                "server_time": datetime.now(IST).isoformat()
+            },
+            "stale_stocks": stale_stocks,
+            "fresh_stocks": fresh_stocks
+        })
+    except Exception as e:
+        logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/admin/stock_filings/<symbol>", methods=["GET"])
+@app.route("/api/stock_filings/<symbol>", methods=["GET"])
+@login_required
+def api_admin_stock_filings_detail(symbol: str):
+    """
+    Returns full chronological disclosures for a specific stock:
+    all previous financial statements in local DB (pit_raw_filings/<sym>.json),
+    the canonical snapshot row, and cool-off status.
+    """
+    try:
+        from database import get_stock_filings_detail
+        data = get_stock_filings_detail(symbol)
+        if not data or "error" in data:
+            return jsonify({"status": "error", "message": data.get("error", "Stock not found")}), 404
+        return jsonify({
+            "status": "success",
+            "data": data,
+            "server_time": datetime.now(IST).isoformat()
+        })
+    except Exception as e:
+        logger.exception(f"[API_STOCK_FILINGS_DETAIL] Error for {symbol}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/admin/validate_stock", methods=["POST"])
+@login_required
+@csrf.exempt
+def api_admin_validate_stock():
+    """
+    On-demand validation of any stock's data completeness and staleness status.
+    If the stock was marked as stale or in 7-day cooloff and its data is now complete,
+    restores it, resets status to FRESH, and sends admin notification.
+    """
+    try:
+        from database import validate_and_restore_stock
+        req_json = request.get_json(silent=True) or {}
+        symbol = req_json.get("symbol") or request.form.get("symbol", "")
+        symbol = str(symbol).strip().upper()
+        if not symbol:
+            return jsonify({"status": "error", "message": "Missing 'symbol' parameter"}), 400
+
+        result = validate_and_restore_stock(symbol)
+        return jsonify({
+            "status": "success",
+            "result": result,
+            "server_time": datetime.now(IST).isoformat()
+        })
+    except Exception as e:
+        logger.exception(f"[API_VALIDATE_STOCK] Error validating {symbol}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+
 @app.route("/admin/export/table/<table_name>")
 @app.route("/admin/export/<table>")
 @admin_required

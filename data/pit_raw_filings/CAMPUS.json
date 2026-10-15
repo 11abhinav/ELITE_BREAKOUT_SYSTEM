@@ -322,5 +322,23 @@
     "mapped_revenue": 338.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "55c9b2f80eb78db52f86b60db4eedbd2b11a949c21c50fdc7bcacd80df9499a1"
+  },
+  {
+    "symbol": "CAMPUS",
+    "period_end_date": "2024-12-31",
+    "statement_type": "ANNUAL",
+    "basis": "CONSOLIDATED",
+    "revenue": 1187.25,
+    "net_profit": 86.15,
+    "operating_profit": 116.33,
+    "eps": 2.82,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2025-02-11",
+    "broadcast_timestamp": "11-Feb-2025 16:05:25",
+    "exchange": "NSE",
+    "filing_id": "1194359"
   }
 ]

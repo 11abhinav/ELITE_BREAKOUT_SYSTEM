@@ -133,9 +133,27 @@ class FilingEvent:
     affected_metrics: List[str] = field(default_factory=list)
     raw_facts: Dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self):
+        norm = _normalize_iso_date(self.period_end_date)
+        if norm:
+            self.period_end_date = norm
+        elif self.raw_facts and isinstance(self.raw_facts, dict):
+            raw_to = self.raw_facts.get("toDate") or self.raw_facts.get("period_end_date") or self.raw_facts.get("periodEnd")
+            norm_raw = _normalize_iso_date(raw_to)
+            if norm_raw:
+                self.period_end_date = norm_raw
+
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
-        d["event_type"] = self.event_type.value
+        d["event_type"] = self.event_type.value if hasattr(self.event_type, "value") else str(self.event_type)
+        norm = _normalize_iso_date(d.get("period_end_date"))
+        if norm:
+            d["period_end_date"] = norm
+        elif self.raw_facts and isinstance(self.raw_facts, dict):
+            raw_to = self.raw_facts.get("toDate") or self.raw_facts.get("period_end_date") or self.raw_facts.get("periodEnd")
+            norm_raw = _normalize_iso_date(raw_to)
+            if norm_raw:
+                d["period_end_date"] = norm_raw
         return d
 
 
@@ -158,7 +176,7 @@ def _normalize_iso_date(val: Any) -> Optional[str]:
             return res
     except Exception:
         pass
-    for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
+    for fmt in ("%d-%b-%Y", "%d-%b-%y", "%d-%B-%Y", "%d-%B-%y", "%d-%m-%Y", "%d-%m-%y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
         try:
             clean_token = s.split()[0]
             d = datetime.strptime(clean_token, fmt).strftime("%Y-%m-%d")
@@ -185,11 +203,41 @@ class FinancialFilingWatcher:
         self.state: Dict[str, Dict[str, Any]] = self._load_state()
 
     def _load_state(self) -> Dict[str, Dict[str, Any]]:
-        """Loads persistent watcher state."""
+        """Loads persistent watcher state with automated healing of legacy truncated dates."""
         if self.state_file.exists():
             try:
+                import re as _re_state
                 with open(self.state_file, "r") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                dirty = False
+                for sym, sdata in data.items():
+                    l_date = str(sdata.get("latest_filing_date") or "")
+                    if l_date and not _re_state.match(r"^\d{4}-\d{2}-\d{2}$", l_date):
+                        norm_l = _normalize_iso_date(l_date)
+                        if norm_l:
+                            sdata["latest_filing_date"] = norm_l
+                            dirty = True
+                        else:
+                            valid_p = []
+                            for fmeta in sdata.get("filings", {}).values():
+                                p = _normalize_iso_date(fmeta.get("period_end_date"))
+                                if p:
+                                    valid_p.append(p)
+                            sdata["latest_filing_date"] = max(valid_p) if valid_p else None
+                            dirty = True
+                    for fid, fmeta in sdata.get("filings", {}).items():
+                        p = str(fmeta.get("period_end_date") or "")
+                        if p and not _re_state.match(r"^\d{4}-\d{2}-\d{2}$", p):
+                            norm_p = _normalize_iso_date(p)
+                            if norm_p:
+                                fmeta["period_end_date"] = norm_p
+                                dirty = True
+                if dirty:
+                    tmp_state = f"{self.state_file}.tmp.{os.getpid()}"
+                    with open(tmp_state, "w") as f:
+                        json.dump(data, f, indent=2)
+                    os.replace(tmp_state, self.state_file)
+                return data
             except Exception as e:
                 logger.warning(f"Failed to load filing watcher state: {e}. Starting fresh.")
         return {}
@@ -203,7 +251,15 @@ class FinancialFilingWatcher:
         os.replace(tmp_state, self.state_file)
 
     def _log_event(self, event: FilingEvent) -> None:
-        """Appends event to audit log."""
+        """Appends event to audit log with guaranteed normalized period_end_date."""
+        norm_date = _normalize_iso_date(event.period_end_date)
+        if norm_date:
+            event.period_end_date = norm_date
+        elif event.raw_facts and isinstance(event.raw_facts, dict):
+            raw_to = event.raw_facts.get("toDate") or event.raw_facts.get("period_end_date")
+            norm_raw = _normalize_iso_date(raw_to)
+            if norm_raw:
+                event.period_end_date = norm_raw
         os.makedirs(self.events_log.parent, exist_ok=True)
         with open(self.events_log, "a") as f:
             f.write(json.dumps(event.to_dict()) + "\n")
@@ -230,7 +286,7 @@ class FinancialFilingWatcher:
         sym = symbol.strip().upper()
         filing_id = str(incoming_filing.get("filing_id", "UNKNOWN_FILING"))
         raw_period = str(incoming_filing.get("period_end_date") or incoming_filing.get("toDate") or incoming_filing.get("periodEnd") or "")
-        period_end = _normalize_iso_date(raw_period) or raw_period[:10]
+        period_end = _normalize_iso_date(raw_period)
         st_type = str(incoming_filing.get("statement_type", "QUARTERLY")).upper()
         if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
             st_type = "ANNUAL"
@@ -240,8 +296,27 @@ class FinancialFilingWatcher:
         broadcast_time = str(incoming_filing.get("broadcast_timestamp") or incoming_filing.get("filing_date") or datetime.now().isoformat())
         payload_hash = hashlib.sha256(raw_payload).hexdigest()
 
+        if not period_end or period_end < "2015-01-01":
+            logger.debug(f"[WATCHER] Rejected filing with invalid period_end '{raw_period}' for {sym}")
+            return FilingEvent(
+                symbol=sym,
+                exchange=str(incoming_filing.get("source_exchange", "NSE")),
+                filing_id=filing_id,
+                period_end_date="INVALID_DATE",
+                statement_type=st_type,
+                basis=basis,
+                event_type=FilingEventType.NO_CHANGE,
+                broadcast_timestamp=broadcast_time,
+                retrieved_timestamp=datetime.now().isoformat(),
+                source_hash=payload_hash,
+                payload_path="",
+                affected_metrics=[],
+                raw_facts=incoming_filing.get("facts", {}),
+            )
+
         known = self.state.get(sym, {})
         known_filings = known.get("filings", {})
+
 
         facts = incoming_filing.get("facts", {})
         if not facts and isinstance(incoming_filing, dict):
@@ -261,9 +336,9 @@ class FinancialFilingWatcher:
                     local_data = json.load(f)
                     if isinstance(local_data, list):
                         for row in local_data:
-                            r_per = _normalize_iso_date(row.get("period_end_date")) or str(row.get("period_end_date") or "")[:10]
+                            r_per = _normalize_iso_date(row.get("period_end_date"))
                             r_typ = str(row.get("statement_type") or "").upper()
-                            if r_per == period_end and r_typ == st_type:
+                            if r_per and r_per == period_end and r_typ == st_type:
                                 local_period_found = True
                                 local_matched_row = row
                                 break
@@ -360,17 +435,26 @@ class FinancialFilingWatcher:
             # Update state
             if sym not in self.state:
                 self.state[sym] = {"filings": {}, "latest_filing_date": None, "snapshot_status": SnapshotFreshnessStatus.FRESH.value}
+            norm_p_end = _normalize_iso_date(period_end) or period_end
             self.state[sym]["filings"][filing_id] = {
-                "period_end_date": period_end,
+                "period_end_date": norm_p_end,
                 "statement_type": st_type,
                 "broadcast_timestamp": broadcast_time,
                 "source_hash": payload_hash,
                 "last_updated": datetime.now().isoformat(),
             }
-            self.state[sym]["latest_filing_date"] = period_end
+            prev_latest = self.state[sym].get("latest_filing_date")
+            if _normalize_iso_date(norm_p_end):
+                if not prev_latest or not _normalize_iso_date(prev_latest) or norm_p_end > prev_latest:
+                    self.state[sym]["latest_filing_date"] = norm_p_end
             self.state[sym]["snapshot_status"] = SnapshotFreshnessStatus.UPDATE_PENDING.value
             self._save_state()
             self._log_event(event)
+
+            # Only persist discovery report for the latest filing discovered for this stock
+            if prev_latest and _normalize_iso_date(prev_latest) and norm_p_end < prev_latest:
+                logger.debug(f"[filling scanner] Skipping finding report log for older quarter {sym} {norm_p_end} (latest is {prev_latest})")
+                return event
 
             # Persist finding to corporate_filings_log database table & local cache
             try:
@@ -549,6 +633,22 @@ class FinancialFilingWatcher:
             self._save_state()
 
             logger.info(f"✅ [filling scanner] [SNAPSHOT_REBUILD: SUCCESS] Rebuilt {len(df)} rows. Current EV/EBITDA Complete: {ev_count}/{len(df)}. Status set to FRESH.")
+
+            # If rebuilding for specific symbol, check and restore if previously stale
+            if symbol:
+                try:
+                    try:
+                        from app.database import check_and_restore_stale_stock
+                    except ImportError:
+                        from database import check_and_restore_stale_stock
+                    check_and_restore_stale_stock(
+                        symbol=symbol.strip().upper(),
+                        source="SNAPSHOT_REBUILD",
+                        notify_admin=True
+                    )
+                except Exception:
+                    pass
+
             return True
         except Exception as e:
             logger.error(f"❌ [filling scanner] [SNAPSHOT_REBUILD: FAILED] {e}")
@@ -643,7 +743,9 @@ class FinancialFilingWatcher:
                         nse_records = nse_provider.fetch_raw_financials(sym_u)
                         if nse_records:
                             for r in nse_records:
-                                norm_p = _normalize_iso_date(r.period_end_date) or str(r.period_end_date)[:10]
+                                norm_p = _normalize_iso_date(r.period_end_date)
+                                if not norm_p or norm_p < "2015-01-01":
+                                    continue
                                 raw_filings_list.append({
                                     "exchange": "NSE",
                                     "filing_id": getattr(r, "filing_id", None) or f"NSE_{sym_u}_{norm_p}",
@@ -669,7 +771,11 @@ class FinancialFilingWatcher:
                                     if isinstance(r, dict):
                                         r_copy = dict(r)
                                         r_copy["exchange"] = "NSE"
-                                        raw_filings_list.append(r_copy)
+                                        # Normalize period_end_date if present
+                                        p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
+                                        if p_end and p_end >= "2015-01-01":
+                                            r_copy["period_end_date"] = p_end
+                                            raw_filings_list.append(r_copy)
                     except Exception as nse_err:
                         logger.debug(f"[filling scanner] NSE discover/fetch failed for {sym_u}: {nse_err}")
 
@@ -680,7 +786,9 @@ class FinancialFilingWatcher:
                         if scrip:
                             bse_rows = bse_provider.fetch_raw_financials(sym_u)
                             for r in bse_rows:
-                                norm_p = _normalize_iso_date(r.period_end_date) or str(r.period_end_date)[:10]
+                                norm_p = _normalize_iso_date(r.period_end_date)
+                                if not norm_p or norm_p < "2015-01-01":
+                                    continue
                                 raw_filings_list.append({
                                     "exchange": "BSE",
                                     "filing_id": getattr(r, "filing_id", None) or f"BSE_{sym_u}_{norm_p}",
@@ -704,54 +812,88 @@ class FinancialFilingWatcher:
                 if not raw_filings_list:
                     continue
 
-                # Process discovered filings
+                # Filter to valid ISO dates >= 2015-01-01
+                import re as _re_poll
+                valid_items = []
                 for item in raw_filings_list:
-                    # ── CRITICAL: normalize period BEFORE anything else ──
-                    # Exchange APIs return dates as "30-Jun-2015", "31-Mar-2016", etc.
-                    # We must normalize to ISO YYYY-MM-DD HERE, not downstream,
-                    # to avoid storing corrupt truncated strings like "30-Jun-201".
                     raw_p = item.get("toDate") or item.get("period_end_date") or item.get("periodEnd") or ""
                     period_end = _normalize_iso_date(str(raw_p).strip())
-                    # Strict ISO YYYY-MM-DD guard — reject anything that doesn't parse cleanly
-                    import re as _re
-                    if not period_end or not _re.match(r'^\d{4}-\d{2}-\d{2}$', period_end):
-                        logger.debug(f"[filling scanner] Skipping item for {sym_u} — unparseable period: '{raw_p}'")
-                        continue
+                    if period_end and _re_poll.match(r'^\d{4}-\d{2}-\d{2}$', period_end) and period_end >= "2015-01-01":
+                        item["period_end_date"] = period_end
+                        valid_items.append(item)
 
-                    st_type = str(item.get("period") or item.get("statement_type") or "QUARTERLY").upper()
-                    if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
-                        st_type = "ANNUAL"
-                    else:
-                        st_type = "QUARTERLY"
+                if not valid_items:
+                    continue
 
-                    basis = "STANDALONE" if ("standalone" in str(item.get("consolidated", "")).lower() or "non-consolidated" in str(item.get("consolidated", "")).lower()) else "CONSOLIDATED"
-                    fid = str(item.get("seqNumber") or item.get("filing_id") or f"{sym_u}_{period_end}_{st_type}_v1")
-                    bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
+                valid_items.sort(key=lambda x: str(x.get("period_end_date", "")))
 
-                    # Stamp the normalized ISO period back onto item so downstream uses clean dates
-                    item["period_end_date"] = period_end
+                # Check against canonical snapshot to avoid processing already-known historical periods
+                snap_row = None
+                try:
+                    if SNAPSHOT_PATH.exists():
+                        import pandas as _pd_p
+                        _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status"])
+                        _match = _sdf[_sdf["symbol"].str.upper() == sym_u]
+                        if not _match.empty:
+                            snap_row = _match.iloc[0]
+                except Exception:
+                    pass
 
-                    raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
+                snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
+                freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
 
-                    # Run detect_filing_changes state engine
-                    meta_incoming = {
-                        "filing_id": fid,
-                        "period_end_date": period_end,
-                        "statement_type": st_type,
-                        "basis": basis,
-                        "broadcast_timestamp": bcast_time,
-                        "source_exchange": item.get("exchange", "NSE"),
-                        "revision_number": int(item.get("seqNumber") or 1) if str(item.get("seqNumber", "")).isdigit() else 1,
-                        "amended": str(item.get("reInd", "")).upper() == "Y",
-                        "facts": item,
-                    }
+                if snap_row is not None and snap_annual and freshness in ("FRESH", "VALID"):
+                    candidate_items = [it for it in valid_items if str(it.get("period_end_date"))[:10] > snap_annual]
+                else:
+                    candidate_items = valid_items
 
-                    event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes)
+                if not candidate_items:
+                    continue
 
-                    # If this is a new, unseen, or amended filing, update data/pit_raw_filings/<SYM>.json
-                    if event.event_type != FilingEventType.NO_CHANGE:
-                        self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
-                        discovered_events.append(event.to_dict())
+                # Rank candidates: latest period_end_date, ANNUAL > QUARTERLY, CONSOLIDATED > STANDALONE
+                def _candidate_rank(x):
+                    p_date = str(x.get("period_end_date", ""))
+                    st = str(x.get("period") or x.get("statement_type") or "").upper()
+                    is_ann = 1 if ("ANNUAL" in st or "YEAR" in st or "FY" in st) else 0
+                    c_val = str(x.get("consolidated", "")).lower()
+                    is_cons = 1 if ("standalone" not in c_val and "non-consolidated" not in c_val) else 0
+                    return (p_date, is_ann, is_cons)
+
+                candidate_items.sort(key=_candidate_rank)
+
+                # Take ONLY the single latest genuinely missing filing for this stock
+                item = candidate_items[-1]
+                period_end = item["period_end_date"]
+
+                st_type = str(item.get("period") or item.get("statement_type") or "QUARTERLY").upper()
+                if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
+                    st_type = "ANNUAL"
+                else:
+                    st_type = "QUARTERLY"
+
+                basis = "STANDALONE" if ("standalone" in str(item.get("consolidated", "")).lower() or "non-consolidated" in str(item.get("consolidated", "")).lower()) else "CONSOLIDATED"
+                fid = str(item.get("seqNumber") or item.get("filing_id") or f"{sym_u}_{period_end}_{st_type}_v1")
+                bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
+
+                raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
+
+                meta_incoming = {
+                    "filing_id": fid,
+                    "period_end_date": period_end,
+                    "statement_type": st_type,
+                    "basis": basis,
+                    "broadcast_timestamp": bcast_time,
+                    "source_exchange": item.get("exchange", "NSE"),
+                    "revision_number": int(item.get("seqNumber") or 1) if str(item.get("seqNumber", "")).isdigit() else 1,
+                    "amended": str(item.get("reInd", "")).upper() == "Y",
+                    "facts": item,
+                }
+
+                event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes)
+
+                if event.event_type != FilingEventType.NO_CHANGE:
+                    self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
+                    discovered_events.append(event.to_dict())
 
             except Exception as sym_err:
                 logger.debug(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
@@ -772,7 +914,10 @@ class FinancialFilingWatcher:
         cache, updating or appending the period while maintaining historical records.
         """
         sym_u = symbol.strip().upper()
-        norm_period_end = _normalize_iso_date(period_end) or str(period_end)[:10]
+        norm_period_end = _normalize_iso_date(period_end)
+        if not norm_period_end or norm_period_end < "2015-01-01":
+            logger.debug(f"[WATCHER] Cannot merge filing with invalid period_end '{period_end}' for {sym_u}")
+            return
         raw_dir = BASE_DIR / "data" / "pit_raw_filings"
         raw_dir.mkdir(parents=True, exist_ok=True)
         raw_path = raw_dir / f"{sym_u}.json"
@@ -790,9 +935,9 @@ class FinancialFilingWatcher:
         # Find if this period and statement_type already exists
         matched_idx = None
         for i, row in enumerate(existing_list):
-            r_period = _normalize_iso_date(row.get("period_end_date")) or str(row.get("period_end_date") or "")[:10]
+            r_period = _normalize_iso_date(row.get("period_end_date"))
             r_type = str(row.get("statement_type") or "").upper()
-            if r_period == norm_period_end and r_type == statement_type:
+            if r_period and r_period == norm_period_end and r_type == statement_type:
                 matched_idx = i
                 break
 
@@ -846,6 +991,21 @@ class FinancialFilingWatcher:
         os.replace(tmp_path, raw_path)
         logger.info(f"💾 [filling scanner] Successfully persisted fresh filing for {sym_u} ({norm_period_end} {statement_type}) to {raw_path}.")
 
+        # Check and restore if stock was previously marked stale or in cool-off
+        try:
+            try:
+                from app.database import check_and_restore_stale_stock
+            except ImportError:
+                from database import check_and_restore_stale_stock
+            check_and_restore_stale_stock(
+                symbol=sym_u,
+                source="EXCHANGE_FILING_WATCHER",
+                period_end=norm_period_end,
+                notify_admin=True
+            )
+        except Exception as restore_err:
+            logger.debug(f"[filling scanner] check_and_restore_stale_stock notice for {sym_u}: {restore_err}")
+
     # -------------------------------------------------------------------------
     # 5. CORPORATE FILINGS AUDIT & FINDINGS DISCOVERY
     # -------------------------------------------------------------------------
@@ -857,16 +1017,17 @@ class FinancialFilingWatcher:
         limit_symbols: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Scans filings across universe equities, categorizes findings,
-        persists latest Annual and latest Quarterly records per symbol
-        into the corporate_filings_log database table and local cache,
-        and returns list of logged findings.
+        Scans filings across universe equities, identifying GENUINELY MISSING
+        data in the local canonical snapshot used by trading scanners.
+        Persists at most a SINGLE ENTRY PER STOCK for any missing filing discovered.
 
         Rules:
-          - Only records with valid ISO YYYY-MM-DD period_end_date (>= 2015-01-01) are processed.
-          - Sorts valid filings chronologically by ISO date ascending.
-          - Picks the latest valid ANNUAL filing and latest valid QUARTERLY filing per symbol.
-          - filing_id is keyed as {sym_u}_{period_end}_{statement_type}_v1 for idempotent upserts.
+          - Only stocks with genuinely missing filings or data deficits in the local canonical
+            snapshot (data/canonical_pit_rebuilt.parquet) are recorded as findings.
+          - If a stock is already complete and fresh in the canonical snapshot with all
+            required metrics and no newer filing exists, it is NOT logged.
+          - Single entry per stock: selects the newest missing filing discovered for that stock.
+          - Strict ISO YYYY-MM-DD date enforcement (>= 2015-01-01).
         """
         import re as _re
         from zoneinfo import ZoneInfo
@@ -879,6 +1040,19 @@ class FinancialFilingWatcher:
             from app.database import upsert_corporate_filing_finding
         except ImportError:
             from database import upsert_corporate_filing_finding
+
+        # Load canonical PIT snapshot used by trading scanners
+        snap_map: Dict[str, Any] = {}
+        try:
+            import pandas as pd
+            if SNAPSHOT_PATH.exists():
+                snap_df = pd.read_parquet(SNAPSHOT_PATH)
+                for _, r in snap_df.iterrows():
+                    s = str(r.get("symbol", "")).strip().upper()
+                    if s:
+                        snap_map[s] = r
+        except Exception as snap_err:
+            logger.debug(f"[filling scanner] Snapshot load note in audit: {snap_err}")
 
         findings: List[Dict[str, Any]] = []
 
@@ -908,129 +1082,158 @@ class FinancialFilingWatcher:
 
                 valid_filings.sort(key=_sort_key)
 
-                # Pick latest ANNUAL and latest QUARTERLY
-                annuals     = [r for r in valid_filings if str(r.get("statement_type", "")).upper() == "ANNUAL"]
-                quarterlies = [r for r in valid_filings if str(r.get("statement_type", "")).upper() == "QUARTERLY"]
+                # Determine if this stock has genuinely missing data in the canonical snapshot
+                candidate = None
+                finding_reason = "MISSING_FILING_DISCOVERED"
 
-                candidates = []
-                if annuals:
-                    candidates.append(annuals[-1])
-                if quarterlies:
-                    candidates.append(quarterlies[-1])
+                if sym_u not in snap_map:
+                    # Case 1: Stock is completely missing from canonical snapshot!
+                    candidate = valid_filings[-1]
+                    finding_reason = "MISSING_FROM_SNAPSHOT"
+                else:
+                    sr = snap_map[sym_u]
+                    snap_annual = str(sr.get("latest_annual_period") or "")[:10]
+                    freshness = str(sr.get("pit_freshness_status") or "FRESH")
+                    gap = bool(sr.get("filing_gap_detected", False))
+                    roce = sr.get("roce_5y_avg")
+                    debt_eq = sr.get("debt_to_equity")
+                    sales_cagr = sr.get("sales_cagr_5y")
 
-                for item in candidates:
-                    period_end = _normalize_iso_date(str(item.get("period_end_date") or ""))
-                    if not period_end:
-                        continue
-                    st_type = str(item.get("statement_type") or "QUARTERLY").upper()
-                    basis = str(item.get("basis") or "CONSOLIDATED").upper()
-
-                    rev = item.get("revenue") if item.get("revenue") is not None else item.get("mapped_revenue")
-                    pat = item.get("net_profit") if item.get("net_profit") is not None else item.get("pat")
-                    op_prof = item.get("operating_profit") if item.get("operating_profit") is not None else item.get("ebit")
-                    eps = item.get("eps")
-                    roce = item.get("roce")
-                    roe = item.get("roe")
-                    debt = item.get("total_debt") if item.get("total_debt") is not None else item.get("debt")
-                    equity = item.get("total_equity") if item.get("total_equity") is not None else item.get("equity")
-                    de = item.get("debt_to_equity")
-                    op_m = item.get("operating_margin")
-                    net_m = item.get("net_margin")
-                    shares = item.get("shares_outstanding")
-
-                    # Derived metrics fallback
-                    if de is None and debt is not None and equity is not None:
-                        try:
-                            eq_f = float(equity)
-                            if eq_f > 0:
-                                de = round(float(debt) / eq_f, 2)
-                        except Exception:
-                            pass
-
-                    if roce is None and op_prof is not None and equity is not None and st_type == "ANNUAL":
-                        try:
-                            eq_f = float(equity)
-                            d_f  = float(debt) if debt is not None else 0.0
-                            cap_emp = eq_f + d_f
-                            if cap_emp > 0:
-                                roce = round((float(op_prof) / cap_emp) * 100.0, 2)
-                        except Exception:
-                            pass
-
-                    if roe is None and pat is not None and equity is not None and st_type == "ANNUAL":
-                        try:
-                            eq_f = float(equity)
-                            if eq_f > 0:
-                                roe = round((float(pat) / eq_f) * 100.0, 2)
-                        except Exception:
-                            pass
-
-                    if op_m is None and op_prof is not None and rev is not None:
-                        try:
-                            rev_f = float(rev)
-                            if rev_f > 0:
-                                op_m = round((float(op_prof) / rev_f) * 100.0, 2)
-                        except Exception:
-                            pass
-
-                    if net_m is None and pat is not None and rev is not None:
-                        try:
-                            rev_f = float(rev)
-                            if rev_f > 0:
-                                net_m = round((float(pat) / rev_f) * 100.0, 2)
-                        except Exception:
-                            pass
-
-                    # Headline formation
-                    if rev is not None and pat is not None:
-                        headline = f"{sym_u} {period_end} ({st_type}): Rev ₹{rev:,.1f} Cr, PAT ₹{pat:,.1f} Cr"
+                    # Case 2: Check if raw filings have a newer filing ahead of what is in snapshot
+                    newer_filings = [r for r in valid_filings if str(r.get("period_end_date"))[:10] > snap_annual]
+                    if newer_filings:
+                        candidate = newer_filings[-1]
+                        finding_reason = "NEW_FILING_AHEAD_OF_SNAPSHOT"
+                    elif freshness not in ("FRESH", "VALID") or gap or (roce is None or (hasattr(roce, "isna") and roce.isna())) or (debt_eq is None) or (sales_cagr is None):
+                        # Case 3: Snapshot had data deficit or gap; raw filings provide the missing data
+                        candidate = valid_filings[-1]
+                        finding_reason = "SNAPSHOT_GAP_RECOVERY"
                     else:
-                        headline = f"{sym_u} {period_end} {st_type} Filing Discovered"
-                    if roce is not None and st_type == "ANNUAL":
-                        headline += f", ROCE {roce:.1f}%"
+                        # Stock is 100% complete and up to date in the local snapshot.
+                        # NOT MISSING! Do NOT log as a finding!
+                        continue
 
-                    fid = f"{sym_u}_{period_end}_{st_type}_v1"
+                if not candidate:
+                    continue
 
-                    finding_dict = {
-                        "filing_date": as_of_str,
-                        "discovered_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
-                        "symbol": sym_u,
-                        "company_name": sym_u,
-                        "exchange": str(item.get("exchange") or "NSE"),
-                        "filing_id": fid,
-                        "period_end": period_end,
-                        "statement_type": st_type,
-                        "basis": basis,
-                        "event_type": "NEW_FILING" if st_type == "ANNUAL" else "QUARTERLY_RESULT",
-                        "revenue_cr": rev,
-                        "operating_profit_cr": op_prof,
-                        "pat_cr": pat,
-                        "eps": eps,
-                        "roce_pct": roce,
-                        "roe_pct": roe,
-                        "debt_to_equity": de,
-                        "operating_margin_pct": op_m,
-                        "net_margin_pct": net_m,
-                        "shares_outstanding": shares,
-                        "filing_broadcast_date": item.get("filing_date") or item.get("actual_publication_timestamp"),
-                        "status": "SNAPSHOT_UPDATED",
-                        "headline": headline,
-                        "raw_facts": item,
-                        "affected_metrics": self.resolve_dependent_metrics(st_type, {"facts": item})
-                    }
-                    findings.append(finding_dict)
+                item = candidate
+                period_end = _normalize_iso_date(str(item.get("period_end_date") or ""))
+                if not period_end:
+                    continue
+                st_type = str(item.get("statement_type") or "QUARTERLY").upper()
+                basis = str(item.get("basis") or "CONSOLIDATED").upper()
+
+                rev = item.get("revenue") if item.get("revenue") is not None else item.get("mapped_revenue")
+                pat = item.get("net_profit") if item.get("net_profit") is not None else item.get("pat")
+                op_prof = item.get("operating_profit") if item.get("operating_profit") is not None else item.get("ebit")
+                eps = item.get("eps")
+                roce = item.get("roce")
+                roe = item.get("roe")
+                debt = item.get("total_debt") if item.get("total_debt") is not None else item.get("debt")
+                equity = item.get("total_equity") if item.get("total_equity") is not None else item.get("equity")
+                de = item.get("debt_to_equity")
+                op_m = item.get("operating_margin")
+                net_m = item.get("net_margin")
+                shares = item.get("shares_outstanding")
+
+                # Derived metrics fallback
+                if de is None and debt is not None and equity is not None:
+                    try:
+                        eq_f = float(equity)
+                        if eq_f > 0:
+                            de = round(float(debt) / eq_f, 2)
+                    except Exception:
+                        pass
+
+                if roce is None and op_prof is not None and equity is not None and st_type == "ANNUAL":
+                    try:
+                        eq_f = float(equity)
+                        d_f  = float(debt) if debt is not None else 0.0
+                        cap_emp = eq_f + d_f
+                        if cap_emp > 0:
+                            roce = round((float(op_prof) / cap_emp) * 100.0, 2)
+                    except Exception:
+                        pass
+
+                if roe is None and pat is not None and equity is not None and st_type == "ANNUAL":
+                    try:
+                        eq_f = float(equity)
+                        if eq_f > 0:
+                            roe = round((float(pat) / eq_f) * 100.0, 2)
+                    except Exception:
+                        pass
+
+                if op_m is None and op_prof is not None and rev is not None:
+                    try:
+                        rev_f = float(rev)
+                        if rev_f > 0:
+                            op_m = round((float(op_prof) / rev_f) * 100.0, 2)
+                    except Exception:
+                        pass
+
+                if net_m is None and pat is not None and rev is not None:
+                    try:
+                        rev_f = float(rev)
+                        if rev_f > 0:
+                            net_m = round((float(pat) / rev_f) * 100.0, 2)
+                    except Exception:
+                        pass
+
+                # Clear, human-readable headline describing missing filing discovered
+                if finding_reason == "MISSING_FROM_SNAPSHOT":
+                    headline = f"{sym_u} missing from local snapshot — {st_type} ({period_end}) fetched"
+                elif finding_reason == "NEW_FILING_AHEAD_OF_SNAPSHOT":
+                    headline = f"{sym_u} newer {st_type} ({period_end}) not in local snapshot — Discovered & Fetched"
+                elif finding_reason == "SNAPSHOT_GAP_RECOVERY":
+                    headline = f"{sym_u} had deficient snapshot data — Discovered & Fetched {st_type} ({period_end})"
+                else:
+                    headline = f"{sym_u} missing filing {st_type} ({period_end}) fetched"
+
+                if rev is not None and pat is not None:
+                    headline += f" (Rev ₹{float(rev):,.1f} Cr, PAT ₹{float(pat):,.1f} Cr)"
+
+                fid = f"{sym_u}_{period_end}_{st_type}_v1"
+
+                finding_dict = {
+                    "filing_date": as_of_str,
+                    "discovered_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+                    "symbol": sym_u,
+                    "company_name": sym_u,
+                    "exchange": str(item.get("exchange") or "NSE"),
+                    "filing_id": fid,
+                    "period_end": period_end,
+                    "statement_type": st_type,
+                    "basis": basis,
+                    "event_type": finding_reason,
+                    "revenue_cr": float(rev) if rev is not None else None,
+                    "operating_profit_cr": float(op_prof) if op_prof is not None else None,
+                    "pat_cr": float(pat) if pat is not None else None,
+                    "eps": float(eps) if eps is not None else None,
+                    "roce_pct": float(roce) if roce is not None else None,
+                    "roe_pct": float(roe) if roe is not None else None,
+                    "debt_to_equity": float(de) if de is not None else None,
+                    "operating_margin_pct": float(op_m) if op_m is not None else None,
+                    "net_margin_pct": float(net_m) if net_m is not None else None,
+                    "shares_outstanding": float(shares) if shares is not None else None,
+                    "filing_broadcast_date": item.get("filing_date") or item.get("actual_publication_timestamp"),
+                    "status": "SNAPSHOT_UPDATED",
+                    "headline": headline,
+                    "raw_facts": item,
+                    "affected_metrics": self.resolve_dependent_metrics(st_type, {"facts": item})
+                }
+                findings.append(finding_dict)
 
             except Exception as read_err:
                 logger.debug(f"[filling scanner] Error auditing filings for {sym_u}: {read_err}")
 
-        # Batch persist all findings to database and local cache
+        # Batch persist all findings to database and local cache (guaranteed single entry per stock)
         try:
             from app.database import batch_upsert_corporate_filings
         except ImportError:
             from database import batch_upsert_corporate_filings
         batch_upsert_corporate_filings(findings)
 
-        logger.info(f"📊 [filling scanner] Logged {len(findings)} filing findings across universe for {as_of_str}.")
+        logger.info(f"📊 [filling scanner] Logged {len(findings)} genuinely missing filing findings for {as_of_str}.")
         return findings
 
     # -------------------------------------------------------------------------
