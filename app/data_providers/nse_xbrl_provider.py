@@ -527,15 +527,15 @@ class NseXbrlProvider:
             except ImportError:
                 from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
             if get_scraper_api_key():
-                s_resp = fetch_via_scraperapi(url, timeout=35, country_code="in")
+                s_resp = fetch_via_scraperapi(url, timeout=20, country_code="in")
                 if s_resp is not None and s_resp.status_code == 200:
                     try:
                         data = s_resp.json()
                         self.http_success_count += 1
                         logger.info(f"✅ [NSE:SCRAPERAPI] Directly fetched corporate results for {symbol} via ScraperAPI")
                         return data
-                    except Exception:
-                        pass
+                    except Exception as json_err:
+                        logger.warning(f"[NSE:SCRAPERAPI] ScraperAPI returned 200 for {symbol} but non-JSON body: {json_err} (snippet: {s_resp.text[:120]!r})")
                 else:
                     logger.warning(f"[NSE:SCRAPERAPI] ScraperAPI call for {symbol} returned status {getattr(s_resp, 'status_code', None)}. Falling back to direct session without scraper...")
         except Exception as s_err:
@@ -701,28 +701,7 @@ class NseXbrlProvider:
         if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
             return local_path
 
-        # 1. DIRECTLY TRY WITH SCRAPER API FIRST
-        try:
-            try:
-                from app.pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
-            except ImportError:
-                from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
-            if get_scraper_api_key():
-                s_resp = fetch_via_scraperapi(xbrl_url, timeout=45, country_code="in")
-                if s_resp is not None and s_resp.status_code == 200 and s_resp.content:
-                    tmp_p = f"{local_path}.tmp.{os.getpid()}"
-                    with open(tmp_p, "wb") as f_out:
-                        f_out.write(s_resp.content)
-                    os.replace(tmp_p, local_path)
-                    self.xbrl_documents_downloaded += 1
-                    logger.info(f"✅ [NSE:SCRAPERAPI] Directly downloaded XBRL {fn} via ScraperAPI ({len(s_resp.content)} bytes)")
-                    return local_path
-                else:
-                    logger.warning(f"[NSE:SCRAPERAPI] ScraperAPI returned status {getattr(s_resp, 'status_code', None)} for {fn}. Falling back to direct fetch without scraper...")
-        except Exception as s_err:
-            logger.debug(f"[NSE:SCRAPERAPI] ScraperAPI download failed for {xbrl_url}: {s_err}. Falling back to direct fetch without scraper...")
-
-        # 2. ONLY IF SCRAPER TOKEN NOT WORKING / FAILS, TRY WITHOUT SCRAPER
+        # 1. DIRECT DOWNLOAD FIRST (Static XML archives work directly without proxy)
         try:
             resp = self.session.get(xbrl_url, headers=_HEADERS, timeout=10)
             if resp.status_code == 200 and resp.content:
@@ -731,14 +710,36 @@ class NseXbrlProvider:
                     f_out.write(resp.content)
                 os.replace(tmp_p, local_path)
                 self.xbrl_documents_downloaded += 1
+                logger.info(f"✅ [NSE:DIRECT] Directly downloaded XBRL {fn} without scraper ({len(resp.content)} bytes)")
                 return local_path
-            else:
-                self.xbrl_download_failures += 1
-                logger.warning(f"[NSE] Direct fetch failed for XBRL {xbrl_url}: HTTP {resp.status_code}")
-                return None
-        except Exception as e:
+            elif resp.status_code in (401, 403, 429):
+                logger.debug(f"[NSE] Direct fetch blocked for XBRL {fn}: HTTP {resp.status_code} — trying ScraperAPI fallback")
+        except Exception as direct_err:
+            logger.debug(f"[NSE] Direct fetch failed for XBRL {fn}: {direct_err} — trying ScraperAPI fallback")
+
+        # 2. FALLBACK TO SCRAPER API ONLY IF DIRECT DOWNLOAD FAILS OR IS BLOCKED
+        try:
+            try:
+                from app.pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+            except ImportError:
+                from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
+            if get_scraper_api_key():
+                s_resp = fetch_via_scraperapi(xbrl_url, timeout=25, country_code="in")
+                if s_resp is not None and s_resp.status_code == 200 and s_resp.content:
+                    tmp_p = f"{local_path}.tmp.{os.getpid()}"
+                    with open(tmp_p, "wb") as f_out:
+                        f_out.write(s_resp.content)
+                    os.replace(tmp_p, local_path)
+                    self.xbrl_documents_downloaded += 1
+                    logger.info(f"✅ [NSE:SCRAPERAPI] Downloaded XBRL {fn} via ScraperAPI fallback ({len(s_resp.content)} bytes)")
+                    return local_path
+                else:
+                    self.xbrl_download_failures += 1
+                    logger.warning(f"[NSE:SCRAPERAPI] ScraperAPI fallback returned status {getattr(s_resp, 'status_code', None)} for {fn}")
+                    return None
+        except Exception as s_err:
             self.xbrl_download_failures += 1
-            logger.warning(f"[NSE] Direct fetch exception for XBRL {xbrl_url}: {e}")
+            logger.debug(f"[NSE:SCRAPERAPI] ScraperAPI download failed for {xbrl_url}: {s_err}")
             return None
 
     def parse_xbrl_document(

@@ -238,7 +238,7 @@ def mark_crawlora_key_exhausted_today(key: str):
 def fetch_via_scraperapi(
     url: str,
     params: Optional[dict] = None,
-    timeout: int = 35,
+    timeout: int = 25,
     country_code: str = "in",
     stream: bool = False,
     headers: Optional[dict] = None,
@@ -252,6 +252,7 @@ def fetch_via_scraperapi(
         return None
 
     import urllib.parse
+    import time
     final_url = url
     if params:
         query_string = urllib.parse.urlencode(params)
@@ -263,23 +264,30 @@ def fetch_via_scraperapi(
         "country_code": country_code,
         "render": "false",
     }
+    t0 = time.time()
     try:
         masked_key = f"{scraper_key[:4]}...{scraper_key[-4:]}" if len(scraper_key) > 8 else "CONFIG_KEY"
         logger.info(f"🌐 [SCRAPERAPI FETCH] Routing URL via ScraperAPI (key: {masked_key}, country: {country_code}): {url}")
         resp = requests.get("https://api.scraperapi.com/", params=payload, timeout=timeout, stream=stream)
+        elapsed = time.time() - t0
+        logger.info(f"🌐 [SCRAPERAPI RESPONSE] HTTP {resp.status_code} in {elapsed:.2f}s for {url}")
         if resp.status_code in (401, 403, 429):
             mark_key_exhausted_today(scraper_key, reason=f"HTTP {resp.status_code}: {resp.text[:100]}")
             # Try once more with next key
             next_key = get_scraper_api_key()
             if next_key and next_key != scraper_key:
                 payload["api_key"] = next_key
+                t1 = time.time()
                 resp = requests.get("https://api.scraperapi.com/", params=payload, timeout=timeout, stream=stream)
+                elapsed_retry = time.time() - t1
+                logger.info(f"🌐 [SCRAPERAPI RETRY RESPONSE] HTTP {resp.status_code} in {elapsed_retry:.2f}s for {url}")
                 if resp.status_code in (401, 403, 429):
                     mark_key_exhausted_today(next_key, reason=f"HTTP {resp.status_code}: {resp.text[:100]}")
                     return None
         return resp
     except Exception as e:
-        logger.warning(f"⚠️ [SCRAPERAPI ERROR] Request to {url} failed: {e}")
+        elapsed = time.time() - t0
+        logger.warning(f"⚠️ [SCRAPERAPI ERROR] Request to {url} failed after {elapsed:.2f}s: {e}")
         return None
 
 def _get_fail_file():
