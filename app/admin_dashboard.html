@@ -9130,7 +9130,9 @@ async function initDashboard() {
       source.addEventListener('alert', function(e) {
         try {
           const data = JSON.parse(e.data || '{}');
-          if (typeof playLoudNotificationSound === 'function') {
+          // Play loud sound only for scheduled production alerts (non-scheduled alerts do not make sound)
+          const shouldPlaySound = (data.play_sound !== false && data.is_scheduled !== false);
+          if (shouldPlaySound && typeof playLoudNotificationSound === 'function') {
             playLoudNotificationSound();
           }
           if (typeof triggerAlertFlashing === 'function') {
@@ -10288,9 +10290,13 @@ async function fetchNotifications() {
             badge.classList.remove('active');
         }
         
-        // Play sound if there are NEW notifications
-        if (newNotifs && isAudioEnabled) {
-            if (typeof playDing === 'function') playDing();
+        // Play loud chime sound if there are NEW notifications (skip initial load)
+        if (newNotifs && !isFirstNotifLoad) {
+            if (typeof playLoudNotificationSound === 'function') {
+                playLoudNotificationSound();
+            } else if (typeof playDing === 'function') {
+                playDing();
+            }
         }
         
         lastNotifIds = currentIds;

@@ -1848,43 +1848,48 @@ def run_technical_scan(
                         "score_breakdown": cand["score_breakdown"],
                     },
                     entry_mode="BREAKOUT_TRIGGER",
+                    trigger_type=trigger_type,
                 )
                 if inserted:
                     alerts_saved += 1
-                    try:
-                        from telegram_engine import queue_telegram_message
-                        sec_pats = cand.get("secondary_patterns", [])
-                        sec_str = ", ".join(s.replace("_", " ") for s in sec_pats) if sec_pats else "None"
-                        conf_list = cand.get("confluences", [])
-                        conf_str = ", ".join(c.replace("_", " ") for c in conf_list) if conf_list else "None"
-                        sb = cand.get("score_breakdown", {})
+                    # Only dispatch live Telegram notification if this is an authentic SCHEDULED production run
+                    if str(trigger_type).upper() == "SCHEDULED":
+                        try:
+                            from telegram_engine import queue_telegram_message
+                            sec_pats = cand.get("secondary_patterns", [])
+                            sec_str = ", ".join(s.replace("_", " ") for s in sec_pats) if sec_pats else "None"
+                            conf_list = cand.get("confluences", [])
+                            conf_str = ", ".join(c.replace("_", " ") for c in conf_list) if conf_list else "None"
+                            sb = cand.get("score_breakdown", {})
 
-                        tg_msg = (
-                            f"🚀 <b>TECHNICAL SCANNER ALERT ({classification})</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━\n"
-                            f"📈 <b>Stock:</b> #{sym}\n"
-                            f"💰 <b>Entry CMP:</b> ₹{cmp_price:.2f}\n"
-                            f"📐 <b>Primary Pattern:</b> {pat.replace('_', ' ')} (Tier {cand['tier']})\n"
-                            f"📝 <b>Structure Details:</b> {desc}\n"
-                            f"📦 <b>Volume Surge:</b> {rvol:.2f}x RVOL (Hard Gate: ≥1.20x)\n"
-                            f"🕯️ <b>Candle Quality:</b> CLV {cand['clv']:.2f} | Upper Wick {cand['upper_wick_pct']:.1f}%\n"
-                            f"✨ <b>Confluences:</b> {conf_str}\n"
-                            f"🔄 <b>Secondary Patterns:</b> {sec_str}\n"
-                            f"━━━━━━━━━━━━━━━━━━━━\n"
-                            f"🛡️ <b>Stop Loss:</b> ₹{sl:.2f} (-{cand['risk_pct']}%)\n"
-                            f"🎯 <b>Target 1:</b> ₹{t1:.2f} (1:1.5 RR)\n"
-                            f"🎯 <b>Target 2:</b> ₹{t2:.2f} (1:3.0 RR)\n"
-                            f"🎯 <b>Target 3:</b> ₹{t3:.2f} (1:4.5 RR)\n"
-                            f"🚀 <b>Room to Resistance:</b> {cand['room_to_resistance_r']:.1f}R (Clear space ≥1.5R)\n"
-                            f"━━━━━━━━━━━━━━━━━━━━\n"
-                            f"⭐ <b>Institutional Score:</b> {score}/100\n"
-                            f"📊 <b>Score Breakdown:</b> Pat {sb.get('pattern_score', 0)}/25 | Vol {sb.get('volume_score', 0)}/25 | PA {sb.get('price_action_score', 0)}/20 | Struct {sb.get('structure_score', 0)}/15 | Risk {sb.get('risk_score', 0)}/10 | Conf {sb.get('confluence_score', 0)}/5\n"
-                            f"🏷️ <b>Category:</b> SWING (Daily 1D · 3–15 Days)\n"
-                            f"⏰ <b>Trigger Time:</b> {datetime.now(IST).strftime('%I:%M %p IST (%Y-%m-%d)')}"
-                        )
-                        queue_telegram_message(tg_msg, symbol=sym)
-                    except Exception as _tg_err:
-                        logger.debug(f"Telegram notification dispatch error: {_tg_err}")
+                            tg_msg = (
+                                f"🚀 <b>TECHNICAL SCANNER ALERT ({classification})</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━━━\n"
+                                f"📈 <b>Stock:</b> #{sym}\n"
+                                f"💰 <b>Entry CMP:</b> ₹{cmp_price:.2f}\n"
+                                f"📐 <b>Primary Pattern:</b> {pat.replace('_', ' ')} (Tier {cand['tier']})\n"
+                                f"📝 <b>Structure Details:</b> {desc}\n"
+                                f"📦 <b>Volume Surge:</b> {rvol:.2f}x RVOL (Hard Gate: ≥1.20x)\n"
+                                f"🕯️ <b>Candle Quality:</b> CLV {cand['clv']:.2f} | Upper Wick {cand['upper_wick_pct']:.1f}%\n"
+                                f"✨ <b>Confluences:</b> {conf_str}\n"
+                                f"🔄 <b>Secondary Patterns:</b> {sec_str}\n"
+                                f"━━━━━━━━━━━━━━━━━━━━\n"
+                                f"🛡️ <b>Stop Loss:</b> ₹{sl:.2f} (-{cand['risk_pct']}%)\n"
+                                f"🎯 <b>Target 1:</b> ₹{t1:.2f} (1:1.5 RR)\n"
+                                f"🎯 <b>Target 2:</b> ₹{t2:.2f} (1:3.0 RR)\n"
+                                f"🎯 <b>Target 3:</b> ₹{t3:.2f} (1:4.5 RR)\n"
+                                f"🚀 <b>Room to Resistance:</b> {cand['room_to_resistance_r']:.1f}R (Clear space ≥1.5R)\n"
+                                f"━━━━━━━━━━━━━━━━━━━━\n"
+                                f"⭐ <b>Institutional Score:</b> {score}/100\n"
+                                f"📊 <b>Score Breakdown:</b> Pat {sb.get('pattern_score', 0)}/25 | Vol {sb.get('volume_score', 0)}/25 | PA {sb.get('price_action_score', 0)}/20 | Struct {sb.get('structure_score', 0)}/15 | Risk {sb.get('risk_score', 0)}/10 | Conf {sb.get('confluence_score', 0)}/5\n"
+                                f"🏷️ <b>Category:</b> SWING (Daily 1D · 3–15 Days)\n"
+                                f"⏰ <b>Trigger Time:</b> {datetime.now(IST).strftime('%I:%M %p IST (%Y-%m-%d)')}"
+                            )
+                            queue_telegram_message(tg_msg, symbol=sym)
+                        except Exception as _tg_err:
+                            logger.debug(f"Telegram notification dispatch error: {_tg_err}")
+                    else:
+                        logger.info(f"ℹ️ [TELEGRAM SUPPRESSED] Non-scheduled trigger ({trigger_type}) - skipping Telegram broadcast for {sym}")
                 else:
                     rejection_counts[f"PERSISTENCE_{reason}"] = rejection_counts.get(f"PERSISTENCE_{reason}", 0) + 1
             else:
@@ -1940,18 +1945,20 @@ def run_technical_scan(
                 logger.debug(f"Performance rebuild trigger on technical alerts: {_pr_err}")
 
         # [SCHEDULED RUN COMPLETION ALERT TO ADMIN]
-        try:
-            from database import insert_notification
-            today_str = datetime.now(IST).strftime('%Y-%m-%d')
-            admin_title = f"✅ Technical Scanner Complete ({today_str})"
-            admin_msg = (
-                f"Technical Scanner ran for the day ({trigger_type}). "
-                f"Generated {alerts_saved} BUY alert(s) across {len(watchlist)} stocks evaluated in {duration}s."
-            )
-            insert_notification("info", admin_title, admin_msg)
-            logger.info(f"📢 Dispatched technical scanner run completion notification to Admin: {admin_title}")
-        except Exception as _notif_err:
-            logger.warning(f"Could not dispatch technical completion notification: {_notif_err}")
+        # Only notify Admin if this was a genuine SCHEDULED cycle AND new alerts were found
+        if str(trigger_type).upper() == "SCHEDULED" and alerts_saved > 0:
+            try:
+                from database import insert_notification
+                today_str = datetime.now(IST).strftime('%Y-%m-%d')
+                admin_title = f"✅ Technical Scanner: {alerts_saved} Alert(s) ({today_str})"
+                admin_msg = (
+                    f"Technical Scanner ran for the day ({trigger_type}). "
+                    f"Generated {alerts_saved} BUY alert(s) across {len(watchlist)} stocks evaluated in {duration}s."
+                )
+                insert_notification("buy", admin_title, admin_msg)
+                logger.info(f"📢 Dispatched technical scanner run completion notification to Admin: {admin_title}")
+            except Exception as _notif_err:
+                logger.warning(f"Could not dispatch technical completion notification: {_notif_err}")
 
         return alerts_saved
 

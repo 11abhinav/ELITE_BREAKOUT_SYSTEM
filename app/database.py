@@ -3492,23 +3492,29 @@ def save_alert_if_new(
                     f"{symbol} | {category} | Entry: ₹{entry_price} | "
                     f"Target: OPEN-ENDED | Stop Loss: NONE | Exit Model: WEALTH_EXIT_V1 | Shadow: WEALTH_EXIT_V2"
                 )
-            else:
-                msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
-            insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol, alert_id=alert_id)
+            # Resolve trigger_type from kwargs or context
+            cand_ctx = context or {}
+            eff_trigger = str(kwargs.get('trigger_type') or cand_ctx.get('trigger_type') or 'SCHEDULED').upper().strip()
+            is_scheduled_run = (eff_trigger == "SCHEDULED")
 
-            # Trigger web push notification
-            try:
-                import push_service
-                title = f"🚨 {symbol} Breakout"
-                body = f"Buy Alert at ₹{entry_price} ({category})"
-                threading.Thread(
-                    target=push_service.send_push_to_all,
-                    args=(title, body, "/", symbol),
-                    kwargs={"bypass_throttle": True, "alert_id": alert_id},
-                    daemon=True
-                ).start()
-            except Exception as e:
-                logger.exception(f"Failed to start push thread")
+            if is_scheduled_run:
+                insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol, alert_id=alert_id)
+
+                # Trigger web push notification
+                try:
+                    import push_service
+                    title = f"🚨 {symbol} Breakout"
+                    body = f"Buy Alert at ₹{entry_price} ({category})"
+                    threading.Thread(
+                        target=push_service.send_push_to_all,
+                        args=(title, body, "/", symbol),
+                        kwargs={"bypass_throttle": True, "alert_id": alert_id},
+                        daemon=True
+                    ).start()
+                except Exception as e:
+                    logger.exception(f"Failed to start push thread")
+            else:
+                logger.info(f"ℹ️ [NOTIFICATION SUPPRESSED] Non-scheduled alert ({eff_trigger}) for {symbol} - skipping push notification & notification bell entry.")
 
             # Asynchronously rebuild performance_data.json so Dashboard Alert Table updates immediately
             try:
@@ -3521,7 +3527,14 @@ def save_alert_if_new(
             try:
                 from dashboard_server import invalidate_all_dashboard_caches, notify_stream_clients
                 invalidate_all_dashboard_caches()
-                notify_stream_clients("alert", {"symbol": symbol, "scanner": scanner, "entry_price": float(entry_price or 0.0), "category": category})
+                notify_stream_clients("alert", {
+                    "symbol": symbol,
+                    "scanner": scanner,
+                    "entry_price": float(entry_price or 0.0),
+                    "category": category,
+                    "is_scheduled": is_scheduled_run,
+                    "play_sound": is_scheduled_run
+                })
             except Exception:
                 pass
 
