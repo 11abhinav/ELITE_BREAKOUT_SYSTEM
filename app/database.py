@@ -4723,8 +4723,9 @@ def upsert_scanner_health(
         _th_name = _th_mod.current_thread().name
         _stack = _tb_mod.extract_stack(limit=4)
         _caller = f"{_os_mod.path.basename(_stack[-2].filename)}:{_stack[-2].lineno}->{_stack[-2].name}" if len(_stack) >= 2 else "unknown"
+        _target_status_log = status if status is not None else f"{old_status} (UNCHANGED)"
         logger.info(
-            f"🏥 [SCANNER_HEALTH_MUTATION] scanner='{scanner_name}' transition='{old_status} -> {status}' "
+            f"🏥 [SCANNER_HEALTH_MUTATION] scanner='{scanner_name}' transition='{old_status} -> {_target_status_log}' "
             f"run_id='{run_id or active_run_id}' caller='{_caller}' pid={_pid} thread='{_th_name}'"
         )
 
