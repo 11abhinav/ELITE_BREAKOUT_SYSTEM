@@ -1151,6 +1151,16 @@ def detect_technical_setup(
     has_atr = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr"], default=0.0) > 0
     has_vol_sma = _coalesce_indicator_val(df, ["Volume_SMA20", "VOL_SMA20", "volume_sma20", "vol_sma20"], default=0.0) > 0
 
+    # Fast in-memory resolution: compute 20-period Volume SMA if missing, without heavy 35-indicator suite re-calc
+    if not has_vol_sma:
+        vol_col = "Volume" if "Volume" in df.columns else ("volume" if "volume" in df.columns else None)
+        if vol_col is not None and len(df) >= 10:
+            df = df.copy()
+            v_sma20 = df[vol_col].rolling(window=20, min_periods=min(10, len(df))).mean()
+            df["Volume_SMA20"] = v_sma20
+            df["VOL_SMA20"] = v_sma20
+            has_vol_sma = _coalesce_indicator_val(df, ["Volume_SMA20", "VOL_SMA20"], default=0.0) > 0
+
     if not (has_ema20 and has_atr and has_vol_sma):
         df = apply_indicators(df, timeframe="1d")
 
@@ -1174,7 +1184,7 @@ def detect_technical_setup(
         trace["02_COMMON_GATES"]["status"] = "REJECT"
         trace["02_COMMON_GATES"]["rejection_code"] = "RED_OR_FLAT_CANDLE"
         trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
-        trace["FINAL"]["terminal_reason"] = "RED_OR_FLAT_CANDLE"
+        trace["FINAL"]["terminal_reason"] = "RED_CANDLE"
         return _finish(None)
 
     candle_range = max(0.001, h_today - l_today)
@@ -1754,11 +1764,25 @@ def run_technical_scan(
                 rejection_counts["NO_DATA"] = rejection_counts.get("NO_DATA", 0) + 1
                 continue
 
-            # Track data freshness / staleness in execution context
-            is_stale = getattr(df, "_is_stale", False)
+            # Track data freshness / staleness in execution context and hard-block stale data
+            is_stale = getattr(df, "_is_stale", False) or getattr(df, "attrs", {}).get("is_stale", False)
+            if not is_stale:
+                t_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
+                last_val = df[t_col].iloc[-1] if t_col else (df.index[-1] if not df.index.empty else None)
+                if last_val is not None:
+                    last_dt = pd.to_datetime(last_val, errors="coerce")
+                    if last_dt is not None and not pd.isna(last_dt):
+                        from market_utils import evaluate_data_staleness
+                        staleness_info = evaluate_data_staleness(last_dt)
+                        if staleness_info.get("is_stale", False):
+                            is_stale = True
+
             if is_stale:
                 if real_run_ctx:
                     real_run_ctx.mark_stale(1)
+                logger.debug(f"🛑 [TECHNICAL REJECT] {symbol} rejected due to STALE market data.")
+                rejection_counts["STALE_DATA"] = rejection_counts.get("STALE_DATA", 0) + 1
+                continue
             else:
                 if real_run_ctx:
                     real_run_ctx.mark_fresh(1)

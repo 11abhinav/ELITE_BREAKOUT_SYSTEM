@@ -430,6 +430,19 @@ def hydrate_indicators(
         atr_pct_s = new_cols.get("ATR_PCT") if "ATR_PCT" in new_cols else df.get("ATR_PCT")
         new_cols.update(_build_pattern_columns(df, high, low, atr_s, atr_pct_s))
 
+    # 12. Volume SMA Filters (Volume_SMA20, VOL_SMA20)
+    vol_sma_needed = (
+        req_all
+        or (required is not None and len(required.intersection({"Volume_SMA20", "VOL_SMA20", "volume_sma20", "vol_sma20", "SMA20_Volume"})) > 0)
+    )
+    if vol_sma_needed:
+        vol_col = "Volume" if "Volume" in df.columns else ("volume" if "volume" in df.columns else None)
+        if vol_col is not None:
+            vol_s = df[vol_col]
+            v_sma20 = vol_s.rolling(window=20, min_periods=min(10, len(vol_s))).mean()
+            new_cols["Volume_SMA20"] = v_sma20
+            new_cols["VOL_SMA20"] = v_sma20
+
     if new_cols:
         df = df.assign(**new_cols)
     return df

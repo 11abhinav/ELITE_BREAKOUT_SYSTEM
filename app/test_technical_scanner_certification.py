@@ -480,11 +480,11 @@ class TestSuite05CommonHardGates(unittest.TestCase):
         self.assertIsNone(res)
         self.assertEqual(tr["FINAL"]["terminal_reason"], "LOW_CLV")
 
-        # 4. Upper Wick > 30% (with CLV >= 0.65)
+        # 4. Upper Wick > 25% (with CLV >= 0.70)
         df_wick = base_tester._build_positive_fixture("BULL_FLAG")
         df_wick.loc[df_wick.index[-1], "High"] = 120.0
         df_wick.loc[df_wick.index[-1], "Open"] = 115.0
-        df_wick.loc[df_wick.index[-1], "Close"] = 116.8
+        df_wick.loc[df_wick.index[-1], "Close"] = 117.2
         df_wick.loc[df_wick.index[-1], "Low"] = 110.0
         res, tr = detect_technical_setup(df_wick, symbol="TEST_WICK", return_trace=True)
         self.assertIsNone(res)
