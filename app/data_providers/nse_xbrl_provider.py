@@ -604,7 +604,13 @@ class NseXbrlProvider:
         """
         Discovers all available financial filings for a symbol across Annual & Quarterly periods.
         Returns a combined list of raw filing dictionaries from NSE.
+        Caches in memory per session to eliminate duplicate requests between fetch_raw_financials and discover_filings.
         """
+        if not hasattr(self, "_discovered_cache"):
+            self._discovered_cache = {}
+        if symbol in self._discovered_cache:
+            return self._discovered_cache[symbol]
+
         all_filings = []
         for period_param in ("Annual", "Quarterly"):
             url = f"{_BASE_URL}?index=equities&symbol={symbol}&period={period_param}"
@@ -622,6 +628,7 @@ class NseXbrlProvider:
                 all_filings.extend(rows)
 
         self.filing_records_discovered += len(all_filings)
+        self._discovered_cache[symbol] = all_filings
         return all_filings
 
     def deduplicate_and_filter_filings(self, filings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
