@@ -735,8 +735,9 @@ class FinancialFilingWatcher:
             symbols = symbols[:max_symbols]
 
         if max_workers is None:
-            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "8"))
+            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "4"))
         max_workers = max(1, min(max_workers, 16))
+
 
         logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str} (concurrency={max_workers})...")
 

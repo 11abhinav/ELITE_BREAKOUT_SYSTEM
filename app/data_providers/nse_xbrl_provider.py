@@ -81,9 +81,22 @@ DEFAULT_XBRL_CACHE_DIR = os.path.join(BASE_DIR, "data", "xbrl_cache", "nse")
 
 _BASE_URL     = "https://www.nseindia.com/api/corporates-financial-results"
 _HOME_URL     = "https://www.nseindia.com"
-_TIMEOUT      = 12
-_MAX_RETRIES  = 3
-_MAX_SESSION_REFRESHES = 2
+_TIMEOUT      = 7
+_MAX_RETRIES  = 2
+_MAX_SESSION_REFRESHES = 1
+
+import threading
+
+_RATE_LIMIT_LOCK = threading.Lock()
+_LAST_REQUEST_TIME = 0.0
+_MIN_REQUEST_INTERVAL = 0.20  # Minimum 200ms spacing between direct requests to NSE API to prevent WAF drop
+
+_CIRCUIT_LOCK = threading.Lock()
+_CIRCUIT_BREAKER_UNTIL = 0.0
+_CONSECUTIVE_TIMEOUTS = 0
+_MAX_CONSECUTIVE_TIMEOUTS = 4
+_COOLDOWN_PERIOD = 45.0  # seconds cooldown if NSE WAF drops multiple connections
+
 
 _HEADERS = {
     "User-Agent": (
@@ -498,19 +511,29 @@ class NseXbrlProvider:
         self.last_xbrl_doc_count: Dict[str, int] = {}
 
     def _init_session(self) -> bool:
-        """Establish NSE session cookie."""
+        """Establish NSE session with anti-bot cookies via homepage handshake."""
         try:
             try:
                 from app.constituent_service import get_nse_session
             except ImportError:
                 from constituent_service import get_nse_session
             self.session = get_nse_session()
+            try:
+                # Crucial: Must visit homepage first to prime Akamai anti-bot cookies (_abck, bm_sz, etc.)
+                r_home = self.session.get(_HOME_URL, headers=_HEADERS, timeout=7)
+                if r_home.status_code == 200:
+                    self._initialized = True
+                    return True
+                else:
+                    logger.warning(f"[NSE] Homepage handshake status {r_home.status_code}")
+            except Exception as h_err:
+                logger.warning(f"[NSE] curl_cffi homepage handshake failed: {h_err}")
             self._initialized = True
             return True
         except Exception:
             try:
                 self.session = requests.Session()
-                self.session.get(_HOME_URL, headers=_HEADERS, timeout=_TIMEOUT)
+                self.session.get(_HOME_URL, headers=_HEADERS, timeout=7)
                 self._initialized = True
                 return True
             except Exception as e2:
@@ -520,6 +543,8 @@ class NseXbrlProvider:
 
     def _get(self, url: str, symbol: str) -> Optional[list]:
         """GET corporate results. Per user directive: Directly tries ScraperAPI first. Only if scraper token not working, falls back to direct NSE session."""
+        global _LAST_REQUEST_TIME, _CONSECUTIVE_TIMEOUTS, _CIRCUIT_BREAKER_UNTIL
+
         # 1. DIRECTLY TRY WITH SCRAPER API FIRST
         try:
             try:
@@ -541,7 +566,15 @@ class NseXbrlProvider:
         except Exception as s_err:
             logger.debug(f"[NSE:SCRAPERAPI] ScraperAPI failed for {symbol}: {s_err}. Falling back to direct session without scraper...")
 
-        # 2. ONLY IF SCRAPER TOKEN NOT WORKING / FAILS, TRY WITHOUT SCRAPER
+        # 2. CIRCUIT BREAKER CHECK (Fail fast to BSE/fallback if NSE WAF is repeatedly dropping connections)
+        now = time.time()
+        with _CIRCUIT_LOCK:
+            if now < _CIRCUIT_BREAKER_UNTIL:
+                remaining = int(_CIRCUIT_BREAKER_UNTIL - now)
+                logger.warning(f"[NSE] Circuit breaker active ({remaining}s remaining). Skipping NSE for {symbol} to fail fast to fallback.")
+                return None
+
+        # 3. ONLY IF SCRAPER TOKEN NOT WORKING / FAILS, TRY WITHOUT SCRAPER
         if not self._initialized:
             self._init_session()
 
@@ -549,11 +582,21 @@ class NseXbrlProvider:
         session_refreshes = 0
 
         for attempt in range(_MAX_RETRIES):
+            # Enforce pacing between direct NSE requests to avoid Akamai burst drop
+            with _RATE_LIMIT_LOCK:
+                t_now = time.time()
+                elapsed = t_now - _LAST_REQUEST_TIME
+                if elapsed < _MIN_REQUEST_INTERVAL:
+                    time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
+                _LAST_REQUEST_TIME = time.time()
+
             try:
                 res = self.session.get(url, headers=api_headers, timeout=_TIMEOUT)
 
                 if res.status_code == 200:
                     self.http_success_count += 1
+                    with _CIRCUIT_LOCK:
+                        _CONSECUTIVE_TIMEOUTS = 0
                     try:
                         return res.json()
                     except Exception:
@@ -585,20 +628,31 @@ class NseXbrlProvider:
 
                 return None
 
-            except requests.exceptions.Timeout:
-                self.retry_count += 1
-                if attempt < _MAX_RETRIES - 1:
-                    time.sleep(1.5)
             except Exception as e:
                 self.retry_count += 1
+                is_timeout = False
+                err_str = str(e).lower()
+                if "timed out" in err_str or "curl: (28)" in err_str or "timeout" in err_str:
+                    is_timeout = True
+                    with _CIRCUIT_LOCK:
+                        _CONSECUTIVE_TIMEOUTS += 1
+                        if _CONSECUTIVE_TIMEOUTS >= _MAX_CONSECUTIVE_TIMEOUTS:
+                            _CIRCUIT_BREAKER_UNTIL = time.time() + _COOLDOWN_PERIOD
+                            logger.error(
+                                f"[NSE] {_MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts/drops encountered. "
+                                f"Tripping circuit breaker for {_COOLDOWN_PERIOD}s to prevent thread blocking."
+                            )
+
                 if attempt < _MAX_RETRIES - 1:
                     logger.warning(f"[NSE] {symbol}: Request error on attempt {attempt+1}/{_MAX_RETRIES} ({e}). Re-initializing session...")
                     self._init_session()
-                    time.sleep(1.0)
+                    time.sleep(1.0 if not is_timeout else 1.5)
                     continue
                 logger.error(f"[NSE] {symbol}: Request error: {e}")
 
         return None
+
+
 
     def discover_filings(self, symbol: str) -> List[Dict[str, Any]]:
         """
