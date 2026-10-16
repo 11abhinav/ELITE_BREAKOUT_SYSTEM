@@ -212,6 +212,7 @@ class FinancialFilingWatcher:
         self.registry = ApprovedUniverseRegistry()
         self.approved_symbols = sorted(list(self.registry.approved_symbols))
         self.state: Dict[str, Dict[str, Any]] = self._load_state()
+        self._state_lock = threading.Lock()
 
     def _load_state(self) -> Dict[str, Dict[str, Any]]:
         """Loads persistent watcher state with automated healing of legacy truncated dates."""
@@ -455,24 +456,25 @@ class FinancialFilingWatcher:
         )
 
         if event_type != FilingEventType.NO_CHANGE:
-            # Update state
-            if sym not in self.state:
-                self.state[sym] = {"filings": {}, "latest_filing_date": None, "snapshot_status": SnapshotFreshnessStatus.FRESH.value}
-            norm_p_end = _normalize_iso_date(period_end) or period_end
-            self.state[sym]["filings"][filing_id] = {
-                "period_end_date": norm_p_end,
-                "statement_type": st_type,
-                "broadcast_timestamp": broadcast_time,
-                "source_hash": payload_hash,
-                "last_updated": datetime.now().isoformat(),
-            }
-            prev_latest = self.state[sym].get("latest_filing_date")
-            if _normalize_iso_date(norm_p_end):
-                if not prev_latest or not _normalize_iso_date(prev_latest) or norm_p_end > prev_latest:
-                    self.state[sym]["latest_filing_date"] = norm_p_end
-            self.state[sym]["snapshot_status"] = SnapshotFreshnessStatus.UPDATE_PENDING.value
-            self._save_state()
-            self._log_event(event)
+            with self._state_lock:
+                # Update state
+                if sym not in self.state:
+                    self.state[sym] = {"filings": {}, "latest_filing_date": None, "snapshot_status": SnapshotFreshnessStatus.FRESH.value}
+                norm_p_end = _normalize_iso_date(period_end) or period_end
+                self.state[sym]["filings"][filing_id] = {
+                    "period_end_date": norm_p_end,
+                    "statement_type": st_type,
+                    "broadcast_timestamp": broadcast_time,
+                    "source_hash": payload_hash,
+                    "last_updated": datetime.now().isoformat(),
+                }
+                prev_latest = self.state[sym].get("latest_filing_date")
+                if _normalize_iso_date(norm_p_end):
+                    if not prev_latest or not _normalize_iso_date(prev_latest) or norm_p_end > prev_latest:
+                        self.state[sym]["latest_filing_date"] = norm_p_end
+                self.state[sym]["snapshot_status"] = SnapshotFreshnessStatus.UPDATE_PENDING.value
+                self._save_state()
+                self._log_event(event)
 
             # Only persist discovery report for the latest filing discovered for this stock
             if prev_latest and _normalize_iso_date(prev_latest) and norm_p_end < prev_latest:
@@ -711,10 +713,11 @@ class FinancialFilingWatcher:
         target_symbols: Optional[List[str]] = None,
         as_of_date: Optional[date] = None,
         max_symbols: Optional[int] = None,
+        max_workers: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Actively polls exchange sources (NSE XBRL API, BSE Corporate API, and FundamentalSourceRouter)
-        for newly published filings/earnings disclosures.
+        for newly published filings/earnings disclosures using a concurrent worker pool.
         For every discovered filing:
           1. Detects filing changes (NEW_FILING, UNSEEN_PERIOD, AMENDED_FILING, NO_CHANGE).
           2. Immutably hashes and archives raw exchange payloads to data/exchange_financials/<SYM>/raw/.
@@ -722,42 +725,21 @@ class FinancialFilingWatcher:
           4. Logs discovery into corporate_filings_log database table & JSONL.
           5. Marks snapshot_status = UPDATE_PENDING for symbol if new/amended data ingested.
         """
+        from concurrent.futures import ThreadPoolExecutor
+
         as_of = as_of_date or date.today()
         as_of_str = as_of.isoformat()
         symbols = target_symbols or self.approved_symbols
         if max_symbols:
             symbols = symbols[:max_symbols]
 
-        logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str}...")
+        if max_workers is None:
+            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "8"))
+        max_workers = max(1, min(max_workers, 16))
 
-        discovered_events: List[Dict[str, Any]] = []
+        logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str} (concurrency={max_workers})...")
 
-        try:
-            try:
-                from app.data_providers.nse_xbrl_provider import NseXbrlProvider
-            except ImportError:
-                from data_providers.nse_xbrl_provider import NseXbrlProvider
-            nse_provider = NseXbrlProvider()
-        except Exception as e:
-            logger.warning(f"[filling scanner] Could not initialize NseXbrlProvider: {e}")
-            nse_provider = None
-
-        try:
-            try:
-                from app.data_providers.bse_corporate_provider import BseCorporateProvider
-            except ImportError:
-                from data_providers.bse_corporate_provider import BseCorporateProvider
-            bse_provider = BseCorporateProvider()
-        except Exception as e:
-            logger.warning(f"[filling scanner] Could not initialize BseCorporateProvider: {e}")
-            bse_provider = None
-
-        try:
-            from app.database import upsert_corporate_filing_finding
-        except ImportError:
-            from database import upsert_corporate_filing_finding
-
-        # Pre-load snapshot cache ONCE in memory to avoid 886 repeated parquet disk reads
+        # Pre-load snapshot cache ONCE in memory to avoid repeated parquet disk reads
         snap_lookup: Dict[str, Any] = {}
         try:
             if SNAPSHOT_PATH.exists():
@@ -768,25 +750,53 @@ class FinancialFilingWatcher:
         except Exception as _snap_err:
             logger.debug(f"[filling scanner] Could not pre-load snapshot lookup: {_snap_err}")
 
-        for idx, sym in enumerate(symbols, 1):
-            if idx % 50 == 0 or idx == len(symbols):
-                logger.info(f"⏳ [filling scanner] Polled {idx}/{len(symbols)} symbols ({len(discovered_events)} new disclosures found)...")
+        _tls = threading.local()
+
+        def _get_thread_providers():
+            if not hasattr(_tls, "nse_provider"):
+                try:
+                    try:
+                        from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+                    except ImportError:
+                        from data_providers.nse_xbrl_provider import NseXbrlProvider
+                    _tls.nse_provider = NseXbrlProvider()
+                except Exception as e:
+                    logger.warning(f"[filling scanner] Could not initialize NseXbrlProvider in worker thread: {e}")
+                    _tls.nse_provider = None
+
+            if not hasattr(_tls, "bse_provider"):
+                try:
+                    try:
+                        from app.data_providers.bse_corporate_provider import BseCorporateProvider
+                    except ImportError:
+                        from data_providers.bse_corporate_provider import BseCorporateProvider
+                    _tls.bse_provider = BseCorporateProvider()
+                except Exception as e:
+                    logger.warning(f"[filling scanner] Could not initialize BseCorporateProvider in worker thread: {e}")
+                    _tls.bse_provider = None
+
+            return _tls.nse_provider, _tls.bse_provider
+
+        completed_count = [0]
+        counter_lock = threading.Lock()
+        events_lock = threading.Lock()
+        discovered_events: List[Dict[str, Any]] = []
+
+        def _process_symbol(sym: str) -> None:
             sym_u = sym.strip().upper()
             try:
+                nse_prov, bse_prov = _get_thread_providers()
                 snap_row = snap_lookup.get(sym_u)
                 snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
                 freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
-                # If stock is already fresh, only poll for periods on or after that annual date.
-                # Otherwise bound to last 2 years to prevent downloading dead 2018-2021 XML archives.
                 min_poll_date = snap_annual if (snap_annual and freshness in ("FRESH", "VALID")) else f"{as_of.year - 2}-01-01"
 
                 raw_filings_list: List[Dict[str, Any]] = []
 
                 # 1. Poll NSE XBRL / Corporate Results
-                if nse_provider:
+                if nse_prov:
                     try:
-                        # Attempt to fetch rich parsed XBRL financials first (filtered to recent periods)
-                        nse_records = nse_provider.fetch_raw_financials(sym_u, min_period_end_date=min_poll_date)
+                        nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_poll_date)
                         if nse_records:
                             for r in nse_records:
                                 norm_p = _normalize_iso_date(r.period_end_date)
@@ -810,14 +820,9 @@ class FinancialFilingWatcher:
                                     "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
                                 })
 
-                        # ALWAYS also run discover_filings to capture recently announced
-                        # results that don't yet have XBRL documents. The .xml filter
-                        # in deduplicate_and_filter_filings drops these, but they contain
-                        # valid financial data from corporate announcements.
                         try:
-                            nse_rows = nse_provider.discover_filings(sym_u)
+                            nse_rows = nse_prov.discover_filings(sym_u)
                             if nse_rows:
-                                # Build set of periods already captured from XBRL parsing
                                 existing_periods = {
                                     (_normalize_iso_date(it.get("period_end_date")), str(it.get("statement_type", "")).upper())
                                     for it in raw_filings_list
@@ -829,34 +834,35 @@ class FinancialFilingWatcher:
                                         r_copy["exchange"] = "NSE"
                                         p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
                                         if p_end and p_end >= "2015-01-01":
-                                            # Determine statement type from raw row
                                             raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
                                             st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
-                                            # Only add if this period+type wasn't already captured from XBRL
                                             if (p_end, st) not in existing_periods:
                                                 r_copy["period_end_date"] = p_end
                                                 r_copy["statement_type"] = st
                                                 raw_filings_list.append(r_copy)
                         except Exception as disc_err:
                             logger.debug(f"[filling scanner] NSE discover_filings supplement failed for {sym_u}: {disc_err}")
-
                     except Exception as nse_err:
                         logger.debug(f"[filling scanner] NSE discover/fetch failed for {sym_u}: {nse_err}")
 
-                # 2. Poll BSE Corporate Results — ALWAYS poll regardless of NSE results
-                # Previously BSE was only checked if NSE returned nothing, which caused
-                # newly announced quarterly results to be missed when NSE returned
-                # historical XBRL records but not the latest corporate announcement.
-                if bse_provider:
+                # 2. Check if NSE already provided recent disclosures
+                # If NSE has filings on or after min_poll_date, skip redundant BSE ScraperAPI calls
+                has_recent_nse = any(
+                    _normalize_iso_date(x.get("period_end_date")) >= min_poll_date
+                    for x in raw_filings_list
+                    if x.get("exchange") == "NSE"
+                )
+
+                # 3. Poll BSE only if NSE returned nothing or lacks recent disclosures
+                if bse_prov and (not has_recent_nse or not raw_filings_list):
                     try:
-                        scrip = bse_provider.resolve_bse_scrip_code(sym_u)
+                        scrip = bse_prov.resolve_bse_scrip_code(sym_u)
                         if scrip:
-                            bse_rows = bse_provider.fetch_raw_financials(sym_u)
+                            bse_rows = bse_prov.fetch_raw_financials(sym_u)
                             for r in bse_rows:
                                 norm_p = _normalize_iso_date(r.period_end_date)
                                 if not norm_p or norm_p < "2015-01-01":
                                     continue
-                                # Dedup: skip if we already have this period from NSE
                                 already_exists = any(
                                     _normalize_iso_date(existing.get("period_end_date")) == norm_p
                                     and existing.get("statement_type", "").upper() == (r.period_type or "").upper()
@@ -885,9 +891,8 @@ class FinancialFilingWatcher:
                         logger.debug(f"[filling scanner] BSE discover failed for {sym_u}: {bse_err}")
 
                 if not raw_filings_list:
-                    continue
+                    return
 
-                # Filter to valid ISO dates >= 2015-01-01
                 import re as _re_poll
                 valid_items = []
                 for item in raw_filings_list:
@@ -898,20 +903,18 @@ class FinancialFilingWatcher:
                         valid_items.append(item)
 
                 if not valid_items:
-                    continue
+                    return
 
                 valid_items.sort(key=lambda x: str(x.get("period_end_date", "")))
 
-                # Check against pre-loaded canonical snapshot to avoid processing already-known historical periods
                 if snap_row is not None and snap_annual and freshness in ("FRESH", "VALID"):
                     candidate_items = [it for it in valid_items if str(it.get("period_end_date"))[:10] > snap_annual]
                 else:
                     candidate_items = valid_items
 
                 if not candidate_items:
-                    continue
+                    return
 
-                # Rank candidates: latest period_end_date, ANNUAL > QUARTERLY, CONSOLIDATED > STANDALONE
                 def _candidate_rank(x):
                     p_date = str(x.get("period_end_date", ""))
                     st = str(x.get("period") or x.get("statement_type") or "").upper()
@@ -921,11 +924,8 @@ class FinancialFilingWatcher:
                     return (p_date, is_ann, is_cons)
 
                 candidate_items.sort(key=_candidate_rank)
-
-                # Take ONLY the single latest genuinely missing filing for this stock
                 item = candidate_items[-1]
                 period_end = item["period_end_date"]
-
                 st_type = str(item.get("period") or item.get("statement_type") or "QUARTERLY").upper()
                 if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
                     st_type = "ANNUAL"
@@ -937,7 +937,6 @@ class FinancialFilingWatcher:
                 bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
 
                 raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
-
                 meta_incoming = {
                     "filing_id": fid,
                     "period_end_date": period_end,
@@ -951,15 +950,27 @@ class FinancialFilingWatcher:
                 }
 
                 event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes)
-
                 if event.event_type != FilingEventType.NO_CHANGE:
-                    self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
-                    discovered_events.append(event.to_dict())
+                    with self._state_lock:
+                        self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
+                    with events_lock:
+                        discovered_events.append(event.to_dict())
 
             except Exception as sym_err:
                 logger.debug(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
+            finally:
+                with counter_lock:
+                    completed_count[0] += 1
+                    curr_c = completed_count[0]
+                    if curr_c % 25 == 0 or curr_c == len(symbols):
+                        with events_lock:
+                            disc_len = len(discovered_events)
+                        logger.info(f"⏳ [filling scanner] Polled {curr_c}/{len(symbols)} symbols ({disc_len} new disclosures found, workers={max_workers})...")
 
-        logger.info(f"✅ [filling scanner] Exchange polling complete. Discovered {len(discovered_events)} new/amended filing events.")
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="FilingPoll") as executor:
+            list(executor.map(_process_symbol, symbols))
+
+        logger.info(f"✅ [filling scanner] Exchange polling complete. Discovered {len(discovered_events)} new/amended filing events across {len(symbols)} symbols.")
         return discovered_events
 
     def _merge_into_pit_raw_filings(
