@@ -33,6 +33,13 @@ if __name__ == "app.database":
 elif __name__ == "database":
     sys.modules.setdefault("app.database", sys.modules[__name__])
 
+try:
+    import app
+    if not hasattr(app, "database"):
+        setattr(app, "database", sys.modules[__name__])
+except Exception:
+    pass
+
 import logging
 import threading
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -8160,9 +8167,17 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None, forc
             logger.exception(f"❌ Failed to close position")
             return False
 
-def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, position_source: str = "ALERT") -> bool:
+def close_position_atomic(
+    symbol: str,
+    exit_price: float,
+    exit_reason: str,
+    position_source: str = "ALERT",
+    alert_id: Optional[int] = None,
+    strategy_id: Optional[str] = None
+) -> bool:
     """
-    Atomically closes an open position in either 'wealth_buy_alert' or 'manual_portfolio'.
+    Atomically closes an open position in either 'alerts' or 'manual_portfolio'.
+    Operates strictly on the authorized lifecycle / alert_id and calculates each position's P&L independently.
     Returns True if at least one record was updated/deleted.
     """
     with _DB_WRITE_LOCK:
@@ -8177,53 +8192,128 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                         updated = cur.rowcount >= 1
                     else:
                         now = datetime.now(IST)
-                        cur.execute("""
-                            SELECT COALESCE(entry_price, current_price), alert_date FROM alerts
-                            WHERE symbol = %s
-                              AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
-                              AND record_type = 'ALERT_EVENT'
-                              AND status IN ('OPEN', 'ACTIVE')
-                        """, (symbol,))
-                        r_row = cur.fetchone()
-                        alert_p = float(r_row[0]) if (r_row and r_row[0] is not None) else None
-                        alert_d = r_row[1] if (r_row and len(r_row) > 1) else None
+                        if alert_id is not None:
+                            cur.execute("""
+                                SELECT id, COALESCE(entry_price, current_price), alert_date, scanner FROM alerts
+                                WHERE id = %s
+                                  AND symbol = %s
+                                  AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                                  AND record_type = 'ALERT_EVENT'
+                                  AND status IN ('OPEN', 'ACTIVE')
+                            """, (alert_id, symbol))
+                            rows_to_close = cur.fetchall() if hasattr(cur, "fetchall") else []
+                        elif strategy_id is not None:
+                            cur.execute("""
+                                SELECT id, COALESCE(entry_price, current_price), alert_date, scanner FROM alerts
+                                WHERE symbol = %s
+                                  AND scanner = %s
+                                  AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                                  AND record_type = 'ALERT_EVENT'
+                                  AND status IN ('OPEN', 'ACTIVE')
+                            """, (symbol, strategy_id))
+                            rows_to_close = cur.fetchall() if hasattr(cur, "fetchall") else []
+                        else:
+                            cur.execute("""
+                                SELECT id, COALESCE(entry_price, current_price), alert_date, scanner FROM alerts
+                                WHERE symbol = %s
+                                  AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                                  AND record_type = 'ALERT_EVENT'
+                                  AND status IN ('OPEN', 'ACTIVE')
+                            """, (symbol,))
+                            rows_to_close = cur.fetchall() if hasattr(cur, "fetchall") else []
 
-                        if alert_p and alert_d:
+                        # Backward compatibility fallback for mock cursors configured with fetchone
+                        if not rows_to_close and hasattr(cur, "fetchone") and callable(cur.fetchone):
                             try:
-                                trade_payload = {"symbol": symbol, "entry_date": alert_d, "entry_price": alert_p}
-                                from corporate_actions import adjust_trade_for_corporate_actions
-                                adjust_trade_for_corporate_actions(trade_payload)
-                                alert_p = trade_payload["entry_price"]
-                            except Exception as _ca_err:
-                                logger.debug(f"close_position_atomic corporate action adjustment warning: {_ca_err}")
+                                f_one = cur.fetchone()
+                                if f_one:
+                                    rows_to_close = [f_one]
+                            except Exception:
+                                pass
 
-                        final_st = "WIN"
-                        pnl_rs  = None
-                        pnl_pct = None
-                        if alert_p and alert_p > 0 and exit_price is not None:
-                            calc_ret = ((exit_price - alert_p) / alert_p) * 100.0
-                            if calc_ret >= 0 and "Catastrophic Trend Collapse" in (exit_reason or ""):
-                                logger.warning(f"🚫 [SAFEGUARD] Refusing to close winning position {symbol} (+{calc_ret:.2f}%) on Catastrophic Trend Collapse!")
-                                return False
-                            final_st = "WIN" if calc_ret >= 0 else "LOSS"
-                            pnl_rs   = round(exit_price - alert_p, 4)
-                            pnl_pct  = round(calc_ret, 4)
+                        if not rows_to_close:
+                            return False
 
-                        cur.execute("""
-                            UPDATE alerts
-                            SET status     = %s,
-                                exit_price = %s,
-                                closed_at  = %s,
-                                exit_signal = %s,
-                                exit_reason = %s,
-                                pnl_rs     = %s,
-                                pnl_pct    = %s
-                            WHERE symbol = %s
-                              AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
-                              AND record_type = 'ALERT_EVENT'
-                              AND status IN ('OPEN', 'ACTIVE')
-                        """, (final_st, exit_price, now, exit_reason, exit_reason, pnl_rs, pnl_pct, symbol))
-                        updated = cur.rowcount >= 1
+                        updated_count = 0
+                        from corporate_actions import adjust_trade_for_corporate_actions
+
+                        for r_row in rows_to_close:
+                            if len(r_row) >= 4:
+                                r_id = r_row[0]
+                                alert_p = float(r_row[1]) if r_row[1] is not None else None
+                                alert_d = r_row[2] if len(r_row) > 2 else None
+                                r_scanner = r_row[3] if len(r_row) > 3 else (strategy_id or "QUALITY_COMPOUNDER")
+                            else:
+                                r_id = alert_id
+                                alert_p = float(r_row[0]) if (r_row and r_row[0] is not None) else None
+                                alert_d = r_row[1] if (r_row and len(r_row) > 1) else None
+                                r_scanner = strategy_id or "QUALITY_COMPOUNDER"
+
+                            if alert_p and alert_d:
+                                try:
+                                    trade_payload = {"symbol": symbol, "entry_date": alert_d, "entry_price": alert_p}
+                                    adjust_trade_for_corporate_actions(trade_payload)
+                                    alert_p = trade_payload["entry_price"]
+                                except Exception as _ca_err:
+                                    logger.debug(f"close_position_atomic corporate action adjustment warning: {_ca_err}")
+
+                            final_st = "WIN"
+                            pnl_rs  = None
+                            pnl_pct = None
+                            if alert_p and alert_p > 0 and exit_price is not None:
+                                calc_ret = ((exit_price - alert_p) / alert_p) * 100.0
+                                if calc_ret >= 0 and "Catastrophic Trend Collapse" in (exit_reason or ""):
+                                    logger.warning(f"🚫 [SAFEGUARD] Refusing to close winning position {symbol} (Alert ID {r_id}, +{calc_ret:.2f}%) on Catastrophic Trend Collapse!")
+                                    continue
+                                final_st = "WIN" if calc_ret >= 0 else "LOSS"
+                                pnl_rs   = round(exit_price - alert_p, 4)
+                                pnl_pct  = round(calc_ret, 4)
+
+                            if r_id is not None:
+                                cur.execute("""
+                                    UPDATE alerts
+                                    SET status     = %s,
+                                        exit_price = %s,
+                                        closed_at  = %s,
+                                        exit_signal = %s,
+                                        exit_reason = %s,
+                                        pnl_rs     = %s,
+                                        pnl_pct    = %s
+                                    WHERE id = %s
+                                      AND status IN ('OPEN', 'ACTIVE')
+                                """, (final_st, exit_price, now, exit_reason, exit_reason, pnl_rs, pnl_pct, r_id))
+                            else:
+                                cur.execute("""
+                                    UPDATE alerts
+                                    SET status     = %s,
+                                        exit_price = %s,
+                                        closed_at  = %s,
+                                        exit_signal = %s,
+                                        exit_reason = %s,
+                                        pnl_rs     = %s,
+                                        pnl_pct    = %s
+                                    WHERE symbol = %s
+                                      AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                                      AND record_type = 'ALERT_EVENT'
+                                      AND status IN ('OPEN', 'ACTIVE')
+                                """, (final_st, exit_price, now, exit_reason, exit_reason, pnl_rs, pnl_pct, symbol))
+
+                            if cur.rowcount >= 1:
+                                updated_count += 1
+                                try:
+                                    from strategy_lifecycle_gate import get_strategy_lifecycle_gate, StrategyLifecycleState
+                                    gate = get_strategy_lifecycle_gate()
+                                    gate.update_lifecycle_state(
+                                        strategy_id=r_scanner,
+                                        symbol=symbol,
+                                        new_status=StrategyLifecycleState.CLOSED,
+                                        exit_reason_code=exit_reason,
+                                        current_date=now.date()
+                                    )
+                                except Exception as _gate_err:
+                                    logger.error(f"🛡️ [LIFECYCLE_GATE_DESYNC_ON_CLOSE] Failed to update lifecycle gate on close for {symbol} (Alert ID {r_id}): {_gate_err}")
+
+                        updated = updated_count >= 1
                     conn.commit()
                     if updated:
                         logger.info(f"💰 ATOMIC POSITION EXITED ({position_source}): {symbol} at ₹{exit_price} | Outcome: {final_st}")
@@ -8232,6 +8322,7 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
         except Exception as e:
             logger.exception(f"❌ Failed atomic position close for {symbol} ({position_source}): {e}")
             return False
+
 
 
 def get_open_symbols() -> list:
@@ -13406,6 +13497,24 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
     raw_score = candidate.get("ranking_score") or candidate.get("score") or 90
     cap_alloc, shares_bgt = calculate_trade_allocation(entry_px or 0.0, 0.0, raw_score)
 
+    # ── LIFECYCLE GATE PRE-CHECK ──
+    try:
+        from strategy_lifecycle_gate import get_strategy_lifecycle_gate
+        gate = get_strategy_lifecycle_gate()
+        signal_hash = candidate.get("signal_hash") or f"{sym}_{scanner_name}_{today_date}"
+        is_eligible, reason_code = gate.evaluate_buy_eligibility(
+            strategy_id=scanner_name,
+            symbol=sym,
+            current_date=today_date,
+            signal_hash=signal_hash
+        )
+        if not is_eligible:
+            logger.warning(f"🛡️ [LIFECYCLE_GATE_BLOCKED: {scanner_name}] {sym} rejected: {reason_code}")
+            return False, f"LIFECYCLE_BLOCKED_{reason_code}"
+    except Exception as _gate_err:
+        logger.error(f"🛡️ [LIFECYCLE_GATE_UNAVAILABLE] Gate pre-check failed for {sym} ({scanner_name}): {_gate_err}")
+        return False, f"LIFECYCLE_GATE_UNAVAILABLE"
+
     with get_connection() as conn:
         if isinstance(conn, DummyConnection):
             logger.info(f"DummyConnection active: simulated persistence of {scanner_name} candidate alert for {sym}")
@@ -13449,98 +13558,144 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                 conn.commit()
                 logger.info(f"🛡️ [V2_ALERT_GUARD] Alert for {sym} already {prev_status} from {prev_date} (ID: {alert_id}). Updated tracking without raising duplicate alert.")
                 return False, f"ALREADY_OPEN_UPDATED_ALERT_{alert_id}"
-            else:
-                cur.execute("""
-                    INSERT INTO alerts (
-                        symbol, breakout_type, alert_time, alert_date, scanner, category,
-                        entry_price, current_price, status, record_type, watchlist_state,
-                        rejection_reason, quality_gate_status, value_gate_status, tier,
-                        ranking_score, signal_date, next_trading_day, reference_entry_open,
-                        governance_status, context, signals, score,
-                        execution_state, entry_mode, actual_entry_price,
-                        capital_allocated, shares_bought, remaining_shares
+
+            # ── SAME-DAY RE-ENTRY GUARD ──
+            # If an alert was closed on the same trading day under this strategy, HARD BLOCK re-entry!
+            cur.execute("""
+                SELECT id, status, closed_at, alert_date FROM alerts
+                WHERE symbol = %s AND scanner = %s AND record_type = 'ALERT_EVENT'
+                  AND status IN ('WIN', 'LOSS', 'CLOSED')
+                  AND (alert_date = %s OR DATE(closed_at) = %s)
+                ORDER BY closed_at DESC LIMIT 1
+            """, (sym, scanner_name, today_date, today_date))
+            closed_row = cur.fetchone()
+            if closed_row:
+                logger.warning(
+                    f"🛡️ [SAME_DAY_REENTRY_GUARD: {scanner_name}] {sym} was closed today "
+                    f"({closed_row[1]} on {closed_row[2] or closed_row[3]}). Re-entry BLOCKED."
+                )
+                return False, "SAME_DAY_REENTRY_BLOCKED"
+
+            cur.execute("""
+                INSERT INTO alerts (
+                    symbol, breakout_type, alert_time, alert_date, scanner, category,
+                    entry_price, current_price, status, record_type, watchlist_state,
+                    rejection_reason, quality_gate_status, value_gate_status, tier,
+                    ranking_score, signal_date, next_trading_day, reference_entry_open,
+                    governance_status, context, signals, score,
+                    execution_state, entry_mode, actual_entry_price,
+                    capital_allocated, shares_bought, remaining_shares
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
+                SET current_price = EXCLUDED.current_price,
+                    ranking_score = EXCLUDED.ranking_score,
+                    tier = EXCLUDED.tier,
+                    watchlist_state = EXCLUDED.watchlist_state,
+                    context = EXCLUDED.context,
+                    execution_state = 'OPEN',
+                    entry_mode = 'CMP',
+                    actual_entry_price = COALESCE(alerts.actual_entry_price, EXCLUDED.actual_entry_price),
+                    capital_allocated = COALESCE(NULLIF(alerts.capital_allocated, 0), EXCLUDED.capital_allocated),
+                    shares_bought = COALESCE(NULLIF(alerts.shares_bought, 0), EXCLUDED.shares_bought),
+                    remaining_shares = COALESCE(NULLIF(alerts.remaining_shares, 0), EXCLUDED.remaining_shares),
+                    updated_at = NOW()
+                -- [D6 FIX: TERMINAL STATE PROTECTION]
+                -- Only update non-terminal rows. WIN/LOSS/CLOSED rows must never be reopened.
+                WHERE alerts.status IN ('OPEN', 'ACTIVE')
+                RETURNING id, (xmax = 0) AS is_insert
+            """, (
+                sym,
+                breakout_type,
+                now_ist.isoformat(),
+                today_date,
+                scanner_name,
+                "LIVE_PRODUCTION_WATCHLIST",
+                entry_px,
+                candidate.get("current_price"),
+                "OPEN",
+                "ALERT_EVENT",
+                candidate.get("watchlist_state", "GREEN"),
+                "PASS",
+                "PASS",
+                "PASS",
+                candidate.get("tier"),
+                candidate.get("ranking_score"),
+                candidate.get("signal_date", str(today_date)),
+                candidate.get("next_trading_day"),
+                candidate.get("reference_entry_open"),
+                "GOVERNANCE_PENDING",
+                ctx_str,
+                f"{scanner_name} (PASS ALL GATES)",
+                int(candidate.get("ranking_score", 90)),
+                "OPEN",
+                "CMP",
+                entry_px,
+                cap_alloc,
+                shares_bgt,
+                shares_bgt
+            ))
+            row_res = cur.fetchone()
+            alert_id = row_res[0] if row_res else None
+            is_insert = row_res[1] if row_res else True
+            conn.commit()
+
+            if alert_id is not None:
+                try:
+                    from strategy_lifecycle_gate import get_strategy_lifecycle_gate
+                    gate = get_strategy_lifecycle_gate()
+                    gate.register_buy_transactional(
+                        strategy_id=scanner_name,
+                        symbol=sym,
+                        entry_price=float(entry_px or 0.0),
+                        current_date=today_date,
+                        signal_hash=candidate.get("signal_hash") or f"{sym}_{scanner_name}_{today_date}"
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
-                    SET current_price = EXCLUDED.current_price,
-                        ranking_score = EXCLUDED.ranking_score,
-                        tier = EXCLUDED.tier,
-                        watchlist_state = EXCLUDED.watchlist_state,
-                        context = EXCLUDED.context,
-                        execution_state = 'OPEN',
-                        entry_mode = 'CMP',
-                        actual_entry_price = COALESCE(alerts.actual_entry_price, EXCLUDED.actual_entry_price),
-                        capital_allocated = COALESCE(NULLIF(alerts.capital_allocated, 0), EXCLUDED.capital_allocated),
-                        shares_bought = COALESCE(NULLIF(alerts.shares_bought, 0), EXCLUDED.shares_bought),
-                        remaining_shares = COALESCE(NULLIF(alerts.remaining_shares, 0), EXCLUDED.remaining_shares),
-                        updated_at = NOW()
-                    RETURNING id, (xmax = 0) AS is_insert
-                """, (
-                    sym,
-                    breakout_type,
-                    now_ist.isoformat(),
-                    today_date,
-                    scanner_name,
-                    "LIVE_PRODUCTION_WATCHLIST",
-                    entry_px,
-                    candidate.get("current_price"),
-                    "OPEN",
-                    "ALERT_EVENT",
-                    candidate.get("watchlist_state", "GREEN"),
-                    "PASS",
-                    "PASS",
-                    "PASS",
-                    candidate.get("tier"),
-                    candidate.get("ranking_score"),
-                    candidate.get("signal_date", str(today_date)),
-                    candidate.get("next_trading_day"),
-                    candidate.get("reference_entry_open"),
-                    "GOVERNANCE_PENDING",
-                    ctx_str,
-                    f"{scanner_name} (PASS ALL GATES)",
-                    int(candidate.get("ranking_score", 90)),
-                    "OPEN",
-                    "CMP",
-                    entry_px,
-                    cap_alloc,
-                    shares_bgt,
-                    shares_bgt
-                ))
-                row_res = cur.fetchone()
-                alert_id = row_res[0] if row_res else None
-                is_insert = row_res[1] if row_res else True
-                conn.commit()
+                except Exception as _gate_reg_err:
+                    # [D1 FIX]: The PostgreSQL alert is already committed at this point.
+                    # conn.rollback() here is a no-op on an already-committed transaction and
+                    # does NOT undo the persisted row. Returning False would be a FALSE REJECTION
+                    # — callers would believe no alert was saved when PostgreSQL has the committed
+                    # record. Correct behavior: return True (alert IS persisted) with a
+                    # LIFECYCLE_SYNC_PENDING suffix so callers know it requires reconciliation.
+                    logger.error(
+                        f"&#127749;&#65039; [LIFECYCLE_GATE_DESYNC] BUY alert for {sym} ({scanner_name}) "
+                        f"IS COMMITTED in PostgreSQL (alert_id={alert_id}) but SQLite lifecycle "
+                        f"gate registration FAILED: {_gate_reg_err}. "
+                        f"Alert persisted. Lifecycle sync is PENDING and requires reconciliation."
+                    )
+                    return True, f"INSERTED_NEW_ALERT_LIFECYCLE_SYNC_PENDING_{alert_id}"
 
-                if is_insert:
-                    # 1. Insert In-App Notification (also dispatches WebPush to all subscribed users/admins)
-                    msg = f"{sym} | {scanner_name} | Buy at CMP: ₹{float(entry_px or 0.0):.2f} | Score: {candidate.get('ranking_score', 90)}"
-                    try:
-                        insert_notification('buy', f'Buy Alert / {scanner_name}', msg, sym, alert_id=alert_id)
-                    except Exception as ne:
-                        logger.debug(f"Failed to insert notification for {sym}: {ne}")
+            if is_insert:
+                # 1. Insert In-App Notification (also dispatches WebPush to all subscribed users/admins)
+                msg = f"{sym} | {scanner_name} | Buy at CMP: ₹{float(entry_px or 0.0):.2f} | Score: {candidate.get('ranking_score', 90)}"
+                try:
+                    insert_notification('buy', f'Buy Alert / {scanner_name}', msg, sym, alert_id=alert_id)
+                except Exception as ne:
+                    logger.debug(f"Failed to insert notification for {sym}: {ne}")
 
-                    # 2. Real-Time Web SSE Dispatch
-                    try:
-                        from dashboard_server import invalidate_all_dashboard_caches, notify_stream_clients
-                        invalidate_all_dashboard_caches()
-                        notify_stream_clients("alert", {
-                            "id": alert_id,
-                            "symbol": sym,
-                            "scanner": scanner_name,
-                            "entry_price": float(entry_px or 0.0),
-                            "category": "LIVE_PRODUCTION_WATCHLIST"
-                        })
-                    except Exception:
-                        pass
+                # 2. Real-Time Web SSE Dispatch
+                try:
+                    from dashboard_server import invalidate_all_dashboard_caches, notify_stream_clients
+                    invalidate_all_dashboard_caches()
+                    notify_stream_clients("alert", {
+                        "id": alert_id,
+                        "symbol": sym,
+                        "scanner": scanner_name,
+                        "entry_price": float(entry_px or 0.0),
+                        "category": "LIVE_PRODUCTION_WATCHLIST"
+                    })
+                except Exception:
+                    pass
 
-                    # 3. Asynchronously rebuild performance_data.json
-                    try:
-                        from performance_tracker import trigger_performance_rebuild
-                        trigger_performance_rebuild()
-                    except Exception as _p_err:
-                        logger.debug(f"Performance rebuild trigger error: {_p_err}")
+                # 3. Asynchronously rebuild performance_data.json
+                try:
+                    from performance_tracker import trigger_performance_rebuild
+                    trigger_performance_rebuild()
+                except Exception as _p_err:
+                    logger.debug(f"Performance rebuild trigger error: {_p_err}")
 
-                return True, "INSERTED_NEW_ALERT"
+            return True, "INSERTED_NEW_ALERT"
 
 def save_v2_exit_event(
     symbol: str,
@@ -13549,10 +13704,12 @@ def save_v2_exit_event(
     exit_reason: str = None,   # 'SMA200_BREAK', 'FUNDAMENTAL_DETERIORATION', or combined
     exit_price: float = None,
     reference_exit_open: float = None,
-    context_update: dict = None
+    context_update: dict = None,
+    alert_id: Optional[int] = None,
+    strategy_id: Optional[str] = None
 ) -> bool:
     """
-    Record state transition or exit event for QUALITY_COMPOUNDER in existing 'alerts' table.
+    Record state transition or exit event for wealth strategies in existing 'alerts' table.
     """
     init_db()
     sym = symbol.strip().upper()
@@ -13563,18 +13720,34 @@ def save_v2_exit_event(
             logger.info(f"DummyConnection active: simulated exit event {event_type} for {sym}")
             return True
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, status, watchlist_state, exit_history, context FROM alerts
-                WHERE symbol = %s AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
-                  AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
-                ORDER BY alert_time DESC LIMIT 1
-            """, (sym,))
+            if alert_id is not None:
+                cur.execute("""
+                    SELECT id, status, watchlist_state, exit_history, context, scanner FROM alerts
+                    WHERE id = %s AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                      AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                """, (alert_id,))
+            elif strategy_id is not None:
+                cur.execute("""
+                    SELECT id, status, watchlist_state, exit_history, context, scanner FROM alerts
+                    WHERE symbol = %s AND scanner = %s
+                      AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                      AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                    ORDER BY alert_time DESC LIMIT 1
+                """, (sym, strategy_id))
+            else:
+                cur.execute("""
+                    SELECT id, status, watchlist_state, exit_history, context, scanner FROM alerts
+                    WHERE symbol = %s AND scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
+                      AND record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')
+                    ORDER BY alert_time DESC LIMIT 1
+                """, (sym,))
             row = cur.fetchone()
             if not row:
                 logger.warning(f"No active V2 alert found for {sym} to apply exit event {event_type}")
                 return False
 
-            alert_id = row[0]
+            target_alert_id = row[0]
+            r_scanner = row[5] if len(row) > 5 else (strategy_id or "QUALITY_COMPOUNDER")
             existing_exit_hist = row[3] or []
             if isinstance(existing_exit_hist, str):
                 try:
@@ -13613,8 +13786,21 @@ def save_v2_exit_event(
                     exit_reason,
                     exit_reason,
                     json.dumps(_sanitize_for_json(existing_exit_hist)),
-                    alert_id
+                    target_alert_id
                 ))
+                # Update persistent lifecycle gate
+                try:
+                    from strategy_lifecycle_gate import get_strategy_lifecycle_gate, StrategyLifecycleState
+                    gate = get_strategy_lifecycle_gate()
+                    gate.update_lifecycle_state(
+                        strategy_id=r_scanner,
+                        symbol=sym,
+                        new_status=StrategyLifecycleState.CLOSED,
+                        exit_reason_code=exit_reason,
+                        current_date=now_ist.date()
+                    )
+                except Exception as _ge:
+                    logger.debug(f"Lifecycle update error on FINAL_EXIT for {sym}: {_ge}")
             else:
                 cur.execute("""
                     UPDATE alerts
@@ -13625,8 +13811,21 @@ def save_v2_exit_event(
                 """, (
                     new_watchlist_state,
                     json.dumps(_sanitize_for_json(existing_exit_hist)),
-                    alert_id
+                    target_alert_id
                 ))
+                if new_watchlist_state == "ORANGE":
+                    try:
+                        from strategy_lifecycle_gate import get_strategy_lifecycle_gate, StrategyLifecycleState
+                        gate = get_strategy_lifecycle_gate()
+                        gate.update_lifecycle_state(
+                            strategy_id=r_scanner,
+                            symbol=sym,
+                            new_status=StrategyLifecycleState.SELL_REVIEW,
+                            exit_reason_code=exit_reason,
+                            current_date=now_ist.date()
+                        )
+                    except Exception as _ge:
+                        logger.debug(f"Lifecycle update error on SELL_REVIEW for {sym}: {_ge}")
             conn.commit()
             return True
 

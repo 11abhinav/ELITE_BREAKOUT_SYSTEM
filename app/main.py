@@ -2367,7 +2367,7 @@ def _trigger_wealth_exit(check_type="EOD"):
         logger.info("⏸️ [WEALTH_EXIT] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
     from wealth_engine import run_wealth_intraday_update
-    run_wealth_intraday_update()
+    run_wealth_intraday_update(is_eod=(check_type == "EOD"))
     try:
         from live_wealth_monitor import run_v2_exit_check
         run_v2_exit_check(check_type=check_type)

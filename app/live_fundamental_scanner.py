@@ -3730,11 +3730,13 @@ class QualityCompounderValueV2Scanner:
     """
 
     def __init__(self, strategy_id: str = "QUALITY_COMPOUNDER"):
+        if strategy_id in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+            raise ValueError(
+                f"STRATEGY IDENTITY VIOLATION: QualityCompounderValueV2Scanner cannot be instantiated with "
+                f"recovery strategy_id='{strategy_id}'. Instantiate QualityValueRecoveryScanner instead."
+            )
         self.strategy_id = strategy_id
-        if self.strategy_id in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
-            self.scan_thread_lock = _recovery_scan_lock
-        else:
-            self.scan_thread_lock = _compounder_scan_lock
+        self.scan_thread_lock = _compounder_scan_lock
         self.daily_builder_provider = DailyBuilderFundamentalProvider()
         self.universe_registry = ApprovedUniverseRegistry()
 
@@ -7339,6 +7341,11 @@ class QualityValueRecoveryScanner:
     """
 
     def __init__(self, strategy_id: str = "QUALITY_VALUE_RECOVERY"):
+        if strategy_id not in ("QUALITY_VALUE_RECOVERY", "QUALITY_VALUE_RECOVERY_WEALTH_V1"):
+            raise ValueError(
+                f"STRATEGY IDENTITY VIOLATION: QualityValueRecoveryScanner cannot be instantiated with "
+                f"strategy_id='{strategy_id}'. Instantiate QualityCompounderValueV2Scanner instead."
+            )
         self.strategy_id = strategy_id
         self.scan_thread_lock = _recovery_scan_lock
         self.daily_builder_provider = DailyBuilderFundamentalProvider()
@@ -7470,6 +7477,7 @@ class QualityValueRecoveryScanner:
             val_ratio = ev_c_val / ev_m_val
             if val_ratio <= 0.80:
                 val_compressed = True
+                metrics['compressed_metric'] = 'EV_EBITDA'
 
         if not val_compressed and pe_has_data:
             pe_c_val = float(pe_curr)
@@ -7478,6 +7486,7 @@ class QualityValueRecoveryScanner:
             if pe_ratio <= 0.80:
                 val_compressed = True
                 val_ratio = min(val_ratio, pe_ratio)
+                metrics['compressed_metric'] = 'PE'
 
         metrics['val_compression_ratio'] = round(val_ratio, 3)
 

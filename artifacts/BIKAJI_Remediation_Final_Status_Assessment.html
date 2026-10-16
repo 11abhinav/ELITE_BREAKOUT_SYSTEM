@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BIKAJI Remediation — Final Status Assessment</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 15mm 20mm 15mm;
+    @bottom-right {
+      content: counter(page) " / " counter(pages);
+      font-size: 9pt;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #718096;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a202c;
+    line-height: 1.55;
+    font-size: 10pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  .header-container {
+    border-bottom: 2px solid #2b6cb0;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+
+  .title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    color: #1a365d;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.5px;
+  }
+
+  .subtitle {
+    font-size: 11pt;
+    color: #4a5568;
+    margin-bottom: 10px;
+  }
+
+  .badge-container {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 8.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .badge-blocked {
+    background-color: #fed7d7;
+    color: #9b2c2c;
+    border: 1px solid #feb2b2;
+  }
+
+  .badge-info {
+    background-color: #e2e8f0;
+    color: #2d3748;
+    border: 1px solid #cbd5e0;
+  }
+
+  .badge-success {
+    background-color: #c6f6d5;
+    color: #22543d;
+    border: 1px solid #9ae6b4;
+  }
+
+  .badge-warning {
+    background-color: #feebc8;
+    color: #744210;
+    border: 1px solid #fbd38d;
+  }
+
+  h2 {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #2b6cb0;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 5px;
+    margin-top: 22px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #2d3748;
+    margin-top: 14px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin: 0 0 10px 0;
+  }
+
+  ul, ol {
+    margin: 0 0 12px 0;
+    padding-left: 20px;
+  }
+
+  li {
+    margin-bottom: 5px;
+  }
+
+  .summary-box {
+    background-color: #f7fafc;
+    border-left: 4px solid #3182ce;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 9.5pt;
+  }
+
+  .verdict-box {
+    background-color: #fff5f5;
+    border-left: 4px solid #e53e3e;
+    padding: 12px 16px;
+    margin-top: 20px;
+    margin-bottom: 16px;
+    page-break-inside: avoid;
+  }
+
+  .verdict-box h3 {
+    color: #c53030;
+    margin-top: 0;
+    font-size: 12pt;
+  }
+
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    font-size: 9pt;
+    background-color: #edf2f7;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #805ad5;
+  }
+
+  pre {
+    background-color: #2d3748;
+    color: #f7fafc;
+    padding: 10px 14px;
+    border-radius: 5px;
+    font-size: 8.5pt;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    line-height: 1.4;
+    overflow-x: auto;
+    margin: 8px 0 12px 0;
+    page-break-inside: avoid;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 18px 0;
+    font-size: 9pt;
+    page-break-inside: avoid;
+  }
+
+  th {
+    background-color: #edf2f7;
+    color: #2d3748;
+    font-weight: 700;
+    text-align: left;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e0;
+  }
+
+  td {
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+
+  tr:nth-child(even) {
+    background-color: #f7fafc;
+  }
+
+  .task-list {
+    counter-reset: task-counter;
+    list-style-type: none;
+    padding-left: 0;
+  }
+
+  .task-item {
+    counter-increment: task-counter;
+    position: relative;
+    padding-left: 32px;
+    margin-bottom: 12px;
+  }
+
+  .task-item::before {
+    content: counter(task-counter);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 22px;
+    height: 22px;
+    background-color: #3182ce;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 22px;
+    font-size: 8pt;
+    font-weight: 700;
+  }
+
+  .task-title {
+    font-weight: 700;
+    color: #2d3748;
+  }
+
+  .footer-note {
+    font-size: 8pt;
+    color: #a0aec0;
+    text-align: center;
+    margin-top: 30px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header-container">
+  <h1>BIKAJI Remediation — Final Status Assessment</h1>
+  <div class="subtitle">System: <strong>ELITE_BREAKOUT_SYSTEM</strong> | Target Branch: <code>main</code> | Governance Review</div>
+  <div class="badge-container">
+    <span class="badge badge-blocked">Deployment: BLOCKED</span>
+    <span class="badge badge-success">D4: Reported Fixed</span>
+    <span class="badge badge-warning">D1: Evidence Needed</span>
+    <span class="badge badge-warning">D6: Tests Required</span>
+    <span class="badge badge-blocked">PostgreSQL: Pending</span>
+  </div>
+</div>
+
+<div class="summary-box">
+  <p><strong>Executive Overview:</strong> Meaningful progress has been achieved across the remediation suite. The report documents that all 27 selected tests pass (including 12 new freshness/lifecycle tests, 11 BIKAJI regression tests, and 4 scanner-isolation tests). However, because no real PostgreSQL concurrency test was executed, the deployment block is correctly retained.</p>
+  <p style="margin-bottom:0;"><em>Note: This assessment is based on the provided status report and pre-deployment verification criteria.</em></p>
+</div>
+
+<h2>1. Review of the Three Reported Fixes</h2>
+
+<h3>D4 — Historical Indicator Freshness: Promising, Subject to Code Verification</h3>
+<p>The fix distinguishes the live CMP update from historical indicator freshness. Live-price injection no longer resets <code>row["is_stale"]</code>, and the complete pipeline is tested:</p>
+<pre>calculate_wealth_technicals() → live CMP injection → evaluate_open_positions() → DATA_STALE</pre>
+<p>This addresses the weakness in the prior audit where prebuilt stale rows bypassed the live-price injection path.
+<strong>Acceptance Condition:</strong> The integration test must prove that a fresh CMP cannot make stale SMA200 or RS data actionable, the alert remains <code>OPEN</code>, and no terminal closure occurs, while verified fresh data still executes valid exits.</p>
+<p><strong>Assessment:</strong> <span class="badge badge-success">PROVISIONALLY ACCEPTED</span> (source-level certification remains outstanding).</p>
+
+<h3>D1 — False Rejection After PostgreSQL Commit: Not Yet Fully Certified</h3>
+<p>The updated behavior returns:
+<code>True, "INSERTED_NEW_ALERT_LIFECYCLE_SYNC_PENDING_&lt;alert_id&gt;"</code>
+when PostgreSQL has persisted the BUY but separate SQLite lifecycle registration fails. While superior to reporting a false failure, returning success does not by itself reconcile the lifecycle gate. Three requirements must be demonstrated:</p>
+<ol>
+  <li><strong>Return-contract compatibility:</strong> Audit all callers of <code>save_v2_candidate_alert()</code> to confirm boolean/message tuples are handled consistently without silent skips.</li>
+  <li><strong>Durable recovery:</strong> Show where synchronization-pending events are persisted, how they survive process restarts, how they are retried, and how eligibility checks treat unresolved lifecycle state.</li>
+  <li><strong>Both failure directions:</strong> Test PostgreSQL commit failure after SQLite operation succeeds, as well as SQLite failure after PostgreSQL commits.</li>
+</ol>
+<p><strong>Assessment:</strong> <span class="badge badge-warning">IMPROVED SEMANTICS — NOT FULLY CERTIFIED</span> (reconciliation mechanism and caller contracts pending proof).</p>
+
+<h3>D6 — Terminal UPSERT Protection: Right Direction, Test Is Insufficient</h3>
+<p>The conditional update clause added to PostgreSQL:</p>
+<pre>ON CONFLICT (symbol, breakout_type, scanner, alert_date)
+DO UPDATE
+SET ...
+WHERE alerts.status IN ('OPEN', 'ACTIVE')
+RETURNING id, (xmax = 0) AS is_insert</pre>
+<p>When an existing row is terminal (<code>WIN</code>, <code>LOSS</code>, <code>CLOSED</code>), the <code>WHERE</code> condition evaluates to false, causing PostgreSQL to return <strong>no row</strong> (<code>fetchone() is None</code>).</p>
+<p><strong>Required Behavioral Checks:</strong></p>
+<ul>
+  <li>An <code>OPEN</code> conflict updates intended fields without creating duplicate alerts.</li>
+  <li>A <code>WIN</code>, <code>LOSS</code>, or <code>CLOSED</code> conflict remains terminal.</li>
+  <li>Existing exit price, P&amp;L, exit reason, and lifecycle fields remain unmodified.</li>
+  <li>The no-row result (<code>None</code>) is safely handled by application code.</li>
+  <li>Repeated scans cannot generate another eligible BUY through a caller-side fallback.</li>
+</ul>
+<p><strong>Assessment:</strong> <span class="badge badge-warning">PROMISING SQL CLAUSE — NOT BEHAVIORALLY CERTIFIED</span>.</p>
+
+<h2>2. Remaining Acceptance Gates</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width: 45%;">Requirement</th>
+      <th style="width: 55%;">Current Assessment</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>D4 — Stale indicators cannot be cleared by live CMP</strong></td>
+      <td>Reported fixed; verify source and full-pipeline integration test.</td>
+    </tr>
+    <tr>
+      <td><strong>D1 — No false rejection after committed BUY</strong></td>
+      <td>Improved; durable reconciliation and caller contracts require proof.</td>
+    </tr>
+    <tr>
+      <td><strong>D6 — Terminal UPSERT protection</strong></td>
+      <td>Clause added; behavioral execution verification required.</td>
+    </tr>
+    <tr>
+      <td><strong>D2 — Lifecycle synchronization after closure</strong></td>
+      <td>No completed fix demonstrated in current report.</td>
+    </tr>
+    <tr>
+      <td><strong>D3 — SELL_REVIEW lifecycle synchronization</strong></td>
+      <td>No completed fix demonstrated in current report.</td>
+    </tr>
+    <tr>
+      <td><strong>D5 — Manual-position lot deletion</strong></td>
+      <td>No completed fix demonstrated in current report.</td>
+    </tr>
+    <tr>
+      <td><strong>Concurrent closure and re-entry</strong></td>
+      <td><strong>BLOCKED</strong> pending genuine PostgreSQL test execution.</td>
+    </tr>
+    <tr>
+      <td><strong>Official closing-price provenance</strong></td>
+      <td>Still requires evidence of actual authoritative price used.</td>
+    </tr>
+    <tr>
+      <td><strong>No live broker orders</strong></td>
+      <td>Reported preserved; confirmed zero live broker dispatch.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>3. Exact Next Instructions for the Coding Agent</h2>
+<p>Do not start another broad redesign. Complete the evidence gaps against the current working tree:</p>
+
+<div class="task-list">
+  <div class="task-item">
+    <div class="task-title">Audit D1</div>
+    <div>Enumerate every caller of <code>save_v2_candidate_alert()</code>. Prove return values are handled consistently. Identify durable source of lifecycle synchronization-pending work. Demonstrate retry, idempotency, process-restart recovery, and eligibility behavior while synchronization is pending. Test both PostgreSQL-commit failure and SQLite-registration failure.</div>
+  </div>
+  <div class="task-item">
+    <div class="task-title">Audit D4</div>
+    <div>Review the full stale-indicator implementation and integration test. Confirm live CMP updates only CMP freshness and never clears indicator freshness. Assert final persisted position status and verify no downstream path converts <code>DATA_STALE</code> into terminal closure.</div>
+  </div>
+  <div class="task-item">
+    <div class="task-title">Audit D6 Behaviorally</div>
+    <div>Execute UPSERT against an actual test PostgreSQL database. Test active and terminal conflicts, inspect returned rows and affected fields, and prove no terminal state or exit data can be overwritten. Audit all handling of <code>fetchone() is None</code>.</div>
+  </div>
+  <div class="task-item">
+    <div class="task-title">Close D2 and D3</div>
+    <div>Implement durable lifecycle synchronization for terminal closure and <code>SELL_REVIEW</code> transitions. Ensure retries cannot apply older events after newer terminal events.</div>
+  </div>
+  <div class="task-item">
+    <div class="task-title">Resolve D5</div>
+    <div>Verify whether multiple manual lots are supported. Preserve independent positions if supported; otherwise demonstrate enforced single-position invariant.</div>
+  </div>
+  <div class="task-item">
+    <div class="task-title">Run PostgreSQL Staging Tests</div>
+    <div>Use independent connections and concurrent workers to test same-day BUY races, competing closure attempts, symbol/alert-ID mismatch, terminal UPSERT protection, and lifecycle-event recovery. Report tests as <strong>BLOCKED</strong> if no isolated PostgreSQL instance can be obtained.</div>
+  </div>
+  <div class="task-item">
+    <div class="task-title">Verify Price Provenance</div>
+    <div>Establish actual source, trading date, and validation rules for 18:30 exit price. Do not describe LTP as official exchange close without supporting evidence.</div>
+  </div>
+  <div class="task-item">
+    <div class="task-title">Full Regression, Syntax, &amp; Diff Review</div>
+    <div>Run the full relevant regression suite, syntax checks, and a complete Git-diff review. Investigate prior cross-strategy test failures rather than assuming they are pre-existing.</div>
+  </div>
+</div>
+
+<div class="verdict-box">
+  <h3>Final Governance Verdict</h3>
+  <p><strong>DO NOT PROMOTE THIS BUILD YET.</strong> The 27 passing tests are encouraging, and D4 appears to have received a more meaningful integration test. But D1 must demonstrate durable reconciliation rather than merely return a success indicator, D6 needs an executed behavioral test, and the real PostgreSQL concurrency requirement remains unfulfilled.</p>
+  <p style="margin-bottom:0;"><strong>The next certification report should distinguish clearly between fixes implemented, fixes independently verified, and tests that remain blocked.</strong></p>
+</div>
+
+<div class="footer-note">
+  Elite Breakout System Governance • Confidential Audit Document • Generated: 2026-10-16
+</div>
+
+</body>
+</html>

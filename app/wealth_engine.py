@@ -318,6 +318,24 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 return defaults
 
             is_stale = getattr(hist, 'attrs', {}).get('is_stale', False)
+            last_candle_date = None
+            try:
+                if hasattr(hist.index, "date"):
+                    last_candle_date = hist.index[-1].date() if hasattr(hist.index[-1], "date") else hist.index[-1]
+                elif "Date" in hist.columns:
+                    last_candle_date = pd.to_datetime(hist["Date"].iloc[-1]).date()
+                elif "date" in hist.columns:
+                    last_candle_date = pd.to_datetime(hist["date"].iloc[-1]).date()
+                elif hasattr(hist.iloc[-1], "name") and isinstance(hist.iloc[-1].name, (datetime, date, pd.Timestamp)):
+                    last_candle_date = pd.to_datetime(hist.iloc[-1].name).date()
+            except Exception:
+                pass
+
+            if last_candle_date is not None and isinstance(last_candle_date, date):
+                now_d = datetime.now(IST).date()
+                cal_gap_days = (now_d - last_candle_date).days
+                if cal_gap_days > 4:  # > 4 calendar days (e.g. 21 calendar days like BIKAJI) is definitively stale
+                    is_stale = True
 
             # Extract sliced indicators for O(1) performance (avoid full-frame rolling math)
             sma_200 = float(hist['Close'].tail(200).mean()) if len(hist) >= 200 else None
@@ -1524,25 +1542,28 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             curr_pe = r.get("current_pe") or raw_ctx.get("current_pe") or (raw_ctx.get("metrics", {}).get("current_pe"))
             med_pe = r.get("pe_3y_median") or raw_ctx.get("pe_3y_median") or (raw_ctx.get("metrics", {}).get("pe_3y_median"))
 
-            if curr_ev is not None and med_ev is not None:
-                try:
-                    c_ev_f = float(curr_ev)
-                    m_ev_f = float(med_ev)
-                    if m_ev_f > 0 and c_ev_f >= m_ev_f:
-                        exit_code = "SELL"
-                        exit_reason = f"Valuation Mean-Reversion Target Reached (EV/EBITDA {c_ev_f:.1f}x >= 3Y Median {m_ev_f:.1f}x)"
-                except (ValueError, TypeError):
-                    pass
+            compressed_metric = r.get("compressed_metric") or raw_ctx.get("compressed_metric") or (raw_ctx.get("metrics", {}).get("compressed_metric"))
+            if compressed_metric == "EV_EBITDA" or (compressed_metric is None and curr_ev is not None and med_ev is not None):
+                if curr_ev is not None and med_ev is not None:
+                    try:
+                        c_ev_f = float(curr_ev)
+                        m_ev_f = float(med_ev)
+                        if m_ev_f > 0 and c_ev_f >= m_ev_f:
+                            exit_code = "SELL"
+                            exit_reason = f"Valuation Mean-Reversion Target Reached (EV/EBITDA {c_ev_f:.1f}x >= 3Y Median {m_ev_f:.1f}x)"
+                    except (ValueError, TypeError):
+                        pass
 
-            if not exit_code and curr_pe is not None and med_pe is not None:
-                try:
-                    c_pe_f = float(curr_pe)
-                    m_pe_f = float(med_pe)
-                    if m_pe_f > 0 and c_pe_f >= m_pe_f:
-                        exit_code = "SELL"
-                        exit_reason = f"Valuation Mean-Reversion Target Reached (PE {c_pe_f:.1f}x >= 3Y Median {m_pe_f:.1f}x)"
-                except (ValueError, TypeError):
-                    pass
+            if not exit_code and (compressed_metric == "PE" or (compressed_metric is None and curr_pe is not None and med_pe is not None)):
+                if curr_pe is not None and med_pe is not None:
+                    try:
+                        c_pe_f = float(curr_pe)
+                        m_pe_f = float(med_pe)
+                        if m_pe_f > 0 and c_pe_f >= m_pe_f:
+                            exit_code = "SELL"
+                            exit_reason = f"Valuation Mean-Reversion Target Reached (PE {c_pe_f:.1f}x >= 3Y Median {m_pe_f:.1f}x)"
+                    except (ValueError, TypeError):
+                        pass
 
             # 2. Model E3 Fundamental Exit (Operating margin collapse > 30%, D/E > 1.25, 3 consecutive profit drops)
             if not exit_code:
@@ -1694,14 +1715,27 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         exit_code = ""
         exit_reason = ""
 
+        # STALE INDICATOR GUARD (D4 — INDEPENDENT CMP / INDICATOR FRESHNESS):
+        # is_stale is set ONLY by calculate_wealth_technicals() from historical candle provenance.
+        # cmp_is_stale (set by the CMP injection block) tracks live-price freshness independently.
+        # A fresh LTP NEVER clears is_stale — these are two separate axes.
+        # A definitive technical stop (SMA200 / RS breakdown) must NEVER fire on stale indicator data!
+        is_indicator_stale = bool(r.get("is_stale") or data_quality == "STALE_INTRADAY" or r.get("orphan_enrichment_failed") or sma <= 0)
+
         # WINNING TRADE GUARD:
         # A winning/profitable trade (cmp > entry_price) must NEVER be closed on catastrophic trend breakdown or RS loss stops!
         is_winning_trade = (entry_price > 0 and cmp > entry_price)
 
         if not is_winning_trade and rs_exit_triggered and sma > 0 and cmp < sma:
-            exit_code, exit_reason = "SELL", f"Confirmed RS Breakdown [{macro_regime}] (RS: {rs:.1f} < {rs_threshold} & CMP < 200SMA)"
+            if is_indicator_stale:
+                exit_code, exit_reason = "DATA_STALE", "Stale Technical Indicator Data — Exit evaluation deferred until fresh candles"
+            else:
+                exit_code, exit_reason = "SELL", f"Confirmed RS Breakdown [{macro_regime}] (RS: {rs:.1f} < {rs_threshold} & CMP < 200SMA)"
         elif not is_winning_trade and sma > 0 and cmp < (0.75 * sma):
-            exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse (CMP < 75% 200SMA)"
+            if is_indicator_stale:
+                exit_code, exit_reason = "DATA_STALE", "Stale Technical Indicator Data — Exit evaluation deferred until fresh candles"
+            else:
+                exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse (CMP < 75% 200SMA)"
         elif "SELL REVIEW" in hold_trend or "Momentum Reversal" in hold_trend:
             exit_code, exit_reason = "SELL_REVIEW", hold_trend
         elif final_hold_score < 45:
@@ -2679,11 +2713,19 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             row["position_source"] = p_info.get("source", "ALERT")
 
             # INJECT REAL-TIME PRICE SO EXIT MONITOR SEES LIVE CRASHES
+            # [D4 FIX: INDEPENDENT CMP / INDICATOR FRESHNESS]
+            # Injecting a fresh live LTP updates CMP freshness ONLY.
+            # The historical-indicator staleness flag (is_stale) is set exclusively by
+            # calculate_wealth_technicals() from verified historical candle provenance.
+            # A fresh LTP MUST NEVER clear a stale historical-indicator flag.
+            # cmp_is_stale=False signals that the price quote is live.
+            # indicator_data_is_stale is derived separately in _generate_exit_signal.
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
                 row["data_quality"] = DataQuality.LIVE.value
-                row["is_stale"] = False
+                row["cmp_is_stale"] = False
+                # DO NOT touch row["is_stale"] — historical indicator freshness is immutable here
 
 
             # [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0] Resolve genuine previous completed close.
@@ -2962,11 +3004,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
 
 _wealth_exit_lock = threading.Lock()
 
-def run_wealth_intraday_update(is_test_mode=False, write_health=True):
+def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=False):
     """
     Lightweight, ultra-fast market-hours update (< 3 seconds) for the 5-minute Wealth Engine schedule.
     Fetches real-time prices for active portfolio holdings, evaluates open position exit rules,
     updates DB position metrics, and refreshes the Wealth Engine dashboard parquet.
+    When is_eod=False (market hours / 15:15 pulse), exits trigger WARNING/ORANGE state only;
+    definitive position closures via close_position_atomic require is_eod=True (18:30 EOD pulse).
     """
     # [RULE 67 CHANGE-RATIONALE: WEEKEND EXECUTION PERMITTED — WEEKEND CANDLES PROHIBITED]
     # Weekend execution is permitted (e.g. manual/admin trigger, non-market boot).
@@ -3002,6 +3046,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             return run_wealth_scan(is_test_mode=is_test_mode)
 
         stage_tracker.start_stage(1, "Postgres Portfolio Query", "Querying open holdings from canonical alerts table")
+        open_alerts = []
         portfolio_dict = {}
         try:
             from database import get_connection
@@ -3009,25 +3054,27 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute("""
-                        SELECT symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date, scanner, context
+                        SELECT id, symbol, COALESCE(entry_price, current_price) AS entry_price, alert_date AS entry_date, scanner, context
                         FROM alerts
                         WHERE scanner IN ('FUNDAMENTAL', 'QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL', 'QUALITY_VALUE_RECOVERY', 'QUALITY_VALUE_RECOVERY_WEALTH_V1')
                           AND record_type = 'ALERT_EVENT'
                           AND status IN ('OPEN', 'ACTIVE')
                     """)
-                    for r in cur.fetchall():
+                    open_alerts = cur.fetchall() or []
+                    for r in open_alerts:
                         portfolio_dict[r["symbol"]] = {
                             "entry_price": r["entry_price"],
                             "entry_date": r["entry_date"],
                             "scanner": r.get("scanner"),
                             "context": r.get("context"),
-                            "source": "ALERT"
+                            "source": "ALERT",
+                            "alert_id": r.get("id")
                         }
         except Exception as _pe:
             logger.warning(f"Failed to load open portfolio: {_pe}")
 
-        open_symbols = list(portfolio_dict.keys())
-        stage_tracker.end_stage(f"Loaded {len(open_symbols)} open positions")
+        open_symbols = list(set(r["symbol"] for r in open_alerts))
+        stage_tracker.end_stage(f"Loaded {len(open_symbols)} open positions across {len(open_alerts)} alert lifecycles")
 
         stage_tracker.start_stage(2, "Live Quote CMP Fetch (UnifiedFetcher)", f"Target: {len(open_symbols)} positions")
         realtime_metrics = {}
@@ -3061,7 +3108,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
 
         stage_tracker.start_stage(3, "Exit Rule & Trailing Stop Loss Evaluation", "Evaluating exit triggers")
         portfolio_rows = []
-        for sym, p_info in portfolio_dict.items():
+        for al in open_alerts:
+            sym = al["symbol"]
             if sym in wealth_stock_map:
                 row = dict(wealth_stock_map[sym])
             else:
@@ -3072,16 +3120,18 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                         row[k] = v
                 else:
                     row["orphan_enrichment_failed"] = True
-            row["entry_price"] = p_info["entry_price"]
-            row["entry_date"] = p_info["entry_date"]
-            row["scanner"] = p_info.get("scanner")
-            row["context"] = p_info.get("context")
-            row["position_source"] = p_info.get("source", "ALERT")
+            row["alert_id"] = al.get("id")
+            row["entry_price"] = al["entry_price"]
+            row["entry_date"] = al["entry_date"]
+            row["scanner"] = al.get("scanner")
+            row["context"] = al.get("context")
+            row["position_source"] = "ALERT"
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
                 row["data_quality"] = DataQuality.LIVE.value
-                row["is_stale"] = False
+                row["cmp_is_stale"] = False
+                # DO NOT touch row["is_stale"] — historical indicator freshness is immutable here
                 row["last_updated"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             portfolio_rows.append(row)
 
@@ -3097,12 +3147,33 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                     cmp = row.get("cmp")
                     exit_reason = row.get("Exit_Reason")
                     p_source = row.get("position_source", "ALERT")
+                    alert_id = row.get("alert_id")
+                    scanner = row.get("scanner")
                     if symbol and cmp:
                         if is_test_mode:
-                            logger.info(f"🧪 [TEST MODE] Would close position {symbol} at {cmp} due to {exit_reason} (Source: {p_source})")
+                            logger.info(f"🧪 [TEST MODE] Would close position {symbol} (Alert ID: {alert_id}, Strategy: {scanner}) at {cmp} due to {exit_reason} (Source: {p_source})")
+                        elif not is_eod:
+                            # [V1 15:15 INVARIANT]: Mid-session pulses are strictly WARNING / REVIEW only.
+                            # Never execute definitive atomic closures mid-session! Set watchlist_state = "ORANGE", preserve OPEN lifecycle.
+                            logger.info(f"⚠️ [V1 INTRADAY WARNING] {symbol} ({scanner}, Alert ID {alert_id}) triggered exit condition '{exit_reason}' mid-session. Setting ORANGE state. Closure deferred to 18:30 EOD.")
+                            try:
+                                from database import save_v2_exit_event
+                                save_v2_exit_event(
+                                    symbol=symbol,
+                                    event_type="EXIT_CHECK_PRE_CLOSE",
+                                    new_watchlist_state="ORANGE",
+                                    exit_reason=exit_reason,
+                                    exit_price=cmp,
+                                    context_update={"alert_id": alert_id, "scanner": scanner, "exit_reason": exit_reason},
+                                    alert_id=alert_id,
+                                    strategy_id=scanner
+                                )
+                            except Exception as _we:
+                                logger.debug(f"Failed to record intraday warning for {symbol}: {_we}")
                         elif not getattr(database, "DONT_SAVE_WEALTH", False):
+                            # [V2 18:30 INVARIANT]: Definitive post-market closure using official session close
                             from database import close_position_atomic
-                            close_position_atomic(symbol, cmp, exit_reason, position_source=p_source)
+                            close_position_atomic(symbol, cmp, exit_reason, position_source=p_source, alert_id=alert_id, strategy_id=scanner)
 
                 if not portfolio_df.empty:
                     for col in ["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]:

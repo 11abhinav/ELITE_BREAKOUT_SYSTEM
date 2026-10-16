@@ -34,15 +34,21 @@ class TestScannerCrossStrategyIsolation(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIsNone(reason)
 
-        # 2. Pre-buy integrity gate for QUALITY_VALUE_RECOVERY on un-alerted symbol
-        ok_gate, reasons = pre_buy_integrity_gate(
-            symbol="TEST_SYM_NEW_2",
-            scanner="QUALITY_VALUE_RECOVERY",
-            required_metrics=[],
-            financial_metrics={},
-            gate_results={},
-            blocking_reasons=[]
-        )
+        # 2. Pre-buy integrity gate for QUALITY_VALUE_RECOVERY on un-alerted symbol.
+        # Patch the PIT freshness fence so this test exercises SQL cross-strategy isolation
+        # without requiring a real canonical filing record for the synthetic test symbol.
+        with patch(
+            "app.financial_data_integrity.check_pre_buy_source_freshness_fence",
+            return_value=(True, None),
+        ):
+            ok_gate, reasons = pre_buy_integrity_gate(
+                symbol="TEST_SYM_NEW_2",
+                scanner="QUALITY_VALUE_RECOVERY",
+                required_metrics=[],
+                financial_metrics={},
+                gate_results={},
+                blocking_reasons=[]
+            )
         self.assertTrue(ok_gate)
         self.assertEqual(len(reasons), 0)
 
@@ -105,8 +111,20 @@ class TestScannerCrossStrategyIsolation(unittest.TestCase):
                 self.assertIn("WHERE symbol = %s AND scanner = %s", select_sql)
                 self.assertEqual(select_params, (test_sym, "QUALITY_VALUE_RECOVERY"))
 
-                # Query 2: INSERT INTO alerts with scanner = %s
-                insert_sql, insert_params = exec_calls[1][0]
+                # Locate the INSERT call dynamically — a same-day re-entry SELECT was added
+                # after the first open-position SELECT, so the INSERT may no longer be at
+                # a fixed position. Find the first call containing INSERT INTO alerts.
+                insert_call = None
+                for call in exec_calls:
+                    sql = call[0][0] if call[0] else ""
+                    if "INSERT INTO alerts" in sql:
+                        insert_call = call
+                        break
+                self.assertIsNotNone(
+                    insert_call,
+                    f"Expected INSERT INTO alerts call but only found: {[c[0][0][:60] for c in exec_calls]}"
+                )
+                insert_sql, insert_params = insert_call[0]
                 self.assertIn("INSERT INTO alerts", insert_sql)
                 self.assertEqual(insert_params[0], test_sym)
                 self.assertEqual(insert_params[1], "QUALITY_VALUE_RECOVERY")
