@@ -4768,22 +4768,18 @@ function changeAdminPage(type, delta) {
     const fmt = v => (v != null && !isNaN(v)) ? '₹' + Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
     const badgeHtml = (s, t) => {
       let displayStatus = s;
-      if (t && t.execution_state === 'PENDING_ENTRY') {
-        displayStatus = 'PENDING';
-      } else if (s === 'CLOSED' && t && t.pnl_pct != null) {
+      if (s === 'CLOSED' && t && t.pnl_pct != null) {
         displayStatus = t.pnl_pct >= 0 ? 'PROFIT' : 'LOSS';
       } else if (s === 'WIN') {
         displayStatus = 'PROFIT';
       } else if (s === 'OPEN' && t && t.shares_bought > 0 && (t.remaining_shares === 0 || t.remaining_shares <= 0)) {
         // Only show PROFIT/LOSS for alerts that were actually entered (shares_bought > 0).
-        // Alerts with shares_bought=0/null are un-entered (awaiting breakout trigger) — keep them as OPEN.
         displayStatus = (t.pnl_pct != null && t.pnl_pct >= 0) || (t.pnl_rs != null && t.pnl_rs >= 0) ? 'PROFIT' : 'LOSS';
       }
-      const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected', PARTIAL_WIN_1: 'badge-partial', PARTIAL_WIN_2: 'badge-partial', PENDING: 'badge-pending' };
+      const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected', PARTIAL_WIN_1: 'badge-partial', PARTIAL_WIN_2: 'badge-partial' };
       if (s === 'PARTIAL_WIN_1') displayStatus = 'T1 HIT';
       else if (s === 'PARTIAL_WIN_2') displayStatus = 'T2 HIT';
-      else if (displayStatus === 'PENDING') displayStatus = '⏳ PENDING';
-      let html = `<span class="badge ${m[s] || m[displayStatus] || (t && m[t.execution_state]) || 'badge-neutral'}" ${displayStatus === '⏳ PENDING' ? 'title="Awaiting Breakout Trigger (CMP < Entry)"' : ''}>${displayStatus}</span>`;
+      let html = `<span class="badge ${m[s] || m[displayStatus] || (t && m[t.execution_state]) || 'badge-neutral'}">${displayStatus}</span>`;
       if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
         const isWin = t.shadow_status === 'SHADOW_WIN' || t.shadow_pnl_pct >= 0;
         const shColor = isWin ? 'var(--win)' : '#ff4d4d';
@@ -6536,7 +6532,7 @@ function changeAdminPage(type, delta) {
           <div class="detail-item">
             <div class="detail-label">Exit History</div>
             <div class="detail-val" id="eh-${id}" data-alert-id="${t.id}" data-preloaded="false" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; word-break:break-word; color:var(--muted)">
-              ${(()=>{ const _eh = t.exit_history ? (typeof t.exit_history === 'string' ? (() => { try { return JSON.parse(t.exit_history); } catch(e) { return []; } })() : t.exit_history) : []; if (_eh && _eh.length) { return _eh.map(x => { const dt = x.time || x.timestamp || ''; const dateStr = dt.substring(5,10); const timeStr = dt.substring(11,16); const pnl = x.pnl != null ? (x.pnl >= 0 ? `<span style="color:#10b981">+₹${Number(x.pnl).toFixed(2)}</span>` : `<span style="color:#ef4444">₹${Number(x.pnl).toFixed(2)}</span>`) : ''; return `<div style="margin-bottom:4px; padding:4px 6px; background:rgba(0,212,161,0.07); border-left:2px solid #14b8a6; border-radius:4px;"><span style="color:#14b8a6; font-weight:800;">${x.type||x.reason||'EVENT'}</span> <span style="color:var(--muted)">${dateStr} ${timeStr}</span> &nbsp;|&nbsp; Sold <span style="color:var(--text); font-weight:700;">${x.shares||0} shares</span> @ <span style="color:var(--accent); font-weight:700;">₹${x.price||0}</span> &nbsp;${pnl}</div>`; }).join(''); } else { return `<span style="color:var(--muted); font-style:italic;">${t.execution_state === 'PENDING_ENTRY' ? '⏳ Awaiting Breakout Trigger @ ' + fmt(t.entry_price) : 'No exit events yet — position open'}</span>`; } })()}
+              ${(()=>{ const _eh = t.exit_history ? (typeof t.exit_history === 'string' ? (() => { try { return JSON.parse(t.exit_history); } catch(e) { return []; } })() : t.exit_history) : []; if (_eh && _eh.length) { return _eh.map(x => { const dt = x.time || x.timestamp || ''; const dateStr = dt.substring(5,10); const timeStr = dt.substring(11,16); const pnl = x.pnl != null ? (x.pnl >= 0 ? `<span style="color:#10b981">+₹${Number(x.pnl).toFixed(2)}</span>` : `<span style="color:#ef4444">₹${Number(x.pnl).toFixed(2)}</span>`) : ''; return `<div style="margin-bottom:4px; padding:4px 6px; background:rgba(0,212,161,0.07); border-left:2px solid #14b8a6; border-radius:4px;"><span style="color:#14b8a6; font-weight:800;">${x.type||x.reason||'EVENT'}</span> <span style="color:var(--muted)">${dateStr} ${timeStr}</span> &nbsp;|&nbsp; Sold <span style="color:var(--text); font-weight:700;">${x.shares||0} shares</span> @ <span style="color:var(--accent); font-weight:700;">₹${x.price||0}</span> &nbsp;${pnl}</div>`; }).join(''); } else { return `<span style="color:var(--muted); font-style:italic;">No exit events yet — position open</span>`; } })()}
             </div>
           </div>
           <div class="detail-item">

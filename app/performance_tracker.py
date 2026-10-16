@@ -470,12 +470,9 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
         else:
             t["stop_loss"] = initial_sl
 
-        if entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode:
-            execution_state = "OPEN"
-        else:
-            execution_state = "OPEN" if execution_state != "PENDING_ENTRY" else "PENDING_ENTRY"
-        t["execution_state"] = execution_state
-        t["status"] = execution_state
+        execution_state = "OPEN"
+        t["execution_state"] = "OPEN"
+        t["status"] = "OPEN"
         t["remaining_shares"] = shares_bought
         hist_list = []
         t["exit_history"] = "[]"
@@ -1221,11 +1218,12 @@ def _row_to_trade_dict(row: dict) -> dict:
     if scanner_stored: scanner  = scanner_stored
     if sig_stored:     signals  = sig_stored
 
-    exec_state = row.get("execution_state")
+    exec_state = str(row.get("execution_state") or "OPEN").upper()
+    status = str(row.get("status") or "OPEN").upper()
     actual_entry_p = _f_num(row.get("actual_entry_price"))
-    e_mode = row.get("entry_mode") or "MARKET"
+    e_mode = str(row.get("entry_mode") or "MARKET").upper()
 
-    # User policy invariant: Pending / untriggered alerts are not permitted in the system.
+    # User policy invariant: Pending / untriggered alerts are strictly prohibited in the system.
     if exec_state == "PENDING_ENTRY" or status in ("PENDING", "PENDING_ENTRY") or e_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK"):
         return None
 

@@ -2020,14 +2020,12 @@ const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat
 const fmt      = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
 const badgeHtml = (s, t) => {
   let displayStatus = s;
-  if (t && t.execution_state === 'PENDING_ENTRY') {
-    displayStatus = 'PENDING';
-  } else if (s === 'CLOSED' && t && t.pnl_pct != null) {
+  if (s === 'CLOSED' && t && t.pnl_pct != null) {
     displayStatus = t.pnl_pct >= 0 ? 'PROFIT' : 'LOSS';
   } else if (s === 'WIN') {
     displayStatus = 'PROFIT';
   }
-  const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', PENDING: 'badge-neutral' };
+  const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral' };
   return `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
 };
 const scoreClass = v => v >= 85 ? 'score-high' : v >= 75 ? 'score-mid' : 'score-low';
