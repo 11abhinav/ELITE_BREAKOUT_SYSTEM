@@ -1875,7 +1875,9 @@ def run_technical_scan(
                         "room_to_resistance_r": cand["room_to_resistance_r"],
                         "score_breakdown": cand["score_breakdown"],
                     },
-                    entry_mode="BREAKOUT_TRIGGER",
+                    entry_mode="MARKET",
+                    actual_entry_price=cmp_price,
+                    execution_state="OPEN",
                     trigger_type=trigger_type,
                 )
                 if inserted:

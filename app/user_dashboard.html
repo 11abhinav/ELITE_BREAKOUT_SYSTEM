@@ -2218,7 +2218,7 @@ function renderKPIs(s) {
   const worstTrade = filteredTrades.length > 0 ? filteredTrades.reduce((min, t) => getTradePnlPct(t) < min ? getTradePnlPct(t) : min, 100) : 0;
   
   const openStatuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'];
-  const openTradesList = filteredTrades.filter(t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status));
+  const openTradesList = filteredTrades.filter(t => (openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED', 'PENDING', 'PENDING_ENTRY'].includes(t.status)) && t.execution_state !== 'PENDING_ENTRY');
   const openPositions = openTradesList.length;
 
   // ── UPDATE ELEVATED FINANCIAL SUMMARY HERO CARDS ──
@@ -3780,10 +3780,10 @@ function renderExposureBar(trades) {
   const totalPosEl = document.getElementById('expTotalPos');
   if (!trackEl || !legendEl) return;
 
-  const closedStatuses = new Set(['WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED']);
+  const closedStatuses = new Set(['WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED', 'PENDING', 'PENDING_ENTRY']);
   const openTrades = (trades || []).filter(t => {
     const st = String(t.status || '').toUpperCase().trim();
-    return !closedStatuses.has(st) && t.is_rejected !== true;
+    return !closedStatuses.has(st) && t.is_rejected !== true && t.execution_state !== 'PENDING_ENTRY';
   });
 
   if (totalPosEl) totalPosEl.textContent = openTrades.length;
@@ -3877,7 +3877,7 @@ function renderTradeTable() {
       const tExec = (t.execution_state || '').trim().toUpperCase();
       const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
       if (st === 'OPEN') {
-        if (tSt !== 'OPEN' && tExec !== 'OPEN' && tSt !== 'PENDING') return false;
+        if (tSt !== 'OPEN' && tExec !== 'OPEN') return false;
       } else if (st === 'TRAILING') {
         if (tSt !== 'TRAILING' && tExec !== 'TRAILING' && !(tSt === 'OPEN' && t.trailing_active)) return false;
       } else if (st === 'T1_HIT') {
@@ -4483,7 +4483,7 @@ async function doRefresh(isAuto = false) {
   ]);
   window.DATA_GENERATED_AT = data.generated_at;
 
-  ALL_TRADES = (data.trades || []).map(t => {
+  ALL_TRADES = (data.trades || []).filter(t => t && t.execution_state !== 'PENDING_ENTRY' && t.status !== 'PENDING' && t.status !== 'PENDING_ENTRY').map(t => {
     if (t) t.scanner = normalizeScannerName(t.scanner);
     return t;
   });
@@ -4543,7 +4543,7 @@ async function initDashboard() {
     const s = (data && data.summary) || { win_rate: 0, winners: 0, losers: 0, open_positions: 0 };
     const hsEl = document.getElementById('header-stats');
     if (hsEl) hsEl.textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
-    ALL_TRADES = ((data && data.trades) || []).map(t => {
+    ALL_TRADES = ((data && data.trades) || []).filter(t => t && t.execution_state !== 'PENDING_ENTRY' && t.status !== 'PENDING' && t.status !== 'PENDING_ENTRY').map(t => {
       if (t) t.scanner = normalizeScannerName(t.scanner);
       return t;
     });
@@ -4980,6 +4980,7 @@ function setupSSEAlertStream() {
     source.addEventListener('alert', function(e) {
       try {
         const data = JSON.parse(e.data || '{}');
+        if (data && (data.execution_state === 'PENDING_ENTRY' || data.status === 'PENDING' || data.status === 'PENDING_ENTRY')) return;
         if (typeof playLoudNotificationSound === 'function') {
           playLoudNotificationSound();
         }
@@ -5134,9 +5135,10 @@ async function fetchTodaysAlertsAndBlink_User(){
     const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
     const todayStr = formatter.format(new Date());
     
-    const res = await fetch('/api/todays_alerts'); if(!res.ok) return; const data = await res.json();
+    const res = await fetch('/api/todays_alerts'); if(!res.ok) return; let data = await res.json();
     let hasNewAlert = false;
     if (Array.isArray(data)) {
+        data = data.filter(alert => alert && alert.execution_state !== 'PENDING_ENTRY' && alert.status !== 'PENDING' && alert.status !== 'PENDING_ENTRY');
         data.forEach(alert => {
             if (alert.id && !lastUserAlertIds.has(alert.id)) {
                 hasNewAlert = true;

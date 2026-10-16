@@ -595,31 +595,17 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
     # Auto-heal:
     # 1. If an alert has actual_entry_price populated, the position was entered! Auto-heal execution_state to OPEN.
     # 2. Market orders and legacy alerts should be OPEN, not stuck in PENDING_ENTRY.
-    if execution_state == "PENDING_ENTRY":
-        should_heal = False
-        if actual_entry_price is not None:
-            should_heal = True
-        elif entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode:
-            should_heal = True
-            if actual_entry_price is None:
-                actual_entry_price = t.get("entry_price")
-                t["actual_entry_price"] = actual_entry_price
-
-        if should_heal:
-            logger.info(f"🔄 [PERF_TRACKER] Auto-healing {symbol} from PENDING_ENTRY to OPEN (entry_mode={entry_mode}, actual_entry_price={actual_entry_price})")
-            execution_state = "OPEN"
-            t["execution_state"] = "OPEN"
-            if t.get("status") in (None, "PENDING_ENTRY"):
-                t["status"] = "OPEN"
-            try:
-                with get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "UPDATE alerts SET execution_state = 'OPEN', status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END, actual_entry_price = COALESCE(actual_entry_price, %s) WHERE id = %s",
-                            (actual_entry_price, t["id"])
-                        )
-            except Exception as e:
-                logger.error(f"❌ [PERF_TRACKER] Auto-heal DB update failed for {symbol}: {e}")
+    # Invariant: Scanners are strictly prohibited from maintaining PENDING alerts.
+    # Purge any PENDING_ENTRY or PENDING alerts immediately from system.
+    if execution_state == "PENDING_ENTRY" or t.get("status") in ("PENDING", "PENDING_ENTRY") or entry_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK"):
+        logger.info(f"🗑️ [PERF_TRACKER] Purging pending alert {symbol} (id={t.get('id')}) from database per user invariant.")
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM alerts WHERE id = %s", (t["id"],))
+        except Exception as e:
+            logger.error(f"❌ [PERF_TRACKER] Failed to purge pending alert {symbol}: {e}")
+        return None
 
     if execution_state == "OPEN" and actual_entry_price is None:
         if t.get("entry_price") is not None:
@@ -1239,14 +1225,11 @@ def _row_to_trade_dict(row: dict) -> dict:
     actual_entry_p = _f_num(row.get("actual_entry_price"))
     e_mode = row.get("entry_mode") or "MARKET"
 
-    # Auto-heal any legacy or inconsistent state in-memory for all historical alerts:
-    if exec_state == "PENDING_ENTRY" and actual_entry_p is not None:
-        exec_state = "OPEN"
-    elif exec_state == "PENDING_ENTRY" and e_mode in ("MARKET", "LEGACY_UNKNOWN"):
-        exec_state = "OPEN"
-        if actual_entry_p is None:
-            actual_entry_p = entry_price
-    elif exec_state in ("OPEN", None) and actual_entry_p is None and entry_price is not None:
+    # User policy invariant: Pending / untriggered alerts are not permitted in the system.
+    if exec_state == "PENDING_ENTRY" or status in ("PENDING", "PENDING_ENTRY") or e_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK"):
+        return None
+
+    if exec_state in ("OPEN", None) and actual_entry_p is None and entry_price is not None:
         actual_entry_p = entry_price
         exec_state = "OPEN"
 
@@ -1438,7 +1421,7 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
         logger.warning("⚠️ [TARGETED RECALC] All requested alerts are long-term trades, recalculation skipped.")
         return []
 
-    trades = [_row_to_trade_dict(r) for r in raw_alerts]
+    trades = [t for r in raw_alerts if (t := _row_to_trade_dict(r)) is not None]
 
     # Reset in-memory state to OPEN origin for recalculation
     for t in trades:
@@ -1646,7 +1629,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         run_ctx.record_fresh_data(len(raw_alerts))
     stage_tracker.end_stage(f"Loaded {len(raw_alerts)} alerts from DB")
 
-    trades = [_row_to_trade_dict(row) for row in raw_alerts]
+    trades = [t for row in raw_alerts if (t := _row_to_trade_dict(row)) is not None]
 
     if recalc_ids:
         recalc_set = set(int(x) for x in recalc_ids)

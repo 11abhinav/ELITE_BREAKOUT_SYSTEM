@@ -7627,7 +7627,7 @@ function changeAdminPage(type, delta) {
             const tExec = (t.execution_state || '').trim().toUpperCase();
             const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
             if (st === 'OPEN') {
-              if (tSt !== 'OPEN' && tExec !== 'OPEN' && tSt !== 'PENDING') return false;
+              if (tSt !== 'OPEN' && tExec !== 'OPEN') return false;
             } else if (st === 'TRAILING') {
               if (tSt !== 'TRAILING' && tExec !== 'TRAILING' && !(tSt === 'OPEN' && t.trailing_active)) return false;
             } else if (st === 'T1_HIT') {
@@ -8151,7 +8151,7 @@ function changeAdminPage(type, delta) {
 
       let totalFloating = 0;
       const openStatuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'];
-      let openTrades = ALL_TRADES.filter(t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status));
+      let openTrades = ALL_TRADES.filter(t => (openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED', 'PENDING', 'PENDING_ENTRY'].includes(t.status)) && t.execution_state !== 'PENDING_ENTRY');
       openTrades.forEach(t => {
         if (t.current_price == null || t.current_price === 0) return;
         // [VERSION: CAPITAL_BUCKET_v2.0] Use score-based fixed bucket per trade
@@ -9052,7 +9052,7 @@ async function initDashboard() {
         ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
     }
 
-    ALL_TRADES = (data.trades || []).map(t => {
+    ALL_TRADES = (data.trades || []).filter(t => t && t.execution_state !== 'PENDING_ENTRY' && t.status !== 'PENDING' && t.status !== 'PENDING_ENTRY').map(t => {
       if (t) t.scanner = normalizeScannerName(t.scanner);
       return t;
     });
@@ -9130,6 +9130,7 @@ async function initDashboard() {
       source.addEventListener('alert', function(e) {
         try {
           const data = JSON.parse(e.data || '{}');
+          if (data && (data.execution_state === 'PENDING_ENTRY' || data.status === 'PENDING' || data.status === 'PENDING_ENTRY')) return;
           // Play loud sound only for scheduled production alerts (non-scheduled alerts do not make sound)
           const shouldPlaySound = (data.play_sound !== false && data.is_scheduled !== false);
           if (shouldPlaySound && typeof playLoudNotificationSound === 'function') {
@@ -9187,7 +9188,7 @@ async function initDashboard() {
       // bust=true forces cache bypass on every automatic poll
       const data = await loadData(false, true);
       if (data && data.trades) {
-        ALL_TRADES = (data.trades || []).map(t => {
+        ALL_TRADES = (data.trades || []).filter(t => t && t.execution_state !== 'PENDING_ENTRY' && t.status !== 'PENDING' && t.status !== 'PENDING_ENTRY').map(t => {
           if (t) t.scanner = normalizeScannerName(t.scanner);
           return t;
         });
@@ -9876,9 +9877,11 @@ function _playTickOscillator(ctx) {
 
 async function fetchTodaysAlertsAndBlink_Admin(){
   try{
-    const res = await fetch('/api/todays_alerts'); if(!res.ok) return; const data = await res.json();
+    const res = await fetch('/api/todays_alerts'); if(!res.ok) return; let data = await res.json();
     let hasNewAlert = false;
-    data.forEach(alert => {
+    if (Array.isArray(data)) {
+        data = data.filter(alert => alert && alert.execution_state !== 'PENDING_ENTRY' && alert.status !== 'PENDING' && alert.status !== 'PENDING_ENTRY');
+        data.forEach(alert => {
         if (!lastAdminAlertIds.has(alert.id)) {
             hasNewAlert = true;
             lastAdminAlertIds.add(alert.id);

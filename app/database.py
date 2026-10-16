@@ -537,7 +537,7 @@ def init_db():
                         structural_failure_stop REAL,
                         entry_mode TEXT DEFAULT 'LEGACY_UNKNOWN',
                         actual_entry_price REAL,
-                        execution_state TEXT DEFAULT 'PENDING_ENTRY',
+                        execution_state TEXT DEFAULT 'OPEN',
                         target_quality_score REAL,
                         seen_by_user BOOLEAN DEFAULT FALSE,
                         seen_by_admin BOOLEAN DEFAULT FALSE,
@@ -2370,6 +2370,18 @@ def init_db():
                 except Exception as heal_err:
                     logger.debug(f"[STARTUP] Self-healing notice: {heal_err}")
 
+                try:
+                    cur.execute("""
+                        DELETE FROM alerts
+                        WHERE execution_state = 'PENDING_ENTRY'
+                           OR status IN ('PENDING', 'PENDING_ENTRY')
+                           OR entry_mode IN ('BREAKOUT_TRIGGER', 'LIMIT_PULLBACK');
+                    """)
+                    if cur.rowcount and cur.rowcount > 0:
+                        logger.info(f"🗑️ [PURGE] Purged {cur.rowcount} pending/untriggered alerts from system per user invariant.")
+                except Exception as purge_pending_err:
+                    logger.debug(f"[STARTUP] Pending alerts purge notice: {purge_pending_err}")
+
                 # 41. Validate schema integrity against PostgreSQL catalog
                 if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):
                     validate_schema(cur)
@@ -3383,18 +3395,21 @@ def save_alert_if_new(
         rvol_diurnal_val = float(cand_ctx.get("rvol_diurnal")) if cand_ctx.get("rvol_diurnal") is not None else None
         rvol_rolling_val = float(cand_ctx.get("rvol_rolling") or volume_ratio or 1.0)
 
-        # Determine initial execution state based on entry mode
+        # Invariant: Scanners are strictly prohibited from adding pending alerts or alerting users for pending setups
         initial_execution_state = kwargs.get("execution_state")
-        if not initial_execution_state:
-            if entry_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK"):
-                initial_execution_state = "PENDING_ENTRY"
-            else:
-                initial_execution_state = "OPEN"
+        if (
+            initial_execution_state == "PENDING_ENTRY"
+            or kwargs.get("status") in ("PENDING", "PENDING_ENTRY")
+            or entry_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK")
+        ):
+            logger.warning(
+                f"🚫 [PENDING_ALERT_BLOCKED] {symbol} ({scanner}) alert rejected: "
+                f"Pending setups are strictly prohibited from generating user alerts or entering the alerts table."
+            )
+            return False, "PENDING_ALERT_PROHIBITED", None, None
 
-        if initial_execution_state == "PENDING_ENTRY":
-            eff_actual_entry_price = None
-        else:
-            eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
+        initial_execution_state = "OPEN"
+        eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
         today_date = effective_alert_date
         cur.execute("""
             INSERT INTO alerts
@@ -4235,6 +4250,8 @@ def get_all_alerts(limit: int = None) -> list[dict]:
                 FROM alerts a
                 WHERE COALESCE(a.record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
                   AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
+                  AND COALESCE(a.execution_state, 'OPEN') != 'PENDING_ENTRY'
+                  AND a.status NOT IN ('PENDING', 'PENDING_ENTRY')
                 ORDER BY a.alert_time DESC
             """
             if limit is not None:
@@ -4283,6 +4300,8 @@ def get_all_open_alerts_summary(force_refresh: bool = False) -> dict[str, list[d
                       AND (is_rejected = FALSE OR is_rejected IS NULL)
                       AND COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
                       AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
+                      AND COALESCE(execution_state, 'OPEN') != 'PENDING_ENTRY'
+                      AND status NOT IN ('PENDING', 'PENDING_ENTRY')
                     ORDER BY alert_time DESC
                 """, (closed_statuses,))
                 
@@ -4453,6 +4472,9 @@ def get_alerts_by_ids(alert_ids: list[int]) -> list[dict]:
                     a.cmp_updated_at
                 FROM alerts a
                 WHERE a.id = ANY(%s)
+                  AND a.execution_state != 'PENDING_ENTRY'
+                  AND a.status NOT IN ('PENDING', 'PENDING_ENTRY')
+                  AND a.entry_mode NOT IN ('BREAKOUT_TRIGGER', 'LIMIT_PULLBACK')
                 ORDER BY a.alert_time DESC
             """
             cur.execute(query, (clean_ids,))
@@ -5588,6 +5610,8 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                     WHERE a.alert_date = %s
                       AND COALESCE(a.record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
                       AND COALESCE(a.breakout_type, '') != 'SCAN_SNAPSHOT'
+                      AND COALESCE(a.execution_state, 'OPEN') != 'PENDING_ENTRY'
+                      AND a.status NOT IN ('PENDING', 'PENDING_ENTRY')
                     ORDER BY a.alert_time DESC
                 """, (today_str,))
                 rows = [dict(row) for row in cur.fetchall()]
@@ -13607,34 +13631,39 @@ def save_v2_exit_event(
             return True
 
 
-def heal_quality_compounder_pending_states() -> int:
+def heal_all_pending_alert_states() -> int:
     """
-    Heals QUALITY_COMPOUNDER and QUALITY_COMPOUNDER_VALUE_V2_FINAL alerts from PENDING_ENTRY to OPEN.
-    Fundamental compounders do NOT wait for a technical breakout trigger; their execution_state is OPEN at CMP.
+    Purges any alerts stuck in PENDING_ENTRY or PENDING across all scanners from system.
+    In the Elite Breakout System, pending alerts are strictly not required/permitted in the system.
+    Only eligible and confirmed trades may be added to alerts.
     """
     init_db()
-    healed_count = 0
+    purged_count = 0
     try:
         with get_connection() as conn:
             if isinstance(conn, DummyConnection):
                 return 0
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE alerts
-                    SET execution_state = 'OPEN',
-                        entry_mode = 'CMP',
-                        actual_entry_price = COALESCE(actual_entry_price, entry_price, current_price),
-                        updated_at = NOW()
-                    WHERE scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL')
-                      AND execution_state = 'PENDING_ENTRY';
+                    DELETE FROM alerts
+                    WHERE execution_state = 'PENDING_ENTRY'
+                       OR status IN ('PENDING_ENTRY', 'PENDING')
+                       OR entry_mode IN ('BREAKOUT_TRIGGER', 'LIMIT_PULLBACK');
                 """)
-                healed_count = cur.rowcount
+                purged_count = cur.rowcount
                 conn.commit()
-                if healed_count > 0:
-                    logger.info(f"🔄 [AUTO_HEAL] Healed {healed_count} QUALITY_COMPOUNDER alerts from PENDING_ENTRY to OPEN.")
+                if purged_count > 0:
+                    logger.info(f"🗑️ [PURGE_PENDING] Purged {purged_count} pending alerts from alerts table per user invariant.")
     except Exception as e:
-        logger.debug(f"Healing quality compounder pending states warning: {e}")
-    return healed_count
+        logger.debug(f"Purging pending alert states warning: {e}")
+    return purged_count
+
+
+def heal_quality_compounder_pending_states() -> int:
+    """
+    Backward-compatible wrapper: calls heal_all_pending_alert_states().
+    """
+    return heal_all_pending_alert_states()
 
 
 # -------------------------------------------------------------------------

@@ -28,34 +28,18 @@ def audit_and_correct_closed_trades(rebuild_perf=False):
         wealth_restored = 0
         logger.info(f"📊 [TRADE AUDITOR] Wealth Engine pass complete (restored/updated {wealth_restored} positions).")
 
-        # 2. Comprehensive Data Integrity Auto-Heal for all raised alerts
+        # 2. Comprehensive Data Integrity Purge: Pending alerts are strictly prohibited in system
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # 2.1 Heals filled positions stuck in PENDING_ENTRY
                 cur.execute("""
-                    UPDATE alerts
-                    SET execution_state = 'OPEN',
-                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
-                        entry_mode = CASE WHEN entry_mode = 'LEGACY_UNKNOWN' THEN 'CONFIRMED_BUY' ELSE entry_mode END
-                    WHERE execution_state = 'PENDING_ENTRY' AND actual_entry_price IS NOT NULL;
+                    DELETE FROM alerts
+                    WHERE execution_state = 'PENDING_ENTRY'
+                       OR status IN ('PENDING', 'PENDING_ENTRY')
+                       OR entry_mode IN ('BREAKOUT_TRIGGER', 'LIMIT_PULLBACK');
                 """)
-                # 2.2 Heals market / legacy alerts stuck in PENDING_ENTRY
-                cur.execute("""
-                    UPDATE alerts
-                    SET execution_state = 'OPEN',
-                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
-                        actual_entry_price = COALESCE(actual_entry_price, entry_price)
-                    WHERE execution_state = 'PENDING_ENTRY' AND (entry_mode IN ('MARKET', 'LEGACY_UNKNOWN') OR entry_mode IS NULL);
-                """)
-                # 2.2b Heals Fundamental Compounder alerts stuck in PENDING_ENTRY
-                cur.execute("""
-                    UPDATE alerts
-                    SET execution_state = 'OPEN',
-                        entry_mode = 'CMP',
-                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
-                        actual_entry_price = COALESCE(actual_entry_price, entry_price, current_price)
-                    WHERE execution_state = 'PENDING_ENTRY' AND scanner IN ('QUALITY_COMPOUNDER', 'QUALITY_COMPOUNDER_VALUE_V2_FINAL');
-                """)
+                purged_alerts = cur.rowcount
+                if purged_alerts > 0:
+                    logger.info(f"🗑️ [REVISIT] Purged {purged_alerts} pending/untriggered alerts from alerts table per user invariant.")
                 # 2.3 Populates actual_entry_price for OPEN alerts
                 cur.execute("""
                     UPDATE alerts

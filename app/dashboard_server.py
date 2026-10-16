@@ -826,11 +826,14 @@ def notify_stream_clients(event_type: str = "alert", payload: dict = None):
     """[RULE 67 CHANGE-RATIONALE]: Notify connected SSE clients of a new alert or notification instantly.
     Eliminates client polling lag so web alerts trigger at the same sub-second speed as mobile push."""
     global _LATEST_STREAM_EVENT
+    payload = payload or {}
+    if payload.get("execution_state") == "PENDING_ENTRY" or payload.get("status") in ("PENDING", "PENDING_ENTRY"):
+        return
     with _dashboard_cache_lock:
         _LATEST_STREAM_EVENT["seq"] += 1
         _LATEST_STREAM_EVENT["last_broadcast_ts"] = time.time()
         _LATEST_STREAM_EVENT["last_event_type"] = event_type
-        _LATEST_STREAM_EVENT["last_payload"] = payload or {}
+        _LATEST_STREAM_EVENT["last_payload"] = payload
 
 _todays_alerts_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
 _ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
