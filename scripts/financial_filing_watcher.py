@@ -361,7 +361,8 @@ class FinancialFilingWatcher:
                         for row in local_data:
                             r_per = _normalize_iso_date(row.get("period_end_date"))
                             r_typ = str(row.get("statement_type") or "").upper()
-                            if r_per and r_per == period_end and r_typ == st_type:
+                            r_bas = str(row.get("basis") or ("STANDALONE" if "standalone" in str(row.get("source", "")).lower() else "CONSOLIDATED")).upper()
+                            if r_per and r_per == period_end and r_typ == st_type and r_bas == basis:
                                 local_period_found = True
                                 local_matched_row = row
                                 break
@@ -789,15 +790,20 @@ class FinancialFilingWatcher:
                 snap_row = snap_lookup.get(sym_u)
                 snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
                 freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
-                min_poll_date = snap_annual if (snap_annual and freshness in ("FRESH", "VALID")) else f"{as_of.year - 2}-01-01"
+
+                # Look back 2 years to discover newly declared quarters, annual statements, and revisions
+                min_poll_date = f"{as_of.year - 2}-01-01"
 
                 raw_filings_list: List[Dict[str, Any]] = []
+                nse_fetch_count = 0
+                nse_disc_count = 0
 
                 # 1. Poll NSE XBRL / Corporate Results
                 if nse_prov:
                     try:
                         nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_poll_date)
                         if nse_records:
+                            nse_fetch_count = len(nse_records)
                             for r in nse_records:
                                 norm_p = _normalize_iso_date(r.period_end_date)
                                 if not norm_p or norm_p < "2015-01-01":
@@ -823,6 +829,7 @@ class FinancialFilingWatcher:
                         try:
                             nse_rows = nse_prov.discover_filings(sym_u)
                             if nse_rows:
+                                nse_disc_count = len(nse_rows)
                                 existing_periods = {
                                     (_normalize_iso_date(it.get("period_end_date")), str(it.get("statement_type", "")).upper())
                                     for it in raw_filings_list
@@ -841,12 +848,11 @@ class FinancialFilingWatcher:
                                                 r_copy["statement_type"] = st
                                                 raw_filings_list.append(r_copy)
                         except Exception as disc_err:
-                            logger.debug(f"[filling scanner] NSE discover_filings supplement failed for {sym_u}: {disc_err}")
+                            logger.warning(f"[filling scanner] NSE discover_filings supplement warning for {sym_u}: {disc_err}")
                     except Exception as nse_err:
-                        logger.debug(f"[filling scanner] NSE discover/fetch failed for {sym_u}: {nse_err}")
+                        logger.warning(f"[filling scanner] NSE discover/fetch warning for {sym_u}: {nse_err}")
 
                 # 2. Check if NSE already provided recent disclosures
-                # If NSE has filings on or after min_poll_date, skip redundant BSE ScraperAPI calls
                 has_recent_nse = any(
                     _normalize_iso_date(x.get("period_end_date")) >= min_poll_date
                     for x in raw_filings_list
@@ -854,43 +860,47 @@ class FinancialFilingWatcher:
                 )
 
                 # 3. Poll BSE only if NSE returned nothing or lacks recent disclosures
+                bse_count = 0
                 if bse_prov and (not has_recent_nse or not raw_filings_list):
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
                         if scrip:
                             bse_rows = bse_prov.fetch_raw_financials(sym_u)
-                            for r in bse_rows:
-                                norm_p = _normalize_iso_date(r.period_end_date)
-                                if not norm_p or norm_p < "2015-01-01":
-                                    continue
-                                already_exists = any(
-                                    _normalize_iso_date(existing.get("period_end_date")) == norm_p
-                                    and existing.get("statement_type", "").upper() == (r.period_type or "").upper()
-                                    for existing in raw_filings_list
-                                )
-                                if already_exists:
-                                    continue
-                                raw_filings_list.append({
-                                    "exchange": "BSE",
-                                    "filing_id": getattr(r, "filing_id", None) or f"BSE_{sym_u}_{norm_p}",
-                                    "period_end_date": norm_p,
-                                    "statement_type": r.period_type,
-                                    "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
-                                    "revenue": r.revenue,
-                                    "net_profit": r.net_profit,
-                                    "operating_profit": r.ebit,
-                                    "eps": r.eps,
-                                    "total_debt": r.total_debt,
-                                    "total_equity": r.total_equity,
-                                    "operating_cash_flow": getattr(r, "operating_cash_flow", None),
-                                    "shares_outstanding": r.shares_outstanding,
-                                    "filing_date": r.availability_date or as_of_str,
-                                    "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
-                                })
+                            if bse_rows:
+                                bse_count = len(bse_rows)
+                                for r in bse_rows:
+                                    norm_p = _normalize_iso_date(r.period_end_date)
+                                    if not norm_p or norm_p < "2015-01-01":
+                                        continue
+                                    already_exists = any(
+                                        _normalize_iso_date(existing.get("period_end_date")) == norm_p
+                                        and existing.get("statement_type", "").upper() == (r.period_type or "").upper()
+                                        for existing in raw_filings_list
+                                    )
+                                    if already_exists:
+                                        continue
+                                    raw_filings_list.append({
+                                        "exchange": "BSE",
+                                        "filing_id": getattr(r, "filing_id", None) or f"BSE_{sym_u}_{norm_p}",
+                                        "period_end_date": norm_p,
+                                        "statement_type": r.period_type,
+                                        "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                                        "revenue": r.revenue,
+                                        "net_profit": r.net_profit,
+                                        "operating_profit": r.ebit,
+                                        "eps": r.eps,
+                                        "total_debt": r.total_debt,
+                                        "total_equity": r.total_equity,
+                                        "operating_cash_flow": getattr(r, "operating_cash_flow", None),
+                                        "shares_outstanding": r.shares_outstanding,
+                                        "filing_date": r.availability_date or as_of_str,
+                                        "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
+                                    })
                     except Exception as bse_err:
-                        logger.debug(f"[filling scanner] BSE discover failed for {sym_u}: {bse_err}")
+                        logger.warning(f"[filling scanner] BSE discover warning for {sym_u}: {bse_err}")
 
                 if not raw_filings_list:
+                    logger.debug(f"[filling scanner] {sym_u}: 0 filings retrieved from exchanges.")
                     return
 
                 import re as _re_poll
@@ -905,59 +915,64 @@ class FinancialFilingWatcher:
                 if not valid_items:
                     return
 
+                # Deduplicate and sort items chronologically
                 valid_items.sort(key=lambda x: str(x.get("period_end_date", "")))
 
-                if snap_row is not None and snap_annual and freshness in ("FRESH", "VALID"):
-                    candidate_items = [it for it in valid_items if str(it.get("period_end_date"))[:10] > snap_annual]
-                else:
-                    candidate_items = valid_items
+                # Group candidate filings by (period_end_date, statement_type, basis)
+                # Keep the highest-quality / latest revision for each distinct statement
+                by_statement: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+                for it in valid_items:
+                    p_date = it["period_end_date"]
+                    raw_st = str(it.get("period") or it.get("statement_type") or "QUARTERLY").upper()
+                    st = "ANNUAL" if ("ANNUAL" in raw_st or "YEAR" in raw_st or "FY" in raw_st) else "QUARTERLY"
+                    c_val = str(it.get("consolidated", it.get("basis", ""))).lower()
+                    bs = "STANDALONE" if ("standalone" in c_val or "non-consolidated" in c_val) else "CONSOLIDATED"
+                    k = (p_date, st, bs)
+                    if k not in by_statement:
+                        by_statement[k] = it
+                    else:
+                        # Prefer records with actual numeric revenue/PAT facts over raw index rows
+                        prev = by_statement[k]
+                        prev_has_facts = (prev.get("revenue") is not None or prev.get("net_profit") is not None)
+                        curr_has_facts = (it.get("revenue") is not None or it.get("net_profit") is not None)
+                        if curr_has_facts and not prev_has_facts:
+                            by_statement[k] = it
 
-                if not candidate_items:
-                    return
+                # Evaluate all distinct statements through detect_filing_changes
+                sym_new_events = 0
+                for (period_end, st_type, basis), item in by_statement.items():
+                    fid = str(item.get("seqNumber") or item.get("filing_id") or f"{sym_u}_{period_end}_{st_type}_v1")
+                    bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
 
-                def _candidate_rank(x):
-                    p_date = str(x.get("period_end_date", ""))
-                    st = str(x.get("period") or x.get("statement_type") or "").upper()
-                    is_ann = 1 if ("ANNUAL" in st or "YEAR" in st or "FY" in st) else 0
-                    c_val = str(x.get("consolidated", "")).lower()
-                    is_cons = 1 if ("standalone" not in c_val and "non-consolidated" not in c_val) else 0
-                    return (p_date, is_ann, is_cons)
+                    raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
+                    meta_incoming = {
+                        "filing_id": fid,
+                        "period_end_date": period_end,
+                        "statement_type": st_type,
+                        "basis": basis,
+                        "broadcast_timestamp": bcast_time,
+                        "source_exchange": item.get("exchange", "NSE"),
+                        "revision_number": int(item.get("seqNumber") or 1) if str(item.get("seqNumber", "")).isdigit() else 1,
+                        "amended": str(item.get("reInd", "")).upper() == "Y",
+                        "facts": item,
+                    }
 
-                candidate_items.sort(key=_candidate_rank)
-                item = candidate_items[-1]
-                period_end = item["period_end_date"]
-                st_type = str(item.get("period") or item.get("statement_type") or "QUARTERLY").upper()
-                if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
-                    st_type = "ANNUAL"
-                else:
-                    st_type = "QUARTERLY"
+                    event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes)
+                    if event.event_type != FilingEventType.NO_CHANGE:
+                        sym_new_events += 1
+                        with self._state_lock:
+                            self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
+                        with events_lock:
+                            discovered_events.append(event.to_dict())
 
-                basis = "STANDALONE" if ("standalone" in str(item.get("consolidated", "")).lower() or "non-consolidated" in str(item.get("consolidated", "")).lower()) else "CONSOLIDATED"
-                fid = str(item.get("seqNumber") or item.get("filing_id") or f"{sym_u}_{period_end}_{st_type}_v1")
-                bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
-
-                raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
-                meta_incoming = {
-                    "filing_id": fid,
-                    "period_end_date": period_end,
-                    "statement_type": st_type,
-                    "basis": basis,
-                    "broadcast_timestamp": bcast_time,
-                    "source_exchange": item.get("exchange", "NSE"),
-                    "revision_number": int(item.get("seqNumber") or 1) if str(item.get("seqNumber", "")).isdigit() else 1,
-                    "amended": str(item.get("reInd", "")).upper() == "Y",
-                    "facts": item,
-                }
-
-                event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes)
-                if event.event_type != FilingEventType.NO_CHANGE:
-                    with self._state_lock:
-                        self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
-                    with events_lock:
-                        discovered_events.append(event.to_dict())
+                if sym_new_events > 0:
+                    logger.info(
+                        f"✨ [filling scanner] {sym_u}: Ingested {sym_new_events} new/amended disclosures "
+                        f"(NSE_records={nse_fetch_count}, NSE_discovered={nse_disc_count}, BSE={bse_count})."
+                    )
 
             except Exception as sym_err:
-                logger.debug(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
+                logger.warning(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
             finally:
                 with counter_lock:
                     completed_count[0] += 1
@@ -1004,12 +1019,13 @@ class FinancialFilingWatcher:
             except Exception:
                 existing_list = []
 
-        # Find if this period and statement_type already exists
+        # Find if this period, statement_type and basis already exists
         matched_idx = None
         for i, row in enumerate(existing_list):
             r_period = _normalize_iso_date(row.get("period_end_date"))
             r_type = str(row.get("statement_type") or "").upper()
-            if r_period and r_period == norm_period_end and r_type == statement_type:
+            r_basis = str(row.get("basis") or ("STANDALONE" if "standalone" in str(row.get("source", "")).lower() else "CONSOLIDATED")).upper()
+            if r_period and r_period == norm_period_end and r_type == statement_type and r_basis == basis:
                 matched_idx = i
                 break
 
@@ -1103,8 +1119,6 @@ class FinancialFilingWatcher:
           - Single entry per stock: selects the newest missing filing discovered for that stock.
           - Strict ISO YYYY-MM-DD date enforcement (>= 2015-01-01).
         """
-        if only_updated:
-            return []
         import re as _re
         from zoneinfo import ZoneInfo
         as_of_str = as_of_date.isoformat() if as_of_date else datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
