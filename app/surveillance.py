@@ -10,6 +10,8 @@ except ImportError:
     from data_registry import registry
 import threading
 
+logger = logging.getLogger(__name__)
+
 _BLACKLIST_TTL = 30 * 60  # 30 minutes
 _blacklist_lock = threading.Lock()
 
