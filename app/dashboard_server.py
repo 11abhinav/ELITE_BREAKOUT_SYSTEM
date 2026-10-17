@@ -1218,7 +1218,9 @@ def serve_cached_html(file_path: str, extra_headers: dict = None):
 
     headers = {
         "ETag": cached["etag"],
-        "Cache-Control": "public, max-age=0, must-revalidate",
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
     }
     if extra_headers:
@@ -3217,6 +3219,7 @@ def api_admin_batch_validate_stocks():
                 if not p_1d.exists():
                     p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1D" / f"{sym}.parquet"
                 
+                # If candles are completely missing, attempt a fast candle fetch
                 if not p_1d.exists() or p_1d.stat().st_size < 100:
                     try:
                         from data_providers.unified_fetcher import UnifiedFetcher
@@ -3228,28 +3231,6 @@ def api_admin_batch_validate_stocks():
                             df_hist.to_parquet(p_target)
                     except Exception as _fetch_err:
                         logger.debug(f"[BATCH_VALIDATE] 1D candle fetch note for {sym}: {_fetch_err}")
-
-                raw_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings" / f"{sym}.json"
-                should_poll = not raw_p.exists() or raw_p.stat().st_size < 50
-                if not should_poll:
-                    try:
-                        import json as _j
-                        with open(raw_p, "r", encoding="utf-8") as _rf:
-                            _r_data = _j.load(_rf)
-                        if isinstance(_r_data, list) and len(_r_data) > 0:
-                            _latest_d = str(_r_data[-1].get("period_end_date") or "")
-                            if _latest_d < "2024-03-31":
-                                should_poll = True
-                    except Exception:
-                        should_poll = True
-
-                if should_poll:
-                    try:
-                        from scripts.financial_filing_watcher import FinancialFilingWatcher
-                        fw = FinancialFilingWatcher()
-                        fw.poll_exchange_announcements(symbols=[sym], max_workers=1)
-                    except Exception as _filing_err:
-                        logger.debug(f"[BATCH_VALIDATE] Filing poll note for {sym}: {_filing_err}")
             except Exception as _pre_err:
                 logger.debug(f"[BATCH_VALIDATE] Pre-check note for {sym}: {_pre_err}")
 

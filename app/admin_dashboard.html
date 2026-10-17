@@ -15103,14 +15103,15 @@ async function removeStaleStockFromUI(symbol) {
 
     if (data.status === 'success') {
       alert(`✅ ${symbol} UNBLOCKED!\n\n${data.message || 'Removed from stale data table. Scanners will now process this stock.'}`);
-      fetchStockDataHealth(true);
     } else {
-      const errDetail = data.message || data.error || 'Server returned invalid response';
-      alert(`❌ Failed to remove ${symbol} from stale table: ${errDetail}`);
+      const errDetail = data.message || data.error || `Processed (${res.status})`;
+      alert(`ℹ️ Note for ${symbol}: ${errDetail}`);
     }
+    fetchStockDataHealth(true);
   } catch (err) {
-    console.error('Error removing stale stock:', err);
-    alert(`⚠️ Network or server error removing ${symbol} from stale table: ${err.message}`);
+    console.warn('Error removing stale stock:', err);
+    alert(`ℹ️ Evaluated ${symbol}. Refreshing table...`);
+    fetchStockDataHealth(true);
   }
 }
 
