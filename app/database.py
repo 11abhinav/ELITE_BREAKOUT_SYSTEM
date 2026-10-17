@@ -9484,7 +9484,7 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
 
 
 def cleanup_expired_cooloffs() -> int:
-    """Removes expired cool-off records from database."""
+    """Removes expired cool-off records from database and auto-evicts resolved price history stocks."""
     try:
         from datetime import datetime
         now_dt = datetime.now(IST)
@@ -9493,9 +9493,35 @@ def cleanup_expired_cooloffs() -> int:
                 with conn.cursor() as cur:
                     cur.execute("DELETE FROM symbol_cooloff_journal WHERE cooloff_until <= %s", (now_dt,))
                     cnt = cur.rowcount
+
+                    # Self-healing: auto-evict any PRICE_HISTORY cool-offs whose 1D history is verified on disk (>= 50 bars)
+                    try:
+                        history_1d_dir = Path(__file__).resolve().parent.parent / "data" / "history" / "1d"
+                        cur.execute("SELECT DISTINCT symbol FROM symbol_cooloff_journal WHERE UPPER(reason) LIKE '%PRICE_HISTORY%'")
+                        price_rows = cur.fetchall()
+                        evicted_price = 0
+                        for pr in price_rows:
+                            if pr and pr[0]:
+                                p_sym = str(pr[0]).strip().upper()
+                                p_file = history_1d_dir / f"{p_sym}.parquet"
+                                if p_file.exists():
+                                    try:
+                                        import pandas as pd
+                                        df_c = pd.read_parquet(p_file)
+                                        if len(df_c) >= 50:
+                                            cur.execute("DELETE FROM symbol_cooloff_journal WHERE symbol = %s AND UPPER(reason) LIKE '%PRICE_HISTORY%'", (p_sym,))
+                                            evicted_price += 1
+                                            logger.info(f"🧹 [COOLOFF_EVICT] Unblocked {p_sym} (1D history verified on disk with {len(df_c)} bars).")
+                                    except Exception:
+                                        pass
+                        if evicted_price > 0:
+                            cnt = (cnt or 0) + evicted_price
+                    except Exception as _pe:
+                        logger.debug(f"[CLEANUP_COOLOFFS] Price history check note: {_pe}")
+
                 conn.commit()
                 if cnt and cnt > 0:
-                    logger.info(f"🧹 Evicted {cnt} expired entries from symbol_cooloff_journal.")
+                    logger.info(f"🧹 Evicted {cnt} expired/resolved entries from symbol_cooloff_journal.")
                 return cnt or 0
         return 0
     except Exception as e:

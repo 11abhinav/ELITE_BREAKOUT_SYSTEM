@@ -1988,19 +1988,22 @@ class LiveFundamentalBuyScanner:
                                     df_bar = pd.read_parquet(p_path)
                                     _WARM_MARKET_DATA_CACHE[sym] = {"mtime": p_mtime, "df": df_bar}
                             # ─────────────────────────────────────────────────────────────────────────
-                            if not df_bar.empty and len(df_bar) >= 200:
+                            if not df_bar.empty:
                                 market_data_map[sym] = df_bar
-                            elif not df_bar.empty and len(df_bar) > 0 and expected_closed_bar is not None:
-                                t_col = 'Date' if 'Date' in df_bar.columns else ('Datetime' if 'Datetime' in df_bar.columns else None)
-                                last_ts = df_bar[t_col].iloc[-1] if t_col else (df_bar.index[-1] if not df_bar.index.empty else None)
-                                last_dt = pd.to_datetime(last_ts, errors="coerce").date() if last_ts is not None else None
-                                if last_dt == expected_closed_bar:
-                                    # P0 Calendar Freshness Invariant:
-                                    # The local daily candles are fully caught up with the latest expected exchange session.
-                                    # This is a known-short history stock (e.g. IPO / recent listing).
-                                    # Do NOT trigger redundant broker network calls.
-                                    market_data_map[sym] = df_bar
-                                    local_history_short_known_count += 1
+                                if len(df_bar) >= 200:
+                                    pass
+                                elif len(df_bar) > 0 and expected_closed_bar is not None:
+                                    t_col = 'Date' if 'Date' in df_bar.columns else ('Datetime' if 'Datetime' in df_bar.columns else None)
+                                    last_ts = df_bar[t_col].iloc[-1] if t_col else (df_bar.index[-1] if not df_bar.index.empty else None)
+                                    last_dt = pd.to_datetime(last_ts, errors="coerce").date() if last_ts is not None else None
+                                    if last_dt == expected_closed_bar:
+                                        # P0 Calendar Freshness Invariant:
+                                        # The local daily candles are fully caught up with the latest expected exchange session.
+                                        # This is a known-short history stock (e.g. IPO / recent listing).
+                                        local_history_short_known_count += 1
+                                    else:
+                                        if allow_live_refresh:
+                                            missing_or_short.append(sym)
                                 else:
                                     if allow_live_refresh:
                                         missing_or_short.append(sym)
@@ -2500,7 +2503,7 @@ class LiveFundamentalBuyScanner:
                         symbol=sym,
                         stage="TECHNICAL",
                         missing_data="1D_OHLCV_HISTORY",
-                        recovery_attempted=True,
+                        recovery_attempted=allow_live_refresh,
                         providers=[
                             {
                                 "provider": "LOCAL_1D_PARQUET",
@@ -2509,9 +2512,9 @@ class LiveFundamentalBuyScanner:
                             },
                             {
                                 "provider": "UNIFIED_FETCHER",
-                                "result": "FETCH_FAILED" if sym not in market_data_map else "FETCHED",
-                                "validation": "FAILED" if sym not in market_data_map else "PASSED",
-                                "validation_reason": "FETCH_RETURNED_EMPTY_OR_FAILED" if sym not in market_data_map else None,
+                                "result": ("FETCH_FAILED" if sym not in market_data_map else "FETCHED") if allow_live_refresh else "NOT_ATTEMPTED_OFFLINE_MODE",
+                                "validation": ("FAILED" if sym not in market_data_map else "PASSED") if allow_live_refresh else "SKIPPED",
+                                "validation_reason": ("FETCH_RETURNED_EMPTY_OR_FAILED" if sym not in market_data_map else None) if allow_live_refresh else "OFFLINE_NO_NETWORK",
                             }
                         ],
                         validation="FAILED" if sym not in market_data_map else "PASSED",
@@ -2544,9 +2547,9 @@ class LiveFundamentalBuyScanner:
                     or funds.get("snapshot_status") in ("STALE", "INVALID", "DATA_INSUFFICIENT", "DATA_UNAVAILABLE")
                     or funds.get("upstream_provider") in ("DATA_UNAVAILABLE", "DATA_INSUFFICIENT")
                     or (_fund_missing and prov_pit_result == "NOT_AVAILABLE")
-                    or (_bars_missing and sym not in market_data_map)
+                    or (_bars_missing and sym not in market_data_map and allow_live_refresh)
                 )
-                if is_stale_or_invalid:
+                if is_stale_or_invalid and allow_live_refresh:
                     try:
                         from database import add_symbol_to_cooloff
                         reason_code = "PIT_DATA_STALE" if is_data_stale else (
