@@ -4751,8 +4751,8 @@ function changeAdminPage(type, delta) {
     const _activeTabLoadingMap = {};
     function triggerActiveTabFetch(tabId) {
       const now = Date.now();
-      if (_activeTabLoadingMap[tabId] && (now - _activeTabLoadingMap[tabId] < 30000)) {
-        return; // Idempotency: skip redundant fetch within 30s
+      if (tabId !== 'stock-data-health' && tabId !== 'filings-discovery' && _activeTabLoadingMap[tabId] && (now - _activeTabLoadingMap[tabId] < 30000)) {
+        return; // Idempotency: skip redundant fetch within 30s for heavy admin queries
       }
       _activeTabLoadingMap[tabId] = now;
 
@@ -12980,13 +12980,62 @@ function closeMyWatchlistModal() {
 let CURRENT_FILINGS_DATA = [];
 let CURRENT_SELECTED_FILING_DATE = '';
 
+function _applyCorporateFilingsData(data) {
+  if (!data || data.status !== 'success') return;
+  CURRENT_SELECTED_FILING_DATE = data.selected_date;
+  window._CURRENT_RAW_FILINGS = data.filings || [];
+  CURRENT_FILINGS_DATA = window._CURRENT_RAW_FILINGS;
+
+  // Update date input and pill
+  const dateInput = document.getElementById('filingDateInput');
+  if (dateInput && data.selected_date && data.selected_date !== 'ALL') {
+    dateInput.value = data.selected_date;
+  }
+
+  const datePill = document.getElementById('filingDatePill');
+  if (datePill) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    datePill.textContent = (data.selected_date === todayStr) ? 'Today' : (data.selected_date || 'All Dates');
+  }
+
+  // Populate available dates dropdown
+  const datesSelect = document.getElementById('filingAvailableDatesSelect');
+  if (datesSelect && data.available_dates && data.available_dates.length > 0) {
+    let opts = `<option value="">Jump to Date (${data.available_dates.length} available)...</option>`;
+    opts += `<option value="ALL" ${data.selected_date === 'ALL' ? 'selected' : ''}>All Available Dates</option>`;
+    data.available_dates.forEach(d => {
+      const isSel = (d === data.selected_date) ? 'selected' : '';
+      opts += `<option value="${d}" ${isSel}>${d}</option>`;
+    });
+    datesSelect.innerHTML = opts;
+  }
+
+  // Populate dynamic event types
+  updateFilingEventTypeDropdown(window._CURRENT_RAW_FILINGS);
+
+  // Filter and render table + sync KPI cards
+  filterCorporateFilings();
+}
+
 async function loadCorporateFilingsDiscovery(targetDate) {
+  const queryDate = targetDate || CURRENT_SELECTED_FILING_DATE || '';
+
+  // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
+  if (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0) {
+    try {
+      const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST');
+      const cachedStr = sessionStorage.getItem(cacheKey);
+      if (cachedStr) {
+        _applyCorporateFilingsData(JSON.parse(cachedStr));
+      }
+    } catch (_) {}
+  }
+
   const tbody = document.getElementById('tbl-corporate-filings-body');
   if (tbody && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
     tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--muted);">⏳ Loading corporate filing discoveries...</td></tr>`;
   }
 
-  const queryDate = targetDate || CURRENT_SELECTED_FILING_DATE || '';
   const url = `/api/corporate_filings?date=${encodeURIComponent(queryDate)}&_t=${Date.now()}`;
 
   try {
@@ -12994,43 +13043,15 @@ async function loadCorporateFilingsDiscovery(targetDate) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (data.status === 'success') {
-      CURRENT_SELECTED_FILING_DATE = data.selected_date;
-      window._CURRENT_RAW_FILINGS = data.filings || [];
-      CURRENT_FILINGS_DATA = window._CURRENT_RAW_FILINGS;
-
-      // Update date input and pill
-      const dateInput = document.getElementById('filingDateInput');
-      if (dateInput && data.selected_date && data.selected_date !== 'ALL') {
-        dateInput.value = data.selected_date;
-      }
-
-      const datePill = document.getElementById('filingDatePill');
-      if (datePill) {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        datePill.textContent = (data.selected_date === todayStr) ? 'Today' : (data.selected_date || 'All Dates');
-      }
-
-      // Populate available dates dropdown
-      const datesSelect = document.getElementById('filingAvailableDatesSelect');
-      if (datesSelect && data.available_dates && data.available_dates.length > 0) {
-        let opts = `<option value="">Jump to Date (${data.available_dates.length} available)...</option>`;
-        opts += `<option value="ALL" ${data.selected_date === 'ALL' ? 'selected' : ''}>All Available Dates</option>`;
-        data.available_dates.forEach(d => {
-          const isSel = (d === data.selected_date) ? 'selected' : '';
-          opts += `<option value="${d}" ${isSel}>${d}</option>`;
-        });
-        datesSelect.innerHTML = opts;
-      }
-
-      // Populate dynamic event types
-      updateFilingEventTypeDropdown(window._CURRENT_RAW_FILINGS);
-
-      // Filter and render table + sync KPI cards
-      filterCorporateFilings();
+      try {
+        const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST');
+        sessionStorage.setItem(cacheKey, JSON.stringify(data));
+      } catch (_) {}
+      _applyCorporateFilingsData(data);
     }
   } catch (err) {
     console.error('Failed to load corporate filings', err);
-    if (tbody) {
+    if (tbody && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
       tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--warn);">Failed to load corporate filings: ${err.message}</td></tr>`;
     }
   }
@@ -13613,58 +13634,81 @@ let SDH_PAGE_SIZE = 100; // 50, 100, 250, 500, or 0 (all)
 let SDH_CURRENT_PAGE = 1;
 let SDH_FILTERED_ITEMS = [];
 
+function _applyStockDataHealthData(data) {
+  if (!data || data.status !== 'success') return;
+  SDH_STALE_STOCKS = data.stale_stocks || [];
+  SDH_FRESH_STOCKS = data.fresh_stocks || [];
+
+  const summary = data.summary || {};
+  const total = summary.total_universe || (SDH_STALE_STOCKS.length + SDH_FRESH_STOCKS.length);
+  const staleCount = summary.stale_count !== undefined ? summary.stale_count : SDH_STALE_STOCKS.length;
+  const freshCount = summary.fresh_count !== undefined ? summary.fresh_count : SDH_FRESH_STOCKS.length;
+  const coverage = summary.coverage_pct !== undefined ? summary.coverage_pct : (total > 0 ? (freshCount / total * 100).toFixed(1) : 0);
+
+  // Update KPI cards
+  const elTotal = document.getElementById('kpi-sdh-total');
+  if (elTotal) elTotal.textContent = Number(total).toLocaleString('en-IN');
+
+  const elStale = document.getElementById('kpi-sdh-stale');
+  if (elStale) elStale.textContent = Number(staleCount).toLocaleString('en-IN');
+
+  const elFresh = document.getElementById('kpi-sdh-fresh');
+  if (elFresh) elFresh.textContent = Number(freshCount).toLocaleString('en-IN');
+
+  const elCov = document.getElementById('kpi-sdh-coverage');
+  if (elCov) elCov.textContent = `${coverage}%`;
+
+  // Update Filter button count pills
+  const btnAll = document.getElementById('sdh-btn-all-count');
+  if (btnAll) btnAll.textContent = total;
+  const btnStale = document.getElementById('sdh-btn-stale-count');
+  if (btnStale) btnStale.textContent = staleCount;
+  const btnFresh = document.getElementById('sdh-btn-fresh-count');
+  if (btnFresh) btnFresh.textContent = freshCount;
+
+  renderStockDataHealthTable();
+}
+
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
-  SDH_IS_FETCHING = true;
+
+  // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
+  if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
+    try {
+      const cachedStr = sessionStorage.getItem('CACHE_SDH_DATA');
+      if (cachedStr) {
+        _applyStockDataHealthData(JSON.parse(cachedStr));
+      }
+    } catch (_) {}
+  }
 
   const tbody = document.getElementById('tbl-sdh-body');
   if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
     tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
   }
 
+  SDH_IS_FETCHING = true;
   try {
-    const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}`);
+    const forceParam = force ? '&force=1' : '';
+    const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     if (data.status === 'success') {
-      SDH_STALE_STOCKS = data.stale_stocks || [];
-      SDH_FRESH_STOCKS = data.fresh_stocks || [];
-
-      const summary = data.summary || {};
-      const total = summary.total_universe || (SDH_STALE_STOCKS.length + SDH_FRESH_STOCKS.length);
-      const staleCount = summary.stale_count !== undefined ? summary.stale_count : SDH_STALE_STOCKS.length;
-      const freshCount = summary.fresh_count !== undefined ? summary.fresh_count : SDH_FRESH_STOCKS.length;
-      const coverage = summary.coverage_pct !== undefined ? summary.coverage_pct : (total > 0 ? (freshCount / total * 100).toFixed(1) : 0);
-
-      // Update KPI cards
-      const elTotal = document.getElementById('kpi-sdh-total');
-      if (elTotal) elTotal.textContent = Number(total).toLocaleString('en-IN');
-
-      const elStale = document.getElementById('kpi-sdh-stale');
-      if (elStale) elStale.textContent = Number(staleCount).toLocaleString('en-IN');
-
-      const elFresh = document.getElementById('kpi-sdh-fresh');
-      if (elFresh) elFresh.textContent = Number(freshCount).toLocaleString('en-IN');
-
-      const elCov = document.getElementById('kpi-sdh-coverage');
-      if (elCov) elCov.textContent = `${coverage}%`;
-
-      // Update Filter button count pills
-      const btnAll = document.getElementById('sdh-btn-all-count');
-      if (btnAll) btnAll.textContent = total;
-      const btnStale = document.getElementById('sdh-btn-stale-count');
-      if (btnStale) btnStale.textContent = staleCount;
-      const btnFresh = document.getElementById('sdh-btn-fresh-count');
-      if (btnFresh) btnFresh.textContent = freshCount;
-
-      renderStockDataHealthTable();
+      try {
+        sessionStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
+      } catch (_) {}
+      _applyStockDataHealthData(data);
     } else {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || 'Unknown error'}</td></tr>`;
+      if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
+        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || 'Unknown error'}</td></tr>`;
+      }
     }
   } catch (err) {
     console.error('Error fetching stock data health:', err);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">⚠️ Network or server error loading stock data health.</td></tr>`;
+    if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
+      tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">⚠️ Network or server error loading stock data health.</td></tr>`;
+    }
   } finally {
     SDH_IS_FETCHING = false;
   }
@@ -16021,10 +16065,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const requestedTab = urlParams.get('tab') || window.location.hash.replace('#', '');
   if (requestedTab && typeof switchAdminTab === 'function') {
     switchAdminTab(requestedTab);
-    // Default to active tab signals-trades to ensure the primary Live Alerts & Signals tab loads on page load!
-    if (typeof switchAdminTab === 'function') {
-      switchAdminTab('signals-trades');
-    }
+  } else if (typeof switchAdminTab === 'function') {
+    switchAdminTab('signals-trades');
   }
 });
 

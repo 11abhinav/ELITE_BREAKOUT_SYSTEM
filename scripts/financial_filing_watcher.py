@@ -737,7 +737,7 @@ class FinancialFilingWatcher:
             symbols = symbols[:max_symbols]
 
         if max_workers is None:
-            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "4"))
+            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "12"))
         max_workers = max(1, min(max_workers, 16))
 
 

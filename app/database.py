@@ -9484,7 +9484,6 @@ def check_and_restore_stale_stock(
                 mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym
                 if mask.any():
                     row = snap_df.loc[mask].iloc[0]
-                    curr_status = str(row.get("pit_freshness_status", "")).upper()
                     snap_status = str(row.get("snapshot_status", "")).upper()
                     has_gap = bool(row.get("filing_gap_detected", False))
                     if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap:
@@ -9516,72 +9515,112 @@ def check_and_restore_stale_stock(
             f"🔄 [STALE_STOCK_RESTORED] {sym} was previously marked stale ({reasons_summary}). "
             f"Removed from suppression. Fresh data ({period_end or 'Latest'}) available. Scanners can now review."
         )
-        if notify_admin:
-            try:
-                title = f"Stale Stock Restored: {sym}"
-                msg = (
-                    f"Fresh financial data ({period_end or 'Latest Period'}) fetched via {source}. "
-                    f"Cool-off/staleness suppression removed ({reasons_summary}). "
-                    f"Scanners are now reviewing if data is complete and tradeable."
-                )
-                insert_notification(
-                    notif_type="admin",
-                    title=title,
-                    message=msg,
-                    symbol=sym
-                )
-            except Exception as notif_err:
-                logger.debug(f"[STALE_RESTORE] Admin notification error for {sym}: {notif_err}")
 
-    return was_stale
+_AUDIT_RAW_FILINGS_CACHE = {}
+_AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
+_AUDIT_RAW_LOCK = threading.Lock()
 
-
-def get_sebi_lodr_mandatory_filing_status(as_of_date=None) -> Tuple[str, str, str]:
+def _get_parsed_raw_filings_cache(max_age_sec: float = 60.0) -> Dict[str, Dict[str, Any]]:
     """
-    Enforces statutory mandatory filing calendar under SEBI (LODR) Regulations, 2015 (Regulation 33):
-      - Q1 (Quarter ended June 30) -> Mandatory deadline: August 14 (45 days)
-      - Q2 (Quarter ended September 30) -> Mandatory deadline: November 14 (45 days)
-      - Q3 (Quarter ended December 31) -> Mandatory deadline: February 14 (45 days)
-      - Q4 / Annual Audited (Fiscal ended March 31) -> Mandatory deadline: May 30 (60 days)
+    Scans and parses pit_raw_filings/*.json concurrently across worker threads.
+    Caches parsed metadata (filings count, latest period, recent periods, mtime)
+    for 60 seconds to eliminate hundreds of sequential filesystem disk calls per request.
+    """
+    global _AUDIT_RAW_FILINGS_CACHE, _AUDIT_RAW_FILINGS_LAST_SCAN
+    now = time.time()
+    with _AUDIT_RAW_LOCK:
+        if _AUDIT_RAW_FILINGS_CACHE and (now - _AUDIT_RAW_FILINGS_LAST_SCAN < max_age_sec):
+            return _AUDIT_RAW_FILINGS_CACHE
+
+        raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+        if not raw_dir.exists():
+            return {}
+
+        files = list(raw_dir.glob("*.json"))
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _parse_file(p):
+            sym = p.stem.upper()
+            try:
+                mtime = p.stat().st_mtime
+                with open(p, "rb") as f:
+                    data = json.loads(f.read())
+                if isinstance(data, list) and len(data) > 0:
+                    valid_p = [str(stmt.get("period_end_date") or "")[:10] for stmt in data if stmt.get("period_end_date")]
+                    latest = max(valid_p) if valid_p else "None"
+                    recent = []
+                    for stmt in data[-5:]:
+                        pend = str(stmt.get("period_end_date") or "")
+                        stt = str(stmt.get("statement_type") or "A")[:1]
+                        if pend:
+                            recent.append(f"{pend} ({stt})")
+                    return sym, {
+                        "count": len(data),
+                        "latest": latest,
+                        "mtime": mtime,
+                        "recent": recent
+                    }
+                else:
+                    return sym, {"count": 0, "latest": "Empty", "mtime": mtime, "recent": []}
+            except Exception:
+                return sym, {"count": 0, "latest": "Error", "mtime": 0, "recent": []}
+
+        workers = min(16, max(4, (os.cpu_count() or 4) * 2))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            parsed = dict(ex.map(_parse_file, files))
+
+        _AUDIT_RAW_FILINGS_CACHE = parsed
+        _AUDIT_RAW_FILINGS_LAST_SCAN = now
+        return _AUDIT_RAW_FILINGS_CACHE
+
+
+def get_sebi_lodr_mandatory_filing_status(dt: Optional[datetime] = None) -> Tuple[str, str, str]:
+    """
+    Statutory SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015 - Regulation 33:
+    1. Q1 (Quarter ended June 30)       -> Mandatory filing deadline: August 14 (45 days)
+    2. Q2 (Quarter ended September 30)  -> Mandatory filing deadline: November 14 (45 days)
+    3. Q3 (Quarter ended December 31)   -> Mandatory filing deadline: February 14 (45 days)
+    4. Q4 / Audited Annual (March 31)   -> Mandatory filing deadline: May 30 (60 days under Reg 33(3)(d))
 
     Returns:
-      (mandatory_period_end_date: str, sebi_deadline_date: str, quarter_label: str)
-      representing the latest fiscal period whose filing is legally overdue if missing.
+        Tuple of (mandatory_period_end_date_iso, statutory_deadline_date_iso, human_label)
+        Any company whose latest disclosures on disk / exchange are older than mandatory_period_end_date_iso
+        is legally overdue and marked STALE under statutory SEBI rules.
     """
+    if dt is None:
+        dt = datetime.now(IST)
     from datetime import date
-    if as_of_date is None:
-        target_date = datetime.now(IST).date()
-    elif isinstance(as_of_date, datetime):
-        target_date = as_of_date.date()
-    elif isinstance(as_of_date, str):
-        target_date = date.fromisoformat(as_of_date[:10])
+    cur_date = dt.date() if hasattr(dt, "date") else dt
+    y = cur_date.year
+
+    # Deadlines for current calendar year
+    d_q3_prev = date(y, 2, 14)   # Feb 14: Q3 of previous fiscal
+    d_q4_prev = date(y, 5, 30)   # May 30: Q4 / Annual Audited of March 31
+    d_q1_cur  = date(y, 8, 14)   # Aug 14: Q1 of current fiscal
+    d_q2_cur  = date(y, 11, 14)  # Nov 14: Q2 of current fiscal
+
+    if cur_date > d_q2_cur:
+        # Nov 15 to Dec 31: Q2 filing deadline passed
+        return (f"{y}-09-30", f"{y}-11-14", f"Q2 (ended Sep 30, {y})")
+    elif cur_date > d_q1_cur:
+        # Aug 15 to Nov 14: Q1 filing deadline passed
+        return (f"{y}-06-30", f"{y}-08-14", f"Q1 (ended Jun 30, {y})")
+    elif cur_date > d_q4_prev:
+        # May 31 to Aug 14: Q4 / Annual filing deadline passed
+        return (f"{y}-03-31", f"{y}-05-30", f"Q4/Annual Audited (ended Mar 31, {y})")
+    elif cur_date > d_q3_prev:
+        # Feb 15 to May 30: Q3 filing deadline passed
+        return (f"{y-1}-12-31", f"{y}-02-14", f"Q3 (ended Dec 31, {y-1})")
     else:
-        target_date = as_of_date
-
-    y = target_date.year
-    candidates = [
-        # (period_end, deadline, label)
-        (date(y, 9, 30), date(y, 11, 14), f"Q2 FY{y+1} (ended Sep 30)"),
-        (date(y, 6, 30), date(y, 8, 14), f"Q1 FY{y+1} (ended Jun 30)"),
-        (date(y, 3, 31), date(y, 5, 30), f"Q4/Annual FY{y} (ended Mar 31)"),
-        (date(y - 1, 12, 31), date(y, 2, 14), f"Q3 FY{y} (ended Dec 31)"),
-        (date(y - 1, 9, 30), date(y - 1, 11, 14), f"Q2 FY{y} (ended Sep 30)"),
-        (date(y - 1, 6, 30), date(y - 1, 8, 14), f"Q1 FY{y} (ended Jun 30)"),
-        (date(y - 1, 3, 31), date(y - 1, 5, 30), f"Q4/Annual FY{y-1} (ended Mar 31)"),
-    ]
-
-    for p_end, deadline, label in candidates:
-        if target_date >= deadline:
-            return p_end.isoformat(), deadline.isoformat(), label
-
-    # Fallback to previous fiscal year annual
-    return date(y - 1, 3, 31).isoformat(), date(y - 1, 5, 30).isoformat(), f"Annual FY{y-1} (ended Mar 31)"
+        # Jan 1 to Feb 14: Q2 of previous year filing deadline passed
+        return (f"{y-1}-09-30", f"{y-1}-11-14", f"Q2 (ended Sep 30, {y-1})")
 
 
 def get_stale_stocks_audit() -> List[Dict[str, Any]]:
     """
     Returns all stocks currently marked as stale or in the 7-day cool-off suppression table.
     Shows the exact reason and what data is missing, enforcing statutory SEBI LODR Regulation 33 deadlines.
+    Super-fast execution utilizing cached pre-parsed raw filing metadata.
     """
     import os, json
     import pandas as pd
@@ -9681,6 +9720,7 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                 }
 
     # 3. Check canonical snapshot for DATA_STALE, filing gaps, and enrich existing stale items
+    raw_cache = _get_parsed_raw_filings_cache()
     try:
         snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
         if snap_path.exists():
@@ -9694,7 +9734,9 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                 except Exception:
                     return None
 
-            for _, row in snap_df.iterrows():
+            sebi_mand_period, sebi_deadline, sebi_label = get_sebi_lodr_mandatory_filing_status(now_dt)
+
+            for row in snap_df.to_dict("records"):
                 sym = str(row.get("symbol", "")).strip().upper()
                 if not sym:
                     continue
@@ -9750,7 +9792,7 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         "cooloff_until": (now_dt + timedelta(days=7)).isoformat(),
                         "days_remaining": 7.0,
                         "status": "STALE_SNAPSHOT",
-                        "source": "CANONICAL_SNAPSHOT",
+                        "source": "PIT_SNAPSHOT_METRICS",
                         "latest_annual_period": str(row.get("latest_annual_period") or ""),
                         "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
                         "cmp": _val(row.get("cmp")),
@@ -9778,44 +9820,21 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                     }
                 else:
                     # STRICT SEBI LODR REGULATION 33 FILING GATE:
-                    # Under SEBI LODR Reg 33, listed companies must file within:
-                    #   - Q1 (Jun 30): 45 days -> Aug 14
-                    #   - Q2 (Sep 30): 45 days -> Nov 14
-                    #   - Q3 (Dec 31): 45 days -> Feb 14
-                    #   - Q4 / Annual (Mar 31): 60 days -> May 30
-                    # If latest period on disk is older than the mandatory SEBI filing period, mark STALE_SEBI_LODR.
-                    sebi_mand_period, sebi_deadline, sebi_label = get_sebi_lodr_mandatory_filing_status(now_dt)
-                    raw_dir_chk = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
-                    raw_p = raw_dir_chk / f"{sym}.json"
+                    raw_info = raw_cache.get(sym)
                     raw_stale = False
                     raw_period = "No local file"
                     raw_count = 0
-                    if not raw_p.exists():
+                    if not raw_info:
                         raw_stale = True
                     else:
-                        try:
-                            with open(raw_p, "r", encoding="utf-8") as f:
-                                r_data = json.load(f)
-                            if isinstance(r_data, list) and len(r_data) > 0:
-                                raw_count = len(r_data)
-                                valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in r_data if stmt.get("period_end_date")]
-                                if valid_periods:
-                                    raw_period = max(valid_periods)
-                                    if raw_period < sebi_mand_period:
-                                        raw_stale = True
-                                else:
-                                    raw_stale = True
-                                    raw_period = "None"
-                            else:
-                                raw_stale = True
-                                raw_period = "Empty file"
-                        except Exception:
+                        raw_count = raw_info["count"]
+                        raw_period = raw_info["latest"]
+                        if raw_count == 0 or raw_period in ("None", "Empty", "Error") or raw_period < sebi_mand_period:
                             raw_stale = True
-                            raw_period = "Read Error"
 
                     if raw_stale:
                         comp_name = sec_master.get(sym, {}).get("company_name", sym)
-                        if raw_period == "No local file" or raw_period == "Empty file" or raw_period == "None":
+                        if raw_period in ("No local file", "Empty", "None", "Error"):
                             reason = "MISSING_RAW_FILINGS"
                             missing_summary = f"No raw disclosures on disk. Backfill pending for mandatory SEBI period {sebi_mand_period}."
                             status_code = "STALE_RAW_DATA"
@@ -9866,29 +9885,17 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.debug(f"[STALE_AUDIT] Snapshot check note: {e}")
 
-    # Enrich with latest period present in local raw filings
-    raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+    # Enrich any remaining cooloff items from raw_cache
     for sym, item in stale_map.items():
-        if item.get("latest_period_in_db") and item.get("latest_period_in_db") not in ("No local file", "None", "Error", "Empty file", "Read Error"):
+        if item.get("latest_period_in_db") and item.get("latest_period_in_db") not in ("No local file", "None", "Error", "Empty file", "Read Error", "Empty"):
             continue
-        raw_p = raw_dir / f"{sym}.json"
-        if raw_p.exists():
-            try:
-                with open(raw_p, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list) and len(data) > 0:
-                    item["filings_count_in_db"] = len(data)
-                    valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in data if stmt.get("period_end_date")]
-                    item["latest_period_in_db"] = max(valid_periods) if valid_periods else "None"
-                else:
-                    item["filings_count_in_db"] = 0
-                    item["latest_period_in_db"] = "None"
-            except Exception:
-                item["filings_count_in_db"] = 0
-                item["latest_period_in_db"] = "Error"
+        raw_info = raw_cache.get(sym)
+        if raw_info and raw_info["count"] > 0:
+            item["filings_count_in_db"] = raw_info["count"]
+            item["latest_period_in_db"] = raw_info["latest"]
         else:
             item["filings_count_in_db"] = 0
-            item["latest_period_in_db"] = "No local file"
+            item["latest_period_in_db"] = "No local file" if not raw_info else raw_info.get("latest", "None")
 
     return sorted(list(stale_map.values()), key=lambda x: x["symbol"])
 
@@ -9898,6 +9905,7 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
     Returns all stocks with proper, certified data in canonical snapshot and local DB.
     Returns comprehensive admin-visible data: latest filing period, last_fetched_at (file mtime),
     filings count, all fundamental metrics, valuation, share data, and provenance fields.
+    Fast execution utilizing cached pre-parsed raw filing metadata and records iteration.
     """
     import os, json
     import pandas as pd
@@ -9946,7 +9954,16 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
             if until and until > now_dt:
                 active_cooloff_symbols.add(str(sym).strip().upper())
 
-    raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+    raw_cache = _get_parsed_raw_filings_cache()
+    sebi_mand_period, _, _ = get_sebi_lodr_mandatory_filing_status(now_dt)
+
+    def _val(x, round_n=2):
+        if x is None or pd.isna(x):
+            return None
+        try:
+            return round(float(x), round_n)
+        except Exception:
+            return None
 
     # Filter to valid, non-stale rows
     mask = (
@@ -9959,54 +9976,28 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
 
     valid_df = snap_df.loc[mask]
 
-    for _, row in valid_df.iterrows():
+    for row in valid_df.to_dict("records"):
         sym = str(row.get("symbol", "")).strip().upper()
         if not sym or sym in active_cooloff_symbols:
             continue
 
-        raw_p = raw_dir / f"{sym}.json"
-        if not raw_p.exists():
+        raw_info = raw_cache.get(sym)
+        if not raw_info or raw_info["count"] == 0:
             continue  # STRICT GATE: Exclude from fresh if raw filings missing on disk
 
-        filings_count = 0
-        recent_periods = []
-        last_fetched_at = None
-        latest_period_in_db = "None"
-        try:
-            mtime = raw_p.stat().st_mtime
-            last_fetched_at = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
-            with open(raw_p, "r", encoding="utf-8") as f:
-                r_data = json.load(f)
-            if not isinstance(r_data, list) or len(r_data) == 0:
-                continue
-            filings_count = len(r_data)
-            valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in r_data if stmt.get("period_end_date")]
-            if not valid_periods:
-                continue
-            latest_period_in_db = max(valid_periods)
-            sebi_mand_period, _, _ = get_sebi_lodr_mandatory_filing_status(now_dt)
-            if latest_period_in_db < sebi_mand_period:
-                continue  # STRICT SEBI REG 33 FRESHNESS GATE: Hard exclude if latest filing on disk is older than mandatory SEBI period
-            for stmt in r_data[-5:]:
-                p_end = str(stmt.get("period_end_date") or "")
-                st_t = str(stmt.get("statement_type") or "A")[:1]
-                if p_end:
-                    recent_periods.append(f"{p_end} ({st_t})")
-        except Exception:
-            continue
+        latest_period_in_db = raw_info["latest"]
+        if latest_period_in_db in ("None", "Empty", "Error") or latest_period_in_db < sebi_mand_period:
+            continue  # STRICT SEBI REG 33 FRESHNESS GATE: Hard exclude if latest filing on disk is older than mandatory SEBI period
+
+        filings_count = raw_info["count"]
+        recent_periods = raw_info.get("recent", [])
+        mtime = raw_info.get("mtime", 0)
+        last_fetched_at = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else None
 
         comp_name = sec_master.get(sym, {}).get("company_name", sym)
         annual_period = str(row.get("latest_annual_period") or "")[:10]
         as_of = str(row.get("as_of_date") or "")
         isin = str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or "")
-
-        def _val(x, round_n=2):
-            if x is None or pd.isna(x):
-                return None
-            try:
-                return round(float(x), round_n)
-            except Exception:
-                return None
 
         fresh_list.append({
             "symbol": sym,
