@@ -1009,6 +1009,15 @@ class FinancialFilingWatcher:
             except Exception as auto_rb_err:
                 logger.warning(f"[filling scanner] Auto snapshot rebuild error: {auto_rb_err}")
 
+            try:
+                try:
+                    from app.database import upload_pit_raw_bundle_to_db
+                except ImportError:
+                    from database import upload_pit_raw_bundle_to_db
+                upload_pit_raw_bundle_to_db()
+            except Exception as bundle_err:
+                logger.debug(f"[filling scanner] Raw filings bundle upload note: {bundle_err}")
+
         return discovered_events
 
     def _merge_into_pit_raw_filings(

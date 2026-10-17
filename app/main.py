@@ -1245,6 +1245,7 @@ def run_system_scheduler():
                 return True
 
             local_canonical_valid = False
+            _df_local = None
             if os.path.exists(canonical_path):
                 try:
                     _df_local = _pd.read_parquet(canonical_path)
@@ -1252,57 +1253,70 @@ def run_system_scheduler():
                 except Exception as _ce:
                     logger.warning(f"Local canonical read check warning: {_ce}")
 
-            # Case 1 & 2: Local missing or truncated/invalid → restore from DB
-            if not local_canonical_valid:
-                logger.warning("⚠️ [CANONICAL BOOT] Local canonical_pit_rebuilt is missing or incomplete. Restoring from DB...")
+            # Check authoritative DB snapshot first to prevent stale container images from overwriting newer DB state
+            db_cand_path = canonical_path + ".db_check"
+            db_has_valid = False
+            _df_db = None
+            try:
+                if download_parquet_from_db("canonical_pit_rebuilt", db_cand_path):
+                    _df_db = _pd.read_parquet(db_cand_path)
+                    if _is_valid_canonical_df(_df_db):
+                        db_has_valid = True
+            except Exception as _db_chk_err:
+                logger.debug(f"[CANONICAL BOOT] DB pre-check note: {_db_chk_err}")
+
+            if db_has_valid and _df_db is not None:
+                # Compare freshness between DB and local
+                db_fresh_cnt = int(((_df_db["pit_freshness_status"].isin(["VALID", "FRESH"])) & (~_df_db["filing_gap_detected"].fillna(False))).sum()) if "pit_freshness_status" in _df_db.columns else len(_df_db)
+                local_fresh_cnt = int(((_df_local["pit_freshness_status"].isin(["VALID", "FRESH"])) & (~_df_local["filing_gap_detected"].fillna(False))).sum()) if (local_canonical_valid and _df_local is not None and "pit_freshness_status" in _df_local.columns) else 0
+
+                if not local_canonical_valid or db_fresh_cnt >= local_fresh_cnt:
+                    # Adopt DB snapshot as authoritative
+                    shutil.move(db_cand_path, canonical_path)
+                    logger.info(f"✅ [CANONICAL BOOT] Adopted authoritative DB snapshot ({len(_df_db)} symbols, {db_fresh_cnt} certified fresh vs {local_fresh_cnt} local)")
+                else:
+                    # Local snapshot has more fresh rows (e.g. freshly rebuilt locally) -> push to DB
+                    if os.path.exists(db_cand_path):
+                        os.remove(db_cand_path)
+                    try:
+                        upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                        logger.info(f"⚡ [CANONICAL BOOT] Local snapshot is more fresh ({local_fresh_cnt} vs {db_fresh_cnt} DB). Synced to DB.")
+                    except Exception as _c_up_err:
+                        logger.debug(f"Canonical DB upload notice: {_c_up_err}")
+            elif not local_canonical_valid:
+                # Local invalid and DB unavailable -> fallback to seed
+                logger.warning("⚠️ [CANONICAL BOOT] Both local and DB canonical snapshots need seeding...")
+                if os.path.exists(db_cand_path):
+                    os.remove(db_cand_path)
                 db_restored = False
-                try:
-                    if download_parquet_from_db("canonical_pit_rebuilt", canonical_path):
-                        _df_db = _pd.read_parquet(canonical_path)
-                        if _is_valid_canonical_df(_df_db):
-                            logger.info(f"✅ [CANONICAL BOOT] Restored certified canonical_pit_rebuilt ({len(_df_db)} symbols) from DB")
-                            # [RULE 67 CHANGE-RATIONALE: P0_BOOT_OVERWRITE_FIX]
-                            # DO NOT write canonical_pit_rebuilt into master_v2_path (daily_builder_master_v2.parquet).
-                            # canonical_pit_rebuilt is a 48-col raw balance sheet/statement dataset.
-                            # daily_builder_master_v2 is a 26-col calculated ratio dataset restored separately.
-                            db_restored = True
-                        else:
-                            logger.error(f"❌ [CANONICAL BOOT] Downloaded DB canonical snapshot failed universe validation ({len(_df_db)} symbols)")
-                except Exception as _c_dl_err:
-                    logger.error(f"❌ [CANONICAL BOOT] Failed to restore canonical_pit_rebuilt from DB: {_c_dl_err}")
-
-                if not db_restored:
-                    for seed_cand in ["/app/data_seed", "/app/data", os.path.join(BASE_DIR, "data_seed")]:
-                        seed_p = os.path.join(seed_cand, "canonical_pit_rebuilt.parquet")
-                        if os.path.exists(seed_p):
-                            try:
-                                _df_seed = _pd.read_parquet(seed_p)
-                                if _is_valid_canonical_df(_df_seed):
-                                    shutil.copy2(seed_p, canonical_path)
-                                    # [RULE 67 CHANGE-RATIONALE: P0_BOOT_OVERWRITE_FIX]
-                                    # DO NOT copy canonical seed over master_v2_path!
-                                    seed_meta = seed_p.replace(".parquet", "_meta.json")
-                                    if os.path.exists(seed_meta):
-                                        shutil.copy2(seed_meta, meta_path)
-                                    logger.info(f"✅ [CANONICAL BOOT] Seeded certified canonical snapshot ({len(_df_seed)} symbols) from {seed_cand}")
-                                    try:
-                                        upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                                    except Exception:
-                                        pass
-                                    db_restored = True
-                                    break
-                            except Exception:
-                                pass
-
+                for seed_cand in ["/app/data_seed", "/app/data", os.path.join(BASE_DIR, "data_seed")]:
+                    seed_p = os.path.join(seed_cand, "canonical_pit_rebuilt.parquet")
+                    if os.path.exists(seed_p):
+                        try:
+                            _df_seed = _pd.read_parquet(seed_p)
+                            if _is_valid_canonical_df(_df_seed):
+                                shutil.copy2(seed_p, canonical_path)
+                                seed_meta = seed_p.replace(".parquet", "_meta.json")
+                                if os.path.exists(seed_meta):
+                                    shutil.copy2(seed_meta, meta_path)
+                                logger.info(f"✅ [CANONICAL BOOT] Seeded certified canonical snapshot ({len(_df_seed)} symbols) from {seed_cand}")
+                                try:
+                                    upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                                except Exception:
+                                    pass
+                                db_restored = True
+                                break
+                        except Exception:
+                            pass
                 if not db_restored and not os.path.exists(canonical_path):
                     logger.critical("🛑 [CANONICAL BOOT] HARD BLOCK: Both local and DB canonical snapshots unavailable. Fail-closed guaranteed.")
             else:
+                # Local is valid, DB was empty -> initialize DB
+                if os.path.exists(db_cand_path):
+                    os.remove(db_cand_path)
                 try:
                     upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                    # [RULE 67 CHANGE-RATIONALE: P0_BOOT_OVERWRITE_FIX]
-                    # NEVER upload canonical_path as daily_builder_master_v2!
-                    # daily_builder_master_v2 is uploaded exclusively by FundamentalWealthEngine / DailyBuilder.
-                    logger.info(f"⚡ [CANONICAL BOOT] Verified local certified canonical snapshot ({len(_df_local)} symbols) and synced to DB")
+                    logger.info(f"⚡ [CANONICAL BOOT] Initialized DB snapshot from verified local snapshot ({len(_df_local)} symbols)")
                 except Exception as _c_up_err:
                     logger.debug(f"Canonical DB upload notice: {_c_up_err}")
 
@@ -1310,6 +1324,14 @@ def run_system_scheduler():
             pit_raw_dir = os.path.join(DATA_DIR, "pit_raw_filings")
             pit_parquet_dir = os.path.join(DATA_DIR, "pit_fundamentals_v1")
             pit_parquet_path = os.path.join(pit_parquet_dir, "pit_fundamentals_v1.parquet")
+
+            # Restore any newer raw filings bundle from DB
+            try:
+                from database import restore_pit_raw_bundle_from_db
+                restore_pit_raw_bundle_from_db()
+            except Exception as _pr_err:
+                logger.debug(f"[PIT RAW BOOT] Notice: {_pr_err}")
+
             if not os.path.exists(pit_raw_dir) or len(glob.glob(os.path.join(pit_raw_dir, "*.json"))) == 0:
                 for seed_cand in ["/app/data_seed/pit_raw_filings", "/app/data/pit_raw_filings", os.path.join(BASE_DIR, "data", "pit_raw_filings")]:
                     if os.path.isdir(seed_cand) and len(glob.glob(os.path.join(seed_cand, "*.json"))) > 0:

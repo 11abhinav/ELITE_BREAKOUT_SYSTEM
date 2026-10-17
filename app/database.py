@@ -7299,6 +7299,91 @@ def restore_history_bundle_from_db(interval: str = "1d") -> bool:
         return False
 
 
+def upload_pit_raw_bundle_to_db() -> bool:
+    """
+    Compresses data/pit_raw_filings/*.json into a tar.gz bundle and persists to PostgreSQL
+    parquet_cache under name 'pit_raw_bundle' to ensure server restarts and container redeploys
+    retain all freshly discovered filings from the Filing Scanner.
+    """
+    import io
+    import tarfile
+    import tempfile
+    import subprocess
+    import psycopg2
+    from pathlib import Path
+
+    raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+    if not raw_dir.exists():
+        return False
+
+    files = [f for f in os.listdir(raw_dir) if f.endswith(".json")]
+    if not files:
+        return False
+
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    init_db()
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        res = subprocess.run(["tar", "-czf", tmp_path, "-C", str(raw_dir), "."], capture_output=True)
+        if res.returncode not in (0, 1) or not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            with tarfile.open(tmp_path, "w:gz") as tar:
+                for f in files:
+                    tar.add(raw_dir / f, arcname=f)
+
+        with open(tmp_path, "rb") as f:
+            binary_data = f.read()
+        os.remove(tmp_path)
+
+        with _DB_WRITE_LOCK:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO parquet_cache (name, date, data)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
+                    """, ("pit_raw_bundle", today, psycopg2.Binary(binary_data)))
+                conn.commit()
+
+        logger.info(f"💾 [PIT RAW BUNDLE SYNC] Uploaded {len(files)} raw JSON filings ({len(binary_data)/1024.0:.1f} KB) to DB parquet_cache")
+        return True
+    except Exception as e:
+        logger.debug(f"[PIT RAW BUNDLE SYNC] Upload error: {e}")
+        return False
+
+
+def restore_pit_raw_bundle_from_db() -> bool:
+    """
+    Restores the latest pit_raw_bundle from PostgreSQL parquet_cache into data/pit_raw_filings/
+    on server boot if local files are missing or incomplete.
+    """
+    import io
+    import tarfile
+    from pathlib import Path
+
+    raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+    os.makedirs(raw_dir, exist_ok=True)
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'pit_raw_bundle' ORDER BY date DESC LIMIT 1")
+                row = cur.fetchone()
+                if not row or not row[0] or not isinstance(row[0], (bytes, bytearray, memoryview)):
+                    return False
+
+                binary_data = bytes(row[0])
+                bio = io.BytesIO(binary_data)
+                with tarfile.open(fileobj=bio, mode="r:gz") as tar:
+                    tar.extractall(path=raw_dir)
+                logger.info(f"✅ [PIT RAW BOOT] Restored pit_raw_filings bundle from DB (date: {row[1]})")
+                return True
+    except Exception as e:
+        logger.debug(f"[PIT RAW BOOT] Restore error: {e}")
+        return False
+
+
 
 def save_df_to_table(table_name: str, df: pd.DataFrame):
     """Saves a Pandas DataFrame to a PostgreSQL table dynamically with connection retry."""
@@ -9523,6 +9608,10 @@ def check_and_restore_stale_stock(
                             clear_shared_snapshot_cache()
                         except Exception:
                             pass
+                        try:
+                            upload_parquet_to_db("canonical_pit_rebuilt", str(snap_path))
+                        except Exception as _up_err:
+                            logger.debug(f"[STALE_RESTORE] DB parquet sync note for {sym}: {_up_err}")
     except Exception as snap_err:
         logger.debug(f"[STALE_RESTORE] Snapshot status update note for {sym}: {snap_err}")
 
