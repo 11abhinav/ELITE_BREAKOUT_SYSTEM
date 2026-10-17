@@ -511,8 +511,8 @@
     "total_equity": 18858.14,
     "ebit": 2440.94,
     "capital_employed": 18858.14,
-    "eps": null,
-    "shares_outstanding": null,
+    "eps": 2.44,
+    "shares_outstanding": 688.39,
     "unit": "crore",
     "currency": "INR",
     "source_record_hash": "9ddc9533ee731e784c0d856c8179bbc384a9b31a6956b8952723e03c05620465"

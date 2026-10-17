@@ -9681,46 +9681,94 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 60.0) -> Dict[str, Dict[s
         return _AUDIT_RAW_FILINGS_CACHE
 
 
-def get_sebi_lodr_mandatory_filing_status(dt: Optional[datetime] = None) -> Tuple[str, str, str]:
+def get_sebi_lodr_mandatory_filing_status(
+    dt: Optional[datetime] = None,
+    fy_end_month: int = 3,
+    is_half_yearly: bool = False
+) -> Tuple[str, str, str]:
     """
     Statutory SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015 - Regulation 33:
-    1. Q1 (Quarter ended June 30)       -> Mandatory filing deadline: August 14 (45 days)
-    2. Q2 (Quarter ended September 30)  -> Mandatory filing deadline: November 14 (45 days)
-    3. Q3 (Quarter ended December 31)   -> Mandatory filing deadline: February 14 (45 days)
-    4. Q4 / Audited Annual (March 31)   -> Mandatory filing deadline: May 30 (60 days under Reg 33(3)(d))
+    1. Standard Quarterly Filers (Reg 33(3)):
+       - Q1 (45 days): Aug 14 for June 30
+       - Q2 (45 days): Nov 14 for September 30
+       - Q3 (45 days): Feb 14 for December 31
+       - Q4 / Annual Audited (60 days under Reg 33(3)(d)): May 30 for March 31
+    2. SME / Half-Yearly Filers (Reg 33(5)):
+       - H1 (45 days): Nov 14 for September 30
+       - H2 / Annual Audited (60 days): May 30 for March 31
+       - Do NOT submit Q1 or Q3 quarterly results.
+    3. Non-March FY companies (e.g. Dec CY for ABB/HUHTAMAKI, Jun FY for KENNAMET):
+       - Deadlines computed according to company's statutory fiscal year end month.
 
     Returns:
         Tuple of (mandatory_period_end_date_iso, statutory_deadline_date_iso, human_label)
-        Any company whose latest disclosures on disk / exchange are older than mandatory_period_end_date_iso
-        is legally overdue and marked STALE under statutory SEBI rules.
     """
     if dt is None:
         dt = datetime.now(IST)
-    from datetime import date
+    from datetime import date, timedelta
     cur_date = dt.date() if hasattr(dt, "date") else dt
     y = cur_date.year
 
-    # Deadlines for current calendar year
-    d_q3_prev = date(y, 2, 14)   # Feb 14: Q3 of previous fiscal
-    d_q4_prev = date(y, 5, 30)   # May 30: Q4 / Annual Audited of March 31
-    d_q1_cur  = date(y, 8, 14)   # Aug 14: Q1 of current fiscal
-    d_q2_cur  = date(y, 11, 14)  # Nov 14: Q2 of current fiscal
+    fy_m = fy_end_month if (fy_end_month and 1 <= fy_end_month <= 12) else 3
 
-    if cur_date > d_q2_cur:
-        # Nov 15 to Dec 31: Q2 filing deadline passed
-        return (f"{y}-09-30", f"{y}-11-14", f"Q2 (ended Sep 30, {y})")
-    elif cur_date > d_q1_cur:
-        # Aug 15 to Nov 14: Q1 filing deadline passed
-        return (f"{y}-06-30", f"{y}-08-14", f"Q1 (ended Jun 30, {y})")
-    elif cur_date > d_q4_prev:
-        # May 31 to Aug 14: Q4 / Annual filing deadline passed
-        return (f"{y}-03-31", f"{y}-05-30", f"Q4/Annual Audited (ended Mar 31, {y})")
-    elif cur_date > d_q3_prev:
-        # Feb 15 to May 30: Q3 filing deadline passed
-        return (f"{y-1}-12-31", f"{y}-02-14", f"Q3 (ended Dec 31, {y-1})")
-    else:
-        # Jan 1 to Feb 14: Q2 of previous year filing deadline passed
-        return (f"{y-1}-09-30", f"{y-1}-11-14", f"Q2 (ended Sep 30, {y-1})")
+    if is_half_yearly:
+        # Half-Yearly Schedule: H1 (fy_m + 6) and H2/Annual (fy_m)
+        h1_m = (fy_m + 6) % 12 or 12
+        h1_day = 30 if h1_m in (4, 6, 9, 11) else (31 if h1_m in (1, 3, 5, 7, 8, 10, 12) else 28)
+        h2_day = 31 if fy_m in (1, 3, 5, 7, 8, 10, 12) else (30 if fy_m in (4, 6, 9, 11) else 28)
+
+        candidates = []
+        for y_cand in [y - 1, y, y + 1]:
+            # H1
+            try:
+                p_h1 = date(y_cand, h1_m, h1_day)
+                dl_h1 = p_h1 + timedelta(days=45)
+                candidates.append((p_h1, dl_h1, f"H1 (ended {p_h1})"))
+            except Exception:
+                pass
+            # H2 / Annual
+            try:
+                p_h2 = date(y_cand, fy_m, h2_day)
+                dl_h2 = p_h2 + timedelta(days=60)
+                candidates.append((p_h2, dl_h2, f"H2/Annual Audited (ended {p_h2})"))
+            except Exception:
+                pass
+
+        passed = [c for c in candidates if c[1] < cur_date]
+        if passed:
+            passed.sort(key=lambda c: c[0])
+            latest_passed = passed[-1]
+            return (latest_passed[0].isoformat(), latest_passed[1].isoformat(), latest_passed[2])
+        return (f"{y-1}-{fy_m:02d}-{h2_day:02d}", f"{y}-05-30", f"H2/Annual Audited")
+
+    # Standard Quarterly Schedule (Reg 33(3))
+    q_months = [
+        (fy_m + 3) % 12 or 12,   # Q1
+        (fy_m + 6) % 12 or 12,   # Q2
+        (fy_m + 9) % 12 or 12,   # Q3
+        fy_m,                    # Q4 (Annual)
+    ]
+
+    candidates = []
+    for y_cand in [y - 1, y, y + 1]:
+        for idx, qm in enumerate(q_months):
+            q_day = 31 if qm in (1, 3, 5, 7, 8, 10, 12) else (30 if qm in (4, 6, 9, 11) else 28)
+            try:
+                p_dt = date(y_cand, qm, q_day)
+                days_due = 60 if idx == 3 else 45
+                dl_dt = p_dt + timedelta(days=days_due)
+                q_lbl = f"Q{idx+1} (ended {p_dt})" if idx < 3 else f"Q4/Annual Audited (ended {p_dt})"
+                candidates.append((p_dt, dl_dt, q_lbl))
+            except Exception:
+                pass
+
+    passed = [c for c in candidates if c[1] < cur_date]
+    if passed:
+        passed.sort(key=lambda c: c[0])
+        latest_passed = passed[-1]
+        return (latest_passed[0].isoformat(), latest_passed[1].isoformat(), latest_passed[2])
+
+    return (f"{y}-03-31", f"{y}-05-30", f"Q4/Annual Audited (ended Mar 31, {y})")
 
 
 def get_stale_stocks_audit() -> List[Dict[str, Any]]:
@@ -9851,15 +9899,45 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                 if not sym:
                     continue
 
+                fy_end_m = int(row.get("fy_end_month") or 3)
+                try:
+                    from app.financial_data_integrity import is_half_yearly_filer
+                    is_half_y = is_half_yearly_filer(sym)
+                except Exception:
+                    is_half_y = False
+
+                sym_mand_period, sym_deadline, sym_label = get_sebi_lodr_mandatory_filing_status(
+                    now_dt, fy_end_month=fy_end_m, is_half_yearly=is_half_y
+                )
+
                 # If symbol is already in stale_map (from cooloff journal or local cooloff cache),
                 # check if its data has since been completely refreshed. If so, auto-restore it!
                 if sym in stale_map:
+                    item = stale_map[sym]
+                    r_str = str(item.get("reason") or "").upper()
+
+                    # 1. Price History resolution check:
+                    if "PRICE_HISTORY" in r_str or "INSUFFICIENT_LOOKBACK" in r_str:
+                        p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1d" / f"{sym}.parquet"
+                        if p_1d.exists():
+                            try:
+                                df_px = pd.read_parquet(p_1d)
+                                if len(df_px) >= 50:
+                                    try:
+                                        check_and_restore_stale_stock(sym, source="AUTO_EVICT_PRICE_HISTORY_RESOLVED", notify_admin=False)
+                                    except Exception:
+                                        pass
+                                    del stale_map[sym]
+                                    continue
+                            except Exception:
+                                pass
+
                     raw_info = raw_cache.get(sym)
                     freshness_status = str(row.get("pit_freshness_status", "")).upper()
                     has_gap = bool(row.get("filing_gap_detected", False))
                     staleness_y = float(row.get("pit_staleness_years") or 0.0)
                     has_live_price = (row.get("cmp") is not None and not pd.isna(row.get("cmp")) and float(row.get("cmp")) > 0)
-                    has_fresh_raw = bool(raw_info and raw_info.get("count", 0) > 0 and raw_info.get("latest") not in ("None", "Empty", "Error") and raw_info.get("latest") >= sebi_mand_period)
+                    has_fresh_raw = bool(raw_info and raw_info.get("count", 0) > 0 and raw_info.get("latest") not in ("None", "Empty", "Error") and raw_info.get("latest") >= sym_mand_period)
 
                     if freshness_status in ("VALID", "FRESH") and not has_gap and staleness_y <= 2.0 and has_live_price and has_fresh_raw:
                         # Data is completely verified and fresh! Auto-evict from cool-off and stale map
@@ -9955,19 +10033,19 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                     else:
                         raw_count = raw_info["count"]
                         raw_period = raw_info["latest"]
-                        if raw_count == 0 or raw_period in ("None", "Empty", "Error") or raw_period < sebi_mand_period:
+                        if raw_count == 0 or raw_period in ("None", "Empty", "Error") or raw_period < sym_mand_period:
                             raw_stale = True
 
                     if raw_stale:
                         comp_name = sec_master.get(sym, {}).get("company_name", sym)
                         if raw_period in ("No local file", "Empty", "None", "Error"):
                             reason = "MISSING_RAW_FILINGS"
-                            missing_summary = f"No raw disclosures on disk. Backfill pending for mandatory SEBI period {sebi_mand_period}."
+                            missing_summary = f"No raw disclosures on disk. Backfill pending for mandatory period {sym_mand_period}."
                             status_code = "STALE_RAW_DATA"
                         else:
-                            reason = f"STALE_SEBI_LODR ({raw_period} < {sebi_mand_period})"
-                            missing_summary = f"SEBI LODR Reg 33 filing overdue ({sebi_label}). Required: {sebi_mand_period} (Due {sebi_deadline}). Latest available: {raw_period}."
-                            status_code = "STALE_SEBI_LODR"
+                            reason = f"LOCAL_CACHE_BACKFILL_PENDING ({raw_period} < {sym_mand_period})"
+                            missing_summary = f"Local raw cache backfill pending ({sym_label}). Exchange requires {sym_mand_period} (Due {sym_deadline}), but local files end at {raw_period}."
+                            status_code = "STALE_LOCAL_CACHE"
 
                         stale_map[sym] = {
                             "symbol": sym,

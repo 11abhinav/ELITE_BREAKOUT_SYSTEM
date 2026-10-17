@@ -37,7 +37,7 @@ def test_get_stale_stocks_audit_structure():
         assert "reason" in item
         assert "missing_data_summary" in item
         assert "days_remaining" in item
-        assert item["status"] in ("STALE_COOLOFF", "STALE_SNAPSHOT", "STALE_RAW_DATA", "STALE_SEBI_LODR")
+        assert item["status"] in ("STALE_COOLOFF", "STALE_SNAPSHOT", "STALE_RAW_DATA", "STALE_SEBI_LODR", "STALE_LOCAL_CACHE")
 
 
 def test_get_fresh_stocks_audit_structure():

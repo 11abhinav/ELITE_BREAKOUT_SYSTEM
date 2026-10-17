@@ -13991,6 +13991,22 @@ function exportStockDataHealthCSV() {
     return val;
   };
 
+  const fmtCfoPat = (val, pat) => {
+    if (val === null || val === undefined) return '';
+    const n = Number(val);
+    if (isNaN(n) || n <= -900 || n === 9999) return '';
+    const p = Number(pat);
+    if (!isNaN(p) && p <= 0) return '';
+    return val;
+  };
+
+  const fmtDilution = (val) => {
+    if (val === null || val === undefined) return '';
+    const n = Number(val);
+    if (isNaN(n) || n <= -900 || n === 9999 || n > 100) return '';
+    return val;
+  };
+
   const rows = [headers.join(',')];
 
   SDH_FILTERED_ITEMS.forEach(it => {
@@ -14017,13 +14033,13 @@ function exportStockDataHealthCSV() {
       escapeCsv(fmtMetric(it.roe)),
       escapeCsv(fmtMetric(it.sales_cagr_5y)),
       escapeCsv(fmtMetric(it.pat_cagr_5y)),
-      escapeCsv(fmtMetric(it.cfo_pat_5y_ratio)),
+      escapeCsv(fmtCfoPat(it.cfo_pat_5y_ratio, it.net_profit)),
       escapeCsv(fmtMetric(it.debt_to_equity)),
       escapeCsv(fmtMetric(it.revenue)),
       escapeCsv(fmtMetric(it.net_profit)),
       escapeCsv(fmtMetric(it.operating_cash_flow)),
       escapeCsv(fmtMetric(it.shares_outstanding_m)),
-      escapeCsv(fmtMetric(it.share_dilution_3y_pct)),
+      escapeCsv(fmtDilution(it.share_dilution_3y_pct)),
       escapeCsv(isStale ? (it.source || 'STALE') : (it.provenance_status || 'CERTIFIED'))
     ];
     rows.push(row.join(','));

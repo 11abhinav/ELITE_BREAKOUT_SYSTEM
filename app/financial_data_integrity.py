@@ -449,6 +449,40 @@ class BUYEvidenceBundle:
 # C1 — PIT STALENESS GATE
 # ---------------------------------------------------------------------------
 
+def is_half_yearly_filer(symbol: str, raw_filings: Optional[List[Dict[str, Any]]] = None) -> bool:
+    """
+    Identifies whether a company is an SME / Half-Yearly filer under SEBI LODR Reg 33(5).
+    Half-yearly filers report financial results for H1 (Sep 30) and H2/Annual (Mar 31)
+    and do not publish Q1 (Jun 30) or Q3 (Dec 31) quarterly filings.
+    """
+    sym_u = str(symbol or "").strip().upper()
+    if not sym_u:
+        return False
+
+    KNOWN_HALF_YEARLY = {
+        "ACCENTMIC", "ORIANA", "AIMTRON", "ANONDITA", "DANISH", "DPEL",
+        "KODYTECH", "JSLL", "VINYAS", "DYNAMIC", "SHREEOSWAL"
+    }
+    if sym_u in KNOWN_HALF_YEARLY:
+        return True
+
+    # Check filing history pattern: if all recorded filings are March or September only
+    if raw_filings and len(raw_filings) >= 3:
+        months = set()
+        for f in raw_filings:
+            p_end = str(f.get("period_end_date") or f.get("toDate") or "")
+            if len(p_end) >= 7:
+                try:
+                    m = int(p_end[5:7])
+                    months.add(m)
+                except Exception:
+                    pass
+        if months and months.issubset({3, 9}):
+            return True
+
+    return False
+
+
 def check_pit_freshness(
     symbol: str,
     latest_annual_period: Any,
@@ -457,6 +491,7 @@ def check_pit_freshness(
     fy_end_month: Optional[int] = None,
     latest_quarterly_period: Any = None,
     enforce_quarterly: bool = False,
+    is_half_yearly: bool = False,
 ) -> IntegrityResult:
     """
     Validates that the latest annual filing in the PIT dataset is recent enough
@@ -577,12 +612,20 @@ def check_pit_freshness(
         # based on the scan_date and the company's fiscal year calendar.
         fy_end_m = target_fy_month  # Already computed above
         # Standard quarter-end months relative to FY end (e.g. FY ending March → Q1=Jun, Q2=Sep, Q3=Dec, Q4=Mar)
-        q_end_months = [
-            (fy_end_m + 3) % 12 or 12,   # Q1 end
-            (fy_end_m + 6) % 12 or 12,   # Q2 end
-            (fy_end_m + 9) % 12 or 12,   # Q3 end
-            fy_end_m,                      # Q4 end (= FY end, annual)
-        ]
+        # For SME / Half-Yearly filers (Reg 33(5)): only H1 (Sep) and H2/Annual (Mar)
+        is_half_y = is_half_yearly or is_half_yearly_filer(symbol)
+        if is_half_y:
+            q_end_months = [
+                (fy_end_m + 6) % 12 or 12,   # H1 end
+                fy_end_m,                      # H2 end (= FY end, annual)
+            ]
+        else:
+            q_end_months = [
+                (fy_end_m + 3) % 12 or 12,   # Q1 end
+                (fy_end_m + 6) % 12 or 12,   # Q2 end
+                (fy_end_m + 9) % 12 or 12,   # Q3 end
+                fy_end_m,                      # Q4 end (= FY end, annual)
+            ]
 
         # Build quarter-end dates for the last 12 months before scan_date
         expected_quarter_ends = []

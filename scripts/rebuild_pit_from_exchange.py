@@ -48,6 +48,7 @@ try:
         _parse_date_fast,
         check_pit_freshness,
         detect_annual_fiscal_gaps,
+        ANNUAL_GAP_THRESHOLD_DAYS,
         compute_cagr_pit,
         compute_ev_ebitda,
         derive_and_validate_shares,
@@ -69,6 +70,7 @@ except ImportError:
         _parse_date_fast,
         check_pit_freshness,
         detect_annual_fiscal_gaps,
+        ANNUAL_GAP_THRESHOLD_DAYS,
         compute_cagr_pit,
         compute_ev_ebitda,
         derive_and_validate_shares,
@@ -155,9 +157,13 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                             if not isinstance(it, dict):
                                 continue
                             p_end = str(it.get("period_end_date") or it.get("toDate") or "")[:10]
-                            st_type = str(it.get("statement_type") or it.get("period") or "QUARTERLY").upper()
-                            st = "ANNUAL" if ("ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type) else "QUARTERLY"
-                            bs = "STANDALONE" if ("STANDALONE" in str(it.get("basis") or it.get("consolidated") or "").upper()) else "CONSOLIDATED"
+                            st_type = str(it.get("statement_type") or it.get("period_type") or it.get("period") or "").upper()
+                            src = str(it.get("source") or "").upper()
+                            is_ann = ("ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type or "AUDITED" in src or "ANNUAL" in src)
+                            st = "ANNUAL" if is_ann else "QUARTERLY"
+                            it["statement_type"] = st
+                            bs = "STANDALONE" if ("STANDALONE" in str(it.get("basis") or it.get("consolidated") or "").upper() or "STANDALONE" in src) else "CONSOLIDATED"
+                            it["basis"] = bs
                             k = (p_end, st, bs)
                             if k not in seen_filing_keys:
                                 seen_filing_keys.add(k)
@@ -168,11 +174,15 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     if not filings:
         filings = _get_pit_filings(sym_u, allow_live_refresh=False)
     
-    annual_filings = [
+    consolidated_annual = [
         f for f in filings
         if str(f.get("statement_type", "")).upper() == "ANNUAL"
         and str(f.get("basis") or "CONSOLIDATED").upper() in (StatementBasis.CONSOLIDATED, "NONE", "")
     ]
+    if consolidated_annual:
+        annual_filings = consolidated_annual
+    else:
+        annual_filings = [f for f in filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
 
     # Filter by as-of-date PIT causality (C14)
     pit_eligible_annual = []
@@ -246,7 +256,21 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     # Gap Detection (C2): Check for gaps in the 5Y evaluation window (and record full history gaps)
     gaps_full = detect_annual_fiscal_gaps(pit_eligible_annual) if len(pit_eligible_annual) >= 2 else []
-    lookback_5y = pit_eligible_annual[-6:] if len(pit_eligible_annual) >= 6 else pit_eligible_annual
+    # Identify contiguous recent annual sequence ending at latest_period (for newly listed / IPOs)
+    contiguous_recent = []
+    if pit_eligible_annual:
+        contiguous_recent = [pit_eligible_annual[-1]]
+        for f in reversed(pit_eligible_annual[:-1]):
+            prev_p = str(f.get("period_end_date") or "")
+            curr_p = str(contiguous_recent[0].get("period_end_date") or "")
+            p_dt = _parse_date_fast(prev_p)
+            c_dt = _parse_date_fast(curr_p)
+            if p_dt and c_dt:
+                if (c_dt - p_dt).days <= ANNUAL_GAP_THRESHOLD_DAYS:
+                    contiguous_recent.insert(0, f)
+                else:
+                    break
+    lookback_5y = contiguous_recent[-6:] if len(contiguous_recent) >= 6 else contiguous_recent
     gaps = detect_annual_fiscal_gaps(lookback_5y) if len(lookback_5y) >= 2 else []
     has_gaps = len(gaps) > 0
 
@@ -366,8 +390,18 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                     pass
 
     current_pe = None
+    # 1. Direct Market Cap / Net Profit (unified P/E)
+    if market_cap_cr is not None and market_cap_cr > 0 and net_profit_val is not None:
+        try:
+            np_f = float(net_profit_val)
+            if np_f > 0:
+                current_pe = round(market_cap_cr / np_f, 2)
+        except Exception:
+            pass
+
+    # 2. CMP / EPS if Market Cap / Net Profit unavailable
     eps_f = float(eps_val) if eps_val is not None and not pd.isna(eps_val) else None
-    if cmp_px is not None and cmp_px > 0 and eps_f is not None and eps_f > 0:
+    if current_pe is None and cmp_px is not None and cmp_px > 0 and eps_f is not None and eps_f > 0:
         current_pe = round(cmp_px / eps_f, 2)
     elif current_pe is None:
         isin_str = str(latest_f.get("isin", "")).strip()
