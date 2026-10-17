@@ -1,35 +1,35 @@
 # Dashboard Latency & Response Time Audit Report
 
-**Date**: 2026-10-09 21:27:07 IST
+**Date**: 2026-10-17 17:05:00 IST
 **Status**: CERTIFIED (SUB-15MS LATENCY)
 
 ## 1. Core Endpoints Latency (50 Iterations)
 
 | Endpoint | Status | Min | Mean | P50 | P95 | P99 | Payload | Gzip |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Design System CSS (Frosted Crystal) (`/static/shared.css`) | 200 | 1.75ms | 2.17ms | 1.86ms | 3.14ms | 8.23ms | 15.7 KB | No |
-| Table Sorter JS (Zero-Reflow) (`/static/table_sorter.js`) | 200 | 2.05ms | 4.84ms | 2.19ms | 12.36ms | 99.75ms | 4.9 KB | No |
-| User Dashboard HTML (Gzip / ETag) (`/user`) | 200 | 1.47ms | 1.74ms | 1.66ms | 2.25ms | 3.75ms | 86.9 KB | Yes |
-| Admin Dashboard HTML (Gzip / ETag) (`/admin`) | 200 | 1.52ms | 2.02ms | 1.68ms | 2.59ms | 9.32ms | 139.8 KB | Yes |
-| Market Indices Ticker (Live / Fallback) (`/api/indices`) | 200 | 4.5ms | 8.82ms | 5.07ms | 20.43ms | 86.16ms | 428 B | Yes |
-| Master Executive Summary (v2) (`/api/v2/master_summary`) | 200 | 4.64ms | 9.97ms | 5.83ms | 37.05ms | 51.79ms | 153 B | Yes |
-| Scanner Unified Health Telemetry (v2) (`/api/v2/scanner_health`) | 200 | 4.7ms | 11.79ms | 7.24ms | 36.19ms | 60.51ms | 310 B | Yes |
-| Core Strategy Performance Summary (`/api/summary`) | 200 | 4.8ms | 9.29ms | 5.21ms | 41.46ms | 61.9ms | 86 B | No |
-| Live Active Breakout Shortlist (`/api/shortlist`) | 200 | 4.87ms | 13.47ms | 7.68ms | 40.57ms | 93.21ms | 240 B | Yes |
-| Wealth Engine Portfolio Allocation (`/api/wealth`) | 200 | 4.66ms | 10.69ms | 9.51ms | 27.47ms | 29.87ms | 78.0 KB | Yes |
-| Live Macro & Market Regime State (`/api/macro_state`) | 200 | 4.98ms | 11.29ms | 7.34ms | 31.57ms | 113.18ms | 87 B | Yes |
-| Scanner Execution Telemetry History (`/api/scanner_execution_history?page=1&per_page=25`) | 200 | 4.86ms | 6.22ms | 5.49ms | 9.95ms | 14.11ms | 264 B | No |
-| Breakout Watchlist (5s Micro-Cache) (`/api/breakout_watchlist`) | 200 | 4.18ms | 4.68ms | 4.45ms | 5.76ms | 6.88ms | 52 B | Yes |
-| System Version & Governance State (`/api/version`) | 200 | 4.08ms | 4.61ms | 4.39ms | 5.82ms | 7.13ms | 279 B | No |
+| Design System CSS (Frosted Crystal) (`/static/shared.css`) | 200 | 1.89ms | 2.72ms | 2.48ms | 4.21ms | 6.85ms | 15.7 KB | No |
+| Table Sorter JS (Zero-Reflow) (`/static/table_sorter.js`) | 200 | 1.86ms | 3.2ms | 2.72ms | 5.63ms | 7.25ms | 4.9 KB | No |
+| User Dashboard HTML (Gzip / ETag) (`/user`) | 200 | 1.64ms | 2.31ms | 2.0ms | 3.85ms | 4.71ms | 91.9 KB | Yes |
+| Admin Dashboard HTML (Gzip / ETag) (`/admin`) | 200 | 1.43ms | 1.95ms | 1.62ms | 3.31ms | 4.56ms | 171.7 KB | Yes |
+| Market Indices Ticker (Live / Fallback) (`/api/indices`) | 200 | 1.34ms | 1.87ms | 1.58ms | 3.05ms | 3.8ms | 232 B | Yes |
+| Master Executive Summary (v2) (`/api/v2/master_summary`) | 200 | 1.36ms | 1.77ms | 1.51ms | 3.34ms | 3.49ms | 153 B | Yes |
+| Scanner Unified Health Telemetry (v2) (`/api/v2/scanner_health`) | 200 | 1.31ms | 1.81ms | 1.58ms | 2.96ms | 3.84ms | 310 B | Yes |
+| Core Strategy Performance Summary (`/api/summary`) | 200 | 1.45ms | 1.93ms | 1.72ms | 3.15ms | 3.41ms | 86 B | No |
+| Live Active Breakout Shortlist (`/api/shortlist`) | 200 | 4.19ms | 8.02ms | 5.63ms | 28.57ms | 54.35ms | 240 B | Yes |
+| Wealth Engine Portfolio Allocation (`/api/wealth`) | 200 | 4.41ms | 5.58ms | 5.51ms | 6.98ms | 10.21ms | 286 B | Yes |
+| Live Macro & Market Regime State (`/api/macro_state`) | 200 | 4.67ms | 5.93ms | 5.63ms | 8.47ms | 12.45ms | 70 B | No |
+| Scanner Execution Telemetry History (`/api/scanner_execution_history?page=1&per_page=25`) | 200 | 5.85ms | 11.86ms | 10.03ms | 21.47ms | 31.39ms | 316 B | Yes |
+| Breakout Watchlist (5s Micro-Cache) (`/api/breakout_watchlist`) | 200 | 4.81ms | 9.92ms | 7.9ms | 20.36ms | 43.81ms | 52 B | Yes |
+| System Version & Governance State (`/api/version`) | 200 | 4.77ms | 5.93ms | 5.85ms | 7.41ms | 8.63ms | 279 B | No |
 
 ## 2. Concurrency Stress Latency (100 Requests @ 20 Workers)
 
 | Target Endpoint | Success Rate | Min | Mean | P50 | P95 | Max |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| User Dashboard HTML (`/user`) | 100.0% | 4.92ms | 63.86ms | 48.82ms | 193.06ms | 228.77ms |
-| Admin Dashboard HTML (`/admin`) | 100.0% | 5.23ms | 78.5ms | 62.01ms | 194.44ms | 445.82ms |
-| Market Indices Ticker (`/api/indices`) | 100.0% | 5.03ms | 47.08ms | 33.32ms | 137.46ms | 224.31ms |
-| Design System CSS Asset (`/static/shared.css`) | 100.0% | 12.53ms | 115.98ms | 97.64ms | 295.4ms | 488.76ms |
+| User Dashboard HTML (`/user`) | 100.0% | 5.62ms | 85.54ms | 64.9ms | 245.66ms | 411.85ms |
+| Admin Dashboard HTML (`/admin`) | 100.0% | 6.76ms | 113.2ms | 100.73ms | 306.59ms | 374.21ms |
+| Market Indices Ticker (`/api/indices`) | 100.0% | 5.39ms | 59.06ms | 38.75ms | 177.46ms | 272.01ms |
+| Design System CSS Asset (`/static/shared.css`) | 100.0% | 19.9ms | 158.7ms | 126.98ms | 379.34ms | 542.56ms |
 
 ## 3. Performance Engineering Highlights
 

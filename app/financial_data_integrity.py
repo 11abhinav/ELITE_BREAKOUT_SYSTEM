@@ -1104,23 +1104,20 @@ def compute_share_dilution_3y(
         )
 
     dilution_pct = round(((latest_sh - adjusted_base_sh) / adjusted_base_sh) * 100.0, 2)
-
-    return ShareDilutionResult(
-        status=DataStatus.VALID,
-        reason="VALID",
-        share_dilution_3y=dilution_pct,
-        latest_share_count=latest_sh,
-        latest_period=str(latest_p_end),
-        base_share_count=base_sh_raw,
-        base_period=str(base_p_dt),
-        corporate_action_factor=round(ca_factor, 4),
-        corporate_action_ids=ca_ids,
-        source_provider="HISTORICAL_PIT_FILING",
-        source_filing_dates=(
-            str(base_row.get("filing_date", base_row.get("period_end_date"))),
-            str(latest_row.get("filing_date", latest_row.get("period_end_date"))),
-        ),
-    )
+    if dilution_pct > 100.0 and ca_factor == 1.0:
+        logger.warning(f"[SHARE_DILUTION] {symbol}: unadjusted capital restructure detected ({dilution_pct}% without corporate actions). Setting share_dilution_3y to None.")
+        return ShareDilutionResult(
+            status=DataStatus.DATA_INSUFFICIENT,
+            reason=f"CAPITAL_RESTRUCTURE_UNADJUSTED: dilution={dilution_pct}% without corporate action records",
+            share_dilution_3y=None,
+            latest_share_count=latest_sh,
+            latest_period=str(latest_p_end),
+            base_share_count=base_sh_raw,
+            base_period=str(base_p_dt),
+            corporate_action_factor=round(ca_factor, 4),
+            corporate_action_ids=ca_ids,
+            source_provider="HISTORICAL_PIT_FILING",
+        )
 
 
 
@@ -1174,6 +1171,20 @@ def derive_and_validate_shares(
                 source="FILED_SHARES_OUTSTANDING",
             )
         # Filed value outside plausible range — try unit adjustment
+        if s >= 100_000.0:
+            s_div_1m = s / 1e6
+            if MIN_SHARES_M <= s_div_1m <= MAX_SHARES_M:
+                logger.warning(
+                    f"[SHARE_UNIT] {symbol}: filed shares={s} in raw units. "
+                    f"Applying ÷1,000,000 scaling → {s_div_1m:.4f}M"
+                )
+                return ShareCountResult(
+                    status=DataStatus.VALID,
+                    shares_millions=round(s_div_1m, 4),
+                    derivation_method=DerivationMethod.DERIVED_UNIT_SCALED,
+                    source="FILED_SHARES_OUTSTANDING_UNIT_SCALED_DIV1M",
+                    unit_scaling_applied="DIV_1000000",
+                )
         s_div = s / 1000.0
         if MIN_SHARES_M <= s_div <= MAX_SHARES_M:
             logger.warning(

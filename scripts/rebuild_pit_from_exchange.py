@@ -272,8 +272,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     eps_val = latest_f.get("eps")
     shares_raw = latest_f.get("shares_outstanding")
     shares_raw_f = float(shares_raw) if (shares_raw is not None and not pd.isna(shares_raw)) else None
-    if shares_raw_f is not None and shares_raw_f > 1e6:
-        # Filed shares in raw count (e.g. 410,000,000) -> scale to millions (410.0M)
+    if shares_raw_f is not None and shares_raw_f > 10_000:
+        # Filed shares in raw count (e.g. 1,000,000 or 410,000,000) -> scale to millions (1.0M or 410.0M)
         shares_raw_f = shares_raw_f / 1e6
 
     shares_res = derive_and_validate_shares(
@@ -624,6 +624,21 @@ def rebuild_canonical_pit_dataset(
     publication_decision = pub_result.get("publication_decision", "UNKNOWN")
     if publication_decision == "PUBLISHED":
         logger.info(f"✅ [REBUILD] Canonical PIT published. SHA256: {pub_result.get('dataset_sha256', 'N/A')[:16]}...")
+        # Auto-restore any stocks that are now certified and fresh
+        try:
+            try:
+                from app.database import check_and_restore_stale_stock
+            except ImportError:
+                from database import check_and_restore_stale_stock
+            valid_rebuilt = df_final[
+                (df_final["provenance_status"] == "CERTIFIED") &
+                (df_final["pit_freshness_status"].isin(["VALID", "FRESH"])) &
+                (~df_final["filing_gap_detected"].fillna(False))
+            ]
+            for s in valid_rebuilt["symbol"].dropna().unique():
+                check_and_restore_stale_stock(str(s).strip().upper(), source="REBUILD_PUBLISH", notify_admin=False)
+        except Exception as r_err:
+            logger.debug(f"[REBUILD] Auto-restore cooloff notice: {r_err}")
     else:
         logger.error(
             f"❌ [REBUILD] Canonical publication blocked ({publication_decision}): "

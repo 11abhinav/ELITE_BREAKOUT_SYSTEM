@@ -9503,6 +9503,7 @@ def check_and_restore_stale_stock(
                     row = snap_df.loc[mask].iloc[0]
                     snap_status = str(row.get("snapshot_status", "")).upper()
                     has_gap = bool(row.get("filing_gap_detected", False))
+                    curr_status = str(row.get("pit_freshness_status", "")).upper()
                     if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap:
                         was_stale = True
                         stale_reasons.append(f"Snapshot:{curr_status or 'GAP'}")
@@ -9747,7 +9748,10 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                 if x is None or pd.isna(x):
                     return None
                 try:
-                    return round(float(x), round_n)
+                    val = float(x)
+                    if val <= -900.0 or val == 9999.0:
+                        return None
+                    return round(val, round_n)
                 except Exception:
                     return None
 
@@ -9759,8 +9763,24 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                     continue
 
                 # If symbol is already in stale_map (from cooloff journal or local cooloff cache),
-                # enrich it with snapshot market metrics and fundamentals
+                # check if its data has since been completely refreshed. If so, auto-restore it!
                 if sym in stale_map:
+                    raw_info = raw_cache.get(sym)
+                    freshness_status = str(row.get("pit_freshness_status", "")).upper()
+                    has_gap = bool(row.get("filing_gap_detected", False))
+                    staleness_y = float(row.get("pit_staleness_years") or 0.0)
+                    has_live_price = (row.get("cmp") is not None and not pd.isna(row.get("cmp")) and float(row.get("cmp")) > 0)
+                    has_fresh_raw = bool(raw_info and raw_info.get("count", 0) > 0 and raw_info.get("latest") not in ("None", "Empty", "Error") and raw_info.get("latest") >= sebi_mand_period)
+
+                    if freshness_status in ("VALID", "FRESH") and not has_gap and staleness_y <= 2.0 and has_live_price and has_fresh_raw:
+                        # Data is completely verified and fresh! Auto-evict from cool-off and stale map
+                        try:
+                            check_and_restore_stale_stock(sym, source="AUTO_EVICT_VERIFIED_FRESH", notify_admin=False)
+                        except Exception:
+                            pass
+                        del stale_map[sym]
+                        continue
+
                     item = stale_map[sym]
                     if not item.get("latest_annual_period"):
                         item["latest_annual_period"] = str(row.get("latest_annual_period") or "")
@@ -9978,7 +9998,10 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
         if x is None or pd.isna(x):
             return None
         try:
-            return round(float(x), round_n)
+            val = float(x)
+            if val <= -900.0 or val == 9999.0:
+                return None
+            return round(val, round_n)
         except Exception:
             return None
 
@@ -10238,7 +10261,9 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
             pass
 
     # 2. Check 1D OHLCV market price candles
-    p_1d = Path(__file__).resolve().parent.parent / "data" / "historical_1d_candles" / f"{sym_u}.parquet"
+    p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1d" / f"{sym_u}.parquet"
+    if not p_1d.exists():
+        p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1D" / f"{sym_u}.parquet"
     if p_1d.exists():
         try:
             df_px = pd.read_parquet(p_1d)

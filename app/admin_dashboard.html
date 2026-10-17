@@ -13972,6 +13972,13 @@ function exportStockDataHealthCSV() {
     return `"${s}"`;
   };
 
+  const fmtMetric = (val) => {
+    if (val === null || val === undefined) return '';
+    const n = Number(val);
+    if (!isNaN(n) && (n <= -900 || n === 9999)) return '';
+    return val;
+  };
+
   const rows = [headers.join(',')];
 
   SDH_FILTERED_ITEMS.forEach(it => {
@@ -13990,21 +13997,21 @@ function exportStockDataHealthCSV() {
       escapeCsv(it.filings_count_in_db !== undefined ? it.filings_count_in_db : 0),
       escapeCsv(diagText),
       escapeCsv(it.cooloff_until ? it.cooloff_until.slice(0, 10) : ''),
-      escapeCsv(it.cmp !== null && it.cmp !== undefined ? it.cmp : ''),
-      escapeCsv(it.market_cap_cr !== null && it.market_cap_cr !== undefined ? it.market_cap_cr : ''),
-      escapeCsv(it.current_pe !== null && it.current_pe !== undefined ? it.current_pe : ''),
-      escapeCsv(it.current_ev_ebitda !== null && it.current_ev_ebitda !== undefined ? it.current_ev_ebitda : ''),
-      escapeCsv(it.roce_5y_avg !== null && it.roce_5y_avg !== undefined ? it.roce_5y_avg : ''),
-      escapeCsv(it.roe !== null && it.roe !== undefined ? it.roe : ''),
-      escapeCsv(it.sales_cagr_5y !== null && it.sales_cagr_5y !== undefined ? it.sales_cagr_5y : ''),
-      escapeCsv(it.pat_cagr_5y !== null && it.pat_cagr_5y !== undefined ? it.pat_cagr_5y : ''),
-      escapeCsv(it.cfo_pat_5y_ratio !== null && it.cfo_pat_5y_ratio !== undefined ? it.cfo_pat_5y_ratio : ''),
-      escapeCsv(it.debt_to_equity !== null && it.debt_to_equity !== undefined ? it.debt_to_equity : ''),
-      escapeCsv(it.revenue !== null && it.revenue !== undefined ? it.revenue : ''),
-      escapeCsv(it.net_profit !== null && it.net_profit !== undefined ? it.net_profit : ''),
-      escapeCsv(it.operating_cash_flow !== null && it.operating_cash_flow !== undefined ? it.operating_cash_flow : ''),
-      escapeCsv(it.shares_outstanding_m !== null && it.shares_outstanding_m !== undefined ? it.shares_outstanding_m : ''),
-      escapeCsv(it.share_dilution_3y_pct !== null && it.share_dilution_3y_pct !== undefined ? it.share_dilution_3y_pct : ''),
+      escapeCsv(fmtMetric(it.cmp)),
+      escapeCsv(fmtMetric(it.market_cap_cr)),
+      escapeCsv(fmtMetric(it.current_pe)),
+      escapeCsv(fmtMetric(it.current_ev_ebitda)),
+      escapeCsv(fmtMetric(it.roce_5y_avg)),
+      escapeCsv(fmtMetric(it.roe)),
+      escapeCsv(fmtMetric(it.sales_cagr_5y)),
+      escapeCsv(fmtMetric(it.pat_cagr_5y)),
+      escapeCsv(fmtMetric(it.cfo_pat_5y_ratio)),
+      escapeCsv(fmtMetric(it.debt_to_equity)),
+      escapeCsv(fmtMetric(it.revenue)),
+      escapeCsv(fmtMetric(it.net_profit)),
+      escapeCsv(fmtMetric(it.operating_cash_flow)),
+      escapeCsv(fmtMetric(it.shares_outstanding_m)),
+      escapeCsv(fmtMetric(it.share_dilution_3y_pct)),
       escapeCsv(isStale ? (it.source || 'STALE') : (it.provenance_status || 'CERTIFIED'))
     ];
     rows.push(row.join(','));

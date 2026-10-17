@@ -115675,5 +115675,14 @@
     "company_name": "YASONS CHEMEX CARE LTD",
     "segment": "EQUITY",
     "has_nse": true
+  },
+  "GUJGASLTD": {
+    "canonical_symbol": "GUJGASLTD",
+    "bse_security_id": "GUJGASLTD",
+    "bse_scrip_code": "539336",
+    "isin": "INE844O01030",
+    "company_name": "GUJARAT GAS LIMITED",
+    "segment": "EQUITY",
+    "has_nse": true
   }
 }
