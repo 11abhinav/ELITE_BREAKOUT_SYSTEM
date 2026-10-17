@@ -4196,6 +4196,9 @@ function changeAdminPage(type, delta) {
                 </div>
 
                 <div style="display:flex; align-items:center; gap:8px;">
+                  <button id="btn-sdh-batch-restore" onclick="batchValidateAndRestoreSelected()" style="background:#10b981; color:#000; padding:7px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:800; display:none; align-items:center; gap:6px;" title="Validate data completeness and restore all selected stocks">
+                    ⚡ Validate &amp; Restore Selected (<span id="sdh-selected-count">0</span>)
+                  </button>
                   <button onclick="exportStockDataHealthCSV()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:7px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;" title="Export currently filtered and sorted records to CSV">
                     📥 Export CSV
                   </button>
@@ -4332,7 +4335,10 @@ function changeAdminPage(type, delta) {
             <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px; min-width:1600px;">
               <thead style="position:sticky; top:0; z-index:10;">
                 <tr style="background:var(--card2); border-bottom:2px solid var(--border); text-align:left;">
-                  <th onclick="sortStockDataHealth('symbol')" class="sdh-th-sortable" style="padding:10px 12px; min-width:180px; position:sticky; left:0; background:var(--card2); z-index:11; cursor:pointer; user-select:none;" title="Click to sort by Stock / Company">
+                  <th style="padding:10px 8px; width:38px; text-align:center; position:sticky; left:0; background:var(--card2); z-index:12;">
+                    <input type="checkbox" id="sdh-select-all" onchange="toggleSelectAllSdh(this)" title="Select all visible stale stocks" style="cursor:pointer; width:15px; height:15px;">
+                  </th>
+                  <th onclick="sortStockDataHealth('symbol')" class="sdh-th-sortable" style="padding:10px 12px; min-width:180px; position:sticky; left:38px; background:var(--card2); z-index:11; cursor:pointer; user-select:none;" title="Click to sort by Stock / Company">
                     Stock / Company <span id="sdh-sort-symbol" style="color:var(--accent); font-size:10px; font-weight:800;">▲</span>
                   </th>
                   <th onclick="sortStockDataHealth('health_status')" class="sdh-th-sortable" style="padding:10px 12px; width:130px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Health Status">
@@ -4406,7 +4412,7 @@ function changeAdminPage(type, delta) {
               </thead>
               <tbody id="tbl-sdh-body">
                 <tr>
-                  <td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">
+                  <td colspan="24" style="text-align:center; padding:36px; color:var(--muted);">
                     ⏳ Loading universe stock data health audit...
                   </td>
                 </tr>
@@ -13660,11 +13666,17 @@ let SDH_SORT_DIR = 1; // 1 = asc, -1 = desc
 let SDH_PAGE_SIZE = 100; // 50, 100, 250, 500, or 0 (all)
 let SDH_CURRENT_PAGE = 1;
 let SDH_FILTERED_ITEMS = [];
+let SDH_SELECTED_SYMBOLS = new Set();
 
 function _applyStockDataHealthData(data) {
   if (!data || data.status !== 'success') return;
   SDH_STALE_STOCKS = data.stale_stocks || [];
   SDH_FRESH_STOCKS = data.fresh_stocks || [];
+
+  const staleSet = new Set(SDH_STALE_STOCKS.map(s => (s.symbol || '').toUpperCase()));
+  for (const s of Array.from(SDH_SELECTED_SYMBOLS)) {
+    if (!staleSet.has(s)) SDH_SELECTED_SYMBOLS.delete(s);
+  }
 
   const summary = data.summary || {};
   const total = summary.total_universe || (SDH_STALE_STOCKS.length + SDH_FRESH_STOCKS.length);
@@ -14336,7 +14348,7 @@ function renderStockDataHealthTable() {
   renderSdhPaginationControls(totalPages);
 
   if (items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">No stocks found matching current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:36px; color:var(--muted);">No stocks found matching current filters.</td></tr>`;
     return;
   }
 
@@ -14408,8 +14420,12 @@ function renderStockDataHealthTable() {
 
     html += `
       <tr style="border-bottom:1px solid var(--border); transition:background 0.12s ease;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'">
+        <!-- CHECKBOX (sticky) -->
+        <td style="padding:8px 6px; text-align:center; vertical-align:middle; position:sticky; left:0; background:var(--card); z-index:2; border-right:1px solid var(--border); width:38px;">
+          ${isStale ? `<input type="checkbox" class="sdh-stock-checkbox" value="${sym}" onchange="onSdhCheckboxChange(this)" ${SDH_SELECTED_SYMBOLS.has(sym) ? 'checked' : ''} style="cursor:pointer; width:15px; height:15px;">` : `<span style="color:#10b981; font-size:12px; font-weight:800;">✓</span>`}
+        </td>
         <!-- STOCK / COMPANY (sticky) -->
-        <td style="padding:8px 12px; vertical-align:middle; position:sticky; left:0; background:var(--card); z-index:2; border-right:1px solid var(--border); min-width:180px;">
+        <td style="padding:8px 12px; vertical-align:middle; position:sticky; left:38px; background:var(--card); z-index:2; border-right:1px solid var(--border); min-width:180px;">
           <div style="display:flex; flex-direction:column; gap:1px;">
             <a href="javascript:void(0)" onclick="openStockFilingsModal('${sym}')" style="font-size:13px; font-weight:800; font-family:monospace; color:var(--accent); text-decoration:none;">${sym}</a>
             <div style="font-size:10px; color:var(--muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${comp.replace(/</g,'&lt;')}</div>
@@ -14525,6 +14541,118 @@ function renderStockDataHealthTable() {
   });
 
   tbody.innerHTML = html;
+  updateSdhBatchButton();
+
+  // Update master select-all checkbox state
+  const masterCb = document.getElementById('sdh-select-all');
+  if (masterCb) {
+    const visibleCheckboxes = document.querySelectorAll('.sdh-stock-checkbox');
+    if (visibleCheckboxes.length > 0) {
+      masterCb.checked = Array.from(visibleCheckboxes).every(cb => cb.checked);
+    } else {
+      masterCb.checked = false;
+    }
+  }
+}
+
+function onSdhCheckboxChange(el) {
+  const sym = (el.value || '').toUpperCase();
+  if (!sym) return;
+  if (el.checked) {
+    SDH_SELECTED_SYMBOLS.add(sym);
+  } else {
+    SDH_SELECTED_SYMBOLS.delete(sym);
+  }
+  updateSdhBatchButton();
+
+  const masterCb = document.getElementById('sdh-select-all');
+  if (masterCb) {
+    const visibleCheckboxes = document.querySelectorAll('.sdh-stock-checkbox');
+    if (visibleCheckboxes.length > 0) {
+      masterCb.checked = Array.from(visibleCheckboxes).every(cb => cb.checked);
+    }
+  }
+}
+
+function toggleSelectAllSdh(masterEl) {
+  const isChecked = masterEl.checked;
+  const checkboxes = document.querySelectorAll('.sdh-stock-checkbox');
+  checkboxes.forEach(cb => {
+    cb.checked = isChecked;
+    const sym = (cb.value || '').toUpperCase();
+    if (sym) {
+      if (isChecked) SDH_SELECTED_SYMBOLS.add(sym);
+      else SDH_SELECTED_SYMBOLS.delete(sym);
+    }
+  });
+  updateSdhBatchButton();
+}
+
+function updateSdhBatchButton() {
+  const btn = document.getElementById('btn-sdh-batch-restore');
+  const countSpan = document.getElementById('sdh-selected-count');
+  const count = SDH_SELECTED_SYMBOLS.size;
+  if (countSpan) countSpan.textContent = count;
+  if (btn) {
+    btn.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+}
+
+async function batchValidateAndRestoreSelected() {
+  if (SDH_SELECTED_SYMBOLS.size === 0) return;
+  const syms = Array.from(SDH_SELECTED_SYMBOLS);
+  const btn = document.getElementById('btn-sdh-batch-restore');
+  const origHtml = btn ? btn.innerHTML : '';
+
+  if (!confirm(`Are you sure you want to run on-demand validation and restoration for ${syms.length} selected stocks?\n\nThis will fetch live 1D candles and exchange filings if missing, and immediately unblock clean stocks from the 7-day cool-off.`)) {
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.innerHTML = `⏳ Validating ${syms.length} stocks...`;
+  }
+
+  try {
+    const res = await fetch('/api/admin/batch_validate_stocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols: syms })
+    });
+    const data = await res.json();
+
+    if (data.status === 'success') {
+      const restored = data.restored_count || 0;
+      const failed = data.failed_count || 0;
+      const total = data.total_requested || syms.length;
+
+      let msg = `🎉 BATCH VALIDATION COMPLETE:\n• Total Evaluated: ${total}\n• Successfully Restored to Fresh: ${restored}\n• Still Incomplete / Excluded: ${failed}`;
+      
+      if (restored > 0) {
+        msg += `\n\nAll ${restored} restored stocks have been removed from cool-off suppression and are now active for scanners!`;
+      }
+      alert(msg);
+
+      // Clear selection and re-fetch audit
+      SDH_SELECTED_SYMBOLS.clear();
+      updateSdhBatchButton();
+      const masterCb = document.getElementById('sdh-select-all');
+      if (masterCb) masterCb.checked = false;
+
+      fetchStockDataHealth(true);
+    } else {
+      alert(`Batch validation error: ${data.message || 'Unknown error'}`);
+    }
+  } catch (err) {
+    alert(`Network error during batch validation: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.innerHTML = origHtml;
+    }
+  }
 }
 
 async function openStockFilingsModal(symbol) {

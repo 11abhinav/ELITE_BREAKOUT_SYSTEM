@@ -3153,6 +3153,94 @@ def api_admin_validate_stock():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/admin/batch_validate_stocks", methods=["POST"])
+@login_required
+@csrf.exempt
+def api_admin_batch_validate_stocks():
+    """
+    Batch validates multiple stocks on demand and fetches live missing data (candles, filings).
+    For any stock whose data meets the integrity requirements:
+      - Automatically removes it from the 7-day cool-off journal and dynamic quarantine
+      - Sets status to FRESH in canonical_pit_rebuilt.parquet
+      - Pushes the updated canonical snapshot to PostgreSQL DB (parquet_cache)
+      - Returns per-symbol results and restoration summary.
+    """
+    try:
+        from database import validate_and_restore_stock
+        from concurrent.futures import ThreadPoolExecutor
+        from pathlib import Path
+
+        req_json = request.get_json(silent=True) or {}
+        symbols = req_json.get("symbols") or []
+        if isinstance(symbols, str):
+            symbols = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        else:
+            symbols = [str(s).strip().upper() for s in symbols if str(s).strip()]
+
+        if not symbols:
+            return jsonify({"status": "error", "message": "Missing 'symbols' list"}), 400
+
+        unique_symbols = list(dict.fromkeys(symbols))
+
+        def _process_one(sym: str) -> Dict[str, Any]:
+            try:
+                p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1d" / f"{sym}.parquet"
+                if not p_1d.exists():
+                    p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1D" / f"{sym}.parquet"
+                
+                if not p_1d.exists() or p_1d.stat().st_size < 100:
+                    try:
+                        from data_providers.unified_fetcher import UnifiedFetcher
+                        uf = UnifiedFetcher()
+                        df_hist = uf.fetch_historical(sym, interval="1d", period="2y", consumer="batch_validate")
+                        if df_hist is not None and len(df_hist) > 0:
+                            p_target = Path(__file__).resolve().parent.parent / "data" / "history" / "1d" / f"{sym}.parquet"
+                            p_target.parent.mkdir(parents=True, exist_ok=True)
+                            df_hist.to_parquet(p_target)
+                    except Exception as _fetch_err:
+                        logger.debug(f"[BATCH_VALIDATE] 1D candle fetch note for {sym}: {_fetch_err}")
+
+                raw_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings" / f"{sym}.json"
+                if not raw_p.exists() or raw_p.stat().st_size < 50:
+                    try:
+                        from scripts.financial_filing_watcher import FilingWatcher
+                        fw = FilingWatcher()
+                        fw.poll_exchange_announcements(symbols=[sym], max_workers=1)
+                    except Exception as _filing_err:
+                        logger.debug(f"[BATCH_VALIDATE] Filing poll note for {sym}: {_filing_err}")
+            except Exception as _pre_err:
+                logger.debug(f"[BATCH_VALIDATE] Pre-check note for {sym}: {_pre_err}")
+
+            return validate_and_restore_stock(sym)
+
+        max_w = min(8, max(1, len(unique_symbols)))
+        with ThreadPoolExecutor(max_workers=max_w, thread_name_prefix="BatchVal") as executor:
+            res_list = list(executor.map(_process_one, unique_symbols))
+
+        results_map = {sym: res for sym, res in zip(unique_symbols, res_list)}
+        restored_cnt = sum(1 for r in res_list if r.get("restored"))
+        perfect_cnt = sum(1 for r in res_list if r.get("is_data_perfect"))
+        failed_cnt = len(unique_symbols) - restored_cnt
+
+        if restored_cnt > 0:
+            with _STOCK_DATA_HEALTH_LOCK:
+                _STOCK_DATA_HEALTH_CACHE["payload"] = None
+                _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
+
+        return jsonify({
+            "status": "success",
+            "total_requested": len(unique_symbols),
+            "restored_count": restored_cnt,
+            "perfect_count": perfect_cnt,
+            "failed_count": failed_cnt,
+            "results": results_map,
+            "server_time": datetime.now(IST).isoformat()
+        })
+    except Exception as e:
+        logger.exception(f"[API_BATCH_VALIDATE_STOCKS] Error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/admin/remove_stale_stock", methods=["POST"])
 @login_required
 @csrf.exempt

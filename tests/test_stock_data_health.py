@@ -126,6 +126,17 @@ def test_api_stock_data_health_endpoints():
         assert data4["status"] == "success"
         assert "INFY" in data4["message"]
 
+        # 5. Batch validate stocks
+        res5 = client.post("/api/admin/batch_validate_stocks", json={"symbols": ["INFY", "TCS"]})
+        assert res5.status_code == 200
+        data5 = res5.get_json()
+        assert data5["status"] == "success"
+        assert data5["total_requested"] == 2
+        assert "restored_count" in data5
+        assert "results" in data5
+        assert "INFY" in data5["results"]
+        assert "TCS" in data5["results"]
+
 
 def test_remove_stale_stock_from_cooloff():
     res = remove_stale_stock_from_cooloff("TEST_MOCK_SYM")
