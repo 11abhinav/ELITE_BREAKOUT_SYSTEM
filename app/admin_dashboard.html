@@ -3506,7 +3506,8 @@ function changeAdminPage(type, delta) {
         </div>
 
         <!-- SECONDARY FILTER STRIP: STATUS PILLS (Rule 67: Wireframe interactive status pill filter strip) -->
-        <div class="status-pills-group" id="statusPillsGroup">
+        <!-- SECONDARY FILTER STRIP: STATUS PILLS (Rule 67: Wireframe interactive status pill filter strip) -->
+        <div class="status-pills-group" id="statusPillsGroup" style="margin-bottom:8px;">
           <span style="font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; margin-right: 4px;">Status:</span>
           <div class="status-pill active" data-status="" onclick="setAdminStatusFilter('')">All <span id="status-cnt-ALL" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
           <div class="status-pill" data-status="OPEN" onclick="setAdminStatusFilter('OPEN')"><span class="status-dot" style="background:#2563eb;"></span> Open <span id="status-cnt-OPEN" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
@@ -3515,6 +3516,30 @@ function changeAdminPage(type, delta) {
           <div class="status-pill" data-status="WIN" onclick="setAdminStatusFilter('WIN')"><span class="status-dot" style="background:#15803d;"></span> Win <span id="status-cnt-WIN" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
           <div class="status-pill" data-status="LOSS" onclick="setAdminStatusFilter('LOSS')"><span class="status-dot" style="background:#dc2626;"></span> In Loss <span id="status-cnt-LOSS" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
           <div class="status-pill" data-status="SL_HIT" onclick="setAdminStatusFilter('SL_HIT')"><span class="status-dot" style="background:#b91c1c;"></span> SL Hit <span id="status-cnt-SL_HIT" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        </div>
+
+        <!-- TERTIARY FILTER STRIP: P&L STATE & R-MULTIPLE PILLS (1-Click Green Only / In Loss Only / Multi-R) -->
+        <div class="status-pills-group" id="pnlPillsGroup" style="margin-bottom:14px; gap:6px;">
+          <span style="font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; margin-right: 4px;">P&amp;L / R:</span>
+          <div class="status-pill active" data-pnl="" onclick="setAdminPnlFilter('')">All Returns <span id="pnl-cnt-ALL" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+          <div class="status-pill" data-pnl="GREEN" onclick="setAdminPnlFilter('GREEN')" title="Stocks currently trading HIGHER than Buy Price (In Profit / Green)">
+            <span class="status-dot" style="background:#10b981;"></span> 🟢 In Green (CMP &gt; Buy) <span id="pnl-cnt-GREEN" style="font-family:var(--font-mono); font-size:11px; color:#10b981; font-weight:800;">(0)</span>
+          </div>
+          <div class="status-pill" data-pnl="RED" onclick="setAdminPnlFilter('RED')" title="Stocks currently trading LOWER than Buy Price (In Loss / Red)">
+            <span class="status-dot" style="background:#ef4444;"></span> 🔴 In Loss (CMP &lt; Buy) <span id="pnl-cnt-RED" style="font-family:var(--font-mono); font-size:11px; color:#ef4444; font-weight:800;">(0)</span>
+          </div>
+          <div class="status-pill" data-pnl="BREAKEVEN" onclick="setAdminPnlFilter('BREAKEVEN')" title="Trades trading flat around entry price (+/- 0.2%)">
+            <span class="status-dot" style="background:#94a3b8;"></span> ⚪ Breakeven <span id="pnl-cnt-BREAKEVEN" style="font-family:var(--font-mono); font-size:11px;">(0)</span>
+          </div>
+          <div class="status-pill" data-pnl="R_2PLUS" onclick="setAdminPnlFilter('R_2PLUS')" title="Multi-R super runners trading at R >= +2.0R">
+            <span class="status-dot" style="background:#8b5cf6;"></span> 🚀 R &ge; +2.0R <span id="pnl-cnt-R_2PLUS" style="font-family:var(--font-mono); font-size:11px; color:#a78bfa; font-weight:800;">(0)</span>
+          </div>
+          <div class="status-pill" data-pnl="R_1TO2" onclick="setAdminPnlFilter('R_1TO2')" title="Trades trading in target zone (+1.0R to +2.0R)">
+            <span class="status-dot" style="background:#3b82f6;"></span> 🎯 +1R to +2R <span id="pnl-cnt-R_1TO2" style="font-family:var(--font-mono); font-size:11px; color:#60a5fa; font-weight:800;">(0)</span>
+          </div>
+          <div class="status-pill" data-pnl="NEAR_SL" onclick="setAdminPnlFilter('NEAR_SL')" title="High-risk trades near stop loss (Within 1.5% of SL or R <= -0.7R)">
+            <span class="status-dot" style="background:#f59e0b;"></span> ⚠️ Near SL / At Risk <span id="pnl-cnt-NEAR_SL" style="font-family:var(--font-mono); font-size:11px; color:#f59e0b; font-weight:800;">(0)</span>
+          </div>
         </div>
 
         <div class="filter-bar">
@@ -3554,10 +3579,46 @@ function changeAdminPage(type, delta) {
             <option value="OPEN">🟢 Active / Open Positions</option>
             <option value="CLOSED">⚪ Closed Trades</option>
           </select>
-          <select id="filterTradeSort" onchange="renderTrades()">
+
+          <!-- P&L State Filter -->
+          <select id="filterPnlState" onchange="renderTradeTable()" style="max-height:280px; overflow-y:auto;">
+            <option value="">All P&amp;L States (Green &amp; Red)</option>
+            <option value="GREEN">🟢 In Green Only (CMP &gt; Buy Price)</option>
+            <option value="RED">🔴 In Loss Only (CMP &lt; Buy Price)</option>
+            <option value="BREAKEVEN">⚪ Breakeven (CMP == Buy Price)</option>
+            <option value="PROFIT_10P">🚀 Massive Gain (&gt; +10%)</option>
+            <option value="PROFIT_5P">📈 Strong Gain (+5% to +10%)</option>
+            <option value="PROFIT_0TO5">🌱 Modest Gain (0% to +5%)</option>
+            <option value="LOSS_0TO3">🔻 Small Pullback (0% to -3%)</option>
+            <option value="LOSS_3TO7">📉 Moderate Loss (-3% to -7%)</option>
+            <option value="LOSS_7P">🛑 Heavy Loss (&gt; -7%)</option>
+            <option value="NEAR_SL">⚠️ Near Stop Loss (Within 1.5% of SL)</option>
+          </select>
+
+          <!-- R-Multiple Filter -->
+          <select id="filterRMultiple" onchange="renderTradeTable()" style="max-height:280px; overflow-y:auto;">
+            <option value="">All R-Multiples</option>
+            <option value="R_POS">🟢 Positive R (&gt; 0.0R) — In Green</option>
+            <option value="R_2PLUS">🚀 Super Runner (R &ge; +2.0R)</option>
+            <option value="R_1TO2">🎯 Target 1 Zone (+1.0R to +2.0R)</option>
+            <option value="R_05TO1">📈 Solid Gain (+0.5R to +1.0R)</option>
+            <option value="R_0TO05">🌱 Small Green (0.0R to +0.5R)</option>
+            <option value="R_NEG">🔴 Negative R (&lt; 0.0R) — In Red</option>
+            <option value="R_M05TO0">🔻 Minor Dip (-0.5R to 0.0R)</option>
+            <option value="R_M1TOM05">⚠️ High Risk (-1.0R to -0.5R)</option>
+            <option value="R_M1MINUS">🛑 Stop Hit / Beyond (R &le; -1.0R)</option>
+          </select>
+
+          <select id="filterTradeSort" onchange="renderTradeTable()">
             <option value="DEFAULT">Sort: Default (Newest First)</option>
+            <option value="R_DESC">Sort: R-Multiple (Highest R First)</option>
+            <option value="R_ASC">Sort: R-Multiple (Lowest R First)</option>
             <option value="PNL_DESC">Sort: P&amp;L % (High to Low)</option>
             <option value="PNL_ASC">Sort: P&amp;L % (Low to High)</option>
+            <option value="CMP_DIFF_DESC">Sort: CMP vs Buy (Highest % Above Buy)</option>
+            <option value="CMP_DIFF_ASC">Sort: CMP vs Buy (Lowest % Below Buy)</option>
+            <option value="SL_DIST_ASC">Sort: Distance to SL (Closest to SL First)</option>
+            <option value="T1_DIST_ASC">Sort: Distance to T1 (Closest to Target First)</option>
             <option value="SCORE_DESC">Sort: Score (High to Low)</option>
             <option value="CAPITAL_DESC">Sort: Capital (High to Low)</option>
             <option value="DAYS_DESC">Sort: Days Held (High to Low)</option>
@@ -3978,14 +4039,16 @@ function changeAdminPage(type, delta) {
 
               <select id="filingAvailableDatesSelect" onchange="onFilingDateChange(this.value)" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;" title="Jump to date with findings">
                 <option value="">Jump to Date...</option>
+                <option value="ALL">All Available Dates</option>
               </select>
 
               <select id="filingEventTypeSelect" onchange="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;">
                 <option value="ALL">All Event Types</option>
-                <option value="NEW_FILING">New Filings</option>
-                <option value="QUARTERLY_RESULT">Quarterly Results</option>
-                <option value="AMENDED">Amended / Restated</option>
                 <option value="UNSEEN_PERIOD">Unseen Periods</option>
+                <option value="NEW_FILING">New Filings</option>
+                <option value="QUARTERLY_RESULT">Quarterly Results (Q)</option>
+                <option value="ANNUAL_RESULT">Annual Results (FY)</option>
+                <option value="AMENDED">Amended / Restated</option>
               </select>
 
               <select id="filingStatementSelect" onchange="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;">
@@ -6334,6 +6397,26 @@ function changeAdminPage(type, delta) {
           ? t.capital_allocated
           : ((t.shares_bought && t.entry_price && parseFloat(t.entry_price) > 0) ? (parseFloat(t.shares_bought) * parseFloat(t.entry_price)) : null);
 
+        const effEntry = Number(t.actual_entry_price || t.entry_price || 0);
+        const curPrice = Number(t.exit_price || t.current_price || effEntry);
+        const diffRs = curPrice - effEntry;
+        const isCurBelowBuy = (effEntry > 0 && curPrice < effEntry);
+        const isCurAboveBuy = (effEntry > 0 && curPrice > effEntry);
+        let cmpSubText = '';
+        if (isCurBelowBuy) {
+          cmpSubText = `<div style="font-size:9.5px; color:#ef4444; font-weight:700; margin-top:2px;" title="Trading below entry price (Loss)">🔻 -₹${Math.abs(diffRs).toFixed(1)}</div>`;
+        } else if (isCurAboveBuy) {
+          cmpSubText = `<div style="font-size:9.5px; color:#10b981; font-weight:700; margin-top:2px;" title="Trading above entry price (Profit)">🟢 +₹${diffRs.toFixed(1)}</div>`;
+        } else {
+          cmpSubText = `<div style="font-size:9.5px; color:var(--muted); font-weight:600; margin-top:2px;">⚪ 0.00</div>`;
+        }
+
+        const rVal = (typeof getTradeRMultiple === 'function') ? getTradeRMultiple(t) : 0;
+        const rSign = rVal > 0 ? '+' : '';
+        const rStr = `${rSign}${rVal.toFixed(2)}R`;
+        const rBadgeColor = rVal >= 2.0 ? '#8b5cf6' : (rVal >= 1.0 ? '#3b82f6' : (rVal > 0 ? '#10b981' : (rVal <= -1.0 ? '#ef4444' : '#f59e0b')));
+        const rBadgeBg = rVal >= 2.0 ? 'rgba(139,92,246,0.18)' : (rVal >= 1.0 ? 'rgba(59,130,246,0.18)' : (rVal > 0 ? 'rgba(16,185,129,0.18)' : (rVal <= -1.0 ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.18)')));
+
         return `
     <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" data-id="${t.id || ''}" data-symbol="${cleanSym}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${rowHighlightStyle}">
       <td onclick="event.stopPropagation();" style="text-align:center; width:28px;">${checkboxHtml}</td>
@@ -6361,14 +6444,18 @@ function changeAdminPage(type, delta) {
         ${fmt(t.actual_entry_price || t.entry_price)}
       </td>
       <td style="text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
-        <div style="font-weight:800; font-size:12px; color:var(--text);">${fmt(t.exit_price || t.current_price)}</div>
+        <div style="font-weight:800; font-size:12px; color:${isCurBelowBuy ? '#ef4444' : (isCurAboveBuy ? '#10b981' : 'var(--text)')};">${fmt(t.exit_price || t.current_price)}</div>
+        ${cmpSubText}
       </td>
       <td style="text-align:right; white-space:nowrap;">
         <div class="pnl-wrap" style="justify-content:flex-end; gap:6px;">
           <div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
           <span class="pnl-text ${pctClass(pnlData.totalPct)}" style="font-size:11.5px; min-width:58px; text-align:right; font-variant-numeric:tabular-nums;">${pct(pnlData.totalPct)}</span>
         </div>
-        <div style="font-size:9.5px; margin-top:2px; font-variant-numeric:tabular-nums;" class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</div>
+        <div style="display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:2px;">
+          <span class="badge" style="background:${rBadgeBg}; color:${rBadgeColor}; border:1px solid ${rBadgeColor}40; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:3px; font-family:var(--font-mono);" title="Current R-Multiple">${rStr}</span>
+          <span style="font-size:9.5px; font-variant-numeric:tabular-nums;" class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</span>
+        </div>
       </td>
       <td style="text-align:center; white-space:nowrap;" title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
@@ -7566,6 +7653,87 @@ function changeAdminPage(type, delta) {
       const elSL = document.getElementById('status-cnt-SL_HIT'); if (elSL) elSL.textContent = `(${counts.SL_HIT})`;
     }
 
+    function getTradeRMultiple(t) {
+      if (!t) return 0;
+      if (t.r_multiple != null && !isNaN(t.r_multiple)) return Number(t.r_multiple);
+      if (t.net_r != null && !isNaN(t.net_r)) return Number(t.net_r);
+
+      const ep = Number(t.actual_entry_price || t.entry_price || 0);
+      if (ep <= 0) return 0;
+
+      const cp = Number((t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED')
+        ? (t.exit_price || t.current_price || ep)
+        : (t.current_price || ep));
+
+      let sl = (t.stop_loss != null && Number(t.stop_loss) > 0) ? Number(t.stop_loss) : null;
+      let riskUnit = 0;
+      if (sl && sl < ep) {
+        riskUnit = ep - sl;
+      } else if (t.initial_stop_loss && Number(t.initial_stop_loss) < ep) {
+        riskUnit = ep - Number(t.initial_stop_loss);
+      } else if (t.atr && Number(t.atr) > 0) {
+        riskUnit = Number(t.atr) * 1.5;
+      } else {
+        // Standard 5% initial risk per unit
+        riskUnit = ep * 0.05;
+      }
+
+      if (riskUnit <= 0) return 0;
+      return (cp - ep) / riskUnit;
+    }
+
+    function setAdminPnlFilter(pnlKey) {
+      document.querySelectorAll('#pnlPillsGroup .status-pill').forEach(pill => {
+        if (pill.getAttribute('data-pnl') === pnlKey) {
+          pill.classList.add('active');
+        } else {
+          pill.classList.remove('active');
+        }
+      });
+      const pnlEl = document.getElementById('filterPnlState');
+      if (pnlEl) {
+        pnlEl.value = pnlKey;
+      }
+      currentTradePage = 1;
+      renderTradeTable();
+    }
+
+    function updatePnlPillCounts(trades) {
+      const counts = { ALL: 0, GREEN: 0, RED: 0, BREAKEVEN: 0, R_2PLUS: 0, R_1TO2: 0, NEAR_SL: 0 };
+      (trades || []).forEach(t => {
+        if (!t || t.status === 'REJECTED') return;
+        counts.ALL++;
+
+        const ep = Number(t.actual_entry_price || t.entry_price || 0);
+        const cp = Number(t.current_price || t.exit_price || ep);
+        const rVal = getTradeRMultiple(t);
+        const sl = Number(t.stop_loss || 0);
+        const inProfit = isTradeInProfit(t) || (ep > 0 && cp > ep);
+        const inLoss = isTradeInLoss(t) || (ep > 0 && cp < ep);
+        const isFlat = ep > 0 && Math.abs(cp - ep) / ep <= 0.002;
+
+        if (isFlat) {
+          counts.BREAKEVEN++;
+        } else if (inProfit) {
+          counts.GREEN++;
+        } else if (inLoss) {
+          counts.RED++;
+        }
+
+        if (rVal >= 2.0) counts.R_2PLUS++;
+        if (rVal >= 1.0 && rVal < 2.0) counts.R_1TO2++;
+        if (rVal <= -0.7 || (sl > 0 && cp > 0 && cp <= sl * 1.015)) counts.NEAR_SL++;
+      });
+
+      const elAll = document.getElementById('pnl-cnt-ALL'); if (elAll) elAll.textContent = `(${counts.ALL})`;
+      const elGreen = document.getElementById('pnl-cnt-GREEN'); if (elGreen) elGreen.textContent = `(${counts.GREEN})`;
+      const elRed = document.getElementById('pnl-cnt-RED'); if (elRed) elRed.textContent = `(${counts.RED})`;
+      const elFlat = document.getElementById('pnl-cnt-BREAKEVEN'); if (elFlat) elFlat.textContent = `(${counts.BREAKEVEN})`;
+      const elR2 = document.getElementById('pnl-cnt-R_2PLUS'); if (elR2) elR2.textContent = `(${counts.R_2PLUS})`;
+      const elR1 = document.getElementById('pnl-cnt-R_1TO2'); if (elR1) elR1.textContent = `(${counts.R_1TO2})`;
+      const elSL = document.getElementById('pnl-cnt-NEAR_SL'); if (elSL) elSL.textContent = `(${counts.NEAR_SL})`;
+    }
+
     function updateScannerChipCounts(trades) {
       const counts = { ALL: (trades || []).length, QC: 0, TECH: 0, REC: 0, FUND: 0 };
       (trades || []).forEach(t => {
@@ -7581,6 +7749,7 @@ function changeAdminPage(type, delta) {
       const elRec = document.getElementById('chip-cnt-REC'); if (elRec) elRec.textContent = counts.REC;
       const elFund = document.getElementById('chip-cnt-FUND'); if (elFund) elFund.textContent = counts.FUND;
       updateStatusPillCounts(trades);
+      updatePnlPillCounts(trades);
     }
 
     function renderExposureBar(trades) {
@@ -7666,12 +7835,16 @@ function changeAdminPage(type, delta) {
       const dateEl = document.getElementById('filterDate');
       const scanEl = document.getElementById('filterScanner');
       const statEl = document.getElementById('filterStatus');
+      const pnlEl = document.getElementById('filterPnlState');
+      const rEl = document.getElementById('filterRMultiple');
       const sortEl = document.getElementById('filterTradeSort');
       const symEl = document.getElementById('filterSymbol');
 
       if (dateEl) dateEl.value = 'ALL';
       if (scanEl) scanEl.value = '';
       if (statEl) statEl.value = '';
+      if (pnlEl) pnlEl.value = '';
+      if (rEl) rEl.value = '';
       if (sortEl) sortEl.value = 'DEFAULT';
       if (symEl) symEl.value = '';
       
@@ -7683,6 +7856,10 @@ function changeAdminPage(type, delta) {
       document.querySelectorAll('#statusPillsGroup .status-pill').forEach(c => c.classList.remove('active'));
       const allStatusPill = document.querySelector('#statusPillsGroup .status-pill[data-status=""]');
       if (allStatusPill) allStatusPill.classList.add('active');
+
+      document.querySelectorAll('#pnlPillsGroup .status-pill').forEach(c => c.classList.remove('active'));
+      const allPnlPill = document.querySelector('#pnlPillsGroup .status-pill[data-pnl=""]');
+      if (allPnlPill) allPnlPill.classList.add('active');
 
       if (typeof SELECTED_TRADE_IDS !== 'undefined') SELECTED_TRADE_IDS.clear();
       const selectAll = document.getElementById('selectAllTrades');
@@ -7699,6 +7876,8 @@ function changeAdminPage(type, delta) {
         const rawSc = document.getElementById('filterScanner')?.value || '';
         const sc = rawSc ? normalizeScannerName(rawSc) : '';
         const st = document.getElementById('filterStatus')?.value || '';
+        const pnlState = document.getElementById('filterPnlState')?.value || '';
+        const rMultipleFilt = document.getElementById('filterRMultiple')?.value || '';
         const sym = (document.getElementById('filterSymbol')?.value || '').trim().toUpperCase();
         const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
         
@@ -7754,6 +7933,68 @@ function changeAdminPage(type, delta) {
           } else {
             if (t.status === 'REJECTED') return false; // Hide rejected trades by default unless explicitly selected
           }
+
+          if (pnlState) {
+            const ep = Number(t.actual_entry_price || t.entry_price || 0);
+            const cp = Number(t.current_price || t.exit_price || ep);
+            const pnlPct = Number(t.pnl_pct != null ? t.pnl_pct : (ep > 0 ? ((cp - ep) / ep) * 100 : 0));
+            const rVal = getTradeRMultiple(t);
+            const sl = Number(t.stop_loss || 0);
+            const isFlat = ep > 0 && Math.abs(cp - ep) / ep <= 0.002;
+            const inProfit = isTradeInProfit(t) || (ep > 0 && cp > ep);
+            const inLoss = isTradeInLoss(t) || (ep > 0 && cp < ep);
+
+            if (pnlState === 'GREEN') {
+              if (!inProfit || isFlat) return false;
+            } else if (pnlState === 'RED') {
+              if (!inLoss || isFlat) return false;
+            } else if (pnlState === 'BREAKEVEN') {
+              if (!isFlat) return false;
+            } else if (pnlState === 'PROFIT_10P') {
+              if (pnlPct < 10) return false;
+            } else if (pnlState === 'PROFIT_5P') {
+              if (pnlPct < 5) return false;
+            } else if (pnlState === 'PROFIT_0TO5') {
+              if (pnlPct <= 0 || pnlPct >= 5) return false;
+            } else if (pnlState === 'LOSS_0TO3') {
+              if (pnlPct >= 0 || pnlPct < -3) return false;
+            } else if (pnlState === 'LOSS_3TO7') {
+              if (pnlPct >= -3 || pnlPct < -7) return false;
+            } else if (pnlState === 'LOSS_7P') {
+              if (pnlPct >= -7) return false;
+            } else if (pnlState === 'NEAR_SL') {
+              const isNear = (rVal <= -0.7) || (sl > 0 && cp > 0 && cp <= sl * 1.015);
+              if (!isNear) return false;
+            } else if (pnlState === 'R_2PLUS') {
+              if (rVal < 2.0) return false;
+            } else if (pnlState === 'R_1TO2') {
+              if (rVal < 1.0 || rVal >= 2.0) return false;
+            }
+          }
+
+          if (rMultipleFilt) {
+            const rVal = getTradeRMultiple(t);
+            if (rMultipleFilt === 'R_POS') {
+              if (rVal <= 0) return false;
+            } else if (rMultipleFilt === 'R_2PLUS') {
+              if (rVal < 2.0) return false;
+            } else if (rMultipleFilt === 'R_1TO2') {
+              if (rVal < 1.0 || rVal >= 2.0) return false;
+            } else if (rMultipleFilt === 'R_05TO1') {
+              if (rVal < 0.5 || rVal >= 1.0) return false;
+            } else if (rMultipleFilt === 'R_0TO05') {
+              if (rVal <= 0 || rVal >= 0.5) return false;
+            } else if (rMultipleFilt === 'R_NEG') {
+              if (rVal >= 0) return false;
+            } else if (rMultipleFilt === 'R_M05TO0') {
+              if (rVal < -0.5 || rVal >= 0) return false;
+            } else if (rMultipleFilt === 'R_M1TOM05') {
+              if (rVal < -1.0 || rVal >= -0.5) return false;
+            } else if (rMultipleFilt === 'R_M1MINUS') {
+              if (rVal > -1.0) return false;
+            }
+          }
+
           if (sym && !(t.symbol || '').includes(sym)) return false;
           if (dateFilt !== 'ALL') {
             const d = new Date((t.entry_date || '').replace(' ', 'T'));
@@ -7784,6 +8025,44 @@ function changeAdminPage(type, delta) {
         filtered = [...filtered].sort((a, b) => {
           if (sortSel === 'PNL_DESC') return (b.pnl_pct || 0) - (a.pnl_pct || 0);
           if (sortSel === 'PNL_ASC') return (a.pnl_pct || 0) - (b.pnl_pct || 0);
+          if (sortSel === 'R_DESC') return getTradeRMultiple(b) - getTradeRMultiple(a);
+          if (sortSel === 'R_ASC') return getTradeRMultiple(a) - getTradeRMultiple(b);
+          if (sortSel === 'CMP_DIFF_DESC') {
+            const epA = Number(a.actual_entry_price || a.entry_price || 0);
+            const cpA = Number(a.current_price || a.exit_price || epA);
+            const diffA = epA > 0 ? ((cpA - epA) / epA) * 100 : (a.pnl_pct || 0);
+            const epB = Number(b.actual_entry_price || b.entry_price || 0);
+            const cpB = Number(b.current_price || b.exit_price || epB);
+            const diffB = epB > 0 ? ((cpB - epB) / epB) * 100 : (b.pnl_pct || 0);
+            return diffB - diffA;
+          }
+          if (sortSel === 'CMP_DIFF_ASC') {
+            const epA = Number(a.actual_entry_price || a.entry_price || 0);
+            const cpA = Number(a.current_price || a.exit_price || epA);
+            const diffA = epA > 0 ? ((cpA - epA) / epA) * 100 : (a.pnl_pct || 0);
+            const epB = Number(b.actual_entry_price || b.entry_price || 0);
+            const cpB = Number(b.current_price || b.exit_price || epB);
+            const diffB = epB > 0 ? ((cpB - epB) / epB) * 100 : (b.pnl_pct || 0);
+            return diffA - diffB;
+          }
+          if (sortSel === 'SL_DIST_ASC') {
+            const getSlDist = (t) => {
+              const cp = Number(t.current_price || t.exit_price || t.entry_price || 0);
+              const sl = Number(t.stop_loss || 0);
+              if (cp <= 0 || sl <= 0) return 9999;
+              return ((cp - sl) / cp) * 100;
+            };
+            return getSlDist(a) - getSlDist(b);
+          }
+          if (sortSel === 'T1_DIST_ASC') {
+            const getT1Dist = (t) => {
+              const cp = Number(t.current_price || t.exit_price || t.entry_price || 0);
+              const t1 = Number(t.target_1 || t.target_price || 0);
+              if (cp <= 0 || t1 <= 0) return 9999;
+              return Math.abs((t1 - cp) / cp) * 100;
+            };
+            return getT1Dist(a) - getT1Dist(b);
+          }
           if (sortSel === 'SCORE_DESC') return (b.score || 0) - (a.score || 0);
           if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
           if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
@@ -8012,7 +8291,7 @@ function changeAdminPage(type, delta) {
       renderTradeTable();
     });
     let _filterSymDebounce = null;
-    ['filterScanner', 'filterStatus', 'filterSymbol', 'filterDate'].forEach(id => {
+    ['filterScanner', 'filterStatus', 'filterSymbol', 'filterDate', 'filterTradeSort', 'filterPnlState', 'filterRMultiple'].forEach(id => {
       if (document.getElementById(id)) {
         document.getElementById(id).addEventListener('input', () => {
           renderTradeTable();
@@ -8034,6 +8313,16 @@ function changeAdminPage(type, delta) {
             const curVal = document.getElementById('filterStatus')?.value || '';
             document.querySelectorAll('#statusPillsGroup .status-pill').forEach(pill => {
               if (pill.getAttribute('data-status') === curVal) {
+                pill.classList.add('active');
+              } else {
+                pill.classList.remove('active');
+              }
+            });
+          }
+          if (id === 'filterPnlState') {
+            const curVal = document.getElementById('filterPnlState')?.value || '';
+            document.querySelectorAll('#pnlPillsGroup .status-pill').forEach(pill => {
+              if (pill.getAttribute('data-pnl') === curVal) {
                 pill.classList.add('active');
               } else {
                 pill.classList.remove('active');
@@ -12711,18 +13000,21 @@ async function loadCorporateFilingsDiscovery(targetDate) {
 
       // Update date input and pill
       const dateInput = document.getElementById('filingDateInput');
-      if (dateInput) dateInput.value = data.selected_date;
+      if (dateInput && data.selected_date && data.selected_date !== 'ALL') {
+        dateInput.value = data.selected_date;
+      }
 
       const datePill = document.getElementById('filingDatePill');
       if (datePill) {
         const todayStr = new Date().toISOString().slice(0, 10);
-        datePill.textContent = (data.selected_date === todayStr) ? 'Today' : data.selected_date;
+        datePill.textContent = (data.selected_date === todayStr) ? 'Today' : (data.selected_date || 'All Dates');
       }
 
       // Populate available dates dropdown
       const datesSelect = document.getElementById('filingAvailableDatesSelect');
       if (datesSelect && data.available_dates && data.available_dates.length > 0) {
         let opts = `<option value="">Jump to Date (${data.available_dates.length} available)...</option>`;
+        opts += `<option value="ALL" ${data.selected_date === 'ALL' ? 'selected' : ''}>All Available Dates</option>`;
         data.available_dates.forEach(d => {
           const isSel = (d === data.selected_date) ? 'selected' : '';
           opts += `<option value="${d}" ${isSel}>${d}</option>`;
@@ -12730,23 +13022,10 @@ async function loadCorporateFilingsDiscovery(targetDate) {
         datesSelect.innerHTML = opts;
       }
 
-      // Update KPI cards
-      const s = data.summary || {};
-      const totalEl = document.getElementById('kpi-filings-total');
-      if (totalEl) totalEl.textContent = Number(s.total || CURRENT_FILINGS_DATA.length).toLocaleString('en-IN');
+      // Populate dynamic event types
+      updateFilingEventTypeDropdown(window._CURRENT_RAW_FILINGS);
 
-      const annualEl = document.getElementById('kpi-filings-annual');
-      if (annualEl) annualEl.textContent = Number(s.annual || 0).toLocaleString('en-IN');
-
-      const quarterlyEl = document.getElementById('kpi-filings-quarterly');
-      if (quarterlyEl) quarterlyEl.textContent = Number(s.quarterly || 0).toLocaleString('en-IN');
-
-      const newEl = document.getElementById('kpi-filings-new');
-      if (newEl) newEl.textContent = Number(s.new_filings || 0).toLocaleString('en-IN');
-
-      const dateSub = document.getElementById('kpi-filings-date-sub');
-      if (dateSub) dateSub.textContent = `on ${data.selected_date}`;
-
+      // Filter and render table + sync KPI cards
       filterCorporateFilings();
     }
   } catch (err) {
@@ -12758,9 +13037,81 @@ async function loadCorporateFilingsDiscovery(targetDate) {
 }
 
 function onFilingDateChange(newDate) {
-  if (!newDate) return;
-  CURRENT_SELECTED_FILING_DATE = newDate;
-  loadCorporateFilingsDiscovery(newDate);
+  CURRENT_SELECTED_FILING_DATE = newDate || '';
+  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE);
+}
+
+function updateFilingEventTypeDropdown(filings) {
+  const evSelect = document.getElementById('filingEventTypeSelect');
+  if (!evSelect) return;
+  const currentVal = (evSelect.value || 'ALL').toUpperCase();
+
+  const baseOptions = [
+    { val: 'ALL', label: 'All Event Types' },
+    { val: 'UNSEEN_PERIOD', label: 'Unseen Periods' },
+    { val: 'NEW_FILING', label: 'New Filings' },
+    { val: 'QUARTERLY_RESULT', label: 'Quarterly Results (Q)' },
+    { val: 'ANNUAL_RESULT', label: 'Annual Results (FY)' },
+    { val: 'AMENDED', label: 'Amended / Restated' }
+  ];
+
+  const knownKeys = new Set(baseOptions.map(o => o.val));
+  (filings || []).forEach(f => {
+    const ev = String(f.event_type || '').trim().toUpperCase();
+    if (ev && !knownKeys.has(ev) && ev !== 'ALL') {
+      baseOptions.push({ val: ev, label: ev.replace(/_/g, ' ') });
+      knownKeys.add(ev);
+    }
+  });
+
+  let html = '';
+  baseOptions.forEach(opt => {
+    const isSel = (opt.val === currentVal) ? 'selected' : '';
+    html += `<option value="${opt.val}" ${isSel}>${opt.label}</option>`;
+  });
+  evSelect.innerHTML = html;
+}
+
+function updateCorporateFilingsKPIs(filtered) {
+  const rawSet = new Set((window._CURRENT_RAW_FILINGS || []).map(f => String(f.symbol || '').toUpperCase()).filter(Boolean));
+  const totalRaw = rawSet.size || (window._CURRENT_RAW_FILINGS || []).length;
+  const isFiltered = (filtered.length !== totalRaw);
+
+  const totalEl = document.getElementById('kpi-filings-total');
+  if (totalEl) {
+    if (isFiltered) {
+      totalEl.innerHTML = `${filtered.length} <span style="font-size:13px; font-weight:500; color:var(--muted);">/ ${totalRaw}</span>`;
+    } else {
+      totalEl.textContent = totalRaw.toLocaleString('en-IN');
+    }
+  }
+
+  const annCount = filtered.filter(f => {
+    const st = String(f.statement_type || '').toUpperCase();
+    return st === 'ANNUAL' || st.includes('FY');
+  }).length;
+  const annualEl = document.getElementById('kpi-filings-annual');
+  if (annualEl) annualEl.textContent = Number(annCount).toLocaleString('en-IN');
+
+  const qtrCount = filtered.filter(f => {
+    const st = String(f.statement_type || '').toUpperCase();
+    return st === 'QUARTERLY' || st === 'Q';
+  }).length;
+  const quarterlyEl = document.getElementById('kpi-filings-quarterly');
+  if (quarterlyEl) quarterlyEl.textContent = Number(qtrCount).toLocaleString('en-IN');
+
+  const readyCount = filtered.filter(f => {
+    const st = String(f.status || '').toUpperCase();
+    return st === 'INGESTED' || st === 'READY' || st === 'ACTIVE' || st === 'COMMITTED' || st.includes('SNAPSHOT');
+  }).length;
+  const newEl = document.getElementById('kpi-filings-new');
+  if (newEl) newEl.textContent = Number(readyCount || filtered.length).toLocaleString('en-IN');
+
+  const dateSub = document.getElementById('kpi-filings-date-sub');
+  if (dateSub) {
+    const dateStr = CURRENT_SELECTED_FILING_DATE || (document.getElementById('filingDateInput')?.value) || '';
+    dateSub.textContent = (dateStr && dateStr !== 'ALL') ? `on ${dateStr}` : 'all available dates';
+  }
 }
 
 let FILINGS_SORT_COL = 'published_date';
@@ -12835,8 +13186,8 @@ function formatPublishedFilingDate(dStr) {
 
 function filterCorporateFilings() {
   const symFilter = (document.getElementById('filingSymbolFilter')?.value || '').trim().toUpperCase();
-  const eventFilter = document.getElementById('filingEventTypeSelect')?.value || 'ALL';
-  const statementFilter = document.getElementById('filingStatementSelect')?.value || 'ALL';
+  const eventFilter = (document.getElementById('filingEventTypeSelect')?.value || 'ALL').toUpperCase();
+  const statementFilter = (document.getElementById('filingStatementSelect')?.value || 'ALL').toUpperCase();
 
   let source = Array.isArray(window._CURRENT_RAW_FILINGS) && window._CURRENT_RAW_FILINGS.length > 0
     ? window._CURRENT_RAW_FILINGS
@@ -12846,14 +13197,59 @@ function filterCorporateFilings() {
   if (symFilter) {
     filtered = filtered.filter(f => String(f.symbol || '').toUpperCase().includes(symFilter));
   }
+
   if (eventFilter && eventFilter !== 'ALL') {
-    filtered = filtered.filter(f => String(f.event_type || '').toUpperCase() === eventFilter);
-  }
-  if (statementFilter && statementFilter !== 'ALL') {
-    filtered = filtered.filter(f => String(f.statement_type || '').toUpperCase() === statementFilter);
+    filtered = filtered.filter(f => {
+      const ev = String(f.event_type || '').toUpperCase();
+      const st = String(f.statement_type || '').toUpperCase();
+      if (eventFilter === 'QUARTERLY_RESULT' || eventFilter === 'QUARTERLY') {
+        return st === 'QUARTERLY' || st === 'Q' || ev.includes('QUARTER');
+      }
+      if (eventFilter === 'ANNUAL_RESULT' || eventFilter === 'ANNUAL') {
+        return st === 'ANNUAL' || st.includes('FY') || ev.includes('ANNUAL');
+      }
+      if (eventFilter === 'UNSEEN_PERIOD') {
+        return ev.includes('UNSEEN') || ev.includes('PERIOD') || ev.includes('MISSING');
+      }
+      if (eventFilter === 'NEW_FILING') {
+        return ev.includes('NEW') || ev.includes('DISCOVERY');
+      }
+      if (eventFilter === 'AMENDED') {
+        return ev.includes('AMEND') || ev.includes('RESTATE') || ev.includes('CHANGE');
+      }
+      return ev === eventFilter;
+    });
   }
 
-  renderCorporateFilingsTable(filtered);
+  if (statementFilter && statementFilter !== 'ALL') {
+    filtered = filtered.filter(f => {
+      const st = String(f.statement_type || '').toUpperCase();
+      if (statementFilter === 'ANNUAL') {
+        return st === 'ANNUAL' || st.includes('FY') || st.includes('YEAR');
+      }
+      if (statementFilter === 'QUARTERLY') {
+        return st === 'QUARTERLY' || st === 'Q';
+      }
+      return st === statementFilter;
+    });
+  }
+
+  // 1. Enforce strictly ONE line per stock report per date (selecting latest period report)
+  const uniqueFilings = [];
+  const seenSymbols = new Set();
+  const sortedByPeriod = [...filtered].sort((a, b) => String(b.period_end || '').localeCompare(String(a.period_end || '')));
+  sortedByPeriod.forEach(f => {
+    const sym = String(f.symbol || '').trim().toUpperCase();
+    if (!sym || seenSymbols.has(sym)) return;
+    seenSymbols.add(sym);
+    uniqueFilings.push(f);
+  });
+
+  // Always sync KPI cards with filtered unique items
+  updateCorporateFilingsKPIs(uniqueFilings);
+
+  // Render table with filtered unique items
+  renderCorporateFilingsTable(uniqueFilings);
 }
 
 function formatProperFilingDate(dStr) {
@@ -12896,16 +13292,7 @@ function renderCorporateFilingsTable(filings) {
     return;
   }
 
-  // 1. Enforce strictly ONE line per stock report per date (selecting latest period report)
-  const uniqueFilings = [];
-  const seenSymbols = new Set();
-  const sortedByPeriod = [...filings].sort((a, b) => String(b.period_end || '').localeCompare(String(a.period_end || '')));
-  sortedByPeriod.forEach(f => {
-    const sym = String(f.symbol || '').trim().toUpperCase();
-    if (!sym || seenSymbols.has(sym)) return;
-    seenSymbols.add(sym);
-    uniqueFilings.push(f);
-  });
+  const uniqueFilings = filings;
 
   // 2. Multi-column, null-safe sorting according to FILINGS_SORT_COL and FILINGS_SORT_DIR
   uniqueFilings.sort((a, b) => {
@@ -12983,15 +13370,8 @@ function renderCorporateFilingsTable(filings) {
   // Keep global data aligned for modal lookups
   CURRENT_FILINGS_DATA = uniqueFilings;
 
-  // Sync KPI cards with unique distinct stocks
-  const totalEl = document.getElementById('kpi-filings-total');
-  if (totalEl) totalEl.textContent = uniqueFilings.length.toLocaleString('en-IN');
-  const annCount = uniqueFilings.filter(f => String(f.statement_type || '').toUpperCase() === 'ANNUAL').length;
-  const qtrCount = uniqueFilings.filter(f => String(f.statement_type || '').toUpperCase() === 'QUARTERLY').length;
-  const annEl = document.getElementById('kpi-filings-annual');
-  if (annEl) annEl.textContent = annCount.toLocaleString('en-IN');
-  const qtrEl = document.getElementById('kpi-filings-quarterly');
-  if (qtrEl) qtrEl.textContent = qtrCount.toLocaleString('en-IN');
+  // Sync KPI cards with filtered set
+  updateCorporateFilingsKPIs(uniqueFilings);
 
   // Update table header sort indicators
   updateFilingsSortHeaders();
@@ -13866,7 +14246,13 @@ function renderStockDataHealthTable() {
     // Status Badge
     let statusBadge = '';
     if (isStale) {
-      statusBadge = `<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; white-space:nowrap;">⚠️ STALE</span>`;
+      if (it.status === 'STALE_SEBI_LODR' || (it.reason && it.reason.includes('STALE_SEBI_LODR'))) {
+        statusBadge = `<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(239,68,68,0.22); color:#ef4444; border:1px solid rgba(239,68,68,0.5); font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; white-space:nowrap;" title="Mandatory filing overdue under SEBI LODR Regulation 33 schedule">🛑 SEBI OVERDUE</span>`;
+      } else if (it.status === 'STALE_RAW_DATA' || (it.reason && it.reason.includes('STALE_RAW_DATA'))) {
+        statusBadge = `<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(239,68,68,0.18); color:#ef4444; border:1px solid rgba(239,68,68,0.4); font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; white-space:nowrap;" title="Missing or outdated raw filings in local cache">⚠️ STALE RAW DATA</span>`;
+      } else {
+        statusBadge = `<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; white-space:nowrap;">⚠️ STALE</span>`;
+      }
     } else {
       statusBadge = `<span style="display:inline-flex; align-items:center; gap:4px; background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:10px; font-weight:800; padding:3px 8px; border-radius:6px; white-space:nowrap;">✅ FRESH</span>`;
     }
@@ -13931,8 +14317,28 @@ function renderStockDataHealthTable() {
         <td style="padding:7px 10px; text-align:center; vertical-align:middle; font-family:monospace; font-size:11px; color:${isStale ? '#f59e0b' : 'var(--muted)'};">
           ${isStale ? (it.cooloff_start_at ? it.cooloff_start_at.slice(0,10) : '—') : lastFetched}
         </td>
-        <!-- LATEST PERIOD -->
-        <td style="padding:7px 10px; text-align:center; vertical-align:middle; font-family:monospace; font-weight:700; font-size:11px;">${latestPeriod}</td>
+        <!-- LATEST PERIOD (Display Parity: Snapshot Period & Raw Cache Period) -->
+        <td style="padding:7px 10px; text-align:center; vertical-align:middle; font-family:monospace; font-size:11px;">
+          ${(() => {
+            const snapP = it.latest_annual_period || '';
+            const rawP = it.latest_period_in_db || '';
+            const isSebiOverdue = it.status === 'STALE_SEBI_LODR' || (it.reason && it.reason.includes('STALE_SEBI_LODR'));
+            const statusLabel = isSebiOverdue ? '<span style="color:#ef4444;">(SEBI filing pending)</span>' : '<span style="color:#ef4444;">(Backfill pending)</span>';
+            if (rawP && rawP !== 'No local file' && rawP !== 'None' && snapP && snapP !== rawP) {
+              return `
+                <div style="font-weight:800; color:var(--text); font-size:11px;">${snapP}</div>
+                <div style="font-size:9.5px; color:#f59e0b; font-weight:700; margin-top:2px;" title="Latest statement present in local raw filings on disk">Raw DB: ${rawP} ${isStale ? statusLabel : ''}</div>
+              `;
+            } else if (rawP === 'No local file' || rawP === 'None') {
+              return `
+                <div style="font-weight:800; color:var(--text); font-size:11px;">${snapP || '—'}</div>
+                <div style="font-size:9.5px; color:#ef4444; font-weight:700; margin-top:2px;" title="No local raw filing on disk">Raw DB: None ${statusLabel}</div>
+              `;
+            } else {
+              return `<span style="color:${isStale ? '#f59e0b' : '#10b981'}; font-weight:800;">${rawP || snapP || '—'}</span>`;
+            }
+          })()}
+        </td>
         <!-- FILINGS COUNT -->
         <td style="padding:7px 10px; text-align:center; vertical-align:middle;">
           <span style="font-size:11px; font-weight:800; padding:2px 7px; border-radius:10px; background:rgba(37,99,235,0.12); color:#3b82f6; border:1px solid rgba(37,99,235,0.25);">${dbFilingsCount}</span>

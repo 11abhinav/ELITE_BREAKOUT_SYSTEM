@@ -2835,11 +2835,32 @@ def api_get_corporate_filings():
         )
         avail_dates = get_corporate_filings_available_dates()
         default_date = avail_dates[0] if avail_dates else datetime.now(IST).strftime("%Y-%m-%d")
-        target_date = request.args.get("date", default_date).strip()
+        raw_date = (request.args.get("date") or "").strip()
+
+        if not raw_date or raw_date.upper() in ("LATEST", "DEFAULT", "TODAY"):
+            target_date = default_date
+            resp_date = default_date
+        elif raw_date.upper() in ("ALL", "*"):
+            target_date = None
+            resp_date = "ALL"
+        else:
+            target_date = raw_date
+            resp_date = raw_date
+
         symbol = request.args.get("symbol", "").strip() or None
         event_type = request.args.get("event_type", "ALL").strip()
         statement_type = request.args.get("statement_type", "ALL").strip()
         limit = int(request.args.get("limit", 1000))
+
+        # Map semantic result filters (e.g. Quarterly Results in event filter)
+        if event_type.upper() in ("QUARTERLY_RESULT", "QUARTERLY"):
+            event_type = "ALL"
+            if statement_type == "ALL":
+                statement_type = "QUARTERLY"
+        elif event_type.upper() in ("ANNUAL_RESULT", "ANNUAL"):
+            event_type = "ALL"
+            if statement_type == "ALL":
+                statement_type = "ANNUAL"
 
         filings = get_corporate_filings_by_date(
             target_date=target_date,
@@ -2852,7 +2873,7 @@ def api_get_corporate_filings():
 
         return jsonify({
             "status": "success",
-            "selected_date": target_date,
+            "selected_date": resp_date,
             "available_dates": avail_dates,
             "summary": summary,
             "total_count": len(filings),

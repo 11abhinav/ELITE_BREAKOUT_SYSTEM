@@ -9536,10 +9536,52 @@ def check_and_restore_stale_stock(
     return was_stale
 
 
+def get_sebi_lodr_mandatory_filing_status(as_of_date=None) -> Tuple[str, str, str]:
+    """
+    Enforces statutory mandatory filing calendar under SEBI (LODR) Regulations, 2015 (Regulation 33):
+      - Q1 (Quarter ended June 30) -> Mandatory deadline: August 14 (45 days)
+      - Q2 (Quarter ended September 30) -> Mandatory deadline: November 14 (45 days)
+      - Q3 (Quarter ended December 31) -> Mandatory deadline: February 14 (45 days)
+      - Q4 / Annual Audited (Fiscal ended March 31) -> Mandatory deadline: May 30 (60 days)
+
+    Returns:
+      (mandatory_period_end_date: str, sebi_deadline_date: str, quarter_label: str)
+      representing the latest fiscal period whose filing is legally overdue if missing.
+    """
+    from datetime import date
+    if as_of_date is None:
+        target_date = datetime.now(IST).date()
+    elif isinstance(as_of_date, datetime):
+        target_date = as_of_date.date()
+    elif isinstance(as_of_date, str):
+        target_date = date.fromisoformat(as_of_date[:10])
+    else:
+        target_date = as_of_date
+
+    y = target_date.year
+    candidates = [
+        # (period_end, deadline, label)
+        (date(y, 9, 30), date(y, 11, 14), f"Q2 FY{y+1} (ended Sep 30)"),
+        (date(y, 6, 30), date(y, 8, 14), f"Q1 FY{y+1} (ended Jun 30)"),
+        (date(y, 3, 31), date(y, 5, 30), f"Q4/Annual FY{y} (ended Mar 31)"),
+        (date(y - 1, 12, 31), date(y, 2, 14), f"Q3 FY{y} (ended Dec 31)"),
+        (date(y - 1, 9, 30), date(y - 1, 11, 14), f"Q2 FY{y} (ended Sep 30)"),
+        (date(y - 1, 6, 30), date(y - 1, 8, 14), f"Q1 FY{y} (ended Jun 30)"),
+        (date(y - 1, 3, 31), date(y - 1, 5, 30), f"Q4/Annual FY{y-1} (ended Mar 31)"),
+    ]
+
+    for p_end, deadline, label in candidates:
+        if target_date >= deadline:
+            return p_end.isoformat(), deadline.isoformat(), label
+
+    # Fallback to previous fiscal year annual
+    return date(y - 1, 3, 31).isoformat(), date(y - 1, 5, 30).isoformat(), f"Annual FY{y-1} (ended Mar 31)"
+
+
 def get_stale_stocks_audit() -> List[Dict[str, Any]]:
     """
     Returns all stocks currently marked as stale or in the 7-day cool-off suppression table.
-    Shows the exact reason and what data is missing.
+    Shows the exact reason and what data is missing, enforcing statutory SEBI LODR Regulation 33 deadlines.
     """
     import os, json
     import pandas as pd
@@ -9734,12 +9776,101 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         "ebitda": _val(row.get("ebitda"), 1),
                         "provenance_status": str(row.get("provenance_status") or "PARTIAL")
                     }
+                else:
+                    # STRICT SEBI LODR REGULATION 33 FILING GATE:
+                    # Under SEBI LODR Reg 33, listed companies must file within:
+                    #   - Q1 (Jun 30): 45 days -> Aug 14
+                    #   - Q2 (Sep 30): 45 days -> Nov 14
+                    #   - Q3 (Dec 31): 45 days -> Feb 14
+                    #   - Q4 / Annual (Mar 31): 60 days -> May 30
+                    # If latest period on disk is older than the mandatory SEBI filing period, mark STALE_SEBI_LODR.
+                    sebi_mand_period, sebi_deadline, sebi_label = get_sebi_lodr_mandatory_filing_status(now_dt)
+                    raw_dir_chk = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
+                    raw_p = raw_dir_chk / f"{sym}.json"
+                    raw_stale = False
+                    raw_period = "No local file"
+                    raw_count = 0
+                    if not raw_p.exists():
+                        raw_stale = True
+                    else:
+                        try:
+                            with open(raw_p, "r", encoding="utf-8") as f:
+                                r_data = json.load(f)
+                            if isinstance(r_data, list) and len(r_data) > 0:
+                                raw_count = len(r_data)
+                                valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in r_data if stmt.get("period_end_date")]
+                                if valid_periods:
+                                    raw_period = max(valid_periods)
+                                    if raw_period < sebi_mand_period:
+                                        raw_stale = True
+                                else:
+                                    raw_stale = True
+                                    raw_period = "None"
+                            else:
+                                raw_stale = True
+                                raw_period = "Empty file"
+                        except Exception:
+                            raw_stale = True
+                            raw_period = "Read Error"
+
+                    if raw_stale:
+                        comp_name = sec_master.get(sym, {}).get("company_name", sym)
+                        if raw_period == "No local file" or raw_period == "Empty file" or raw_period == "None":
+                            reason = "MISSING_RAW_FILINGS"
+                            missing_summary = f"No raw disclosures on disk. Backfill pending for mandatory SEBI period {sebi_mand_period}."
+                            status_code = "STALE_RAW_DATA"
+                        else:
+                            reason = f"STALE_SEBI_LODR ({raw_period} < {sebi_mand_period})"
+                            missing_summary = f"SEBI LODR Reg 33 filing overdue ({sebi_label}). Required: {sebi_mand_period} (Due {sebi_deadline}). Latest available: {raw_period}."
+                            status_code = "STALE_SEBI_LODR"
+
+                        stale_map[sym] = {
+                            "symbol": sym,
+                            "company_name": comp_name,
+                            "scanner": "ALL",
+                            "reason": reason,
+                            "missing_data_summary": missing_summary,
+                            "provider_failures": "",
+                            "cooloff_start_at": str(row.get("as_of_date") or now_dt.strftime("%Y-%m-%d")),
+                            "cooloff_until": (now_dt + timedelta(days=7)).isoformat(),
+                            "days_remaining": 7.0,
+                            "status": status_code,
+                            "source": "SEBI_LODR_REG33_SCHEDULE",
+                            "latest_annual_period": str(row.get("latest_annual_period") or ""),
+                            "latest_period_in_db": raw_period,
+                            "filings_count_in_db": raw_count,
+                            "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
+                            "cmp": _val(row.get("cmp")),
+                            "market_cap_cr": _val(row.get("market_cap"), 1),
+                            "enterprise_value": _val(row.get("enterprise_value"), 1),
+                            "current_pe": _val(row.get("current_pe")),
+                            "pe_3y_median": _val(row.get("pe_3y_median")),
+                            "current_ev_ebitda": _val(row.get("current_ev_ebitda")),
+                            "ev_ebitda_3y_median": _val(row.get("ev_ebitda_3y_median")),
+                            "roce_5y_avg": _val(row.get("roce_5y_avg")),
+                            "roce": _val(row.get("roce")),
+                            "roe": _val(row.get("roe")),
+                            "sales_cagr_5y": _val(row.get("sales_cagr_5y")),
+                            "pat_cagr_5y": _val(row.get("pat_cagr_5y")),
+                            "cfo_pat_5y_ratio": _val(row.get("cfo_pat_5y_ratio")),
+                            "debt_to_equity": _val(row.get("debt_to_equity")),
+                            "shares_outstanding_m": _val(row.get("shares_outstanding_m"), 2),
+                            "share_dilution_3y_pct": _val(row.get("share_dilution_3y_pct"), 2),
+                            "share_dilution_status": str(row.get("share_dilution_status") or ""),
+                            "revenue": _val(row.get("revenue"), 1),
+                            "net_profit": _val(row.get("net_profit"), 1),
+                            "operating_cash_flow": _val(row.get("operating_cash_flow"), 1),
+                            "ebitda": _val(row.get("ebitda"), 1),
+                            "provenance_status": str(row.get("provenance_status") or "PARTIAL")
+                        }
     except Exception as e:
         logger.debug(f"[STALE_AUDIT] Snapshot check note: {e}")
 
     # Enrich with latest period present in local raw filings
     raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
     for sym, item in stale_map.items():
+        if item.get("latest_period_in_db") and item.get("latest_period_in_db") not in ("No local file", "None", "Error", "Empty file", "Read Error"):
+            continue
         raw_p = raw_dir / f"{sym}.json"
         if raw_p.exists():
             try:
@@ -9747,7 +9878,8 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                     data = json.load(f)
                 if isinstance(data, list) and len(data) > 0:
                     item["filings_count_in_db"] = len(data)
-                    item["latest_period_in_db"] = str(data[-1].get("period_end_date") or "")
+                    valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in data if stmt.get("period_end_date")]
+                    item["latest_period_in_db"] = max(valid_periods) if valid_periods else "None"
                 else:
                     item["filings_count_in_db"] = 0
                     item["latest_period_in_db"] = "None"
@@ -9832,35 +9964,41 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
         if not sym or sym in active_cooloff_symbols:
             continue
 
+        raw_p = raw_dir / f"{sym}.json"
+        if not raw_p.exists():
+            continue  # STRICT GATE: Exclude from fresh if raw filings missing on disk
+
+        filings_count = 0
+        recent_periods = []
+        last_fetched_at = None
+        latest_period_in_db = "None"
+        try:
+            mtime = raw_p.stat().st_mtime
+            last_fetched_at = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+            with open(raw_p, "r", encoding="utf-8") as f:
+                r_data = json.load(f)
+            if not isinstance(r_data, list) or len(r_data) == 0:
+                continue
+            filings_count = len(r_data)
+            valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in r_data if stmt.get("period_end_date")]
+            if not valid_periods:
+                continue
+            latest_period_in_db = max(valid_periods)
+            sebi_mand_period, _, _ = get_sebi_lodr_mandatory_filing_status(now_dt)
+            if latest_period_in_db < sebi_mand_period:
+                continue  # STRICT SEBI REG 33 FRESHNESS GATE: Hard exclude if latest filing on disk is older than mandatory SEBI period
+            for stmt in r_data[-5:]:
+                p_end = str(stmt.get("period_end_date") or "")
+                st_t = str(stmt.get("statement_type") or "A")[:1]
+                if p_end:
+                    recent_periods.append(f"{p_end} ({st_t})")
+        except Exception:
+            continue
+
         comp_name = sec_master.get(sym, {}).get("company_name", sym)
         annual_period = str(row.get("latest_annual_period") or "")[:10]
         as_of = str(row.get("as_of_date") or "")
         isin = str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or "")
-
-        filings_count = int(row.get("annual_filing_count") or 0)
-        recent_periods = []
-        last_fetched_at = None
-        latest_period_in_db = annual_period
-        raw_p = raw_dir / f"{sym}.json"
-        if raw_p.exists():
-            try:
-                # File modification time is a reliable proxy for when data was last fetched from exchange
-                mtime = raw_p.stat().st_mtime
-                last_fetched_at = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
-                with open(raw_p, "r", encoding="utf-8") as f:
-                    r_data = json.load(f)
-                if isinstance(r_data, list):
-                    filings_count = len(r_data)
-                    valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in r_data if stmt.get("period_end_date")]
-                    if valid_periods:
-                        latest_period_in_db = max(valid_periods)
-                    for stmt in r_data[-5:]:
-                        p_end = str(stmt.get("period_end_date") or "")
-                        st_t = str(stmt.get("statement_type") or "A")[:1]
-                        if p_end:
-                            recent_periods.append(f"{p_end} ({st_t})")
-            except Exception:
-                pass
 
         def _val(x, round_n=2):
             if x is None or pd.isna(x):
@@ -14559,9 +14697,9 @@ def get_corporate_filings_available_dates(limit: int = 60) -> List[str]:
     return [today_str]
 
 
-def get_corporate_filings_summary(target_date: str) -> Dict[str, Any]:
+def get_corporate_filings_summary(target_date: Optional[str] = None) -> Dict[str, Any]:
     """
-    Returns summary KPI counts for filings discovered on a specific date.
+    Returns summary KPI counts for filings discovered on a specific date (or all if None).
     """
     filings = get_corporate_filings_by_date(target_date=target_date, limit=5000)
     total = len(filings)
@@ -14571,7 +14709,7 @@ def get_corporate_filings_summary(target_date: str) -> Dict[str, Any]:
     amended_count = sum(1 for f in filings if "AMEND" in str(f.get("event_type", "")).upper() or "RESTATE" in str(f.get("event_type", "")).upper())
 
     return {
-        "date": target_date,
+        "date": target_date or "ALL",
         "total": total,
         "annual": annual_count,
         "quarterly": quarterly_count,

@@ -1695,6 +1695,30 @@ function playDing() {
         <div class="status-pill" data-status="SL_HIT" onclick="setUserStatusFilter('SL_HIT')"><span class="status-dot" style="background:#b91c1c;"></span> SL Hit <span id="status-cnt-SL_HIT" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
       </div>
 
+      <!-- TERTIARY FILTER STRIP: P&L STATE & R-MULTIPLE PILLS (1-Click Green Only / In Loss Only / Multi-R) -->
+      <div class="status-pills-group" id="pnlPillsGroup" style="margin-bottom:14px; gap:6px;">
+        <span style="font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; margin-right: 4px;">P&amp;L / R:</span>
+        <div class="status-pill active" data-pnl="" onclick="setUserPnlFilter('')">All Returns <span id="pnl-cnt-ALL" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-pnl="GREEN" onclick="setUserPnlFilter('GREEN')" title="Stocks currently trading HIGHER than Buy Price (In Profit / Green)">
+          <span class="status-dot" style="background:#10b981;"></span> 🟢 In Green (CMP &gt; Buy) <span id="pnl-cnt-GREEN" style="font-family:var(--font-mono); font-size:11px; color:#10b981; font-weight:800;">(0)</span>
+        </div>
+        <div class="status-pill" data-pnl="RED" onclick="setUserPnlFilter('RED')" title="Stocks currently trading LOWER than Buy Price (In Loss / Red)">
+          <span class="status-dot" style="background:#ef4444;"></span> 🔴 In Loss (CMP &lt; Buy) <span id="pnl-cnt-RED" style="font-family:var(--font-mono); font-size:11px; color:#ef4444; font-weight:800;">(0)</span>
+        </div>
+        <div class="status-pill" data-pnl="BREAKEVEN" onclick="setUserPnlFilter('BREAKEVEN')" title="Trades trading flat around entry price (+/- 0.2%)">
+          <span class="status-dot" style="background:#94a3b8;"></span> ⚪ Breakeven <span id="pnl-cnt-BREAKEVEN" style="font-family:var(--font-mono); font-size:11px;">(0)</span>
+        </div>
+        <div class="status-pill" data-pnl="R_2PLUS" onclick="setUserPnlFilter('R_2PLUS')" title="Multi-R super runners trading at R >= +2.0R">
+          <span class="status-dot" style="background:#8b5cf6;"></span> 🚀 R &ge; +2.0R <span id="pnl-cnt-R_2PLUS" style="font-family:var(--font-mono); font-size:11px; color:#a78bfa; font-weight:800;">(0)</span>
+        </div>
+        <div class="status-pill" data-pnl="R_1TO2" onclick="setUserPnlFilter('R_1TO2')" title="Trades trading in target zone (+1.0R to +2.0R)">
+          <span class="status-dot" style="background:#3b82f6;"></span> 🎯 +1R to +2R <span id="pnl-cnt-R_1TO2" style="font-family:var(--font-mono); font-size:11px; color:#60a5fa; font-weight:800;">(0)</span>
+        </div>
+        <div class="status-pill" data-pnl="NEAR_SL" onclick="setUserPnlFilter('NEAR_SL')" title="High-risk trades near stop loss (Within 1.5% of SL or R <= -0.7R)">
+          <span class="status-dot" style="background:#f59e0b;"></span> ⚠️ Near SL / At Risk <span id="pnl-cnt-NEAR_SL" style="font-family:var(--font-mono); font-size:11px; color:#f59e0b; font-weight:800;">(0)</span>
+        </div>
+      </div>
+
       <div class="filter-bar">
         <select id="filterDate">
           <option value="ALL">All Time</option>
@@ -1740,6 +1764,51 @@ function playDing() {
           <option value="OPEN">🟢 Active / Open Positions</option>
           <option value="CLOSED">⚪ Closed Trades</option>
         </select>
+
+        <!-- P&L State Filter -->
+        <select id="filterPnlState" onchange="renderTradeTable()" style="max-height:280px; overflow-y:auto;">
+          <option value="">All P&amp;L States (Green &amp; Red)</option>
+          <option value="GREEN">🟢 In Green Only (CMP &gt; Buy Price)</option>
+          <option value="RED">🔴 In Loss Only (CMP &lt; Buy Price)</option>
+          <option value="BREAKEVEN">⚪ Breakeven (CMP == Buy Price)</option>
+          <option value="PROFIT_10P">🚀 Massive Gain (&gt; +10%)</option>
+          <option value="PROFIT_5P">📈 Strong Gain (+5% to +10%)</option>
+          <option value="PROFIT_0TO5">🌱 Modest Gain (0% to +5%)</option>
+          <option value="LOSS_0TO3">🔻 Small Pullback (0% to -3%)</option>
+          <option value="LOSS_3TO7">📉 Moderate Loss (-3% to -7%)</option>
+          <option value="LOSS_7P">🛑 Heavy Loss (&gt; -7%)</option>
+          <option value="NEAR_SL">⚠️ Near Stop Loss (Within 1.5% of SL)</option>
+        </select>
+
+        <!-- R-Multiple Filter -->
+        <select id="filterRMultiple" onchange="renderTradeTable()" style="max-height:280px; overflow-y:auto;">
+          <option value="">All R-Multiples</option>
+          <option value="R_POS">🟢 Positive R (&gt; 0.0R) — In Green</option>
+          <option value="R_2PLUS">🚀 Super Runner (R &ge; +2.0R)</option>
+          <option value="R_1TO2">🎯 Target 1 Zone (+1.0R to +2.0R)</option>
+          <option value="R_05TO1">📈 Solid Gain (+0.5R to +1.0R)</option>
+          <option value="R_0TO05">🌱 Small Green (0.0R to +0.5R)</option>
+          <option value="R_NEG">🔴 Negative R (&lt; 0.0R) — In Red</option>
+          <option value="R_M05TO0">🔻 Minor Dip (-0.5R to 0.0R)</option>
+          <option value="R_M1TOM05">⚠️ High Risk (-1.0R to -0.5R)</option>
+          <option value="R_M1MINUS">🛑 Stop Hit / Beyond (R &le; -1.0R)</option>
+        </select>
+
+        <select id="filterTradeSort" onchange="renderTradeTable()">
+          <option value="DEFAULT">Sort: Default (Newest First)</option>
+          <option value="R_DESC">Sort: R-Multiple (Highest R First)</option>
+          <option value="R_ASC">Sort: R-Multiple (Lowest R First)</option>
+          <option value="PNL_DESC">Sort: P&amp;L % (High to Low)</option>
+          <option value="PNL_ASC">Sort: P&amp;L % (Low to High)</option>
+          <option value="CMP_DIFF_DESC">Sort: CMP vs Buy (Highest % Above Buy)</option>
+          <option value="CMP_DIFF_ASC">Sort: CMP vs Buy (Lowest % Below Buy)</option>
+          <option value="SL_DIST_ASC">Sort: Distance to SL (Closest to SL First)</option>
+          <option value="T1_DIST_ASC">Sort: Distance to T1 (Closest to Target First)</option>
+          <option value="SCORE_DESC">Sort: Score (High to Low)</option>
+          <option value="CAPITAL_DESC">Sort: Capital (High to Low)</option>
+          <option value="DAYS_DESC">Sort: Days Held (High to Low)</option>
+        </select>
+
         <select id="filterCategory"><option value="">All categories</option></select>
         <input id="filterSymbol" type="text" placeholder="Search symbol (Press '/' to focus)…" style="width:220px">
         <button class="refresh-btn" onclick="exportCSV()" style="margin-left:8px;padding:6px 12px;">📥 Export CSV</button>
@@ -3071,6 +3140,26 @@ function buildTradeRows(trades, maxAbs, prefix) {
     }
     window._PREV_PRICES[cleanSym] = curP;
 
+    const effEntry = Number(t.actual_entry_price || t.entry_price || 0);
+    const curPrice = Number(t.exit_price || t.current_price || effEntry);
+    const diffRs = curPrice - effEntry;
+    const isCurBelowBuy = (effEntry > 0 && curPrice < effEntry);
+    const isCurAboveBuy = (effEntry > 0 && curPrice > effEntry);
+    let cmpSubText = '';
+    if (isCurBelowBuy) {
+      cmpSubText = `<div style="font-size:9.5px; color:#ef4444; font-weight:700; margin-top:2px;" title="Trading below entry price (Loss)">🔻 -₹${Math.abs(diffRs).toFixed(1)}</div>`;
+    } else if (isCurAboveBuy) {
+      cmpSubText = `<div style="font-size:9.5px; color:#10b981; font-weight:700; margin-top:2px;" title="Trading above entry price (Profit)">🟢 +₹${diffRs.toFixed(1)}</div>`;
+    } else {
+      cmpSubText = `<div style="font-size:9.5px; color:var(--muted); font-weight:600; margin-top:2px;">⚪ 0.00</div>`;
+    }
+
+    const rVal = (typeof getTradeRMultiple === 'function') ? getTradeRMultiple(t) : 0;
+    const rSign = rVal > 0 ? '+' : '';
+    const rStr = `${rSign}${rVal.toFixed(2)}R`;
+    const rBadgeColor = rVal >= 2.0 ? '#8b5cf6' : (rVal >= 1.0 ? '#3b82f6' : (rVal > 0 ? '#10b981' : (rVal <= -1.0 ? '#ef4444' : '#f59e0b')));
+    const rBadgeBg = rVal >= 2.0 ? 'rgba(139,92,246,0.18)' : (rVal >= 1.0 ? 'rgba(59,130,246,0.18)' : (rVal > 0 ? 'rgba(16,185,129,0.18)' : (rVal <= -1.0 ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.18)')));
+
     // LAZY RENDERING: Only build heavy detail DOM tree if panel is open!
     const detailPanelInnerHtml = isOpen ? buildDetailPanelContent(t, id) : '';
 
@@ -3099,14 +3188,18 @@ function buildTradeRows(trades, maxAbs, prefix) {
         ${fmt(t.actual_entry_price || t.entry_price)}
       </td>
       <td style="text-align:right;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
-        <div class="cmp-val ${flashCls}" style="font-weight:800; font-size:12px; color:var(--text); padding:2px 4px; border-radius:3px; display:inline-block;">${fmt(t.exit_price || t.current_price)}</div>
+        <div class="cmp-val ${flashCls}" style="font-weight:800; font-size:12px; color:${isCurBelowBuy ? '#ef4444' : (isCurAboveBuy ? '#10b981' : 'var(--text)')}; padding:2px 4px; border-radius:3px; display:inline-block;">${fmt(t.exit_price || t.current_price)}</div>
+        ${cmpSubText}
       </td>
       <td style="text-align:right;">
         <div class="pnl-wrap" style="justify-content:flex-end; gap:5px;">
           <div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
           <span class="pnl-text ${pctClass(t.pnl_pct)}" style="font-size:11.5px; min-width:auto;">${pct(t.pnl_pct)}</span>
         </div>
-        <div style="font-size:9.5px; margin-top:2px;" class="${pctClass(pnlRsVal)}">${pnlRsVal !== 0 ? fmt(pnlRsVal) : (t.pnl_rs != null && t.pnl_rs !== 0 ? fmt(t.pnl_rs) : '—')}</div>
+        <div style="display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:2px;">
+          <span class="badge" style="background:${rBadgeBg}; color:${rBadgeColor}; border:1px solid ${rBadgeColor}40; font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:3px; font-family:var(--font-mono);" title="Current R-Multiple">${rStr}</span>
+          <span style="font-size:9.5px;" class="${pctClass(pnlRsVal)}">${pnlRsVal !== 0 ? fmt(pnlRsVal) : (t.pnl_rs != null && t.pnl_rs !== 0 ? fmt(t.pnl_rs) : '—')}</span>
+        </div>
       </td>
       <td style="text-align:center;" title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
@@ -3825,6 +3918,86 @@ function updateStatusPillCounts(trades) {
   const elSL = document.getElementById('status-cnt-SL_HIT'); if (elSL) elSL.textContent = `(${counts.SL_HIT})`;
 }
 
+function getTradeRMultiple(t) {
+  if (!t) return 0;
+  if (t.r_multiple != null && !isNaN(t.r_multiple)) return Number(t.r_multiple);
+  if (t.net_r != null && !isNaN(t.net_r)) return Number(t.net_r);
+
+  const ep = Number(t.actual_entry_price || t.entry_price || 0);
+  if (ep <= 0) return 0;
+
+  const cp = Number((t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED')
+    ? (t.exit_price || t.current_price || ep)
+    : (t.current_price || ep));
+
+  let sl = (t.stop_loss != null && Number(t.stop_loss) > 0) ? Number(t.stop_loss) : null;
+  let riskUnit = 0;
+  if (sl && sl < ep) {
+    riskUnit = ep - sl;
+  } else if (t.initial_stop_loss && Number(t.initial_stop_loss) < ep) {
+    riskUnit = ep - Number(t.initial_stop_loss);
+  } else if (t.atr && Number(t.atr) > 0) {
+    riskUnit = Number(t.atr) * 1.5;
+  } else {
+    riskUnit = ep * 0.05;
+  }
+
+  if (riskUnit <= 0) return 0;
+  return (cp - ep) / riskUnit;
+}
+
+function setUserPnlFilter(pnlKey) {
+  document.querySelectorAll('#pnlPillsGroup .status-pill').forEach(pill => {
+    if (pill.getAttribute('data-pnl') === pnlKey) {
+      pill.classList.add('active');
+    } else {
+      pill.classList.remove('active');
+    }
+  });
+  const pnlEl = document.getElementById('filterPnlState');
+  if (pnlEl) {
+    pnlEl.value = pnlKey;
+  }
+  tradeCurrentPage = 1;
+  renderTradeTable();
+}
+
+function updatePnlPillCounts(trades) {
+  const counts = { ALL: 0, GREEN: 0, RED: 0, BREAKEVEN: 0, R_2PLUS: 0, R_1TO2: 0, NEAR_SL: 0 };
+  (trades || []).forEach(t => {
+    if (!t || t.status === 'REJECTED') return;
+    counts.ALL++;
+
+    const ep = Number(t.actual_entry_price || t.entry_price || 0);
+    const cp = Number(t.current_price || t.exit_price || ep);
+    const rVal = getTradeRMultiple(t);
+    const sl = Number(t.stop_loss || 0);
+    const inProfit = isTradeInProfit(t) || (ep > 0 && cp > ep);
+    const inLoss = isTradeInLoss(t) || (ep > 0 && cp < ep);
+    const isFlat = ep > 0 && Math.abs(cp - ep) / ep <= 0.002;
+
+    if (isFlat) {
+      counts.BREAKEVEN++;
+    } else if (inProfit) {
+      counts.GREEN++;
+    } else if (inLoss) {
+      counts.RED++;
+    }
+
+    if (rVal >= 2.0) counts.R_2PLUS++;
+    if (rVal >= 1.0 && rVal < 2.0) counts.R_1TO2++;
+    if (rVal <= -0.7 || (sl > 0 && cp > 0 && cp <= sl * 1.015)) counts.NEAR_SL++;
+  });
+
+  const elAll = document.getElementById('pnl-cnt-ALL'); if (elAll) elAll.textContent = `(${counts.ALL})`;
+  const elGreen = document.getElementById('pnl-cnt-GREEN'); if (elGreen) elGreen.textContent = `(${counts.GREEN})`;
+  const elRed = document.getElementById('pnl-cnt-RED'); if (elRed) elRed.textContent = `(${counts.RED})`;
+  const elFlat = document.getElementById('pnl-cnt-BREAKEVEN'); if (elFlat) elFlat.textContent = `(${counts.BREAKEVEN})`;
+  const elR2 = document.getElementById('pnl-cnt-R_2PLUS'); if (elR2) elR2.textContent = `(${counts.R_2PLUS})`;
+  const elR1 = document.getElementById('pnl-cnt-R_1TO2'); if (elR1) elR1.textContent = `(${counts.R_1TO2})`;
+  const elSL = document.getElementById('pnl-cnt-NEAR_SL'); if (elSL) elSL.textContent = `(${counts.NEAR_SL})`;
+}
+
 function updateScannerChipCounts(trades) {
   const counts = { ALL: (trades || []).length, QC: 0, TECH: 0, REC: 0, FUND: 0 };
   (trades || []).forEach(t => {
@@ -3840,6 +4013,7 @@ function updateScannerChipCounts(trades) {
   const elRec = document.getElementById('chip-cnt-REC'); if (elRec) elRec.textContent = counts.REC;
   const elFund = document.getElementById('chip-cnt-FUND'); if (elFund) elFund.textContent = counts.FUND;
   updateStatusPillCounts(trades);
+  updatePnlPillCounts(trades);
 }
 
 function renderExposureBar(trades) {
@@ -3923,9 +4097,11 @@ function renderExposureBar(trades) {
 
 function renderTradeTable() {
   const selectedScanners = getUserSelectedScanners();
-  const st  = document.getElementById('filterStatus').value;
-  const cat = document.getElementById('filterCategory').value;
-  const sym = document.getElementById('filterSymbol').value.trim().toUpperCase();
+  const st  = document.getElementById('filterStatus')?.value || '';
+  const pnlState = document.getElementById('filterPnlState')?.value || '';
+  const rMultipleFilt = document.getElementById('filterRMultiple')?.value || '';
+  const cat = document.getElementById('filterCategory')?.value || '';
+  const sym = (document.getElementById('filterSymbol')?.value || '').trim().toUpperCase();
   const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
   const now = new Date();
   const ytd = new Date(now.getFullYear(), 0, 1);
@@ -3973,6 +4149,68 @@ function renderTradeTable() {
     } else {
       if (t.status === 'REJECTED') return false; 
     }
+
+    if (pnlState) {
+      const ep = Number(t.actual_entry_price || t.entry_price || 0);
+      const cp = Number(t.current_price || t.exit_price || ep);
+      const pnlPct = Number(t.pnl_pct != null ? t.pnl_pct : (ep > 0 ? ((cp - ep) / ep) * 100 : 0));
+      const rVal = getTradeRMultiple(t);
+      const sl = Number(t.stop_loss || 0);
+      const isFlat = ep > 0 && Math.abs(cp - ep) / ep <= 0.002;
+      const inProfit = isTradeInProfit(t) || (ep > 0 && cp > ep);
+      const inLoss = isTradeInLoss(t) || (ep > 0 && cp < ep);
+
+      if (pnlState === 'GREEN') {
+        if (!inProfit || isFlat) return false;
+      } else if (pnlState === 'RED') {
+        if (!inLoss || isFlat) return false;
+      } else if (pnlState === 'BREAKEVEN') {
+        if (!isFlat) return false;
+      } else if (pnlState === 'PROFIT_10P') {
+        if (pnlPct < 10) return false;
+      } else if (pnlState === 'PROFIT_5P') {
+        if (pnlPct < 5) return false;
+      } else if (pnlState === 'PROFIT_0TO5') {
+        if (pnlPct <= 0 || pnlPct >= 5) return false;
+      } else if (pnlState === 'LOSS_0TO3') {
+        if (pnlPct >= 0 || pnlPct < -3) return false;
+      } else if (pnlState === 'LOSS_3TO7') {
+        if (pnlPct >= -3 || pnlPct < -7) return false;
+      } else if (pnlState === 'LOSS_7P') {
+        if (pnlPct >= -7) return false;
+      } else if (pnlState === 'NEAR_SL') {
+        const isNear = (rVal <= -0.7) || (sl > 0 && cp > 0 && cp <= sl * 1.015);
+        if (!isNear) return false;
+      } else if (pnlState === 'R_2PLUS') {
+        if (rVal < 2.0) return false;
+      } else if (pnlState === 'R_1TO2') {
+        if (rVal < 1.0 || rVal >= 2.0) return false;
+      }
+    }
+
+    if (rMultipleFilt) {
+      const rVal = getTradeRMultiple(t);
+      if (rMultipleFilt === 'R_POS') {
+        if (rVal <= 0) return false;
+      } else if (rMultipleFilt === 'R_2PLUS') {
+        if (rVal < 2.0) return false;
+      } else if (rMultipleFilt === 'R_1TO2') {
+        if (rVal < 1.0 || rVal >= 2.0) return false;
+      } else if (rMultipleFilt === 'R_05TO1') {
+        if (rVal < 0.5 || rVal >= 1.0) return false;
+      } else if (rMultipleFilt === 'R_0TO05') {
+        if (rVal <= 0 || rVal >= 0.5) return false;
+      } else if (rMultipleFilt === 'R_NEG') {
+        if (rVal >= 0) return false;
+      } else if (rMultipleFilt === 'R_M05TO0') {
+        if (rVal < -0.5 || rVal >= 0) return false;
+      } else if (rMultipleFilt === 'R_M1TOM05') {
+        if (rVal < -1.0 || rVal >= -0.5) return false;
+      } else if (rMultipleFilt === 'R_M1MINUS') {
+        if (rVal > -1.0) return false;
+      }
+    }
+
     if (cat && t.category !== cat) return false;
     if (sym && !t.symbol.includes(sym)) return false;
     if (dateFilt !== 'ALL') {
@@ -3997,7 +4235,52 @@ function renderTradeTable() {
   }
 
   window._currentFilteredTrades = filtered;
+  const sortSel = document.getElementById('filterTradeSort')?.value || 'DEFAULT';
   filtered = [...filtered].sort((a,b) => {
+    if (sortSel === 'PNL_DESC') return (b.pnl_pct || 0) - (a.pnl_pct || 0);
+    if (sortSel === 'PNL_ASC') return (a.pnl_pct || 0) - (b.pnl_pct || 0);
+    if (sortSel === 'R_DESC') return getTradeRMultiple(b) - getTradeRMultiple(a);
+    if (sortSel === 'R_ASC') return getTradeRMultiple(a) - getTradeRMultiple(b);
+    if (sortSel === 'CMP_DIFF_DESC') {
+      const epA = Number(a.actual_entry_price || a.entry_price || 0);
+      const cpA = Number(a.current_price || a.exit_price || epA);
+      const diffA = epA > 0 ? ((cpA - epA) / epA) * 100 : (a.pnl_pct || 0);
+      const epB = Number(b.actual_entry_price || b.entry_price || 0);
+      const cpB = Number(b.current_price || b.exit_price || epB);
+      const diffB = epB > 0 ? ((cpB - epB) / epB) * 100 : (b.pnl_pct || 0);
+      return diffB - diffA;
+    }
+    if (sortSel === 'CMP_DIFF_ASC') {
+      const epA = Number(a.actual_entry_price || a.entry_price || 0);
+      const cpA = Number(a.current_price || a.exit_price || epA);
+      const diffA = epA > 0 ? ((cpA - epA) / epA) * 100 : (a.pnl_pct || 0);
+      const epB = Number(b.actual_entry_price || b.entry_price || 0);
+      const cpB = Number(b.current_price || b.exit_price || epB);
+      const diffB = epB > 0 ? ((cpB - epB) / epB) * 100 : (b.pnl_pct || 0);
+      return diffA - diffB;
+    }
+    if (sortSel === 'SL_DIST_ASC') {
+      const getSlDist = (t) => {
+        const cp = Number(t.current_price || t.exit_price || t.entry_price || 0);
+        const sl = Number(t.stop_loss || 0);
+        if (cp <= 0 || sl <= 0) return 9999;
+        return ((cp - sl) / cp) * 100;
+      };
+      return getSlDist(a) - getSlDist(b);
+    }
+    if (sortSel === 'T1_DIST_ASC') {
+      const getT1Dist = (t) => {
+        const cp = Number(t.current_price || t.exit_price || t.entry_price || 0);
+        const t1 = Number(t.target_1 || t.target_price || 0);
+        if (cp <= 0 || t1 <= 0) return 9999;
+        return Math.abs((t1 - cp) / cp) * 100;
+      };
+      return getT1Dist(a) - getT1Dist(b);
+    }
+    if (sortSel === 'SCORE_DESC') return (b.score || 0) - (a.score || 0);
+    if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
+    if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
+
     if (sortCol === 'scanner_count') {
       const cA = (getTradeConfluenceInfo(a).totalOpenScanners || 1);
       const cB = (getTradeConfluenceInfo(b).totalOpenScanners || 1);
@@ -4080,7 +4363,7 @@ document.addEventListener('click', e => {
 
 let _userFilterSymDebounce = null;
 let _userTableRenderDebounce = null;
-['searchTrades', 'filterScanner', 'filterStatus', 'filterCategory', 'filterSymbol', 'filterDate'].forEach(id => {
+['searchTrades', 'filterScanner', 'filterStatus', 'filterCategory', 'filterSymbol', 'filterDate', 'filterTradeSort', 'filterPnlState', 'filterRMultiple'].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
     el.addEventListener('input', () => {
@@ -4102,7 +4385,24 @@ let _userTableRenderDebounce = null;
         }
       }
     });
-    el.addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
+    el.addEventListener('change', () => {
+      if (id === 'filterStatus') {
+        const curVal = el.value || '';
+        document.querySelectorAll('#statusPillsGroup .status-pill').forEach(pill => {
+          if (pill.getAttribute('data-status') === curVal) pill.classList.add('active');
+          else pill.classList.remove('active');
+        });
+      }
+      if (id === 'filterPnlState') {
+        const curVal = el.value || '';
+        document.querySelectorAll('#pnlPillsGroup .status-pill').forEach(pill => {
+          if (pill.getAttribute('data-pnl') === curVal) pill.classList.add('active');
+          else pill.classList.remove('active');
+        });
+      }
+      tradeCurrentPage = 1;
+      renderTradeTable();
+    });
   }
 });
 
