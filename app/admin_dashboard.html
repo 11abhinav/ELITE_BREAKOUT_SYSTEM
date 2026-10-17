@@ -14648,9 +14648,12 @@ async function batchValidateAndRestoreSelected() {
     });
 
     let data = {};
+    let parseError = null;
     try {
       data = await res.json();
-    } catch (_) {}
+    } catch (pe) {
+      parseError = pe;
+    }
 
     if (res.status === 401) {
       if (confirm('🔒 Session Expired:\nYour admin session has expired (e.g. after server restart).\n\nWould you like to refresh and log in again?')) {
@@ -14660,20 +14663,40 @@ async function batchValidateAndRestoreSelected() {
     }
 
     if (!res.ok) {
-      const errDetail = data.message || data.error || `HTTP ${res.status} (${res.statusText || 'Server Error'})`;
+      const errDetail = (data && (data.message || data.error)) || `HTTP ${res.status} (${res.statusText || 'Server Error'})`;
       alert(`⚠️ Batch validation error: ${errDetail}`);
       return;
     }
 
-    if (data.status === 'success') {
-      const restored = data.restored_count || 0;
-      const failed = data.failed_count || 0;
-      const total = data.total_requested || syms.length;
+    if (parseError) {
+      alert(`⚠️ Batch validation error: Could not parse server response (${parseError.message})`);
+      return;
+    }
 
-      let msg = `🎉 BATCH VALIDATION COMPLETE:\n• Total Evaluated: ${total}\n• Successfully Restored to Fresh: ${restored}\n• Still Incomplete / Excluded: ${failed}`;
+    // Accept valid batch response if status is success OR results object is present OR restored/failed counts are present
+    const isSuccess = Boolean(
+      data && (
+        data.status === 'success' ||
+        (data.results && typeof data.results === 'object') ||
+        data.restored_count !== undefined ||
+        data.failed_count !== undefined ||
+        data.perfect_count !== undefined
+      )
+    );
+
+    if (isSuccess) {
+      const restored = data.restored_count || 0;
+      const perfect = data.perfect_count || 0;
+      const total = data.total_requested || (data.results ? Object.keys(data.results).length : syms.length);
+      const failed = data.failed_count !== undefined ? data.failed_count : (total - restored);
+      const stillIncomplete = Math.max(0, total - perfect);
+
+      let msg = `📊 BATCH VALIDATION SUMMARY:\n• Total Evaluated: ${total}\n• Data Verified Complete & Clean: ${perfect}\n• Cool-off Suppressions Cleared: ${restored}\n• Still Incomplete / Overdue: ${stillIncomplete}`;
       
       if (restored > 0) {
-        msg += `\n\nAll ${restored} restored stocks have been removed from cool-off suppression and are now active for scanners!`;
+        msg += `\n\n🎉 ${restored} stock(s) have been successfully removed from cool-off suppression and are now active for scanners!`;
+      } else if (perfect > 0) {
+        msg += `\n\n✅ ${perfect} stock(s) have verified clean market data & statements.`;
       }
       alert(msg);
 
@@ -14685,7 +14708,7 @@ async function batchValidateAndRestoreSelected() {
 
       fetchStockDataHealth(true);
     } else {
-      const errDetail = data.message || data.error || 'Server returned invalid response';
+      const errDetail = (data && (data.message || data.error)) || 'Server returned invalid response';
       alert(`⚠️ Batch validation error: ${errDetail}`);
     }
   } catch (err) {

@@ -3222,7 +3222,20 @@ def api_admin_batch_validate_stocks():
                         logger.debug(f"[BATCH_VALIDATE] 1D candle fetch note for {sym}: {_fetch_err}")
 
                 raw_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings" / f"{sym}.json"
-                if not raw_p.exists() or raw_p.stat().st_size < 50:
+                should_poll = not raw_p.exists() or raw_p.stat().st_size < 50
+                if not should_poll:
+                    try:
+                        import json as _j
+                        with open(raw_p, "r", encoding="utf-8") as _rf:
+                            _r_data = _j.load(_rf)
+                        if isinstance(_r_data, list) and len(_r_data) > 0:
+                            _latest_d = str(_r_data[-1].get("period_end_date") or "")
+                            if _latest_d < "2024-03-31":
+                                should_poll = True
+                    except Exception:
+                        should_poll = True
+
+                if should_poll:
                     try:
                         from scripts.financial_filing_watcher import FinancialFilingWatcher
                         fw = FinancialFilingWatcher()
@@ -3243,13 +3256,14 @@ def api_admin_batch_validate_stocks():
         perfect_cnt = sum(1 for r in res_list if r.get("is_data_perfect"))
         failed_cnt = len(unique_symbols) - restored_cnt
 
-        if restored_cnt > 0:
+        if restored_cnt > 0 or perfect_cnt > 0:
             with _STOCK_DATA_HEALTH_LOCK:
                 _STOCK_DATA_HEALTH_CACHE["payload"] = None
                 _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
 
         return jsonify({
             "status": "success",
+            "ok": True,
             "total_requested": len(unique_symbols),
             "restored_count": restored_cnt,
             "perfect_count": perfect_cnt,
