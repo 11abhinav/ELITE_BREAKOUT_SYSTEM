@@ -42,6 +42,7 @@ except Exception:
 
 import logging
 import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 # [VERSION: DB_UPLOAD_THREAD_POOL_v1.0] Background ThreadPoolExecutor for DB uploads
@@ -10393,6 +10394,7 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
     If the stock was in cool-off/stale and its data is now complete, restores it!
     """
     import os, json
+    from pathlib import Path
     import pandas as pd
     from datetime import datetime
 

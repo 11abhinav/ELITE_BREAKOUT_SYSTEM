@@ -238,14 +238,22 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             if request.path.startswith('/api/'):
-                return jsonify({'error': 'Unauthorized'}), 401
+                return jsonify({
+                    'status': 'error',
+                    'error': 'Unauthorized',
+                    'message': 'Unauthorized: Admin session expired or not authenticated. Please refresh and log in.'
+                }), 401
             return redirect('/login')
             
         session_token = session.get('session_token')
         if not _cached_check_session(session['user_id'], session_token):
             session.clear()
             if request.path.startswith('/api/'):
-                return jsonify({'error': 'Session expired or revoked'}), 401
+                return jsonify({
+                    'status': 'error',
+                    'error': 'Session expired or revoked',
+                    'message': 'Session expired or revoked. Please log in again.'
+                }), 401
             return redirect('/login')
             
         return f(*args, **kwargs)
@@ -256,19 +264,31 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             if request.path.startswith('/api/'):
-                return jsonify({'error': 'Unauthorized'}), 401
+                return jsonify({
+                    'status': 'error',
+                    'error': 'Unauthorized',
+                    'message': 'Unauthorized: Admin session expired or not authenticated. Please refresh and log in.'
+                }), 401
             return redirect('/login')
             
         session_token = session.get('session_token')
         if not _cached_check_session(session['user_id'], session_token):
             session.clear()
             if request.path.startswith('/api/'):
-                return jsonify({'error': 'Session expired or revoked'}), 401
+                return jsonify({
+                    'status': 'error',
+                    'error': 'Session expired or revoked',
+                    'message': 'Session expired or revoked. Please log in again.'
+                }), 401
             return redirect('/login')
             
         if session.get('role') != 'admin':
             if request.path.startswith('/api/'):
-                return jsonify({'error': 'Forbidden'}), 403
+                return jsonify({
+                    'status': 'error',
+                    'error': 'Forbidden',
+                    'message': 'Access denied: Admin role required for this action.'
+                }), 403
             abort(403)
         return f(*args, **kwargs)
     return decorated_function
@@ -3134,13 +3154,14 @@ def api_admin_validate_stock():
     If the stock was marked as stale or in 7-day cooloff and its data is now complete,
     restores it, resets status to FRESH, and sends admin notification.
     """
+    symbol = ""
     try:
         from database import validate_and_restore_stock
         req_json = request.get_json(silent=True) or {}
         symbol = req_json.get("symbol") or request.form.get("symbol", "")
         symbol = str(symbol).strip().upper()
         if not symbol:
-            return jsonify({"status": "error", "message": "Missing 'symbol' parameter"}), 400
+            return jsonify({"status": "error", "error": "Missing 'symbol' parameter", "message": "Missing 'symbol' parameter"}), 400
 
         result = validate_and_restore_stock(symbol)
         return jsonify({
@@ -3150,7 +3171,7 @@ def api_admin_validate_stock():
         })
     except Exception as e:
         logger.exception(f"[API_VALIDATE_STOCK] Error validating {symbol}: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "error": str(e), "message": f"Validation failed for {symbol}: {str(e)}"}), 500
 
 
 @app.route("/api/admin/batch_validate_stocks", methods=["POST"])
@@ -3178,7 +3199,7 @@ def api_admin_batch_validate_stocks():
             symbols = [str(s).strip().upper() for s in symbols if str(s).strip()]
 
         if not symbols:
-            return jsonify({"status": "error", "message": "Missing 'symbols' list"}), 400
+            return jsonify({"status": "error", "error": "Missing 'symbols' list", "message": "Missing 'symbols' list"}), 400
 
         unique_symbols = list(dict.fromkeys(symbols))
 
@@ -3203,8 +3224,8 @@ def api_admin_batch_validate_stocks():
                 raw_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings" / f"{sym}.json"
                 if not raw_p.exists() or raw_p.stat().st_size < 50:
                     try:
-                        from scripts.financial_filing_watcher import FilingWatcher
-                        fw = FilingWatcher()
+                        from scripts.financial_filing_watcher import FinancialFilingWatcher
+                        fw = FinancialFilingWatcher()
                         fw.poll_exchange_announcements(symbols=[sym], max_workers=1)
                     except Exception as _filing_err:
                         logger.debug(f"[BATCH_VALIDATE] Filing poll note for {sym}: {_filing_err}")
@@ -3238,7 +3259,7 @@ def api_admin_batch_validate_stocks():
         })
     except Exception as e:
         logger.exception(f"[API_BATCH_VALIDATE_STOCKS] Error: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "error": str(e), "message": f"Batch validation failed: {str(e)}"}), 500
 
 
 @app.route("/api/admin/remove_stale_stock", methods=["POST"])
@@ -3249,13 +3270,14 @@ def api_admin_remove_stale_stock():
     Forcefully removes a stock from the stale data / 7-day cool-off table,
     unblocking it across all cool-off journals so scanners immediately process it.
     """
+    symbol = ""
     try:
         from database import remove_stale_stock_from_cooloff
         req_json = request.get_json(silent=True) or {}
         symbol = req_json.get("symbol") or request.form.get("symbol", "")
         symbol = str(symbol).strip().upper()
         if not symbol:
-            return jsonify({"status": "error", "message": "Missing 'symbol' parameter"}), 400
+            return jsonify({"status": "error", "error": "Missing 'symbol' parameter", "message": "Missing 'symbol' parameter"}), 400
 
         user_name = session.get("username", "Admin")
         res = remove_stale_stock_from_cooloff(symbol, admin_user=user_name)
@@ -3266,13 +3288,15 @@ def api_admin_remove_stale_stock():
                 "data": res
             })
         else:
+            err_msg = res.get("error", "Failed to remove stock from stale table")
             return jsonify({
                 "status": "error",
-                "message": res.get("error", "Failed to remove stock from stale table")
+                "error": err_msg,
+                "message": err_msg
             }), 400
     except Exception as e:
         logger.exception(f"[API_REMOVE_STALE_STOCK] Error for {symbol}: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "error": str(e), "message": f"Failed to remove {symbol}: {str(e)}"}), 500
 
 
 

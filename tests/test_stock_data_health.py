@@ -145,3 +145,15 @@ def test_remove_stale_stock_from_cooloff():
     assert res["symbol"] == "TEST_MOCK_SYM"
     assert "message" in res
 
+
+def test_unauthorized_endpoints_return_message():
+    with app.test_client() as client:
+        # Without session, should return 401 with informative 'message' and 'error'
+        res = client.post("/api/admin/validate_stock", json={"symbol": "INFY"})
+        assert res.status_code == 401
+        data = res.get_json()
+        assert "error" in data
+        assert "message" in data
+        assert "Unauthorized" in data["message"] or "expired" in data["message"]
+
+

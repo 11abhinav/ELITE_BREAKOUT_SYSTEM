@@ -13730,8 +13730,18 @@ async function fetchStockDataHealth(force = false) {
   try {
     const forceParam = force ? '&force=1' : '';
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    
+    if (res.status === 401) {
+      if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
+        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">🔒 Admin session expired. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a></td></tr>`;
+      }
+      return;
+    }
+
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+
+    if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
 
     if (data.status === 'success') {
       try {
@@ -13740,13 +13750,13 @@ async function fetchStockDataHealth(force = false) {
       _applyStockDataHealthData(data);
     } else {
       if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
-        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || 'Unknown error'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || data.error || 'Server returned invalid response'}</td></tr>`;
       }
     }
   } catch (err) {
     console.error('Error fetching stock data health:', err);
     if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
-      tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">⚠️ Network or server error loading stock data health.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">⚠️ ${err.message || 'Network or server error loading stock data health.'}</td></tr>`;
     }
   } finally {
     SDH_IS_FETCHING = false;
@@ -14636,7 +14646,24 @@ async function batchValidateAndRestoreSelected() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbols: syms })
     });
-    const data = await res.json();
+
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {}
+
+    if (res.status === 401) {
+      if (confirm('🔒 Session Expired:\nYour admin session has expired (e.g. after server restart).\n\nWould you like to refresh and log in again?')) {
+        window.location.href = '/login';
+      }
+      return;
+    }
+
+    if (!res.ok) {
+      const errDetail = data.message || data.error || `HTTP ${res.status} (${res.statusText || 'Server Error'})`;
+      alert(`⚠️ Batch validation error: ${errDetail}`);
+      return;
+    }
 
     if (data.status === 'success') {
       const restored = data.restored_count || 0;
@@ -14658,7 +14685,8 @@ async function batchValidateAndRestoreSelected() {
 
       fetchStockDataHealth(true);
     } else {
-      alert(`Batch validation error: ${data.message || 'Unknown error'}`);
+      const errDetail = data.message || data.error || 'Server returned invalid response';
+      alert(`⚠️ Batch validation error: ${errDetail}`);
     }
   } catch (err) {
     alert(`Network error during batch validation: ${err.message}`);
@@ -14697,20 +14725,31 @@ async function openStockFilingsModal(symbol) {
 
   try {
     const res = await fetch(`/api/admin/stock_filings/${encodeURIComponent(symbol)}?_t=${Date.now()}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const resData = await res.json();
+    let resData = {};
+    try { resData = await res.json(); } catch (_) {}
+
+    if (res.status === 401) {
+      if (bodyEl) {
+        bodyEl.innerHTML = `<div style="color:#ef4444; padding:30px; text-align:center;">🔒 Admin session expired. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a>.</div>`;
+      }
+      return;
+    }
+
+    if (!res.ok) {
+      throw new Error(resData.message || resData.error || `HTTP ${res.status}`);
+    }
 
     if (resData.status === 'success' && resData.data) {
       renderSdhModalContent(resData.data);
     } else {
       if (bodyEl) {
-        bodyEl.innerHTML = `<div style="color:#ef4444; padding:30px; text-align:center;">Failed to load filings: ${resData.message || 'Unknown error'}</div>`;
+        bodyEl.innerHTML = `<div style="color:#ef4444; padding:30px; text-align:center;">Failed to load filings: ${resData.message || resData.error || 'Unknown error'}</div>`;
       }
     }
   } catch (err) {
     console.error('Error fetching stock filings detail:', err);
     if (bodyEl) {
-      bodyEl.innerHTML = `<div style="color:#ef4444; padding:30px; text-align:center;">Network error loading filings detail for ${symbol}.</div>`;
+      bodyEl.innerHTML = `<div style="color:#ef4444; padding:30px; text-align:center;">⚠️ ${err.message || 'Network error loading filings detail.'}</div>`;
     }
   }
 }
@@ -14917,7 +14956,29 @@ async function validateStockFromModal() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol: sym })
     });
-    const data = await res.json();
+
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {}
+
+    if (res.status === 401) {
+      if (consoleEl) {
+        consoleEl.innerHTML = `<span style="color:#ef4444;">🔒 Admin session expired. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a>.</span>`;
+      }
+      if (confirm('🔒 Session Expired:\nYour admin session has expired (e.g. after server restart).\n\nWould you like to refresh and log in again?')) {
+        window.location.href = '/login';
+      }
+      return;
+    }
+
+    if (!res.ok) {
+      const errDetail = data.message || data.error || `HTTP ${res.status} (${res.statusText || 'Server Error'})`;
+      if (consoleEl) {
+        consoleEl.innerHTML = `<span style="color:#ef4444;">❌ Validation error: ${errDetail}</span>`;
+      }
+      return;
+    }
 
     if (data.status === 'success' && data.result) {
       const r = data.result;
@@ -14951,8 +15012,9 @@ async function validateStockFromModal() {
         }, 1500);
       }
     } else {
+      const errDetail = data.message || data.error || 'Server returned invalid response';
       if (consoleEl) {
-        consoleEl.innerHTML = `<span style="color:#ef4444;">❌ Validation error: ${data.message || 'Unknown'}</span>`;
+        consoleEl.innerHTML = `<span style="color:#ef4444;">❌ Validation error: ${errDetail}</span>`;
       }
     }
   } catch (err) {
@@ -14969,7 +15031,24 @@ async function validateStockFromUI(symbol) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol })
     });
-    const data = await res.json();
+
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {}
+
+    if (res.status === 401) {
+      if (confirm('🔒 Session Expired:\nYour admin session has expired (e.g. after server restart).\n\nWould you like to refresh and log in again?')) {
+        window.location.href = '/login';
+      }
+      return;
+    }
+
+    if (!res.ok) {
+      const errDetail = data.message || data.error || `HTTP ${res.status} (${res.statusText || 'Server Error'})`;
+      alert(`⚠️ Validation error for ${symbol}: ${errDetail}`);
+      return;
+    }
 
     if (data.status === 'success' && data.result) {
       const r = data.result;
@@ -14983,7 +15062,8 @@ async function validateStockFromUI(symbol) {
         alert(`⚠️ ${symbol} VALIDATION FAILED:\n• ${issues || 'Required data criteria not met'}`);
       }
     } else {
-      alert(`Validation error: ${data.message || 'Unknown'}`);
+      const errDetail = data.message || data.error || 'Server returned invalid response';
+      alert(`⚠️ Validation error for ${symbol}: ${errDetail}`);
     }
   } catch (err) {
     alert(`Failed to validate ${symbol}: ${err.message}`);
@@ -15004,12 +15084,31 @@ async function removeStaleStockFromUI(symbol) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol })
     });
-    const data = await res.json();
+
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {}
+
+    if (res.status === 401) {
+      if (confirm('🔒 Session Expired:\nYour admin session has expired (e.g. after server restart).\n\nWould you like to refresh and log in again?')) {
+        window.location.href = '/login';
+      }
+      return;
+    }
+
+    if (!res.ok) {
+      const errDetail = data.message || data.error || `HTTP ${res.status} (${res.statusText || 'Server Error'})`;
+      alert(`❌ Failed to remove ${symbol} from stale table: ${errDetail}`);
+      return;
+    }
+
     if (data.status === 'success') {
       alert(`✅ ${symbol} UNBLOCKED!\n\n${data.message || 'Removed from stale data table. Scanners will now process this stock.'}`);
       fetchStockDataHealth(true);
     } else {
-      alert(`❌ Failed to remove ${symbol} from stale table: ${data.message || 'Unknown error'}`);
+      const errDetail = data.message || data.error || 'Server returned invalid response';
+      alert(`❌ Failed to remove ${symbol} from stale table: ${errDetail}`);
     }
   } catch (err) {
     console.error('Error removing stale stock:', err);
