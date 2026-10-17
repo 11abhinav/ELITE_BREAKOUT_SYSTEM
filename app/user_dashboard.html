@@ -1691,7 +1691,8 @@ function playDing() {
         <div class="status-pill" data-status="TRAILING" onclick="setUserStatusFilter('TRAILING')"><span class="status-dot" style="background:#059669;"></span> Trailing <span id="status-cnt-TRAILING" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
         <div class="status-pill" data-status="T1_HIT" onclick="setUserStatusFilter('T1_HIT')"><span class="status-dot" style="background:#7c3aed;"></span> Target 1 <span id="status-cnt-T1_HIT" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
         <div class="status-pill" data-status="WIN" onclick="setUserStatusFilter('WIN')"><span class="status-dot" style="background:#15803d;"></span> Win <span id="status-cnt-WIN" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
-        <div class="status-pill" data-status="LOSS" onclick="setUserStatusFilter('LOSS')"><span class="status-dot" style="background:#dc2626;"></span> Stopped <span id="status-cnt-LOSS" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-status="LOSS" onclick="setUserStatusFilter('LOSS')"><span class="status-dot" style="background:#dc2626;"></span> In Loss <span id="status-cnt-LOSS" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
+        <div class="status-pill" data-status="SL_HIT" onclick="setUserStatusFilter('SL_HIT')"><span class="status-dot" style="background:#b91c1c;"></span> SL Hit <span id="status-cnt-SL_HIT" style="font-family:var(--font-mono); font-size:11px;">(0)</span></div>
       </div>
 
       <div class="filter-bar">
@@ -1712,7 +1713,7 @@ function playDing() {
             <span id="filterScannerBtnLabel">🎯 All Scanners</span>
             <span style="font-size:10px; color:var(--muted);">▼</span>
           </button>
-          <div id="filterScannerDropdown" style="display:none; position:absolute; top:calc(100% + 4px); left:0; z-index:9999; background:var(--card); border:1px solid var(--border2); border-radius:8px; box-shadow:var(--shadow-lg); padding:10px; width:240px; max-height:300px; overflow-y:auto;">
+          <div id="filterScannerDropdown" style="display:none; position:absolute; top:calc(100% + 4px); left:0; z-index:9999; background:var(--card); border:1px solid var(--border2); border-radius:8px; box-shadow:var(--shadow-lg); padding:10px; width:280px; max-height:360px; overflow-y:auto; scrollbar-width:thin;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border);">
               <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Filter Scanners</span>
               <div style="display:flex; gap:6px; align-items:center;">
@@ -1721,14 +1722,23 @@ function playDing() {
                 <button type="button" onclick="setUserScannersAll(false)" style="background:transparent; border:none; color:var(--warn); font-size:11px; font-weight:700; cursor:pointer; padding:2px 4px;">Clear</button>
               </div>
             </div>
-            <div id="userScannerCheckboxes" style="display:flex; flex-direction:column; gap:6px;">
+            <div id="userScannerCheckboxes" style="display:flex; flex-direction:column; gap:6px; max-height:280px; overflow-y:auto; scrollbar-width:thin; padding-right:4px;">
               <!-- Dynamic scanner checkboxes -->
             </div>
           </div>
           <input type="hidden" id="filterScanner" value="" />
         </div>
-        <select id="filterStatus">
-          <option value="">All Statuses</option>
+        <select id="filterStatus" style="max-height:280px; overflow-y:auto;">
+          <option value="">All Status / Outcomes</option>
+          <option value="LOSS">🔻 Positions in Loss (Realized &amp; Unrealized)</option>
+          <option value="SL_HIT">🛑 Stop Loss Hit / Stopped Out</option>
+          <option value="OPEN_LOSS">📉 Open Positions in Loss</option>
+          <option value="OPEN_PROFIT">📈 Open Positions in Profit</option>
+          <option value="WIN">🏆 Positions in Profit (Win)</option>
+          <option value="T1_HIT">🎯 Target 1 / Target Hit</option>
+          <option value="TRAILING">🛡️ Trailing Stop Active</option>
+          <option value="OPEN">🟢 Active / Open Positions</option>
+          <option value="CLOSED">⚪ Closed Trades</option>
         </select>
         <select id="filterCategory"><option value="">All categories</option></select>
         <input id="filterSymbol" type="text" placeholder="Search symbol (Press '/' to focus)…" style="width:220px">
@@ -3707,6 +3717,62 @@ function toggleScannerChip(scKey) {
   renderTradeTable();
 }
 
+function isTradeSLHit(t) {
+  if (!t) return false;
+  const tSt = String(t.status || '').trim().toUpperCase();
+  const tExec = String(t.execution_state || '').trim().toUpperCase();
+  const reason = String(t.exit_reason || '').toUpperCase();
+  const signal = String(t.exit_signal || '').toUpperCase();
+
+  if (tSt === 'STOPPED' || tSt === 'LOSS' || tExec === 'STOPPED') return true;
+  if (signal === 'STOP_LOSS' || signal === 'SL' || signal === 'STOP_LOSS_HIT') return true;
+  if (reason.includes('SL') || reason.includes('STOP_LOSS') || reason.includes('STOP-LOSS') || reason.includes('STOPPED')) return true;
+  if (t.stopped_out === true) return true;
+
+  const sl = Number(t.stop_loss || 0);
+  const curP = Number(t.current_price || t.exit_price || 0);
+  if (sl > 0 && curP > 0 && curP <= sl) return true;
+
+  return false;
+}
+
+function isTradeInLoss(t) {
+  if (!t) return false;
+  if (isTradeSLHit(t)) return true;
+
+  const pnlPct = t.pnl_pct != null ? Number(t.pnl_pct) : null;
+  if (pnlPct != null && pnlPct < -0.001) return true;
+  const pnlRs = t.pnl_rs != null ? Number(t.pnl_rs) : null;
+  if (pnlRs != null && pnlRs < -0.01) return true;
+
+  const curP = Number(t.current_price || 0);
+  const entryP = Number(t.actual_entry_price || t.entry_price || 0);
+  if (curP > 0 && entryP > 0 && curP < entryP) return true;
+
+  const exitP = Number(t.exit_price || 0);
+  if (exitP > 0 && entryP > 0 && exitP < entryP) return true;
+
+  return false;
+}
+
+function isTradeInProfit(t) {
+  if (!t) return false;
+  const tSt = String(t.status || '').trim().toUpperCase();
+  if (tSt === 'WIN' || tSt === 'PROFIT' || tSt.startsWith('PARTIAL_WIN')) return true;
+  if (String(t.exit_signal || '').toUpperCase() === 'TARGET') return true;
+
+  const pnlPct = t.pnl_pct != null ? Number(t.pnl_pct) : null;
+  if (pnlPct != null && pnlPct > 0.001) return true;
+  const pnlRs = t.pnl_rs != null ? Number(t.pnl_rs) : null;
+  if (pnlRs != null && pnlRs > 0.01) return true;
+
+  const curP = Number(t.current_price || 0);
+  const entryP = Number(t.actual_entry_price || t.entry_price || 0);
+  if (curP > 0 && entryP > 0 && curP > entryP) return true;
+
+  return false;
+}
+
 function setUserStatusFilter(statusKey) {
   /* [RULE 67 CHANGE-RATIONALE]: Interactive wireframe status pill filtering for user view */
   document.querySelectorAll('#statusPillsGroup .status-pill').forEach(pill => {
@@ -3726,24 +3792,28 @@ function setUserStatusFilter(statusKey) {
 
 function updateStatusPillCounts(trades) {
   /* [RULE 67 CHANGE-RATIONALE]: Wireframe status pill badge counts computed dynamically from loaded trades */
-  const counts = { ALL: 0, OPEN: 0, TRAILING: 0, T1_HIT: 0, WIN: 0, LOSS: 0 };
+  const counts = { ALL: 0, OPEN: 0, TRAILING: 0, T1_HIT: 0, WIN: 0, LOSS: 0, SL_HIT: 0 };
   (trades || []).forEach(t => {
-    if (t.status === 'REJECTED') return;
+    if (!t || t.status === 'REJECTED') return;
     counts.ALL++;
     const st = String(t.status || '').toUpperCase().trim();
     const execSt = String(t.execution_state || '').toUpperCase().trim();
-    const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
 
     if (st === 'TRAILING' || execSt === 'TRAILING' || (st === 'OPEN' && t.trailing_active)) {
       counts.TRAILING++;
     } else if (st === 'T1_HIT' || st === 'PARTIAL_WIN_1' || execSt === 'PARTIAL_WIN_1' || t.t1_hit) {
       counts.T1_HIT++;
-    } else if (st === 'WIN' || st === 'PROFIT' || (st === 'CLOSED' && pnl != null && pnl >= 0)) {
+    } else if (isTradeInProfit(t)) {
       counts.WIN++;
-    } else if (st === 'LOSS' || st === 'STOPPED' || (st === 'CLOSED' && pnl != null && pnl < 0)) {
-      counts.LOSS++;
     } else {
       counts.OPEN++;
+    }
+
+    if (isTradeInLoss(t)) {
+      counts.LOSS++;
+    }
+    if (isTradeSLHit(t)) {
+      counts.SL_HIT++;
     }
   });
   const elAll = document.getElementById('status-cnt-ALL'); if (elAll) elAll.textContent = `(${counts.ALL})`;
@@ -3752,6 +3822,7 @@ function updateStatusPillCounts(trades) {
   const elT1 = document.getElementById('status-cnt-T1_HIT'); if (elT1) elT1.textContent = `(${counts.T1_HIT})`;
   const elWin = document.getElementById('status-cnt-WIN'); if (elWin) elWin.textContent = `(${counts.WIN})`;
   const elLoss = document.getElementById('status-cnt-LOSS'); if (elLoss) elLoss.textContent = `(${counts.LOSS})`;
+  const elSL = document.getElementById('status-cnt-SL_HIT'); if (elSL) elSL.textContent = `(${counts.SL_HIT})`;
 }
 
 function updateScannerChipCounts(trades) {
@@ -3873,19 +3944,31 @@ function renderTradeTable() {
     if (st) {
       const tSt = (t.status || '').trim().toUpperCase();
       const tExec = (t.execution_state || '').trim().toUpperCase();
-      const pnl = t.pnl_pct != null ? t.pnl_pct : (t.pnl_rs != null ? t.pnl_rs : null);
-      if (st === 'OPEN') {
-        if (tSt !== 'OPEN' && tExec !== 'OPEN') return false;
+      const inLoss = isTradeInLoss(t);
+      const slHit = isTradeSLHit(t);
+      const inProfit = isTradeInProfit(t);
+      const isOpen = (tSt === 'OPEN' || tExec === 'OPEN' || (t.status !== 'CLOSED' && (t.remaining_shares === undefined || t.remaining_shares > 0)));
+
+      if (st === 'LOSS') {
+        if (!inLoss) return false;
+      } else if (st === 'SL_HIT') {
+        if (!slHit) return false;
+      } else if (st === 'OPEN_LOSS') {
+        if (!isOpen || !inLoss) return false;
+      } else if (st === 'OPEN_PROFIT') {
+        if (!isOpen || !inProfit) return false;
+      } else if (st === 'WIN') {
+        if (!inProfit) return false;
+      } else if (st === 'OPEN') {
+        if (!isOpen) return false;
+      } else if (st === 'CLOSED') {
+        if (tSt !== 'CLOSED' && tExec !== 'CLOSED' && t.remaining_shares !== 0) return false;
       } else if (st === 'TRAILING') {
         if (tSt !== 'TRAILING' && tExec !== 'TRAILING' && !(tSt === 'OPEN' && t.trailing_active)) return false;
       } else if (st === 'T1_HIT') {
         if (tSt !== 'T1_HIT' && tSt !== 'PARTIAL_WIN_1' && tExec !== 'PARTIAL_WIN_1' && !t.t1_hit) return false;
-      } else if (st === 'WIN') {
-        if (tSt !== 'WIN' && tSt !== 'PROFIT' && !(tSt === 'CLOSED' && pnl != null && pnl >= 0)) return false;
-      } else if (st === 'LOSS') {
-        if (tSt !== 'LOSS' && tSt !== 'STOPPED' && !(tSt === 'CLOSED' && pnl != null && pnl < 0)) return false;
       } else {
-        if (tSt !== st.toUpperCase()) return false;
+        if (tSt !== st.toUpperCase() && tExec !== st.toUpperCase()) return false;
       }
     } else {
       if (t.status === 'REJECTED') return false; 
@@ -4024,8 +4107,13 @@ let _userTableRenderDebounce = null;
 });
 
 function populateFilters(trades) {
-  const predefinedScanners = ['QUALITY_COMPOUNDER', 'TECHNICAL', 'QUALITY_VALUE_RECOVERY', 'FUNDAMENTAL'];
-  const scanners = [...new Set([...predefinedScanners, ...trades.map(t=>normalizeScannerName(t.scanner)).filter(Boolean)])].sort();
+  const predefinedScanners = [
+    'QUALITY_COMPOUNDER', 'TECHNICAL', 'QUALITY_VALUE_RECOVERY', 'FUNDAMENTAL',
+    'FILING_WATCHER', 'PERFORMANCE_TRACKER', 'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2',
+    'DAILY_BUILDER', 'REVERSAL', 'PULLBACK', 'MULTIBAGGER'
+  ];
+  const dynScanners = Array.isArray(window._distinctScanners) ? window._distinctScanners : [];
+  const scanners = [...new Set([...predefinedScanners, ...dynScanners, ...trades.map(t=>normalizeScannerName(t.scanner)).filter(Boolean)])].sort();
   const cats     = [...new Set(trades.map(t=>t.category).filter(Boolean))].sort();
   const distinctStatuses = [...new Set(trades.map(t => (t.status || '').trim()).filter(Boolean))].sort();
   
@@ -4034,21 +4122,33 @@ function populateFilters(trades) {
   const userCbContainer = document.getElementById('userScannerCheckboxes');
   
   if (userCbContainer) {
+    const checkedValues = new Set();
+    const existingCbs = userCbContainer.querySelectorAll('.user-scanner-cb');
+    const isInitial = existingCbs.length === 0;
+    existingCbs.forEach(cb => { if (cb.checked) checkedValues.add(cb.value.toUpperCase()); });
+
     userCbContainer.innerHTML = '';
     const scannerLabels = {
       'QUALITY_COMPOUNDER': '💎 Quality Compounder',
       'TECHNICAL': '⚡ Technical Breakout',
       'QUALITY_VALUE_RECOVERY': '🛡️ Quality Value Recovery',
       'FUNDAMENTAL': '📊 Fundamental Breakout',
+      'FILING_WATCHER': '📑 Filing Scanner (NSE/BSE)',
+      'PERFORMANCE_TRACKER': '🎯 Exit Monitor — Technical',
+      'WEALTH_EXIT_V1': '📈 Exit Monitor V1 — Wealth',
+      'WEALTH_EXIT_V2': '🔬 Exit Monitor V2 — Model E3',
       'DAILY_BUILDER': '🏗️ Daily Builder',
       'MULTIBAGGER': '🚀 Multibagger',
-      'PULLBACK': '🎯 Pullback'
+      'PULLBACK': '🎯 Pullback',
+      'REVERSAL': '🔄 Reversal Scanner'
     };
     scanners.forEach(s => {
+      const sClean = s.toUpperCase();
+      const isChecked = isInitial ? true : checkedValues.has(sClean);
       const lbl = document.createElement('label');
       lbl.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);';
-      const dLabel = scannerLabels[s] || s;
-      lbl.innerHTML = `<input type="checkbox" class="user-scanner-cb" value="${escapeHTML(s)}" onchange="onUserScannerChange()" checked /> <span>${escapeHTML(dLabel)}</span>`;
+      const dLabel = scannerLabels[sClean] || `🔍 ${sClean.replace(/_/g, ' ')}`;
+      lbl.innerHTML = `<input type="checkbox" class="user-scanner-cb" value="${escapeHTML(sClean)}" onchange="onUserScannerChange()" ${isChecked ? 'checked' : ''} /> <span>${escapeHTML(dLabel)}</span>`;
       userCbContainer.appendChild(lbl);
     });
     updateUserScannerLabel();
@@ -4064,14 +4164,28 @@ function populateFilters(trades) {
   }
   if(stEl) {
     const curSt = stEl.value;
-    while(stEl.options.length > 1) stEl.remove(1);
+    stEl.innerHTML = `
+      <option value="">All Status / Outcomes</option>
+      <option value="LOSS">🔻 Positions in Loss (Realized &amp; Unrealized)</option>
+      <option value="SL_HIT">🛑 Stop Loss Hit / Stopped Out</option>
+      <option value="OPEN_LOSS">📉 Open Positions in Loss</option>
+      <option value="OPEN_PROFIT">📈 Open Positions in Profit</option>
+      <option value="WIN">🏆 Positions in Profit (Win)</option>
+      <option value="T1_HIT">🎯 Target 1 / Target Hit</option>
+      <option value="TRAILING">🛡️ Trailing Stop Active</option>
+      <option value="OPEN">🟢 Active / Open Positions</option>
+      <option value="CLOSED">⚪ Closed Trades</option>
+    `;
+    const covered = new Set(['', 'LOSS', 'SL_HIT', 'OPEN_LOSS', 'OPEN_PROFIT', 'WIN', 'T1_HIT', 'TRAILING', 'OPEN', 'CLOSED']);
     distinctStatuses.forEach(st => { 
-      const o=document.createElement('option'); 
-      o.value=st; 
-      o.textContent=st; 
-      stEl.appendChild(o); 
+      if (!covered.has(st.toUpperCase())) {
+        const o=document.createElement('option'); 
+        o.value=st; 
+        o.textContent=`Status: ${st}`; 
+        stEl.appendChild(o); 
+      }
     });
-    if(curSt && distinctStatuses.includes(curSt)) stEl.value = curSt;
+    if(curSt) stEl.value = curSt;
   }
   updateStatusPillCounts(trades);
 }
@@ -4551,6 +4665,15 @@ async function initDashboard() {
     renderTradeTable();
     renderCategoryStats();
     updateSim();
+
+    fetch('/api/scanners_distinct')
+      .then(r => r.json())
+      .then(res => {
+        if (res && res.scanners && Array.isArray(res.scanners)) {
+          window._distinctScanners = res.scanners;
+          populateFilters(ALL_TRADES);
+        }
+      }).catch(e => console.debug("scanners_distinct fetch notice:", e));
   } catch (err) {
     console.error("User dashboard init error:", err);
   } finally {

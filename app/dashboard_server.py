@@ -6,6 +6,11 @@
 # =======================================================================================
 import os
 import sys
+
+_DIR = os.path.dirname(os.path.abspath(__file__))
+if _DIR not in sys.path:
+    sys.path.insert(0, _DIR)
+
 import json
 import math
 import logging
@@ -5176,6 +5181,26 @@ def api_scanner_execution_history():
     except Exception as e:
         logger.exception("❌ Failed in /api/scanner_execution_history")
         return jsonify({"records": [], "total_records": 0, "page": 1, "per_page": 25, "total_pages": 1, "summary_stats": {}}), 200
+
+@app.route("/api/admin/scanners_distinct", methods=["GET"])
+@app.route("/api/scanners_distinct", methods=["GET"])
+def api_distinct_scanners():
+    """Returns dynamic list of all distinct scanners discovered across DB tables (execution history, health, alerts)."""
+    try:
+        from database import get_all_distinct_scanners
+        scanners = get_all_distinct_scanners()
+    except Exception as e:
+        logger.warning(f"Error fetching distinct scanners: {e}")
+        scanners = [
+            "TECHNICAL", "FUNDAMENTAL", "QUALITY_COMPOUNDER",
+            "QUALITY_VALUE_RECOVERY", "FILING_WATCHER", "PERFORMANCE_TRACKER",
+            "WEALTH_EXIT_V1", "WEALTH_EXIT_V2", "DAILY_BUILDER", "REVERSAL", "PULLBACK", "MULTIBAGGER"
+        ]
+    return jsonify({
+        "success": True,
+        "scanners": scanners,
+        "count": len(scanners)
+    })
 
 # ── Endpoints for Market Ticker & Catalyst News ────────────────────────────────────
 

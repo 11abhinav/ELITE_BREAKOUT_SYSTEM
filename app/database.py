@@ -12561,7 +12561,58 @@ def complete_scanner_execution_run(
             logger.debug(f"Health sync post-FAILED for {ctx.scanner_name}: {_hs_err}")
 
 
-_SEH_FILTERS_CACHE = {"ts": 0.0, "versions": ["v1"], "commits": []}
+CANONICAL_SCANNERS = [
+    "TECHNICAL",
+    "FUNDAMENTAL",
+    "QUALITY_COMPOUNDER",
+    "QUALITY_VALUE_RECOVERY",
+    "FILING_WATCHER",
+    "PERFORMANCE_TRACKER",
+    "WEALTH_EXIT_V1",
+    "WEALTH_EXIT_V2",
+    "DAILY_BUILDER",
+    "REVERSAL",
+    "PULLBACK",
+    "MULTIBAGGER",
+    "WEALTH"
+]
+
+def get_all_distinct_scanners() -> list:
+    """
+    Returns dynamically discovered unique scanner identifiers across:
+    1. scanner_execution_history (scanner_name)
+    2. scanner_health (scanner_name)
+    3. alerts (scanner)
+    Union-ed with canonical scanners so newly added scanners or pending scanners appear immediately.
+    """
+    discovered = set(CANONICAL_SCANNERS)
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT UPPER(TRIM(scanner_name)) as sc
+                    FROM scanner_execution_history
+                    WHERE scanner_name IS NOT NULL AND TRIM(scanner_name) != ''
+                    UNION
+                    SELECT DISTINCT UPPER(TRIM(scanner_name)) as sc
+                    FROM scanner_health
+                    WHERE scanner_name IS NOT NULL AND TRIM(scanner_name) != ''
+                    UNION
+                    SELECT DISTINCT UPPER(TRIM(scanner)) as sc
+                    FROM alerts
+                    WHERE scanner IS NOT NULL AND TRIM(scanner) != '';
+                """)
+                rows = cur.fetchall() or []
+                for r in rows:
+                    val = r[0] if isinstance(r, (list, tuple)) else (r.get("sc") if hasattr(r, "get") else None)
+                    if val and str(val).strip():
+                        discovered.add(str(val).strip().upper())
+    except Exception as exc:
+        logger.debug(f"get_all_distinct_scanners DB query warning: {exc}")
+
+    return sorted(list(discovered))
+
+_SEH_FILTERS_CACHE = {"ts": 0.0, "versions": ["v1"], "commits": [], "scanners": []}
 
 def get_scanner_execution_history(
     scanner_name: str = None,
@@ -12738,7 +12789,7 @@ def get_scanner_execution_history(
                 # pagination click, creating heavy database load. Caching eliminates ~200-500ms of lag per poll.
                 global _SEH_FILTERS_CACHE
                 _now_seh_ts = _time_mod.time()
-                if (_now_seh_ts - _SEH_FILTERS_CACHE.get("ts", 0.0)) >= 60.0 or not _SEH_FILTERS_CACHE.get("versions"):
+                if (_now_seh_ts - _SEH_FILTERS_CACHE.get("ts", 0.0)) >= 60.0 or not _SEH_FILTERS_CACHE.get("scanners"):
                     try:
                         cur.execute("""
                             SELECT DISTINCT COALESCE(system_version, 'v1') as ver
@@ -12755,12 +12806,35 @@ def get_scanner_execution_history(
                         """)
                         git_rows = cur.fetchall() or []
                         _SEH_FILTERS_CACHE["commits"] = [r["git"] for r in git_rows if r and hasattr(r, '__getitem__') and r.get("git")]
+
+                        # Distinct scanners across history, health, and alerts
+                        cur.execute("""
+                            SELECT DISTINCT UPPER(TRIM(scanner_name)) as sc
+                            FROM scanner_execution_history
+                            WHERE scanner_name IS NOT NULL AND TRIM(scanner_name) != ''
+                            UNION
+                            SELECT DISTINCT UPPER(TRIM(scanner_name)) as sc
+                            FROM scanner_health
+                            WHERE scanner_name IS NOT NULL AND TRIM(scanner_name) != ''
+                            UNION
+                            SELECT DISTINCT UPPER(TRIM(scanner)) as sc
+                            FROM alerts
+                            WHERE scanner IS NOT NULL AND TRIM(scanner) != '';
+                        """)
+                        sc_rows = cur.fetchall() or []
+                        dyn_scanners = set(CANONICAL_SCANNERS)
+                        for r in sc_rows:
+                            val = r["sc"] if (isinstance(r, dict) or hasattr(r, '__getitem__')) else r[0]
+                            if val:
+                                dyn_scanners.add(str(val).strip().upper())
+                        _SEH_FILTERS_CACHE["scanners"] = sorted(list(dyn_scanners))
                         _SEH_FILTERS_CACHE["ts"] = _now_seh_ts
                     except Exception as _filter_err:
                         logger.debug(f"SEH filters cache load warning: {_filter_err}")
 
                 available_versions = _SEH_FILTERS_CACHE.get("versions") or ["v1"]
                 available_commits = _SEH_FILTERS_CACHE.get("commits") or []
+                available_scanners = _SEH_FILTERS_CACHE.get("scanners") or CANONICAL_SCANNERS
 
                 # Summary metrics (respecting ALL active filters) — computes total_runs in the same single round-trip
                 summary_query = f"""
@@ -12816,6 +12890,7 @@ def get_scanner_execution_history(
                     "total_pages": (total_records + per_page - 1) // per_page if total_records > 0 else 1,
                     "available_versions": available_versions,
                     "available_commits": available_commits,
+                    "available_scanners": available_scanners,
                     "summary_stats": {
                         "total_runs": total_runs,
                         "success_rate_pct": success_rate,
@@ -12832,7 +12907,7 @@ def get_scanner_execution_history(
             except Exception:
                 pass
         logger.error(f"Failed to query scanner execution history: {e}")
-        return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "available_commits": [], "summary_stats": {}}
+        return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "available_commits": [], "available_scanners": CANONICAL_SCANNERS, "summary_stats": {}}
 
 
 def reset_all_positions_to_open() -> int:
