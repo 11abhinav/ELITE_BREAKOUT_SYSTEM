@@ -14659,6 +14659,13 @@ async function batchValidateAndRestoreSelected() {
       return;
     }
 
+    if (!res.ok || (data && data.status === 'error')) {
+      const errMsg = (data && (data.message || data.error)) || `Server returned HTTP ${res.status}`;
+      alert(`❌ Batch Validation Error:\n${errMsg}`);
+      fetchStockDataHealth(true);
+      return;
+    }
+
     // Determine results even if status is not 200 or response structure varies
     const results = (data && data.results) || {};
     const processedSyms = Object.keys(results);
@@ -14682,7 +14689,7 @@ async function batchValidateAndRestoreSelected() {
       remainStale = syms.length;
     }
 
-    const totalProcessed = processedSyms.length || (data && data.total_requested) || syms.length;
+    const totalProcessed = syms.length;
 
     let msg = `📊 BATCH VALIDATION SUMMARY:\n${totalProcessed} processed — ${foundClean} found clean / restored, ${remainStale} remain stale.`;
 

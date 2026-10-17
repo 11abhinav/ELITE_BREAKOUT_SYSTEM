@@ -322,7 +322,23 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         shares_source = "UNAVAILABLE"
 
     # ROCE 5Y average calculation (C8)
-    roce_vals = [float(f["roce"]) for f in pit_eligible_annual[-5:] if f.get("roce") is not None and not pd.isna(f.get("roce"))]
+    roce_vals = []
+    for f in pit_eligible_annual[-5:]:
+        r_val = f.get("roce")
+        if r_val is not None and not pd.isna(r_val):
+            roce_vals.append(float(r_val))
+        else:
+            # Derived directly from filed financial statement: EBIT / Capital Employed
+            op = f.get("operating_profit")
+            eq = f.get("total_equity")
+            dt = f.get("total_debt") or 0.0
+            if op is not None and eq is not None:
+                try:
+                    ce = float(eq) + float(dt)
+                    if ce > 0:
+                        roce_vals.append(round((float(op) / ce) * 100.0, 2))
+                except Exception:
+                    pass
     roce_5y = float(np.mean(roce_vals)) if len(roce_vals) >= 3 else None
 
     # CFO/PAT 5Y ratio (C9)

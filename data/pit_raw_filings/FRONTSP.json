@@ -112,5 +112,23 @@
     "mapped_revenue": 12.64,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "b5a89fb2f66cb7e274baa9a333c6bcd4c129da1b2756089a786e06f24bbbc9bc"
+  },
+  {
+    "symbol": "FRONTSP",
+    "period_end_date": "2026-06-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": null,
+    "net_profit": null,
+    "operating_profit": null,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-08-13",
+    "broadcast_timestamp": "2026-08-13T16:50:08.827",
+    "exchange": "BSE",
+    "filing_id": "BSE_522195_668259ff-c093-40e1-820d-1a5ed96dd32a"
   }
 ]

@@ -9836,8 +9836,18 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
             return "Listing age < 5 years (listed 2022/2025): 5Y exchange annual series incomplete."
         elif "INSUFFICIENT_HISTORICAL_DEPTH" in pf_str or "INSUFFICIENT_HISTORICAL_DEPTH" in r_upper:
             return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files need historical backfill."
+        elif "QUARTERLY" in r_upper or "QUARTERLY" in pf_str:
+            return "Local raw cache backfill pending: Latest annual filing present on disk; pending recent quarterly results (Q1 FY27 ended 2026-06-30)."
         elif "PIT_STALENESS" in r_upper or "PIT_DATA_STALE" in r_upper:
-            return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files are >2.0 years stale."
+            import re
+            m = re.search(r"PIT_STALENESS_([0-9\.]+)Y", r_upper)
+            if m:
+                y = float(m.group(1))
+                if y > 2.0:
+                    return f"Local raw cache backfill pending: Exchange annual filings exist, but local disk files are {y:.1f} years stale (>2.0Y limit)."
+                else:
+                    return f"Local raw cache backfill pending: Latest annual filing on disk is {y:.1f}Y old; pending recent SEBI LODR 33 quarterly results."
+            return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files require backfill."
         elif "PRICE_HISTORY" in r_upper or "INSUFFICIENT_LOOKBACK" in r_upper:
             return "1D OHLCV market price history missing or insufficient lookback (<50 bars)."
         elif "APPROVED_PROVIDERS_EXHAUSTED" in r_upper or "FUNDAMENTAL_DATA_INSUFFICIENT" in r_upper or "PIT_DATA_MISSING" in r_upper:

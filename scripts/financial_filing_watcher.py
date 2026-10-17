@@ -644,9 +644,11 @@ class FinancialFilingWatcher:
                     f"❌ [filling scanner] [SNAPSHOT_REBUILD: DATA_INCOMPLETE] Rebuilt {len(df)} rows, "
                     f"but Current EV/EBITDA is 0/{len(df)}. Refusing to mark snapshot FRESH!"
                 )
-                if symbol and symbol.upper() in self.state:
-                    self.state[symbol.upper()]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
-                else:
+                sym_list = [symbol.strip().upper()] if isinstance(symbol, str) else ([str(s).strip().upper() for s in symbol] if isinstance(symbol, (list, set, tuple)) else [])
+                for sym_u in sym_list:
+                    if sym_u in self.state:
+                        self.state[sym_u]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
+                if not sym_list:
                     for s in self.state.values():
                         if s.get("snapshot_status") == SnapshotFreshnessStatus.UPDATE_PENDING.value:
                             s["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
@@ -654,9 +656,11 @@ class FinancialFilingWatcher:
                 return False
 
             # Mark state as FRESH only when data completeness invariants pass
-            if symbol and symbol.upper() in self.state:
-                self.state[symbol.upper()]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
-            else:
+            sym_list = [symbol.strip().upper()] if isinstance(symbol, str) else ([str(s).strip().upper() for s in symbol] if isinstance(symbol, (list, set, tuple)) else [])
+            for sym_u in sym_list:
+                if sym_u in self.state:
+                    self.state[sym_u]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
+            if not sym_list:
                 for s in self.state.values():
                     if s.get("snapshot_status") == SnapshotFreshnessStatus.UPDATE_PENDING.value:
                         s["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
@@ -664,27 +668,30 @@ class FinancialFilingWatcher:
 
             logger.info(f"✅ [filling scanner] [SNAPSHOT_REBUILD: SUCCESS] Rebuilt {len(df)} rows. Current EV/EBITDA Complete: {ev_count}/{len(df)}. Status set to FRESH.")
 
-            # If rebuilding for specific symbol, check and restore if previously stale
-            if symbol:
-                try:
+            # If rebuilding for specific symbol(s), check and restore if previously stale
+            if sym_list:
+                for sym_u in sym_list:
                     try:
-                        from app.database import check_and_restore_stale_stock
-                    except ImportError:
-                        from database import check_and_restore_stale_stock
-                    check_and_restore_stale_stock(
-                        symbol=symbol.strip().upper(),
-                        source="SNAPSHOT_REBUILD",
-                        notify_admin=True
-                    )
-                except Exception:
-                    pass
+                        try:
+                            from app.database import check_and_restore_stale_stock
+                        except ImportError:
+                            from database import check_and_restore_stale_stock
+                        check_and_restore_stale_stock(
+                            symbol=sym_u,
+                            source="SNAPSHOT_REBUILD",
+                            notify_admin=True
+                        )
+                    except Exception:
+                        pass
 
             return True
         except Exception as e:
             logger.error(f"❌ [filling scanner] [SNAPSHOT_REBUILD: FAILED] {e}")
-            if symbol and symbol.upper() in self.state:
-                self.state[symbol.upper()]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
-                self._save_state()
+            sym_list = [symbol.strip().upper()] if isinstance(symbol, str) else ([str(s).strip().upper() for s in symbol] if isinstance(symbol, (list, set, tuple)) else [])
+            for sym_u in sym_list:
+                if sym_u in self.state:
+                    self.state[sym_u]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
+            self._save_state()
             return False
 
     # -------------------------------------------------------------------------

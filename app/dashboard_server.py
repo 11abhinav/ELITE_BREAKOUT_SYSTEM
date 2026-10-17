@@ -3213,7 +3213,10 @@ def api_admin_batch_validate_stocks():
 
         unique_symbols = list(dict.fromkeys(symbols))
 
-        def _process_one(sym: str) -> Dict[str, Any]:
+        updated_rows: Dict[str, Any] = {}
+        row_lock = threading.Lock()
+
+        def _process_one(sym: str) -> None:
             try:
                 p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1d" / f"{sym}.parquet"
                 if not p_1d.exists():
@@ -3253,49 +3256,78 @@ def api_admin_batch_validate_stocks():
                 except Exception as _f_chk_err:
                     logger.debug(f"[BATCH_VALIDATE] Raw check note for {sym}: {_f_chk_err}")
 
-                # Rebuild canonical PIT row for symbol to ensure snapshot reflects latest facts
+                # Compute canonical PIT row for symbol to ensure snapshot reflects latest facts
                 try:
                     from scripts.rebuild_pit_from_exchange import compute_canonical_symbol_row
                     from datetime import date
                     row_dict = compute_canonical_symbol_row(sym, date.today())
-                    snap_p = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
-                    if snap_p.exists() and row_dict:
-                        import pandas as _pd
-                        df_s = _pd.read_parquet(snap_p)
-                        if sym in df_s["symbol"].values:
-                            for col_name in df_s.columns:
-                                if col_name in row_dict:
-                                    df_s.loc[df_s["symbol"] == sym, col_name] = row_dict[col_name]
-                            df_s.to_parquet(snap_p, index=False)
+                    if row_dict:
+                        with row_lock:
+                            updated_rows[sym] = row_dict
                 except Exception as _rebuild_err:
                     logger.debug(f"[BATCH_VALIDATE] Rebuild row note for {sym}: {_rebuild_err}")
 
             except Exception as _pre_err:
                 logger.debug(f"[BATCH_VALIDATE] Pre-check note for {sym}: {_pre_err}")
 
-            res = validate_and_restore_stock(sym)
-            if res.get("restored"):
-                logger.info(f"🎉 [BATCH_VALIDATE] {sym}: RESTORED TO FRESH | Unblocked from cool-off")
-            elif res.get("is_data_perfect"):
-                logger.info(f"✅ [BATCH_VALIDATE] {sym}: DATA PERFECT | All checks passed (already clean)")
-            else:
-                missing_str = "; ".join(res.get("missing_metrics") or ["Validation criteria failed"])
-                logger.warning(f"⚠️ [BATCH_VALIDATE] {sym}: STALE / INCOMPLETE | Reasons: {missing_str}")
-            return res
-
         max_w = min(8, max(1, len(unique_symbols)))
         with ThreadPoolExecutor(max_workers=max_w, thread_name_prefix="BatchVal") as executor:
-            res_list = list(executor.map(_process_one, unique_symbols))
+            list(executor.map(_process_one, unique_symbols))
+
+        # Single-writer, thread-safe, atomic batch update of canonical snapshot parquet
+        if updated_rows:
+            try:
+                snap_p = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+                if snap_p.exists():
+                    import pandas as _pd
+                    df_s = _pd.read_parquet(snap_p)
+                    for sym, r_dict in updated_rows.items():
+                        if sym in df_s["symbol"].values and r_dict:
+                            for col_name in df_s.columns:
+                                if col_name in r_dict:
+                                    df_s.loc[df_s["symbol"] == sym, col_name] = r_dict[col_name]
+                    tmp_snap = snap_p.with_name(f"{snap_p.stem}_tmp_{os.getpid()}_{int(time.time())}.parquet")
+                    df_s.to_parquet(tmp_snap, index=False)
+                    os.replace(tmp_snap, snap_p)
+                    try:
+                        from database import upload_parquet_to_db
+                        upload_parquet_to_db("canonical_pit_rebuilt", str(snap_p), date.today())
+                    except Exception:
+                        pass
+            except Exception as _batch_err:
+                logger.warning(f"[BATCH_VALIDATE] Snapshot batch write note: {_batch_err}")
+
+        # Now evaluate each symbol against the cleanly updated snapshot
+        res_list = []
+        for sym in unique_symbols:
+            try:
+                res = validate_and_restore_stock(sym)
+                if res.get("restored") or res.get("is_data_perfect"):
+                    try:
+                        from database import remove_stale_stock_from_cooloff
+                        remove_stale_stock_from_cooloff(sym)
+                    except Exception:
+                        pass
+                    if res.get("restored"):
+                        logger.info(f"🎉 [BATCH_VALIDATE] {sym}: RESTORED TO FRESH | Unblocked from cool-off")
+                    else:
+                        logger.info(f"✅ [BATCH_VALIDATE] {sym}: DATA PERFECT | All checks passed (already clean)")
+                else:
+                    missing_str = "; ".join(res.get("missing_metrics") or ["Validation criteria failed"])
+                    logger.warning(f"⚠️ [BATCH_VALIDATE] {sym}: STALE / INCOMPLETE | Reasons: {missing_str}")
+                res_list.append(res)
+            except Exception as _val_err:
+                logger.warning(f"[BATCH_VALIDATE] Validation error for {sym}: {_val_err}")
+                res_list.append({"symbol": sym, "ok": False, "is_data_perfect": False, "restored": False, "error": str(_val_err)})
 
         results_map = {sym: res for sym, res in zip(unique_symbols, res_list)}
         restored_cnt = sum(1 for r in res_list if r.get("restored"))
         perfect_cnt = sum(1 for r in res_list if r.get("is_data_perfect"))
-        failed_cnt = len(unique_symbols) - restored_cnt
+        failed_cnt = len(unique_symbols) - (restored_cnt + perfect_cnt)
 
-        if restored_cnt > 0 or perfect_cnt > 0:
-            with _STOCK_DATA_HEALTH_LOCK:
-                _STOCK_DATA_HEALTH_CACHE["payload"] = None
-                _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
+        with _STOCK_DATA_HEALTH_LOCK:
+            _STOCK_DATA_HEALTH_CACHE["payload"] = None
+            _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
 
         return jsonify({
             "status": "success",
@@ -3303,13 +3335,19 @@ def api_admin_batch_validate_stocks():
             "total_requested": len(unique_symbols),
             "restored_count": restored_cnt,
             "perfect_count": perfect_cnt,
-            "failed_count": failed_cnt,
+            "failed_count": max(0, failed_cnt),
             "results": results_map,
             "server_time": datetime.now(IST).isoformat()
         })
     except Exception as e:
         logger.exception(f"[API_BATCH_VALIDATE_STOCKS] Error: {e}")
-        return jsonify({"status": "error", "error": str(e), "message": f"Batch validation failed: {str(e)}"}), 500
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "message": f"Batch validation failed: {str(e)}",
+            "total_requested": len(symbols) if 'symbols' in locals() and isinstance(symbols, list) else 0,
+            "results": {}
+        }), 500
 
 
 @app.route("/api/admin/remove_stale_stock", methods=["POST"])
