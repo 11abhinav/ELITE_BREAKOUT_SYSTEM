@@ -9230,9 +9230,11 @@ def add_symbol_to_cooloff(
     except Exception as e:
         logger.debug(f"Cool-off DB insertion notice: {e}")
 
-    logger.info(
-        f"🛡️ [DATA_COOLOFF] Added {sym} to {duration_days}-day cool-off for scanner '{scan}' "
-        f"(Cool-off active until {until_dt.strftime('%Y-%m-%d %H:%M:%S IST')}): {reason_clean}"
+    details_str = f" | ProviderFailures={pf_str}" if pf_str else ""
+    logger.warning(
+        f"⚠️ [STALE_STOCK_MARKED] Symbol={sym} evaluated and marked STALE "
+        f"| Scanner='{scan}' | Reason={reason_clean}{details_str} "
+        f"| Duration={duration_days}d (Cool-off active until {until_dt.strftime('%Y-%m-%d %H:%M:%S IST')})"
     )
 
     try:
@@ -10128,6 +10130,14 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
             item["filings_count_in_db"] = 0
             item["latest_period_in_db"] = "No local file" if not raw_info else raw_info.get("latest", "None")
 
+    reasons_counter = {}
+    for item in stale_map.values():
+        r = item.get("reason", "UNKNOWN").split(" (")[0]
+        reasons_counter[r] = reasons_counter.get(r, 0) + 1
+
+    summary_reasons = ", ".join(f"{k}: {v}" for k, v in sorted(reasons_counter.items(), key=lambda x: x[1], reverse=True)[:5])
+    logger.info(f"📊 [STALE_AUDIT] Evaluated {len(stale_map)} stale / cool-off stocks. Top reasons: {summary_reasons}")
+
     return sorted(list(stale_map.values()), key=lambda x: x["symbol"])
 
 
@@ -10504,6 +10514,26 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
     else:
         checks["missing_metrics"].append("Canonical snapshot parquet file not found")
 
+    # 3b. Check statutory SEBI LODR Regulation 33 filing schedule
+    try:
+        snap_row = match.iloc[0] if ('match' in locals() and not match.empty) else None
+        fy_end_m = int(snap_row.get("fy_end_month") or 3) if snap_row is not None else 3
+        try:
+            from app.financial_data_integrity import is_half_yearly_filer
+            is_half_y = is_half_yearly_filer(sym_u)
+        except Exception:
+            is_half_y = False
+        sym_mand_period, sym_deadline, sym_label = get_sebi_lodr_mandatory_filing_status(
+            datetime.now(IST), fy_end_month=fy_end_m, is_half_yearly=is_half_y
+        )
+        raw_p_latest = checks.get("latest_raw_period") or checks.get("latest_annual_period")
+        if not raw_p_latest or str(raw_p_latest) in ("None", "Empty", "Error", "No local file") or str(raw_p_latest) < sym_mand_period:
+            checks["missing_metrics"].append(
+                f"SEBI LODR Reg 33 filing overdue ({sym_label}): Required period {sym_mand_period} (statutory deadline {sym_deadline}), but latest available is {raw_p_latest or 'None'}"
+            )
+    except Exception as _sebi_err:
+        logger.debug(f"[VALIDATE_STOCK] SEBI LODR check note for {sym_u}: {_sebi_err}")
+
     is_valid = (
         checks["has_canonical_snapshot"] and
         checks["has_raw_filings"] and
@@ -10511,7 +10541,7 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
         checks["staleness_years"] is not None and
         checks["staleness_years"] <= 2.0 and
         not checks["filing_gap_detected"] and
-        len([m for m in checks["missing_metrics"] if "missing" in m.lower() or "exceeds" in m.lower()]) == 0
+        len([m for m in checks["missing_metrics"] if "missing" in m.lower() or "exceeds" in m.lower() or "overdue" in m.lower()]) == 0
     )
 
     checks["is_data_perfect"] = is_valid
@@ -10527,8 +10557,24 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
         checks["was_stale"] = restored
         checks["restored"] = restored
         checks["verdict"] = "DATA_PERFECT_RESTORED" if restored else "DATA_PERFECT_ALREADY_FRESH"
+        logger.info(
+            f"✅ [STOCK_EVAL_FRESH] Symbol={sym_u} evaluated and verified CLEAN / FRESH | Verdict={checks['verdict']} "
+            f"| Candles={checks.get('candle_count', 0)} | Statements={checks.get('raw_filings_count', 0)} "
+            f"| LatestPeriod={checks.get('latest_raw_period') or checks.get('latest_annual_period')} "
+            f"| Restored={restored}"
+        )
     else:
         checks["verdict"] = "VALIDATION_FAILED"
+        reasons_joined = "; ".join(checks["missing_metrics"]) if checks["missing_metrics"] else "Data integrity criteria not met"
+        st_years_str = f"{checks['staleness_years']:.2f}Y" if checks.get("staleness_years") is not None else "Unknown"
+        logger.warning(
+            f"⚠️ [STOCK_EVAL_STALE] Symbol={sym_u} evaluated and marked STALE / INCOMPLETE | Verdict=VALIDATION_FAILED "
+            f"| Reasons: {reasons_joined} "
+            f"| FilingsCount={checks.get('raw_filings_count', 0)} (Latest={checks.get('latest_raw_period') or checks.get('latest_annual_period') or 'None'}) "
+            f"| CandlesCount={checks.get('candle_count', 0)} "
+            f"| StalenessYears={st_years_str} "
+            f"| FilingGap={checks.get('filing_gap_detected', False)}"
+        )
 
     return checks
 

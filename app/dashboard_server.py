@@ -3164,6 +3164,14 @@ def api_admin_validate_stock():
             return jsonify({"status": "error", "error": "Missing 'symbol' parameter", "message": "Missing 'symbol' parameter"}), 400
 
         result = validate_and_restore_stock(symbol)
+        if result.get("restored"):
+            logger.info(f"🎉 [API_VALIDATE_STOCK] {symbol}: RESTORED TO FRESH | Unblocked from cool-off")
+        elif result.get("is_data_perfect"):
+            logger.info(f"✅ [API_VALIDATE_STOCK] {symbol}: DATA PERFECT | All checks passed (already clean)")
+        else:
+            missing_str = "; ".join(result.get("missing_metrics") or ["Validation criteria failed"])
+            logger.warning(f"⚠️ [API_VALIDATE_STOCK] {symbol}: STALE / INCOMPLETE | Reasons: {missing_str}")
+
         return jsonify({
             "status": "success",
             "result": result,
@@ -3245,7 +3253,15 @@ def api_admin_batch_validate_stocks():
             except Exception as _pre_err:
                 logger.debug(f"[BATCH_VALIDATE] Pre-check note for {sym}: {_pre_err}")
 
-            return validate_and_restore_stock(sym)
+            res = validate_and_restore_stock(sym)
+            if res.get("restored"):
+                logger.info(f"🎉 [BATCH_VALIDATE] {sym}: RESTORED TO FRESH | Unblocked from cool-off")
+            elif res.get("is_data_perfect"):
+                logger.info(f"✅ [BATCH_VALIDATE] {sym}: DATA PERFECT | All checks passed (already clean)")
+            else:
+                missing_str = "; ".join(res.get("missing_metrics") or ["Validation criteria failed"])
+                logger.warning(f"⚠️ [BATCH_VALIDATE] {sym}: STALE / INCOMPLETE | Reasons: {missing_str}")
+            return res
 
         max_w = min(8, max(1, len(unique_symbols)))
         with ThreadPoolExecutor(max_workers=max_w, thread_name_prefix="BatchVal") as executor:
