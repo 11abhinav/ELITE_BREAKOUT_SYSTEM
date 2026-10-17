@@ -1570,12 +1570,12 @@ function changeAdminPage(type, delta) {
     thead th.sort-asc::after  { content: ' ▲'; color: var(--accent); font-size: 8px; }
     thead th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; }
 
-    .sdh-th-sortable {
+    .sdh-th-sortable, .cf-th-sortable {
       cursor: pointer !important;
       user-select: none !important;
       transition: background 0.15s, color 0.15s !important;
     }
-    .sdh-th-sortable:hover {
+    .sdh-th-sortable:hover, .cf-th-sortable:hover {
       background: var(--card3) !important;
       color: var(--accent) !important;
     }
@@ -4031,17 +4031,39 @@ function changeAdminPage(type, delta) {
             <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px;">
               <thead>
                 <tr style="background:var(--card2); border-bottom:1px solid var(--border); text-align:left;">
-                  <th style="padding:10px 12px;">Stock &amp; Exchange</th>
-                  <th style="padding:10px 12px;">Report Period</th>
-                  <th style="padding:10px 12px; min-width:140px;">Published Date (Exchange)</th>
-                  <th style="padding:10px 12px; min-width:140px;">Fetched Date (Scanner)</th>
-                  <th style="padding:10px 12px;">Statement &amp; Scope</th>
-                  <th style="padding:10px 12px;">Gap Discovery Type</th>
-                  <th style="padding:10px 12px; text-align:right;">Revenue (₹ Cr)</th>
-                  <th style="padding:10px 12px; text-align:right;">PAT (₹ Cr)</th>
-                  <th style="padding:10px 12px; text-align:right;">EPS (₹)</th>
-                  <th style="padding:10px 12px; text-align:right;">ROCE %</th>
-                  <th style="padding:10px 12px; text-align:center;">Snapshot Status</th>
+                  <th onclick="sortCorporateFilings('symbol')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Stock &amp; Exchange">
+                    Stock &amp; Exchange <span id="cf-th-icon-symbol" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('period_end')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Report Period">
+                    Report Period <span id="cf-th-icon-period_end" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('published_date')" class="cf-th-sortable" style="padding:10px 12px; min-width:140px; cursor:pointer; user-select:none;" title="Click to sort by Published Date (Exchange)">
+                    Published Date (Exchange) <span id="cf-th-icon-published_date" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('fetched_date')" class="cf-th-sortable" style="padding:10px 12px; min-width:140px; cursor:pointer; user-select:none;" title="Click to sort by Fetched Date (Scanner)">
+                    Fetched Date (Scanner) <span id="cf-th-icon-fetched_date" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('statement_type')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Statement &amp; Scope">
+                    Statement &amp; Scope <span id="cf-th-icon-statement_type" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('event_type')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Gap Discovery Type">
+                    Gap Discovery Type <span id="cf-th-icon-event_type" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('revenue_cr')" class="cf-th-sortable" style="padding:10px 12px; text-align:right; cursor:pointer; user-select:none;" title="Click to sort by Revenue">
+                    Revenue (₹ Cr) <span id="cf-th-icon-revenue_cr" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('pat_cr')" class="cf-th-sortable" style="padding:10px 12px; text-align:right; cursor:pointer; user-select:none;" title="Click to sort by PAT">
+                    PAT (₹ Cr) <span id="cf-th-icon-pat_cr" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('eps')" class="cf-th-sortable" style="padding:10px 12px; text-align:right; cursor:pointer; user-select:none;" title="Click to sort by EPS">
+                    EPS (₹) <span id="cf-th-icon-eps" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('roce_pct')" class="cf-th-sortable" style="padding:10px 12px; text-align:right; cursor:pointer; user-select:none;" title="Click to sort by ROCE">
+                    ROCE % <span id="cf-th-icon-roce_pct" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('status')" class="cf-th-sortable" style="padding:10px 12px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Snapshot Status">
+                    Snapshot Status <span id="cf-th-icon-status" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
                   <th style="padding:10px 12px; text-align:center;">Actions</th>
                 </tr>
               </thead>
@@ -12684,7 +12706,8 @@ async function loadCorporateFilingsDiscovery(targetDate) {
     const data = await res.json();
     if (data.status === 'success') {
       CURRENT_SELECTED_FILING_DATE = data.selected_date;
-      CURRENT_FILINGS_DATA = data.filings || [];
+      window._CURRENT_RAW_FILINGS = data.filings || [];
+      CURRENT_FILINGS_DATA = window._CURRENT_RAW_FILINGS;
 
       // Update date input and pill
       const dateInput = document.getElementById('filingDateInput');
@@ -12724,7 +12747,7 @@ async function loadCorporateFilingsDiscovery(targetDate) {
       const dateSub = document.getElementById('kpi-filings-date-sub');
       if (dateSub) dateSub.textContent = `on ${data.selected_date}`;
 
-      renderCorporateFilingsTable(CURRENT_FILINGS_DATA);
+      filterCorporateFilings();
     }
   } catch (err) {
     console.error('Failed to load corporate filings', err);
@@ -12740,12 +12763,85 @@ function onFilingDateChange(newDate) {
   loadCorporateFilingsDiscovery(newDate);
 }
 
+let FILINGS_SORT_COL = 'published_date';
+let FILINGS_SORT_DIR = -1; // -1 = newest/highest first, 1 = oldest/ascending
+
+function sortCorporateFilings(col) {
+  if (FILINGS_SORT_COL === col) {
+    FILINGS_SORT_DIR = -FILINGS_SORT_DIR;
+  } else {
+    FILINGS_SORT_COL = col;
+    // Ascending for text columns, descending for dates and numeric amounts
+    FILINGS_SORT_DIR = ['symbol', 'statement_type', 'event_type', 'status'].includes(col) ? 1 : -1;
+  }
+  updateFilingsSortHeaders();
+  filterCorporateFilings();
+}
+
+function updateFilingsSortHeaders() {
+  const cols = ['symbol', 'period_end', 'published_date', 'fetched_date', 'statement_type', 'event_type', 'revenue_cr', 'pat_cr', 'eps', 'roce_pct', 'status'];
+  cols.forEach(col => {
+    const iconEl = document.getElementById(`cf-th-icon-${col}`);
+    if (!iconEl) return;
+    if (FILINGS_SORT_COL === col) {
+      iconEl.textContent = (FILINGS_SORT_DIR === 1) ? '▲' : '▼';
+      iconEl.style.color = 'var(--accent)';
+      iconEl.style.fontWeight = 'bold';
+    } else {
+      iconEl.textContent = '⇅';
+      iconEl.style.color = 'var(--muted)';
+      iconEl.style.fontWeight = 'normal';
+    }
+  });
+}
+
+function parseFilingDateToTimestamp(dStr) {
+  if (!dStr || dStr === '-' || dStr === 'INVALID_DATE') return 0;
+  const s = String(dStr).trim();
+  // Match DD-Mon-YYYY (e.g. 06-Oct-2026, 13-Oct-2026 18:41:05, 30-Sep-2026)
+  const match = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (match) {
+    const day = parseInt(match[1], 10);
+    const monStr = match[2].toLowerCase();
+    const year = parseInt(match[3], 10);
+    const months = {'jan':0,'feb':1,'mar':2,'apr':3,'may':4,'jun':5,'jul':6,'aug':7,'sep':8,'oct':9,'nov':10,'dec':11};
+    const month = months[monStr] !== undefined ? months[monStr] : 0;
+    const hr = match[4] ? parseInt(match[4], 10) : 0;
+    const min = match[5] ? parseInt(match[5], 10) : 0;
+    const sec = match[6] ? parseInt(match[6], 10) : 0;
+    return new Date(year, month, day, hr, min, sec).getTime();
+  }
+  // Standard ISO / Date string
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+
+function formatPublishedFilingDate(dStr) {
+  if (!dStr || dStr === '-' || dStr === 'INVALID_DATE') return '-';
+  const s = String(dStr).trim();
+  // If DD-Mon-YYYY with optional time, extract clean DD-Mon-YYYY
+  const m = s.match(/^(\d{1,2}-[A-Za-z]{3}-\d{4})/);
+  if (m) return m[1];
+  // Parse timestamp and format to clean DD-Mon-YYYY
+  const ts = parseFilingDateToTimestamp(s);
+  if (ts > 0) {
+    const d = new Date(ts);
+    const day = String(d.getDate()).padStart(2, '0');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${day}-${months[d.getMonth()]}-${d.getFullYear()}`;
+  }
+  return formatProperFilingDate(s);
+}
+
 function filterCorporateFilings() {
   const symFilter = (document.getElementById('filingSymbolFilter')?.value || '').trim().toUpperCase();
   const eventFilter = document.getElementById('filingEventTypeSelect')?.value || 'ALL';
   const statementFilter = document.getElementById('filingStatementSelect')?.value || 'ALL';
 
-  let filtered = CURRENT_FILINGS_DATA;
+  let source = Array.isArray(window._CURRENT_RAW_FILINGS) && window._CURRENT_RAW_FILINGS.length > 0
+    ? window._CURRENT_RAW_FILINGS
+    : CURRENT_FILINGS_DATA;
+  let filtered = source || [];
 
   if (symFilter) {
     filtered = filtered.filter(f => String(f.symbol || '').toUpperCase().includes(symFilter));
@@ -12796,19 +12892,92 @@ function renderCorporateFilingsTable(filings) {
   if (!tbody) return;
 
   if (!filings || filings.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:36px; color:var(--muted);">No missing filing findings found matching your filters for this date.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:36px; color:var(--muted);">No missing filing findings found matching your filters for this date.</td></tr>`;
     return;
   }
 
-  // Enforce strictly ONE line per stock report per date (selecting latest period report)
+  // 1. Enforce strictly ONE line per stock report per date (selecting latest period report)
   const uniqueFilings = [];
   const seenSymbols = new Set();
-  const sorted = [...filings].sort((a, b) => String(b.period_end || '').localeCompare(String(a.period_end || '')));
-  sorted.forEach(f => {
+  const sortedByPeriod = [...filings].sort((a, b) => String(b.period_end || '').localeCompare(String(a.period_end || '')));
+  sortedByPeriod.forEach(f => {
     const sym = String(f.symbol || '').trim().toUpperCase();
     if (!sym || seenSymbols.has(sym)) return;
     seenSymbols.add(sym);
     uniqueFilings.push(f);
+  });
+
+  // 2. Multi-column, null-safe sorting according to FILINGS_SORT_COL and FILINGS_SORT_DIR
+  uniqueFilings.sort((a, b) => {
+    let aVal, bVal;
+    let isNum = false;
+
+    switch (FILINGS_SORT_COL) {
+      case 'symbol':
+        aVal = String(a.symbol || '').toUpperCase();
+        bVal = String(b.symbol || '').toUpperCase();
+        break;
+      case 'period_end':
+        aVal = parseFilingDateToTimestamp(a.period_end);
+        bVal = parseFilingDateToTimestamp(b.period_end);
+        isNum = true;
+        break;
+      case 'published_date':
+        aVal = parseFilingDateToTimestamp(a.filing_broadcast_date || a.actual_publication_timestamp || a.filing_date);
+        bVal = parseFilingDateToTimestamp(b.filing_broadcast_date || b.actual_publication_timestamp || b.filing_date);
+        isNum = true;
+        break;
+      case 'fetched_date':
+        aVal = parseFilingDateToTimestamp(a.discovered_at || a.filing_date);
+        bVal = parseFilingDateToTimestamp(b.discovered_at || b.filing_date);
+        isNum = true;
+        break;
+      case 'statement_type':
+        aVal = String(a.statement_type || '').toUpperCase() + ' ' + String(a.basis || '').toUpperCase();
+        bVal = String(b.statement_type || '').toUpperCase() + ' ' + String(b.basis || '').toUpperCase();
+        break;
+      case 'event_type':
+        aVal = String(a.event_type || '').toUpperCase();
+        bVal = String(b.event_type || '').toUpperCase();
+        break;
+      case 'revenue_cr':
+        aVal = a.revenue_cr;
+        bVal = b.revenue_cr;
+        isNum = true;
+        break;
+      case 'pat_cr':
+        aVal = a.pat_cr;
+        bVal = b.pat_cr;
+        isNum = true;
+        break;
+      case 'eps':
+        aVal = a.eps;
+        bVal = b.eps;
+        isNum = true;
+        break;
+      case 'roce_pct':
+        aVal = a.roce_pct;
+        bVal = b.roce_pct;
+        isNum = true;
+        break;
+      case 'status':
+        aVal = String(a.status || 'INGESTED').toUpperCase();
+        bVal = String(b.status || 'INGESTED').toUpperCase();
+        break;
+      default:
+        aVal = parseFilingDateToTimestamp(a.filing_broadcast_date || a.actual_publication_timestamp || a.filing_date);
+        bVal = parseFilingDateToTimestamp(b.filing_broadcast_date || b.actual_publication_timestamp || b.filing_date);
+        isNum = true;
+        break;
+    }
+
+    if (isNum) {
+      const aNum = (aVal != null && !isNaN(aVal)) ? Number(aVal) : -Infinity;
+      const bNum = (bVal != null && !isNaN(bVal)) ? Number(bVal) : -Infinity;
+      return (aNum - bNum) * FILINGS_SORT_DIR;
+    } else {
+      return String(aVal || '').localeCompare(String(bVal || '')) * FILINGS_SORT_DIR;
+    }
   });
 
   // Keep global data aligned for modal lookups
@@ -12824,6 +12993,9 @@ function renderCorporateFilingsTable(filings) {
   const qtrEl = document.getElementById('kpi-filings-quarterly');
   if (qtrEl) qtrEl.textContent = qtrCount.toLocaleString('en-IN');
 
+  // Update table header sort indicators
+  updateFilingsSortHeaders();
+
   let html = '';
   uniqueFilings.forEach((f, idx) => {
     const sym = f.symbol || 'UNKNOWN';
@@ -12834,8 +13006,9 @@ function renderCorporateFilingsTable(filings) {
     const basis = f.basis || 'CONSOLIDATED';
     const eventType = f.event_type || 'NEW_FILING';
 
-    // Format Official Published Date (when announced by company on exchange)
-    const publishedDateStr = f.filing_broadcast_date || f.actual_publication_timestamp || '-';
+    // Format Official Published Date (clean date display, full timestamp in title tooltip)
+    const rawPubDate = f.filing_broadcast_date || f.actual_publication_timestamp || f.filing_date || '-';
+    const displayPubDate = formatPublishedFilingDate(rawPubDate);
 
     // Format Scanner Fetched Date (when Filing Scanner retrieved & ingested)
     let fetchedDateStr = '-';
@@ -12904,11 +13077,11 @@ function renderCorporateFilingsTable(filings) {
           <div style="font-size:10px; color:var(--muted);">${stType} (${basis.toLowerCase()})</div>
         </td>
         <!-- Published Date (Exchange Official Date) -->
-        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; font-weight:700; color:#3b82f6;">
-          ${publishedDateStr}
+        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; font-weight:700; color:#3b82f6;" title="${escapeHTML(String(rawPubDate))}">
+          ${displayPubDate}
         </td>
         <!-- Fetched Date (Scanner Ingestion Date) -->
-        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; color:var(--muted);">
+        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; color:var(--muted);" title="${escapeHTML(String(f.discovered_at || f.filing_date || ''))}">
           ${fetchedDateStr}
         </td>
         <!-- Statement & Scope -->
