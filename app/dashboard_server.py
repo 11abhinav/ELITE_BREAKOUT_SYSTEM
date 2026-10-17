@@ -1076,7 +1076,7 @@ def get_notifications():
                             dt = dt.astimezone(ZoneInfo("Asia/Kolkata"))
                         n['created_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
                 
-                payload = json.dumps(notifications)
+                payload = json.dumps(notifications, default=str)
                 gz_bytes = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
                 _notifications_cache["ts"] = now_ts
                 _notifications_cache[cache_key] = payload
@@ -2077,17 +2077,23 @@ def get_v2_master_summary():
             max_age=5,
             precompressed_gzip=_V2_MASTER_SUMMARY_CACHE["gzip"]
         )
-    from master_orchestrator import orchestrator_v2
-    data = orchestrator_v2.get_master_summary()
-    payload = json.dumps(data)
-    import hashlib
-    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
-    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
-    _V2_MASTER_SUMMARY_CACHE["ts"] = now_ts
-    _V2_MASTER_SUMMARY_CACHE["payload"] = payload
-    _V2_MASTER_SUMMARY_CACHE["gzip"] = gz
-    _V2_MASTER_SUMMARY_CACHE["etag"] = etag
-    return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
+    try:
+        from master_orchestrator import orchestrator_v2
+        data = orchestrator_v2.get_master_summary()
+        payload = json.dumps(data, default=str)
+        import hashlib
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        _V2_MASTER_SUMMARY_CACHE["ts"] = now_ts
+        _V2_MASTER_SUMMARY_CACHE["payload"] = payload
+        _V2_MASTER_SUMMARY_CACHE["gzip"] = gz
+        _V2_MASTER_SUMMARY_CACHE["etag"] = etag
+        return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
+    except Exception as e:
+        logger.exception(f"❌ Failed to get v2 master summary: {e}")
+        if _V2_MASTER_SUMMARY_CACHE["payload"]:
+            return _make_json_response(_V2_MASTER_SUMMARY_CACHE["payload"], etag=_V2_MASTER_SUMMARY_CACHE["etag"], max_age=5, precompressed_gzip=_V2_MASTER_SUMMARY_CACHE["gzip"])
+        return jsonify({})
 
 
 _V2_STOCKS_TO_WATCH_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
@@ -3379,7 +3385,7 @@ def api_summary():
             summary = json.loads(val)
             from database import get_ai_cache_count
             summary["ai_cache_count"] = get_ai_cache_count()
-            payload = json.dumps(summary)
+            payload = json.dumps(summary, default=str)
             import hashlib
             etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
             gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
@@ -3474,7 +3480,7 @@ def _compute_shortlist_payload_sync():
             logger.debug(f"Watchlist live CMP enrichment warning: {cmp_err}")
 
     clean_records = sanitize_nans(records)
-    payload = json.dumps(clean_records)
+    payload = json.dumps(clean_records, default=str)
     gz_bytes = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
     import hashlib
     etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
@@ -3567,7 +3573,7 @@ def api_shortlist_excluded():
         df = df.replace([float('inf'), float('-inf')], float('nan'))
         df = df.where(pd.notnull(df), None)
         records = sanitize_nans(df.to_dict(orient="records"))
-        payload = json.dumps(records)
+        payload = json.dumps(records, default=str)
         cache["mtime"] = mtime
         cache["payload"] = payload
         return Response(payload, mimetype="application/json")
@@ -3939,7 +3945,7 @@ def api_fetch_errors_grouped_by_scanner():
                 for row in cur.fetchall():
                     sc = row["scanner_name"] or "UNKNOWN"
                     grouped.setdefault(sc, []).append(dict(row))
-        payload = json.dumps(grouped)
+        payload = json.dumps(grouped, default=str)
         _fetch_errors_grouped_cache["payload"] = payload
         _fetch_errors_grouped_cache["ts"] = now_ts
         return Response(payload, mimetype="application/json", headers={
@@ -4036,7 +4042,7 @@ def api_capital_info():
     try:
         from database import get_capital_info
         info = get_capital_info()
-        payload = json.dumps(info)
+        payload = json.dumps(info, default=str)
         _CAPITAL_INFO_CACHE = {"ts": now_ts, "payload": payload}
         return Response(payload, mimetype="application/json")
     except Exception:
@@ -4441,8 +4447,8 @@ def api_todays_alerts():
         rows = get_todays_alerts(today)
         
         user_rows = [r for r in rows if not r.get('is_rejected', False)]
-        admin_payload = json.dumps(serialize_datetimes(rows))
-        user_payload = json.dumps(serialize_datetimes(user_rows))
+        admin_payload = json.dumps(serialize_datetimes(rows), default=str)
+        user_payload = json.dumps(serialize_datetimes(user_rows), default=str)
 
         admin_etag = f'"{hashlib.md5(admin_payload.encode("utf-8")).hexdigest()}"'
         user_etag = f'"{hashlib.md5(user_payload.encode("utf-8")).hexdigest()}"'
@@ -4513,9 +4519,9 @@ def api_all_alerts():
         limit_arg = request.args.get('limit')
         limit = None if limit_arg == 'all' else (int(limit_arg) if limit_arg and limit_arg.isdigit() else 1000)
         rows = get_all_alerts(limit=limit)
-        admin_payload = json.dumps(serialize_datetimes(rows))
+        admin_payload = json.dumps(serialize_datetimes(rows), default=str)
         user_rows = [r for r in rows if not r.get('is_rejected', False)]
-        user_payload = json.dumps(serialize_datetimes(user_rows))
+        user_payload = json.dumps(serialize_datetimes(user_rows), default=str)
 
         admin_etag = f'"{hashlib.md5(admin_payload.encode("utf-8")).hexdigest()}"'
         user_etag = f'"{hashlib.md5(user_payload.encode("utf-8")).hexdigest()}"'
@@ -4561,7 +4567,7 @@ def api_alert_by_symbol(symbol: str):
         if not is_admin and trade.get('is_rejected', False):
             return jsonify({"success": False, "trade": None, "message": "Alert not visible"}), 403
             
-        payload = json.dumps(serialize_datetimes(trade))
+        payload = json.dumps(serialize_datetimes(trade), default=str)
         return Response(payload, mimetype="application/json", headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
             "Pragma": "no-cache",
