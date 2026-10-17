@@ -174,15 +174,18 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     if not filings:
         filings = _get_pit_filings(sym_u, allow_live_refresh=False)
     
-    consolidated_annual = [
-        f for f in filings
-        if str(f.get("statement_type", "")).upper() == "ANNUAL"
-        and str(f.get("basis") or "CONSOLIDATED").upper() in (StatementBasis.CONSOLIDATED, "NONE", "")
-    ]
-    if consolidated_annual:
-        annual_filings = consolidated_annual
-    else:
-        annual_filings = [f for f in filings if str(f.get("statement_type", "")).upper() == "ANNUAL"]
+    annual_map = {}
+    for f in filings:
+        if str(f.get("statement_type", "")).upper() == "ANNUAL":
+            p_end = str(f.get("period_end_date") or "")[:10]
+            if not p_end:
+                continue
+            bs = str(f.get("basis") or "CONSOLIDATED").upper()
+            is_cons = bs in (StatementBasis.CONSOLIDATED, "NONE", "")
+            # Prefer CONSOLIDATED if available for this specific period; fallback to STANDALONE
+            if p_end not in annual_map or (is_cons and annual_map[p_end].get("basis") == "STANDALONE"):
+                annual_map[p_end] = f
+    annual_filings = sorted(list(annual_map.values()), key=lambda x: str(x.get("period_end_date", "")))
 
     # Filter by as-of-date PIT causality (C14)
     pit_eligible_annual = []

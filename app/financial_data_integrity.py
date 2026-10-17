@@ -1159,8 +1159,19 @@ def compute_share_dilution_3y(
             base_period=str(base_p_dt),
             corporate_action_factor=round(ca_factor, 4),
             corporate_action_ids=ca_ids,
-            source_provider="HISTORICAL_PIT_FILING",
         )
+
+    return ShareDilutionResult(
+        status=DataStatus.VALID,
+        share_dilution_3y=dilution_pct,
+        latest_share_count=latest_sh,
+        latest_period=str(latest_p_end),
+        base_share_count=base_sh_raw,
+        base_period=str(base_p_dt),
+        corporate_action_factor=round(ca_factor, 4),
+        corporate_action_ids=ca_ids,
+        source_provider="HISTORICAL_PIT_FILING",
+    )
 
 
 

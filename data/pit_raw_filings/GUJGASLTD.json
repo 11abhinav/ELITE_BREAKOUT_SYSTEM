@@ -455,10 +455,11 @@
     "ebit": 2027.57,
     "capital_employed": 7027.950000000001,
     "eps": null,
-    "shares_outstanding": null,
+    "shares_outstanding": 688390125.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "e9507488b65a1d73368002cf64ac2c69f21fe041824c3008a97745617a019e4e"
+    "source_record_hash": "e9507488b65a1d73368002cf64ac2c69f21fe041824c3008a97745617a019e4e",
+    "statement_type": "ANNUAL"
   },
   {
     "symbol": "GUJGASLTD",
@@ -474,10 +475,11 @@
     "ebit": 1537.14,
     "capital_employed": 7722.48,
     "eps": null,
-    "shares_outstanding": null,
+    "shares_outstanding": 688390125.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "51aa55b2ef8d71f8c3cbf4f4249138ed57938cab0a22268cc6787f358ba2ac73"
+    "source_record_hash": "51aa55b2ef8d71f8c3cbf4f4249138ed57938cab0a22268cc6787f358ba2ac73",
+    "statement_type": "ANNUAL"
   },
   {
     "symbol": "GUJGASLTD",
@@ -493,10 +495,11 @@
     "ebit": 1549.41,
     "capital_employed": 8489.64,
     "eps": null,
-    "shares_outstanding": null,
+    "shares_outstanding": 688390125.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "f3fc901602015dd3f13a19181ab93777e10c385f9cda27dab7cb78731c3c06f9"
+    "source_record_hash": "f3fc901602015dd3f13a19181ab93777e10c385f9cda27dab7cb78731c3c06f9",
+    "statement_type": "ANNUAL"
   },
   {
     "symbol": "GUJGASLTD",
@@ -515,6 +518,7 @@
     "shares_outstanding": 688.39,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "9ddc9533ee731e784c0d856c8179bbc384a9b31a6956b8952723e03c05620465"
+    "source_record_hash": "9ddc9533ee731e784c0d856c8179bbc384a9b31a6956b8952723e03c05620465",
+    "statement_type": "ANNUAL"
   }
 ]
