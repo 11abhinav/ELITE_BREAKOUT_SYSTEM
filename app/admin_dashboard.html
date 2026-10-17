@@ -10433,36 +10433,37 @@ async function fetchTodaysAlertsAndBlink_Admin(){
     const res = await fetch('/api/todays_alerts'); if(!res.ok) return; let data = await res.json();
     let hasNewAlert = false;
     if (Array.isArray(data)) {
-        data = data.filter(alert => alert && alert.execution_state !== 'PENDING_ENTRY' && alert.status !== 'PENDING' && alert.status !== 'PENDING_ENTRY');
-        data.forEach(alert => {
+      data = data.filter(alert => alert && alert.execution_state !== 'PENDING_ENTRY' && alert.status !== 'PENDING' && alert.status !== 'PENDING_ENTRY');
+      data.forEach(alert => {
         if (!lastAdminAlertIds.has(alert.id)) {
-            hasNewAlert = true;
-            lastAdminAlertIds.add(alert.id);
+          hasNewAlert = true;
+          lastAdminAlertIds.add(alert.id);
         }
-    });
-    if (!isFirstAdminAlertFetch && hasNewAlert) {
+      });
+      if (!isFirstAdminAlertFetch && hasNewAlert) {
         playLoudNotificationSound();
         triggerAlertFlashing();
-    }
-    isFirstAdminAlertFetch = false;
-    if (!Array.isArray(data) || data.length === 0) return;
+      }
+      isFirstAdminAlertFetch = false;
+      if (data.length === 0) return;
 
-    data.forEach(alert=>{
-      const cleanSym = (alert.symbol || '').replace('.NS', '').replace('.BO', '').trim();
-      let tr = alert.id ? document.querySelector(`tr[data-id="${alert.id}"]`) : null;
-      if (!tr && cleanSym) {
-        tr = document.querySelector(`tr[data-symbol="${cleanSym}"]`);
-      }
-      if(tr && !tr.dataset.blinkInit){
-        tr.dataset.blinkInit = "true";
-        tr.addEventListener('click', async ()=>{
-          if(tr.classList.contains('alert-blink')){
-            tr.classList.remove('alert-blink');
-            try{ await fetch('/api/alert/mark_seen', {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({id: alert.id, role: 'admin'})}); }catch(e){}
-          }
-        }, {once:true});
-      }
-    });
+      data.forEach(alert=>{
+        const cleanSym = (alert.symbol || '').replace('.NS', '').replace('.BO', '').trim();
+        let tr = alert.id ? document.querySelector(`tr[data-id="${alert.id}"]`) : null;
+        if (!tr && cleanSym) {
+          tr = document.querySelector(`tr[data-symbol="${cleanSym}"]`);
+        }
+        if(tr && !tr.dataset.blinkInit){
+          tr.dataset.blinkInit = "true";
+          tr.addEventListener('click', async ()=>{
+            if(tr.classList.contains('alert-blink')){
+              tr.classList.remove('alert-blink');
+              try{ await fetch('/api/alert/mark_seen', {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({id: alert.id, role: 'admin'})}); }catch(e){}
+            }
+          }, {once:true});
+        }
+      });
+    }
   }catch(e){console.warn('fetchTodaysAlerts_Admin failed', e)}
   setTimeout(fetchTodaysAlertsAndBlink_Admin, ALERT_FETCH_INTERVAL_ADMIN);
 }
