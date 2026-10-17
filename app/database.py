@@ -458,6 +458,8 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs(created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_ack ON system_logs(is_acknowledged)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_grouping ON system_logs(is_acknowledged, level, module, message)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_level_created ON system_logs(level, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_module_created ON system_logs(module, created_at DESC)")
 
                 # 2. master_symbols
                 cur.execute("""
@@ -671,6 +673,10 @@ def init_db():
                 # [RULE 67 CHANGE-RATIONALE: Add targeted performance indexes and backfill shares_bought / capital_allocated for unallocated alerts]
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_open_summary ON alerts(alert_time DESC, symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_perf_lookup ON alerts(scanner, status, alert_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_id_desc ON alerts(id DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_closed_at ON alerts(closed_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_sym_status_time ON alerts(symbol, status, alert_time DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_scanner_closed ON alerts(scanner, status, closed_at DESC)")
                 try:
                     cur.execute("""
                         UPDATE alerts 
@@ -1334,6 +1340,8 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_ack ON fetch_errors(is_acknowledged)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_scan ON fetch_errors(scanner_name)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_last_seen ON fetch_errors(last_seen DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_sym ON fetch_errors(symbol)")
 
                 # 19. validation_history
                 cur.execute("""
@@ -1765,6 +1773,7 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_added ON user_watchlists(user_id, added_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_symbol ON user_watchlists(symbol)")
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS daily_watchlist (
@@ -1779,6 +1788,8 @@ def init_db():
                         "Reason" TEXT,
                         "added_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     );
+                    CREATE INDEX IF NOT EXISTS idx_daily_wl_added ON daily_watchlist("added_at" DESC);
+                    CREATE INDEX IF NOT EXISTS idx_daily_ex_added ON daily_excluded_watchlist("added_at" DESC);
                 """)
 
                 # 37b. symbol_cooloff_journal (7-Day Data Failure Cool-off Journal)
@@ -1798,6 +1809,8 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_sym_scanner ON symbol_cooloff_journal(symbol, scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_until ON symbol_cooloff_journal(cooloff_until)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_until_sym ON symbol_cooloff_journal(cooloff_until DESC, symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_sym_until ON symbol_cooloff_journal(symbol, cooloff_until DESC)")
 
                 # 38. stock_analysis_master
                 cur.execute("""
@@ -1880,6 +1893,7 @@ def init_db():
                     CREATE INDEX IF NOT EXISTS idx_seh_lifecycle ON scanner_execution_history(lifecycle_status);
                     CREATE INDEX IF NOT EXISTS idx_seh_quality ON scanner_execution_history(quality_status);
                     CREATE INDEX IF NOT EXISTS idx_seh_run_id ON scanner_execution_history(run_id);
+                    CREATE INDEX IF NOT EXISTS idx_seh_pagination ON scanner_execution_history(scanner_name, started_at DESC, id DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_sysver ON scanner_execution_history(system_version);
                     CREATE INDEX IF NOT EXISTS idx_seh_gitcom ON scanner_execution_history(git_commit);
                     -- [RULE 67 CHANGE-RATIONALE]:
@@ -2262,6 +2276,9 @@ def init_db():
                         CREATE INDEX IF NOT EXISTS idx_cfl_symbol_date ON corporate_filings_log(symbol, filing_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_cfl_event_type ON corporate_filings_log(event_type);
                         CREATE INDEX IF NOT EXISTS idx_cfl_status ON corporate_filings_log(status);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_distinct_query ON corporate_filings_log(symbol, period_end DESC, discovered_at DESC);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_filing_sym_period ON corporate_filings_log(filing_date, symbol, period_end DESC);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_period_end ON corporate_filings_log(period_end DESC);
                     """)
                 except Exception as _dossier_err:
                     logger.debug(f"Universal corporate intelligence tables init notice: {_dossier_err}")

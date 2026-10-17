@@ -3316,6 +3316,14 @@ function changeAdminPage(type, delta) {
                 <tbody id="universe-details-tbody"></tbody>
               </table>
             </div>
+
+            <div id="universe-pagination-bar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted); font-family: var(--font-mono); flex-wrap: wrap; gap: 8px;">
+              <span id="universe-page-info">Showing 0-0 of 0</span>
+              <div style="display: flex; gap: 6px;">
+                <button class="refresh-btn" id="universe-prev-btn" onclick="changeUniversePage(-1)" style="padding: 4px 10px; font-size: 11px;">◀ Prev</button>
+                <button class="refresh-btn" id="universe-next-btn" onclick="changeUniversePage(1)" style="padding: 4px 10px; font-size: 11px;">Next ▶</button>
+              </div>
+            </div>
           </div>
 
           <!-- CORPORATE INTELLIGENCE & INGESTION FEEDS TELEMETRY -->
@@ -4744,8 +4752,12 @@ function changeAdminPage(type, delta) {
         }
       }
 
-      // Fetch APIs for current active screen
-      triggerActiveTabFetch(resolvedTabId);
+      // Allow browser to paint tab switch immediately with 0ms freeze
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          triggerActiveTabFetch(resolvedTabId);
+        }, 0);
+      });
     }
 
     const _activeTabLoadingMap = {};
@@ -4768,16 +4780,18 @@ function changeAdminPage(type, delta) {
         if (typeof loadManualWatchlist === 'function') loadManualWatchlist(false);
       } else if (tabId === 'health-errors') {
         if (typeof loadDiagnostics === 'function' && !diagnosticsLoaded) {
-           document.getElementById('diagnostics-status').textContent = 'Loading...';
+           const diagStatus = document.getElementById('diagnostics-status');
+           if (diagStatus) diagStatus.textContent = 'Loading...';
            loadDiagnostics().then(() => {
              diagnosticsLoaded = true;
-             document.getElementById('diagnostics-status').textContent = 'Active';
+             if (diagStatus) diagStatus.textContent = 'Active';
            });
+        } else {
+           if (typeof fetchSystemLogs === 'function') fetchSystemLogs();
+           if (typeof loadValidationHealth === 'function') loadValidationHealth();
+           if (typeof loadApiHealth === 'function') loadApiHealth();
         }
-        if (typeof fetchSystemLogs === 'function') fetchSystemLogs();
         if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
-        if (typeof loadValidationHealth === 'function') loadValidationHealth();
-        if (typeof loadApiHealth === 'function') loadApiHealth();
       } else if (tabId === 'universe-health') {
         if (typeof refreshUniverseHealth === 'function') refreshUniverseHealth();
       } else if (tabId === 'db-explorer') {
@@ -16249,32 +16263,54 @@ document.addEventListener("DOMContentLoaded", function() {
 <script>
 window._currentUniverseTier = 'ELITE';
 window._currentUniverseData = [];
+window._universeFilteredData = [];
+window._universeCurrentPage = 1;
+window._universePageSize = 50;
 
-function filterInlineUniverseData(query) {
+function changeUniversePage(delta) {
+  const total = (window._universeFilteredData || []).length;
+  const maxPage = Math.max(1, Math.ceil(total / window._universePageSize));
+  const newPage = window._universeCurrentPage + delta;
+  if (newPage >= 1 && newPage <= maxPage) {
+    window._universeCurrentPage = newPage;
+    renderUniverseTablePage();
+  }
+}
+
+function renderUniverseTablePage() {
   const thead = document.getElementById('universe-details-thead');
   const tbody = document.getElementById('universe-details-tbody');
+  const pageInfo = document.getElementById('universe-page-info');
+  const prevBtn = document.getElementById('universe-prev-btn');
+  const nextBtn = document.getElementById('universe-next-btn');
   if (!tbody) return;
 
-  const q = (query || '').trim().toUpperCase();
+  const filtered = window._universeFilteredData || [];
+  const total = filtered.length;
   const tier = window._currentUniverseTier || 'ELITE';
-  const filtered = (window._currentUniverseData || []).filter(r => {
-    if (!q) return true;
-    const sym = (r.symbol || '').toUpperCase();
-    const reason = (r.primary_exclusion_code || r.business_quality || r.exclusion_class || '').toUpperCase();
-    return sym.includes(q) || reason.includes(q);
-  });
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No matching records found for "${q}".</td></tr>`;
+  if (total === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No matching records found.</td></tr>`;
+    if (pageInfo) pageInfo.textContent = 'Showing 0-0 of 0';
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
     return;
   }
+
+  const maxPage = Math.max(1, Math.ceil(total / window._universePageSize));
+  if (window._universeCurrentPage > maxPage) window._universeCurrentPage = maxPage;
+  if (window._universeCurrentPage < 1) window._universeCurrentPage = 1;
+
+  const startIdx = (window._universeCurrentPage - 1) * window._universePageSize;
+  const endIdx = Math.min(startIdx + window._universePageSize, total);
+  const pageItems = filtered.slice(startIdx, endIdx);
 
   let htmlHead = '';
   let htmlBody = '';
 
   if (tier === 'ELITE' || tier === 'NEAR_QUALIFIED') {
     htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Data Confidence</th><th style="padding:10px;">Business Quality</th>${tier === 'NEAR_QUALIFIED' ? '<th style="padding:10px;">NQ Mode</th>' : ''}</tr>`;
-    htmlBody = filtered.map(r => `
+    htmlBody = pageItems.map(r => `
       <tr style="border-bottom:1px solid var(--border);">
         <td style="padding:8px; font-weight:bold; color:var(--accent); font-family:var(--font-mono);">${formatStockSymbolLink(r.symbol)}</td>
         <td style="padding:8px; font-family:var(--font-mono); font-weight:700;">${r.score != null ? r.score : '—'}</td>
@@ -16285,7 +16321,7 @@ function filterInlineUniverseData(query) {
     `).join('');
   } else {
     htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Exclusion Class</th><th style="padding:10px;">Primary Exclusion Reason</th></tr>`;
-    htmlBody = filtered.map(r => `
+    htmlBody = pageItems.map(r => `
       <tr style="border-bottom:1px solid var(--border);">
         <td style="padding:8px; font-weight:bold; color:var(--text); font-family:var(--font-mono);">${formatStockSymbolLink(r.symbol)}</td>
         <td style="padding:8px; font-family:var(--font-mono);">${r.score != null ? r.score : '—'}</td>
@@ -16297,6 +16333,24 @@ function filterInlineUniverseData(query) {
 
   if (thead) thead.innerHTML = htmlHead;
   tbody.innerHTML = htmlBody;
+
+  if (pageInfo) {
+    pageInfo.textContent = `Showing ${startIdx + 1}–${endIdx} of ${total.toLocaleString()} (Page ${window._universeCurrentPage} of ${maxPage})`;
+  }
+  if (prevBtn) prevBtn.disabled = (window._universeCurrentPage <= 1);
+  if (nextBtn) nextBtn.disabled = (window._universeCurrentPage >= maxPage);
+}
+
+function filterInlineUniverseData(query) {
+  const q = (query || '').trim().toUpperCase();
+  window._universeFilteredData = (window._currentUniverseData || []).filter(r => {
+    if (!q) return true;
+    const sym = (r.symbol || '').toUpperCase();
+    const reason = (r.primary_exclusion_code || r.business_quality || r.exclusion_class || '').toUpperCase();
+    return sym.includes(q) || reason.includes(q);
+  });
+  window._universeCurrentPage = 1;
+  renderUniverseTablePage();
 }
 
 function loadInlineUniverseData(tierStr) {
@@ -16334,6 +16388,9 @@ function loadInlineUniverseData(tierStr) {
       if (!data.data || data.data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No records available for ' + tier + '.</td></tr>';
         metaDiv.innerHTML = '<strong>Tier:</strong> ' + tier + ' | <strong>Records:</strong> 0';
+        window._universeFilteredData = [];
+        const pageInfo = document.getElementById('universe-page-info');
+        if (pageInfo) pageInfo.textContent = 'Showing 0-0 of 0';
         return;
       }
 

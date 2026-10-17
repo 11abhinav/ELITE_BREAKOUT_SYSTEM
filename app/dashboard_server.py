@@ -843,6 +843,7 @@ def notify_stream_clients(event_type: str = "alert", payload: dict = None):
 
 _todays_alerts_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
 _ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
+_SEH_API_CACHE = {}
 
 def invalidate_notifications_cache():
     global _notifications_cache
@@ -900,6 +901,21 @@ def invalidate_all_dashboard_caches():
         pass
     try:
         _SEH_API_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        if "_V2_STOCKS_TO_WATCH_CACHE" in globals():
+            _V2_STOCKS_TO_WATCH_CACHE["ts"] = 0.0
+            _V2_STOCKS_TO_WATCH_CACHE["payload"] = None
+        if "_V2_INVESTMENT_WATCH_CACHE" in globals():
+            _V2_INVESTMENT_WATCH_CACHE["ts"] = 0.0
+            _V2_INVESTMENT_WATCH_CACHE["payload"] = None
+        if "_V2_PORTFOLIO_ACTIONS_CACHE" in globals():
+            _V2_PORTFOLIO_ACTIONS_CACHE["ts"] = 0.0
+            _V2_PORTFOLIO_ACTIONS_CACHE["payload"] = None
+        if "_V2_CONFLUENCE_ALL_CACHE" in globals():
+            _V2_CONFLUENCE_ALL_CACHE["ts"] = 0.0
+            _V2_CONFLUENCE_ALL_CACHE["payload"] = None
     except Exception:
         pass
     try:
@@ -2074,27 +2090,104 @@ def get_v2_master_summary():
     return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
 
 
+_V2_STOCKS_TO_WATCH_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+_V2_INVESTMENT_WATCH_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+_V2_PORTFOLIO_ACTIONS_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+_V2_CONFLUENCE_ALL_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+
 @app.route("/api/v2/stocks_to_watch")
 def get_v2_stocks_to_watch():
+    global _V2_STOCKS_TO_WATCH_CACHE
+    now_ts = time.time()
+    if _V2_STOCKS_TO_WATCH_CACHE["payload"] is not None and (now_ts - _V2_STOCKS_TO_WATCH_CACHE["ts"]) < 5.0:
+        return _make_json_response(
+            _V2_STOCKS_TO_WATCH_CACHE["payload"],
+            etag=_V2_STOCKS_TO_WATCH_CACHE["etag"],
+            max_age=5,
+            precompressed_gzip=_V2_STOCKS_TO_WATCH_CACHE["gzip"]
+        )
     from master_orchestrator import orchestrator_v2
-    return jsonify(orchestrator_v2.get_stocks_to_watch())
+    data = orchestrator_v2.get_stocks_to_watch()
+    payload = json.dumps(data, default=str)
+    import hashlib
+    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+    _V2_STOCKS_TO_WATCH_CACHE["ts"] = now_ts
+    _V2_STOCKS_TO_WATCH_CACHE["payload"] = payload
+    _V2_STOCKS_TO_WATCH_CACHE["gzip"] = gz
+    _V2_STOCKS_TO_WATCH_CACHE["etag"] = etag
+    return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
 
 @app.route("/api/v2/investment_watch")
 def get_v2_investment_watch():
+    global _V2_INVESTMENT_WATCH_CACHE
+    now_ts = time.time()
+    if _V2_INVESTMENT_WATCH_CACHE["payload"] is not None and (now_ts - _V2_INVESTMENT_WATCH_CACHE["ts"]) < 5.0:
+        return _make_json_response(
+            _V2_INVESTMENT_WATCH_CACHE["payload"],
+            etag=_V2_INVESTMENT_WATCH_CACHE["etag"],
+            max_age=5,
+            precompressed_gzip=_V2_INVESTMENT_WATCH_CACHE["gzip"]
+        )
     from master_orchestrator import orchestrator_v2
-    return jsonify(orchestrator_v2.get_investment_watch())
+    data = orchestrator_v2.get_investment_watch()
+    payload = json.dumps(data, default=str)
+    import hashlib
+    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+    _V2_INVESTMENT_WATCH_CACHE["ts"] = now_ts
+    _V2_INVESTMENT_WATCH_CACHE["payload"] = payload
+    _V2_INVESTMENT_WATCH_CACHE["gzip"] = gz
+    _V2_INVESTMENT_WATCH_CACHE["etag"] = etag
+    return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
 
 @app.route("/api/v2/portfolio_actions")
 def get_v2_portfolio_actions():
+    global _V2_PORTFOLIO_ACTIONS_CACHE
+    now_ts = time.time()
+    if _V2_PORTFOLIO_ACTIONS_CACHE["payload"] is not None and (now_ts - _V2_PORTFOLIO_ACTIONS_CACHE["ts"]) < 5.0:
+        return _make_json_response(
+            _V2_PORTFOLIO_ACTIONS_CACHE["payload"],
+            etag=_V2_PORTFOLIO_ACTIONS_CACHE["etag"],
+            max_age=5,
+            precompressed_gzip=_V2_PORTFOLIO_ACTIONS_CACHE["gzip"]
+        )
     from master_orchestrator import orchestrator_v2
-    return jsonify(orchestrator_v2.get_portfolio_actions())
+    data = orchestrator_v2.get_portfolio_actions()
+    payload = json.dumps(data, default=str)
+    import hashlib
+    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+    _V2_PORTFOLIO_ACTIONS_CACHE["ts"] = now_ts
+    _V2_PORTFOLIO_ACTIONS_CACHE["payload"] = payload
+    _V2_PORTFOLIO_ACTIONS_CACHE["gzip"] = gz
+    _V2_PORTFOLIO_ACTIONS_CACHE["etag"] = etag
+    return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
 
 @app.route("/api/v2/confluence_breakdown")
 @app.route("/api/v2/confluence_breakdown/<symbol>")
 def get_v2_confluence_breakdown(symbol: str = None):
+    global _V2_CONFLUENCE_ALL_CACHE
     from master_orchestrator import orchestrator_v2
     if not symbol:
-        return jsonify(orchestrator_v2.get_all_confluence_setups())
+        now_ts = time.time()
+        if _V2_CONFLUENCE_ALL_CACHE["payload"] is not None and (now_ts - _V2_CONFLUENCE_ALL_CACHE["ts"]) < 5.0:
+            return _make_json_response(
+                _V2_CONFLUENCE_ALL_CACHE["payload"],
+                etag=_V2_CONFLUENCE_ALL_CACHE["etag"],
+                max_age=5,
+                precompressed_gzip=_V2_CONFLUENCE_ALL_CACHE["gzip"]
+            )
+        data = orchestrator_v2.get_all_confluence_setups()
+        payload = json.dumps(data, default=str)
+        import hashlib
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        _V2_CONFLUENCE_ALL_CACHE["ts"] = now_ts
+        _V2_CONFLUENCE_ALL_CACHE["payload"] = payload
+        _V2_CONFLUENCE_ALL_CACHE["gzip"] = gz
+        _V2_CONFLUENCE_ALL_CACHE["etag"] = etag
+        return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
     return jsonify(orchestrator_v2.get_confluence_breakdown(symbol))
 
 _V2_SCANNER_HEALTH_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
@@ -5227,6 +5320,15 @@ def api_scanner_execution_history():
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 25))
 
+        cache_key = (scanner_name, lifecycle_status, quality_status, date_range, search, system_version, git_commit, page, per_page)
+        now_ts = time.time()
+        cached = _SEH_API_CACHE.get(cache_key)
+        if cached and (now_ts - cached[1]) < 10.0:
+            return Response(cached[0], mimetype="application/json", headers={
+                "Cache-Control": "public, max-age=5",
+                "X-Cache": "HIT"
+            })
+
         from database import get_scanner_execution_history
         res = get_scanner_execution_history(
             scanner_name=scanner_name,
@@ -5240,10 +5342,16 @@ def api_scanner_execution_history():
             per_page=per_page
         )
         payload = json.dumps(serialize_datetimes(res), default=str)
+        _SEH_API_CACHE[cache_key] = (payload, now_ts)
+        if len(_SEH_API_CACHE) > 100:
+            cutoff = now_ts - 30.0
+            stale_keys = [k for k, v in _SEH_API_CACHE.items() if v[1] < cutoff]
+            for k in stale_keys:
+                _SEH_API_CACHE.pop(k, None)
+
         return Response(payload, mimetype="application/json", headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
-            "Pragma": "no-cache",
-            "Expires": "0"
+            "Cache-Control": "public, max-age=5",
+            "X-Cache": "MISS"
         })
     except Exception as e:
         logger.exception("❌ Failed in /api/scanner_execution_history")
