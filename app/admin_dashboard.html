@@ -4017,9 +4017,10 @@ function changeAdminPage(type, delta) {
             <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px;">
               <thead>
                 <tr style="background:var(--card2); border-bottom:1px solid var(--border); text-align:left;">
-                  <th style="padding:10px 12px;">Time Discovered</th>
                   <th style="padding:10px 12px;">Stock &amp; Exchange</th>
-                  <th style="padding:10px 12px;">Missing Filing Period</th>
+                  <th style="padding:10px 12px;">Report Period</th>
+                  <th style="padding:10px 12px; min-width:140px;">Published Date (Exchange)</th>
+                  <th style="padding:10px 12px; min-width:140px;">Fetched Date (Scanner)</th>
                   <th style="padding:10px 12px;">Statement &amp; Scope</th>
                   <th style="padding:10px 12px;">Gap Discovery Type</th>
                   <th style="padding:10px 12px; text-align:right;">Revenue (₹ Cr)</th>
@@ -4032,7 +4033,7 @@ function changeAdminPage(type, delta) {
               </thead>
               <tbody id="tbl-corporate-filings-body">
                 <tr>
-                  <td colspan="11" style="text-align:center; padding:30px; color:var(--muted);">
+                  <td colspan="12" style="text-align:center; padding:30px; color:var(--muted);">
                     Loading corporate filing findings for selected date...
                   </td>
                 </tr>
@@ -12602,15 +12603,20 @@ function renderCorporateFilingsTable(filings) {
     const basis = f.basis || 'CONSOLIDATED';
     const eventType = f.event_type || 'NEW_FILING';
 
-    // Format time
-    let timeStr = '-';
+    // Format Official Published Date (when announced by company on exchange)
+    const publishedDateStr = f.filing_broadcast_date || f.actual_publication_timestamp || '-';
+
+    // Format Scanner Fetched Date (when Filing Scanner retrieved & ingested)
+    let fetchedDateStr = '-';
     if (f.discovered_at) {
       try {
         const d = new Date(f.discovered_at);
-        timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+        fetchedDateStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
       } catch (e) {
-        timeStr = String(f.discovered_at).slice(11, 16);
+        fetchedDateStr = String(f.discovered_at).slice(0, 16);
       }
+    } else if (f.filing_date) {
+      fetchedDateStr = f.filing_date;
     }
 
     // Gap Discovery Type Badge & Description
@@ -12656,16 +12662,27 @@ function renderCorporateFilingsTable(filings) {
 
     html += `
       <tr style="border-bottom:1px solid var(--border); transition:background 0.15s ease;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'">
-        <td style="padding:10px 12px; font-weight:600; white-space:nowrap; color:var(--muted); font-size:11px;">${timeStr}</td>
+        <!-- Stock & Exchange -->
         <td style="padding:10px 12px; white-space:nowrap;">
           <div style="font-weight:800; color:var(--text); font-size:13px;">${sym}</div>
-          <div style="font-size:10px; color:var(--muted);">${exch} · <span style="color:#10b981; font-weight:700;">1 Missing Filing Found</span></div>
+          <div style="font-size:10px; color:var(--muted);">${exch}</div>
         </td>
+        <!-- Report Period -->
         <td style="padding:10px 12px; white-space:nowrap;">
-          <div style="font-weight:800; color:var(--text); font-size:12px;">${periodDisplay}</div>
-          <div style="font-size:10px; color:var(--muted);">${reasonSub}</div>
+          <div style="font-weight:800; color:var(--accent); font-size:12px;">${periodDisplay}</div>
+          <div style="font-size:10px; color:var(--muted);">${stType} (${basis.toLowerCase()})</div>
         </td>
+        <!-- Published Date (Exchange Official Date) -->
+        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; font-weight:700; color:#3b82f6;">
+          ${publishedDateStr}
+        </td>
+        <!-- Fetched Date (Scanner Ingestion Date) -->
+        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; color:var(--muted);">
+          ${fetchedDateStr}
+        </td>
+        <!-- Statement & Scope -->
         <td style="padding:10px 12px; white-space:nowrap;">${stBadge} ${basisBadge}</td>
+        <!-- Gap Discovery Type -->
         <td style="padding:10px 12px; white-space:nowrap;">
           ${badgeHtml}
         </td>
@@ -12712,6 +12729,8 @@ function openFilingDetailsModal(idx) {
 
   const formattedPeriod = formatProperFilingDate(f.period_end);
   const formattedFilingDate = formatProperFilingDate(f.filing_date);
+  const publishedDateStr = f.filing_broadcast_date || f.actual_publication_timestamp || '-';
+  const fetchedDateStr = f.discovered_at || f.filing_date || '-';
 
   modal.innerHTML = `
     <div style="background:var(--card); border:1px solid var(--border); border-radius:14px; max-width:680px; width:100%; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
@@ -12729,11 +12748,13 @@ function openFilingDetailsModal(idx) {
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; font-size:12px;">
           <div><strong style="color:var(--muted);">Filing ID:</strong> <span style="font-family:monospace;">${f.filing_id || '-'}</span></div>
-          <div><strong style="color:var(--muted);">Filing Date:</strong> <span>${formattedFilingDate}</span></div>
+          <div><strong style="color:var(--muted);">Report Period:</strong> <span style="font-weight:700; color:var(--accent);">${formattedPeriod}</span></div>
+          <div><strong style="color:var(--muted);">Official Published Date:</strong> <span style="color:#3b82f6; font-weight:700; font-family:monospace;">${publishedDateStr}</span></div>
+          <div><strong style="color:var(--muted);">Scanner Fetched Date:</strong> <span style="color:var(--muted); font-family:monospace;">${fetchedDateStr}</span></div>
           <div><strong style="color:var(--muted);">Exchange:</strong> <span>${f.exchange || 'NSE'}</span></div>
           <div><strong style="color:var(--muted);">Basis:</strong> <span>${f.basis || 'CONSOLIDATED'}</span></div>
-          <div><strong style="color:var(--muted);">Discovered At:</strong> <span>${f.discovered_at || '-'}</span></div>
           <div><strong style="color:var(--muted);">Discovery Reason:</strong> <span>${f.event_type || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Snapshot Status:</strong> <span style="color:#10b981; font-weight:700;">${f.status || 'INGESTED'}</span></div>
         </div>
 
         <div style="margin-bottom:16px;">
@@ -12786,9 +12807,10 @@ async function triggerFilingScanFromUI() {
       btn.disabled = false;
       btn.textContent = '🔄 Run Filing Scan';
     }
-    // Refresh findings after a moment
+    // Refresh findings and Data Health audit after sweep completes
     setTimeout(() => {
       loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE);
+      if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(true);
     }, 2000);
   }
 }

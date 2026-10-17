@@ -1,7 +1,7 @@
 {
   "dataset_name": "canonical_pit_rebuilt",
   "FINANCIAL_SNAPSHOT_STATUS": "SNAPSHOT_READY_FOR_SCANNER",
-  "as_of_date": "2026-10-16",
+  "as_of_date": "2026-10-17",
   "total_symbols": 886,
   "certified_symbols": 645,
   "structural_ineligible_symbols": 224,
@@ -12,8 +12,8 @@
   "current_ev_ebitda_complete": 829,
   "ev_ebitda_3y_median_complete": 879,
   "gaps_detected": 12,
-  "sha256": "252a6d47b96fc6e5069cf42e1b97a75738b49777ba4c73cd2a7978556d1b3b9a",
-  "built_at": "2026-10-16T20:53:31.923432",
+  "sha256": "0fc6acb4417ea1df3640ddc0a9bdaad2e4067bc17d647b46776d557191d0dbeb",
+  "built_at": "2026-10-17T09:54:36.356750",
   "audit_summary": {},
-  "snapshot_status_updated_at": "2026-10-16T20:53:31.925430"
+  "snapshot_status_updated_at": "2026-10-17T09:54:36.358392"
 }

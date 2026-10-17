@@ -83,14 +83,21 @@ _MAX_RETRIES = 2
 
 _BSE_HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "Chrome/129.0.0.0 Safari/537.36"
     ),
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "en-US,en;q=0.9",
     "Origin": "https://www.bseindia.com",
     "Referer": "https://www.bseindia.com/",
+    "Sec-Ch-Ua": '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-site",
+    "Priority": "u=1, i",
     "Connection": "keep-alive",
 }
 
@@ -323,6 +330,118 @@ class BseCorporateProvider:
         self.bse_resolution_failures += 1
         return None
 
+    def discover_announcements(self, symbol: str, lookback_days: int = 90) -> List[Dict[str, Any]]:
+        """
+        Discovers official corporate announcements from BSE via AnnSubCategoryGetData/w.
+        Includes full browser headers and session warmup to pass Akamai WAF.
+        Extracts period end date, statement type, attachment PDFs, and linked CorpXbrlGen XML links.
+        """
+        scrip_code = self.resolve_bse_scrip_code(symbol)
+        if not scrip_code:
+            return []
+
+        # Warm up session on BSE portal
+        try:
+            self.session.get("https://www.bseindia.com/corporates/ann.html", timeout=10)
+        except Exception:
+            pass
+
+        to_d = date.today().strftime("%Y%m%d")
+        from_d = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
+        ann_url = (
+            f"{_BSE_ANN_URL}?pageno=1&strCat=-1&strPrevDate={from_d}&strScrip={scrip_code}"
+            f"&strSearch=P&strToDate={to_d}&strType=C&subcategory=-1"
+        )
+
+        ann_rows = []
+        try:
+            resp = self.session.get(ann_url, timeout=_TIMEOUT)
+            if resp.status_code == 200:
+                data = resp.json()
+                table = data.get("Table", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                ann_rows = table
+            elif resp.status_code in (401, 403):
+                self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
+            else:
+                self.last_status[symbol] = "BSE_HTTP_ERROR"
+        except Exception as e:
+            logger.debug(f"[BSE] Announcement fetch error for {symbol}: {e}")
+
+        findings = []
+        try:
+            from app.data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+        except ImportError:
+            from data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+
+        for item in ann_rows:
+            hl = str(item.get("HEADLINE") or "")
+            sub = str(item.get("NEWSSUB") or "")
+            cat = str(item.get("CATEGORYNAME") or "")
+            subcat = str(item.get("SUBCATNAME") or "")
+            more = str(item.get("MORE") or "")
+            xml_name = str(item.get("XML_NAME") or "").strip()
+            news_id = str(item.get("NEWSID") or "").strip()
+
+            combined = f"{hl} {sub} {cat} {subcat} {more}".lower()
+
+            is_result = (
+                bool(xml_name)
+                or any(k in combined for k in (
+                    "result", "financial results", "quarterly", "annual", "audited", "unaudited",
+                    "board meeting", "period ended"
+                ))
+            )
+            if not is_result:
+                continue
+
+            p_end = (
+                _parse_period_end_from_announcement_text(hl)
+                or _parse_period_end_from_announcement_text(sub)
+                or _parse_period_end_from_announcement_text(more)
+            )
+            if not p_end or p_end < "2015-01-01":
+                continue
+
+            st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
+            basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
+
+            xbrl_url = ""
+            if news_id and xml_name:
+                xbrl_url = f"https://www.bseindia.com/Msource/90D/CorpXbrlGen.aspx?Bsenewid={news_id.lower()}&Scripcode={scrip_code}"
+
+            att_name = str(item.get("ATTACHMENTNAME") or "")
+            att_file = f"https://www.bseindia.com/stockinfo/AnnPdfOpen.aspx?Pname={att_name}" if att_name else ""
+
+            bcast_dt = str(item.get("DT_TM") or item.get("DissemDT") or item.get("NEWS_DT") or "")
+
+            findings.append({
+                "symbol": symbol,
+                "scrip_code": scrip_code,
+                "toDate": p_end,
+                "period_end_date": p_end,
+                "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
+                "statement_type": st_type,
+                "consolidated": basis,
+                "basis": basis,
+                "filing_id": f"BSE_{scrip_code}_{news_id}" if news_id else f"BSE_{scrip_code}_{p_end}",
+                "broadCastDate": bcast_dt,
+                "broadcast_timestamp": bcast_dt,
+                "filingDate": bcast_dt[:10],
+                "xbrl": xbrl_url,
+                "attchmntFile": att_file,
+                "headline": hl,
+                "desc": hl or sub,
+                "exchange": "BSE",
+                "news_id": news_id,
+                "xml_name": xml_name,
+            })
+
+        return findings
+
+    def discover_filings(self, symbol: str) -> List[Dict[str, Any]]:
+        """Unified discovery method matching NseXbrlProvider.discover_filings signature."""
+        return self.discover_announcements(symbol)
+
     def parse_xbrl_document(
         self,
         xml_path: str,
@@ -423,8 +542,13 @@ class BseCorporateProvider:
                         pass
                 elif resp.status_code in (401, 403):
                     self.bse_auth_or_403_blocks += 1
+                    self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
+                    self.last_error[symbol] = f"HTTP {resp.status_code} Access Denied by BSE WAF"
                     logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) HTTP {resp.status_code} — will try ScraperAPI fallback")
             except Exception as direct_err:
+                self.http_error_count += 1
+                self.last_status[symbol] = "BSE_HTTP_ERROR"
+                self.last_error[symbol] = str(direct_err)
                 logger.debug(f"[BSE] Direct fetch failed for {symbol}: {direct_err} — will try ScraperAPI fallback")
 
             # 2. FALLBACK TO SCRAPER API ONLY IF DIRECT GETS BLOCKED OR NO DATA

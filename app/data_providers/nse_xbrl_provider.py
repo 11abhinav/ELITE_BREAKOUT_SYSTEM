@@ -80,6 +80,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 DEFAULT_XBRL_CACHE_DIR = os.path.join(BASE_DIR, "data", "xbrl_cache", "nse")
 
 _BASE_URL     = "https://www.nseindia.com/api/corporates-financial-results"
+_ANN_URL      = "https://www.nseindia.com/api/corporate-announcements"
 _HOME_URL     = "https://www.nseindia.com"
 _TIMEOUT      = 7
 _MAX_RETRIES  = 2
@@ -274,6 +275,39 @@ def _parse_date_to_iso(val: Any) -> Optional[str]:
             return datetime.strptime(s.split("T")[0] if "T" in s else s, fmt).date().isoformat()
         except Exception:
             pass
+    return None
+
+
+def _parse_period_end_from_announcement_text(text: Optional[str]) -> Optional[str]:
+    """Extracts ISO YYYY-MM-DD period end date from announcement headlines or attachment descriptions."""
+    if not text:
+        return None
+    # Pattern 1: (ended|ending|for the period ended) Month DD, YYYY
+    m1 = re.search(r"(?:ended|ended on|ending|period ended)\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})", text, re.IGNORECASE)
+    if m1:
+        try:
+            cleaned = re.sub(r"\s+", " ", m1.group(1).strip())
+            return datetime.strptime(cleaned, "%B %d, %Y").strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    # Pattern 2: DD-Mon-YYYY
+    m2 = re.search(r"(?:ended|ended on|ending|period ended)\s+(\d{1,2}-[A-Za-z]{3}-\d{4})", text, re.IGNORECASE)
+    if m2:
+        try:
+            return datetime.strptime(m2.group(1).strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    # Pattern 3: DD/MM/YYYY
+    m3 = re.search(r"(?:ended|ended on|ending|period ended)\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.IGNORECASE)
+    if m3:
+        try:
+            return datetime.strptime(m3.group(1).strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    # Pattern 4: direct ISO date YYYY-MM-DD
+    m4 = re.search(r"\b(20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b", text)
+    if m4:
+        return m4.group(1)
     return None
 
 
@@ -680,6 +714,60 @@ class NseXbrlProvider:
             if raw:
                 rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
                 all_filings.extend(rows)
+
+        # 3. Query NSE Corporate Announcements feed for real-time same-day filings
+        ann_url = f"{_ANN_URL}?index=equities&symbol={symbol}"
+        ann_raw = self._get(ann_url, symbol)
+        if ann_raw:
+            ann_rows = ann_raw if isinstance(ann_raw, list) else (ann_raw.get("data", []) if isinstance(ann_raw, dict) else [])
+            existing_periods_in_filings = {
+                str(f.get("toDate") or f.get("period_end_date") or "")
+                for f in all_filings
+                if f.get("toDate") or f.get("period_end_date")
+            }
+            for item in ann_rows:
+                desc = str(item.get("desc") or "")
+                txt = str(item.get("attchmntText") or "")
+                has_xbrl = bool(item.get("hasXbrl"))
+                combined = f"{desc} {txt}".lower()
+
+                is_fin_ann = (
+                    has_xbrl
+                    or any(k in combined for k in (
+                        "financial result", "financial results", "outcome of board meeting",
+                        "un-audited financial", "unaudited financial", "audited financial",
+                        "quarterly result", "half year", "period ended"
+                    ))
+                )
+                if not is_fin_ann:
+                    continue
+
+                p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
+                if not p_end or p_end < "2015-01-01":
+                    continue
+                if p_end in existing_periods_in_filings:
+                    continue
+                existing_periods_in_filings.add(p_end)
+
+                st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
+                basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
+
+                all_filings.append({
+                    "symbol": symbol,
+                    "toDate": p_end,
+                    "period_end_date": p_end,
+                    "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
+                    "statement_type": st_type,
+                    "consolidated": basis,
+                    "seqNumber": str(item.get("seq_id") or ""),
+                    "broadCastDate": str(item.get("an_dt") or item.get("exchdisstime") or item.get("sort_date") or ""),
+                    "filingDate": str(item.get("an_dt") or "")[:11],
+                    "xbrl": item.get("xbrl") or "",
+                    "attchmntFile": item.get("attchmntFile") or "",
+                    "desc": desc,
+                    "attchmntText": txt,
+                    "exchange": "NSE",
+                })
 
         self.filing_records_discovered += len(all_filings)
         self._discovered_cache[symbol] = all_filings

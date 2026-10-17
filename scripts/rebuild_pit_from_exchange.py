@@ -138,23 +138,33 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     _load_valuation_medians_cache()
     sym_u = sym.strip().upper()
     as_of_str = as_of.isoformat()
-    # Load filings: prioritize exchange payload, fallback to pit_raw_filings, then PIT database
+    # Load filings: merge pit_raw_filings and exchange payload so that newly ingested
+    # filings are NEVER missed and scanners always compute against the freshest data.
     filings = []
+    raw_ckpt = os.path.join(BASE_DIR, "data", "pit_raw_filings", f"{sym_u}.json")
     payload_path = os.path.join(BASE_DIR, "data", "exchange_financials", sym_u, "raw", f"{sym_u}_filings_v1.payload.json")
-    if os.path.exists(payload_path):
-        try:
-            with open(payload_path, "r", encoding="utf-8") as pf:
-                filings = json.load(pf)
-        except Exception:
-            filings = []
-    if not filings:
-        raw_ckpt = os.path.join(BASE_DIR, "data", "pit_raw_filings", f"{sym_u}.json")
-        if os.path.exists(raw_ckpt):
+
+    seen_filing_keys = set()
+    for p in [raw_ckpt, payload_path]:
+        if os.path.exists(p):
             try:
-                with open(raw_ckpt, "r", encoding="utf-8") as rf:
-                    filings = json.load(rf)
+                with open(p, "r", encoding="utf-8") as f_in:
+                    f_list = json.load(f_in)
+                    if isinstance(f_list, list):
+                        for it in f_list:
+                            if not isinstance(it, dict):
+                                continue
+                            p_end = str(it.get("period_end_date") or it.get("toDate") or "")[:10]
+                            st_type = str(it.get("statement_type") or it.get("period") or "QUARTERLY").upper()
+                            st = "ANNUAL" if ("ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type) else "QUARTERLY"
+                            bs = "STANDALONE" if ("STANDALONE" in str(it.get("basis") or it.get("consolidated") or "").upper()) else "CONSOLIDATED"
+                            k = (p_end, st, bs)
+                            if k not in seen_filing_keys:
+                                seen_filing_keys.add(k)
+                                filings.append(it)
             except Exception:
-                filings = []
+                pass
+
     if not filings:
         filings = _get_pit_filings(sym_u, allow_live_refresh=False)
     
@@ -539,22 +549,12 @@ def rebuild_canonical_pit_dataset(
             df_merged = df_old.copy().set_index("symbol")
             df_new_idx = df_new.set_index("symbol")
 
-            metrics_cols = [
-                "cash_and_equivalents", "current_ev_ebitda", "current_pe",
-                "ev_ebitda_3y_median", "pe_3y_median", "revenue", "ebitda",
-                "operating_profit", "net_profit", "operating_cash_flow",
-                "total_debt", "total_equity", "shares_outstanding_m",
-                "roce_5y_avg", "sales_cagr_5y", "pat_cagr_5y", "cfo_pat_5y_ratio",
-                "debt_to_equity", "annual_filing_count", "cmp", "market_cap", "enterprise_value"
-            ]
-
-            for col in metrics_cols:
-                if col in df_new_idx.columns:
-                    s_new = df_new_idx[col].dropna()
-                    for sym, val in s_new.items():
-                        if pd.isna(df_merged.loc[sym, col]) or col in ["current_ev_ebitda", "current_pe", "cmp", "market_cap", "enterprise_value"]:
-                            if not pd.isna(val):
-                                df_merged.loc[sym, col] = val
+            # Update all metrics & attributes from newly computed results for processed symbols
+            for col in df_new_idx.columns:
+                s_new = df_new_idx[col].dropna()
+                for sym, val in s_new.items():
+                    if sym in df_merged.index and not pd.isna(val):
+                        df_merged.loc[sym, col] = val
 
             # Apply recovered key ratios for valuation failure symbols
             key_ratios_dir = os.path.join(BASE_DIR, "data", "upstox_key_ratios")
@@ -574,20 +574,24 @@ def rebuild_canonical_pit_dataset(
                                 except Exception:
                                     pass
 
-            # Preserve certification, freshness, and gaps from old unless old was uncertified and new is certified
+            # Preserve certification, freshness, and gaps from old unless new is certified/valid
             for sym in df_merged.index:
                 old_row = df_old[df_old["symbol"] == sym].iloc[0]
                 new_row = df_new_idx.loc[sym] if sym in df_new_idx.index else None
-                
-                if old_row.get("provenance_status") == "CERTIFIED":
+
+                if new_row is not None and new_row.get("provenance_status") == "CERTIFIED":
                     df_merged.loc[sym, "provenance_status"] = "CERTIFIED"
-                elif new_row is not None and new_row.get("provenance_status") == "CERTIFIED":
+                elif old_row.get("provenance_status") == "CERTIFIED":
                     df_merged.loc[sym, "provenance_status"] = "CERTIFIED"
 
-                if old_row.get("pit_freshness_status") != "DATA_STALE":
+                if new_row is not None and new_row.get("pit_freshness_status") in ("VALID", "FRESH"):
+                    df_merged.loc[sym, "pit_freshness_status"] = new_row.get("pit_freshness_status")
+                elif old_row.get("pit_freshness_status") != "DATA_STALE":
                     df_merged.loc[sym, "pit_freshness_status"] = old_row.get("pit_freshness_status", "VALID")
 
-                if not old_row.get("filing_gap_detected", False):
+                if new_row is not None and not new_row.get("filing_gap_detected", False):
+                    df_merged.loc[sym, "filing_gap_detected"] = False
+                elif not old_row.get("filing_gap_detected", False):
                     df_merged.loc[sym, "filing_gap_detected"] = False
 
             df_final = df_merged.reset_index().sort_values("symbol").reset_index(drop=True)

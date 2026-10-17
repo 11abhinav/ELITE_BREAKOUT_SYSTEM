@@ -609,7 +609,7 @@ class FinancialFilingWatcher:
         Supports delta updates for individual or pending symbols.
         """
         as_of = as_of_date or date.today()
-        sym_target = symbol.strip().upper() if symbol else "ALL_PENDING"
+        sym_target = str(symbol) if symbol else "ALL_PENDING"
         logger.info(f"🔄 [filling scanner] [SNAPSHOT_REBUILD] Target: {sym_target} as of {as_of.isoformat()}...")
 
         try:
@@ -617,8 +617,10 @@ class FinancialFilingWatcher:
             from app.financial_data_integrity import clear_shared_snapshot_cache
 
             target_list = None
-            if symbol:
-                target_list = [symbol.strip().upper()]
+            if isinstance(symbol, (list, set, tuple)):
+                target_list = [str(s).strip().upper() for s in symbol if s]
+            elif symbol:
+                target_list = [str(symbol).strip().upper()]
             elif SNAPSHOT_PATH.exists():
                 pending_symbols = [
                     s for s, v in self.state.items()
@@ -853,32 +855,19 @@ class FinancialFilingWatcher:
                     except Exception as nse_err:
                         logger.warning(f"[filling scanner] NSE discover/fetch warning for {sym_u}: {nse_err}")
 
-                # 2. Check if NSE already provided recent disclosures
-                has_recent_nse = any(
-                    _normalize_iso_date(x.get("period_end_date")) >= min_poll_date
-                    for x in raw_filings_list
-                    if x.get("exchange") == "NSE"
-                )
-
-                # 3. Poll BSE only if NSE returned nothing or lacks recent disclosures
+                # 2. Poll BSE: Check BSE whenever bse_prov is available to ensure both NSE and BSE coverage
                 bse_count = 0
-                if bse_prov and (not has_recent_nse or not raw_filings_list):
+                if bse_prov:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
                         if scrip:
+                            # 3a. BSE Financial Results
                             bse_rows = bse_prov.fetch_raw_financials(sym_u)
                             if bse_rows:
-                                bse_count = len(bse_rows)
+                                bse_count += len(bse_rows)
                                 for r in bse_rows:
                                     norm_p = _normalize_iso_date(r.period_end_date)
                                     if not norm_p or norm_p < "2015-01-01":
-                                        continue
-                                    already_exists = any(
-                                        _normalize_iso_date(existing.get("period_end_date")) == norm_p
-                                        and existing.get("statement_type", "").upper() == (r.period_type or "").upper()
-                                        for existing in raw_filings_list
-                                    )
-                                    if already_exists:
                                         continue
                                     raw_filings_list.append({
                                         "exchange": "BSE",
@@ -897,6 +886,30 @@ class FinancialFilingWatcher:
                                         "filing_date": r.availability_date or as_of_str,
                                         "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
                                     })
+                            # 3b. BSE Corporate Announcements (same-day results & board meetings)
+                            try:
+                                bse_disc_rows = bse_prov.discover_filings(sym_u)
+                                if bse_disc_rows:
+                                    bse_count += len(bse_disc_rows)
+                                    existing_periods = {
+                                        (_normalize_iso_date(it.get("period_end_date")), str(it.get("statement_type", "")).upper())
+                                        for it in raw_filings_list
+                                        if it.get("exchange") == "BSE"
+                                    }
+                                    for r in bse_disc_rows:
+                                        if isinstance(r, dict):
+                                            r_copy = dict(r)
+                                            r_copy["exchange"] = "BSE"
+                                            p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
+                                            if p_end and p_end >= "2015-01-01":
+                                                raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
+                                                st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
+                                                if (p_end, st) not in existing_periods:
+                                                    r_copy["period_end_date"] = p_end
+                                                    r_copy["statement_type"] = st
+                                                    raw_filings_list.append(r_copy)
+                            except Exception as bse_disc_err:
+                                logger.warning(f"[filling scanner] BSE discover_filings warning for {sym_u}: {bse_disc_err}")
                     except Exception as bse_err:
                         logger.warning(f"[filling scanner] BSE discover warning for {sym_u}: {bse_err}")
 
@@ -987,6 +1000,15 @@ class FinancialFilingWatcher:
             list(executor.map(_process_symbol, symbols))
 
         logger.info(f"✅ [filling scanner] Exchange polling complete. Discovered {len(discovered_events)} new/amended filing events across {len(symbols)} symbols.")
+
+        if discovered_events:
+            new_syms = sorted({str(e.get("symbol")).strip().upper() for e in discovered_events if e.get("symbol")})
+            logger.info(f"🔄 [filling scanner] Auto-rebuilding snapshot for {len(new_syms)} newly disclosed symbols: {new_syms[:10]}...")
+            try:
+                self.invalidate_and_rebuild_snapshot(symbol=new_syms, as_of_date=as_of_date)
+            except Exception as auto_rb_err:
+                logger.warning(f"[filling scanner] Auto snapshot rebuild error: {auto_rb_err}")
+
         return discovered_events
 
     def _merge_into_pit_raw_filings(
@@ -1306,7 +1328,7 @@ class FinancialFilingWatcher:
                     "operating_margin_pct": float(op_m) if op_m is not None else None,
                     "net_margin_pct": float(net_m) if net_m is not None else None,
                     "shares_outstanding": float(shares) if shares is not None else None,
-                    "filing_broadcast_date": item.get("filing_date") or item.get("actual_publication_timestamp"),
+                    "filing_broadcast_date": item.get("broadcast_timestamp") or item.get("broadCastDate") or item.get("filing_date") or item.get("actual_publication_timestamp"),
                     "status": "SNAPSHOT_UPDATED",
                     "headline": headline,
                     "raw_facts": item,

@@ -9840,6 +9840,7 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
         filings_count = int(row.get("annual_filing_count") or 0)
         recent_periods = []
         last_fetched_at = None
+        latest_period_in_db = annual_period
         raw_p = raw_dir / f"{sym}.json"
         if raw_p.exists():
             try:
@@ -9850,6 +9851,9 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
                     r_data = json.load(f)
                 if isinstance(r_data, list):
                     filings_count = len(r_data)
+                    valid_periods = [str(stmt.get("period_end_date") or "")[:10] for stmt in r_data if stmt.get("period_end_date")]
+                    if valid_periods:
+                        latest_period_in_db = max(valid_periods)
                     for stmt in r_data[-5:]:
                         p_end = str(stmt.get("period_end_date") or "")
                         st_t = str(stmt.get("statement_type") or "A")[:1]
@@ -9874,6 +9878,7 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
             "provenance_status": str(row.get("provenance_status") or "CERTIFIED"),
             "recovery_status": str(row.get("recovery_status") or ""),
             "provenance_hash": str(row.get("provenance_hash") or "")[:16],
+            "latest_period_in_db": latest_period_in_db,
             "latest_annual_period": annual_period,
             "as_of_date": as_of,
             "last_fetched_at": last_fetched_at or as_of,
@@ -14013,6 +14018,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
                                     operating_margin_pct = COALESCE(%s, operating_margin_pct),
                                     net_margin_pct = COALESCE(%s, net_margin_pct),
                                     shares_outstanding = COALESCE(%s, shares_outstanding),
+                                    filing_broadcast_date = COALESCE(%s, filing_broadcast_date),
                                     status = %s,
                                     headline = %s,
                                     raw_facts = %s::jsonb,
@@ -14023,7 +14029,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
                                 discovered_at, period_end, filing_id, st_type, basis, event_type,
                                 revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
                                 roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
-                                shares_outstanding, status, headline,
+                                shares_outstanding, broadcast_date, status, headline,
                                 json.dumps(_sanitize_for_json(raw_facts)),
                                 json.dumps(_sanitize_for_json(affected_metrics)),
                                 exist_id
@@ -14245,6 +14251,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
                                 debt_to_equity = COALESCE(EXCLUDED.debt_to_equity, corporate_filings_log.debt_to_equity),
                                 operating_margin_pct = COALESCE(EXCLUDED.operating_margin_pct, corporate_filings_log.operating_margin_pct),
                                 net_margin_pct = COALESCE(EXCLUDED.net_margin_pct, corporate_filings_log.net_margin_pct),
+                                filing_broadcast_date = COALESCE(EXCLUDED.filing_broadcast_date, corporate_filings_log.filing_broadcast_date),
                                 status = EXCLUDED.status,
                                 headline = EXCLUDED.headline,
                                 raw_facts = EXCLUDED.raw_facts,
