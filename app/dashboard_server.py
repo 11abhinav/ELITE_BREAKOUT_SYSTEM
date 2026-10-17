@@ -3231,6 +3231,45 @@ def api_admin_batch_validate_stocks():
                             df_hist.to_parquet(p_target)
                     except Exception as _fetch_err:
                         logger.debug(f"[BATCH_VALIDATE] 1D candle fetch note for {sym}: {_fetch_err}")
+
+                # Active Filing Hydration: If raw filings or snapshot are missing/stale, poll exchange
+                try:
+                    raw_json_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings" / f"{sym}.json"
+                    need_filing_poll = False
+                    if not raw_json_p.exists():
+                        need_filing_poll = True
+                    else:
+                        with open(raw_json_p, "r", encoding="utf-8") as f_chk:
+                            j_data = json.load(f_chk)
+                            if not j_data or (isinstance(j_data, list) and len(j_data) == 0):
+                                need_filing_poll = True
+                    if need_filing_poll:
+                        try:
+                            from scripts.financial_filing_watcher import FinancialFilingWatcher
+                            ffw = FinancialFilingWatcher()
+                            ffw.poll_exchange_filings(target_symbols=[sym], max_symbols=1)
+                        except Exception as _poll_err:
+                            logger.debug(f"[BATCH_VALIDATE] Filing poll note for {sym}: {_poll_err}")
+                except Exception as _f_chk_err:
+                    logger.debug(f"[BATCH_VALIDATE] Raw check note for {sym}: {_f_chk_err}")
+
+                # Rebuild canonical PIT row for symbol to ensure snapshot reflects latest facts
+                try:
+                    from scripts.rebuild_pit_from_exchange import compute_canonical_symbol_row
+                    from datetime import date
+                    row_dict = compute_canonical_symbol_row(sym, date.today())
+                    snap_p = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+                    if snap_p.exists() and row_dict:
+                        import pandas as _pd
+                        df_s = _pd.read_parquet(snap_p)
+                        if sym in df_s["symbol"].values:
+                            for col_name in df_s.columns:
+                                if col_name in row_dict:
+                                    df_s.loc[df_s["symbol"] == sym, col_name] = row_dict[col_name]
+                            df_s.to_parquet(snap_p, index=False)
+                except Exception as _rebuild_err:
+                    logger.debug(f"[BATCH_VALIDATE] Rebuild row note for {sym}: {_rebuild_err}")
+
             except Exception as _pre_err:
                 logger.debug(f"[BATCH_VALIDATE] Pre-check note for {sym}: {_pre_err}")
 

@@ -547,9 +547,27 @@ class BseCorporateProvider:
                     logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) HTTP {resp.status_code} — will try ScraperAPI fallback")
             except Exception as direct_err:
                 self.http_error_count += 1
-                self.last_status[symbol] = "BSE_HTTP_ERROR"
-                self.last_error[symbol] = str(direct_err)
-                logger.debug(f"[BSE] Direct fetch failed for {symbol}: {direct_err} — will try ScraperAPI fallback")
+            # 1b. CURL_CFFI BROWSER IMPERSONATION FALLBACK IF DIRECT GETS 403
+            if not flag_rows_found:
+                try:
+                    from curl_cffi import requests as c_req
+                    c_resp = c_req.get(url, headers=_BSE_HEADERS, impersonate="chrome120", timeout=_TIMEOUT)
+                    if c_resp.status_code == 200:
+                        try:
+                            data = c_resp.json()
+                            rows = data if isinstance(data, list) else data.get("Table", data.get("data", data.get("results", [])))
+                            if rows:
+                                raw_rows.extend(rows)
+                                self.filings_discovered += len(rows)
+                                self.http_success_count += 1
+                                flag_rows_found = True
+                                logger.info(f"✅ [BSE:CURL_CFFI] Fetched {len(rows)} records for {symbol} via browser impersonation")
+                                if not statement_basis:
+                                    break
+                        except Exception:
+                            pass
+                except Exception as _cffi_err:
+                    logger.debug(f"[BSE:CURL_CFFI] note for {symbol}: {_cffi_err}")
 
             # 2. FALLBACK TO SCRAPER API ONLY IF DIRECT GETS BLOCKED OR NO DATA
             if not flag_rows_found:

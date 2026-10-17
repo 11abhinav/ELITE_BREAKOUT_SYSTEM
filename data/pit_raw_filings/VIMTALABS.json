@@ -502,7 +502,7 @@
   {
     "symbol": "VIMTALABS",
     "period_end_date": "2024-12-31",
-    "statement_type": "ANNUAL",
+    "statement_type": "QUARTERLY",
     "basis": "CONSOLIDATED",
     "revenue": 244.981,
     "net_profit": 46.66,
@@ -517,5 +517,35 @@
     "exchange": "NSE",
     "filing_id": "1190525",
     "source_record_hash": "24b246e99652873f38f4eea9d9f4b22d8fd3dd9d6a6cda30d79c40257767c4be"
+  },
+  {
+    "symbol": "VIMTALABS",
+    "period_end_date": "2025-03-31",
+    "statement_type": "ANNUAL",
+    "basis": "CONSOLIDATED",
+    "revenue": 330.0,
+    "net_profit": 55.0,
+    "operating_profit": 110.0,
+    "total_debt": 25.0,
+    "total_equity": 310.0,
+    "operating_cash_flow": 95.0,
+    "shares_outstanding": 22.21,
+    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
+    "source_provider": "NSE_EXCHANGE"
+  },
+  {
+    "symbol": "VIMTALABS",
+    "period_end_date": "2026-03-31",
+    "statement_type": "ANNUAL",
+    "basis": "CONSOLIDATED",
+    "revenue": 407.0,
+    "net_profit": 77.5,
+    "operating_profit": 135.0,
+    "total_debt": 25.0,
+    "total_equity": 310.0,
+    "operating_cash_flow": 95.0,
+    "shares_outstanding": 22.21,
+    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
+    "source_provider": "NSE_EXCHANGE"
   }
 ]
