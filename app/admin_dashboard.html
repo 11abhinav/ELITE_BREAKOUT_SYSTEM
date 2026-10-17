@@ -4147,6 +4147,13 @@ function changeAdminPage(type, delta) {
               </tbody>
             </table>
           </div>
+          <div id="cf-pagination-bar" style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding:10px 14px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius); flex-wrap:wrap; gap:10px;">
+            <div id="cfPaginationInfo" style="font-size:12px; font-weight:600; color:var(--muted); font-family:var(--font-mono);"></div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button class="refresh-btn" id="cfPrevBtn" onclick="changeCfPage(-1)" style="padding:4px 10px; font-size:11px;">◀ Prev</button>
+              <button class="refresh-btn" id="cfNextBtn" onclick="changeCfPage(1)" style="padding:4px 10px; font-size:11px;">Next ▶</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -8081,12 +8088,12 @@ function changeAdminPage(type, delta) {
           if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
           if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
           if (sortCol === 'scanner_count') {
-            const cA = (getTradeConfluenceInfo(a).totalOpenScanners || 1);
-            const cB = (getTradeConfluenceInfo(b).totalOpenScanners || 1);
+            const cA = a._confluenceCount || (a._confluenceCount = (getTradeConfluenceInfo(a).totalOpenScanners || 1));
+            const cB = b._confluenceCount || (b._confluenceCount = (getTradeConfluenceInfo(b).totalOpenScanners || 1));
             if (cA !== cB) return sortDir * (cA - cB);
             const dA = a.alert_time || a.entry_date || '';
             const dB = b.alert_time || b.entry_date || '';
-            return dB.localeCompare(dA);
+            return dA > dB ? -1 : (dA < dB ? 1 : 0);
           }
           if (sortCol === 'status') {
             const p = { 'PENDING': -1, 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
@@ -8098,7 +8105,7 @@ function changeAdminPage(type, delta) {
             // Secondary sort by date (newest first)
             const dA = a.alert_time || a.entry_date || '';
             const dB = b.alert_time || b.entry_date || '';
-            return dB.localeCompare(dA);
+            return dA > dB ? -1 : (dA < dB ? 1 : 0);
           }
           let va = a[sortCol], vb = b[sortCol];
           if (va == null) return 1; if (vb == null) return -1;
@@ -8302,7 +8309,17 @@ function changeAdminPage(type, delta) {
       const th = e.target.closest('th[data-col]'); if (!th) return;
       const col = th.dataset.col;
       if (sortCol === col) sortDir *= -1; else { sortCol = col; sortDir = -1; }
-      renderTradeTable();
+      document.querySelectorAll('thead th[data-col]').forEach(t => {
+        t.classList.remove('sort-asc', 'sort-desc');
+        if (t.dataset.col === col) {
+          t.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+        }
+      });
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          renderTradeTable();
+        }, 0);
+      });
     });
     let _filterSymDebounce = null;
     ['filterScanner', 'filterStatus', 'filterSymbol', 'filterDate', 'filterTradeSort', 'filterPnlState', 'filterRMultiple'].forEach(id => {
@@ -13152,6 +13169,18 @@ function updateCorporateFilingsKPIs(filtered) {
 
 let FILINGS_SORT_COL = 'published_date';
 let FILINGS_SORT_DIR = -1; // -1 = newest/highest first, 1 = oldest/ascending
+let CF_CURRENT_PAGE = 1;
+const CF_PAGE_SIZE = 50;
+
+function changeCfPage(delta) {
+  const total = (CURRENT_FILINGS_DATA || []).length;
+  const maxPage = Math.max(1, Math.ceil(total / CF_PAGE_SIZE));
+  const newPage = CF_CURRENT_PAGE + delta;
+  if (newPage >= 1 && newPage <= maxPage) {
+    CF_CURRENT_PAGE = newPage;
+    renderCorporateFilingsTable(CURRENT_FILINGS_DATA, false);
+  }
+}
 
 function sortCorporateFilings(col) {
   if (FILINGS_SORT_COL === col) {
@@ -13161,8 +13190,13 @@ function sortCorporateFilings(col) {
     // Ascending for text columns, descending for dates and numeric amounts
     FILINGS_SORT_DIR = ['symbol', 'statement_type', 'event_type', 'status'].includes(col) ? 1 : -1;
   }
+  CF_CURRENT_PAGE = 1;
   updateFilingsSortHeaders();
-  filterCorporateFilings();
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      filterCorporateFilings();
+    }, 0);
+  });
 }
 
 function updateFilingsSortHeaders() {
@@ -13319,101 +13353,83 @@ function formatProperFilingDate(dStr) {
   return s;
 }
 
-function renderCorporateFilingsTable(filings) {
+function enrichFilings(list) {
+  for (let i = 0; i < list.length; i++) {
+    const f = list[i];
+    if (f._cf_enriched) continue;
+    f._cf_sym = String(f.symbol || '').toUpperCase();
+    f._cf_period_ts = parseFilingDateToTimestamp(f.period_end);
+    f._cf_pub_ts = parseFilingDateToTimestamp(f.filing_broadcast_date || f.actual_publication_timestamp || f.filing_date);
+    f._cf_fetch_ts = parseFilingDateToTimestamp(f.discovered_at || f.filing_date);
+    f._cf_stmt = (String(f.statement_type || '') + ' ' + String(f.basis || '')).toUpperCase();
+    f._cf_event = String(f.event_type || '').toUpperCase();
+    f._cf_rev = (f.revenue_cr != null && !isNaN(f.revenue_cr)) ? Number(f.revenue_cr) : -Infinity;
+    f._cf_pat = (f.pat_cr != null && !isNaN(f.pat_cr)) ? Number(f.pat_cr) : -Infinity;
+    f._cf_eps = (f.eps != null && !isNaN(f.eps)) ? Number(f.eps) : -Infinity;
+    f._cf_roce = (f.roce_pct != null && !isNaN(f.roce_pct)) ? Number(f.roce_pct) : -Infinity;
+    f._cf_status = String(f.status || 'INGESTED').toUpperCase();
+    f._cf_enriched = true;
+  }
+}
+
+function renderCorporateFilingsTable(filings, shouldSort = true) {
   const tbody = document.getElementById('tbl-corporate-filings-body');
   if (!tbody) return;
 
   if (!filings || filings.length === 0) {
     tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:36px; color:var(--muted);">No missing filing findings found matching your filters for this date.</td></tr>`;
+    const pInfo = document.getElementById('cfPaginationInfo');
+    if (pInfo) pInfo.textContent = '';
     return;
   }
 
   const uniqueFilings = filings;
+  enrichFilings(uniqueFilings);
 
-  // 2. Multi-column, null-safe sorting according to FILINGS_SORT_COL and FILINGS_SORT_DIR
-  uniqueFilings.sort((a, b) => {
-    let aVal, bVal;
-    let isNum = false;
+  if (shouldSort) {
+    uniqueFilings.sort((a, b) => {
+      switch (FILINGS_SORT_COL) {
+        case 'symbol': return (a._cf_sym < b._cf_sym ? -1 : (a._cf_sym > b._cf_sym ? 1 : 0)) * FILINGS_SORT_DIR;
+        case 'period_end': return (a._cf_period_ts - b._cf_period_ts) * FILINGS_SORT_DIR;
+        case 'published_date': return (a._cf_pub_ts - b._cf_pub_ts) * FILINGS_SORT_DIR;
+        case 'fetched_date': return (a._cf_fetch_ts - b._cf_fetch_ts) * FILINGS_SORT_DIR;
+        case 'statement_type': return (a._cf_stmt < b._cf_stmt ? -1 : (a._cf_stmt > b._cf_stmt ? 1 : 0)) * FILINGS_SORT_DIR;
+        case 'event_type': return (a._cf_event < b._cf_event ? -1 : (a._cf_event > b._cf_event ? 1 : 0)) * FILINGS_SORT_DIR;
+        case 'revenue_cr': return (a._cf_rev - b._cf_rev) * FILINGS_SORT_DIR;
+        case 'pat_cr': return (a._cf_pat - b._cf_pat) * FILINGS_SORT_DIR;
+        case 'eps': return (a._cf_eps - b._cf_eps) * FILINGS_SORT_DIR;
+        case 'roce_pct': return (a._cf_roce - b._cf_roce) * FILINGS_SORT_DIR;
+        case 'status': return (a._cf_status < b._cf_status ? -1 : (a._cf_status > b._cf_status ? 1 : 0)) * FILINGS_SORT_DIR;
+        default: return (a._cf_pub_ts - b._cf_pub_ts) * FILINGS_SORT_DIR;
+      }
+    });
+  }
 
-    switch (FILINGS_SORT_COL) {
-      case 'symbol':
-        aVal = String(a.symbol || '').toUpperCase();
-        bVal = String(b.symbol || '').toUpperCase();
-        break;
-      case 'period_end':
-        aVal = parseFilingDateToTimestamp(a.period_end);
-        bVal = parseFilingDateToTimestamp(b.period_end);
-        isNum = true;
-        break;
-      case 'published_date':
-        aVal = parseFilingDateToTimestamp(a.filing_broadcast_date || a.actual_publication_timestamp || a.filing_date);
-        bVal = parseFilingDateToTimestamp(b.filing_broadcast_date || b.actual_publication_timestamp || b.filing_date);
-        isNum = true;
-        break;
-      case 'fetched_date':
-        aVal = parseFilingDateToTimestamp(a.discovered_at || a.filing_date);
-        bVal = parseFilingDateToTimestamp(b.discovered_at || b.filing_date);
-        isNum = true;
-        break;
-      case 'statement_type':
-        aVal = String(a.statement_type || '').toUpperCase() + ' ' + String(a.basis || '').toUpperCase();
-        bVal = String(b.statement_type || '').toUpperCase() + ' ' + String(b.basis || '').toUpperCase();
-        break;
-      case 'event_type':
-        aVal = String(a.event_type || '').toUpperCase();
-        bVal = String(b.event_type || '').toUpperCase();
-        break;
-      case 'revenue_cr':
-        aVal = a.revenue_cr;
-        bVal = b.revenue_cr;
-        isNum = true;
-        break;
-      case 'pat_cr':
-        aVal = a.pat_cr;
-        bVal = b.pat_cr;
-        isNum = true;
-        break;
-      case 'eps':
-        aVal = a.eps;
-        bVal = b.eps;
-        isNum = true;
-        break;
-      case 'roce_pct':
-        aVal = a.roce_pct;
-        bVal = b.roce_pct;
-        isNum = true;
-        break;
-      case 'status':
-        aVal = String(a.status || 'INGESTED').toUpperCase();
-        bVal = String(b.status || 'INGESTED').toUpperCase();
-        break;
-      default:
-        aVal = parseFilingDateToTimestamp(a.filing_broadcast_date || a.actual_publication_timestamp || a.filing_date);
-        bVal = parseFilingDateToTimestamp(b.filing_broadcast_date || b.actual_publication_timestamp || b.filing_date);
-        isNum = true;
-        break;
-    }
-
-    if (isNum) {
-      const aNum = (aVal != null && !isNaN(aVal)) ? Number(aVal) : -Infinity;
-      const bNum = (bVal != null && !isNaN(bVal)) ? Number(bVal) : -Infinity;
-      return (aNum - bNum) * FILINGS_SORT_DIR;
-    } else {
-      return String(aVal || '').localeCompare(String(bVal || '')) * FILINGS_SORT_DIR;
-    }
-  });
-
-  // Keep global data aligned for modal lookups
   CURRENT_FILINGS_DATA = uniqueFilings;
-
-  // Sync KPI cards with filtered set
   updateCorporateFilingsKPIs(uniqueFilings);
-
-  // Update table header sort indicators
   updateFilingsSortHeaders();
 
+  const total = uniqueFilings.length;
+  const maxPage = Math.max(1, Math.ceil(total / CF_PAGE_SIZE));
+  if (CF_CURRENT_PAGE > maxPage) CF_CURRENT_PAGE = maxPage;
+  if (CF_CURRENT_PAGE < 1) CF_CURRENT_PAGE = 1;
+
+  const startIdx = (CF_CURRENT_PAGE - 1) * CF_PAGE_SIZE;
+  const endIdx = Math.min(startIdx + CF_PAGE_SIZE, total);
+  const paginatedItems = uniqueFilings.slice(startIdx, endIdx);
+
+  const pInfo = document.getElementById('cfPaginationInfo');
+  if (pInfo) {
+    pInfo.textContent = `Showing ${startIdx + 1}–${endIdx} of ${total.toLocaleString()} filings (Page ${CF_CURRENT_PAGE} of ${maxPage})`;
+  }
+  const prevBtn = document.getElementById('cfPrevBtn');
+  const nextBtn = document.getElementById('cfNextBtn');
+  if (prevBtn) prevBtn.disabled = CF_CURRENT_PAGE <= 1;
+  if (nextBtn) nextBtn.disabled = CF_CURRENT_PAGE >= maxPage;
+
   let html = '';
-  uniqueFilings.forEach((f, idx) => {
+  paginatedItems.forEach((f, idx) => {
+    const globalIdx = startIdx + idx;
     const sym = f.symbol || 'UNKNOWN';
     const exch = f.exchange || 'NSE';
     const rawPeriod = f.period_end || '-';
@@ -13422,11 +13438,9 @@ function renderCorporateFilingsTable(filings) {
     const basis = f.basis || 'CONSOLIDATED';
     const eventType = f.event_type || 'NEW_FILING';
 
-    // Format Official Published Date (clean date display, full timestamp in title tooltip)
     const rawPubDate = f.filing_broadcast_date || f.actual_publication_timestamp || f.filing_date || '-';
     const displayPubDate = formatPublishedFilingDate(rawPubDate);
 
-    // Format Scanner Fetched Date (when Filing Scanner retrieved & ingested)
     let fetchedDateStr = '-';
     if (f.discovered_at) {
       try {
@@ -13439,7 +13453,6 @@ function renderCorporateFilingsTable(filings) {
       fetchedDateStr = f.filing_date;
     }
 
-    // Gap Discovery Type Badge & Description
     let badgeHtml = '';
     let reasonSub = 'Snapshot Updated';
     if (eventType === 'MISSING_FROM_SNAPSHOT') {
@@ -13456,7 +13469,6 @@ function renderCorporateFilingsTable(filings) {
       reasonSub = 'Exchange filing found';
     }
 
-    // Number formatters
     const revStr = (f.revenue_cr != null) ? `₹${Number(f.revenue_cr).toLocaleString('en-IN', {maximumFractionDigits:1})}` : '-';
     const patVal = f.pat_cr;
     let patStr = '-';
@@ -13516,7 +13528,7 @@ function renderCorporateFilingsTable(filings) {
           </span>
         </td>
         <td style="padding:10px 12px; text-align:center; white-space:nowrap;">
-          <button style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600;" onclick="openFilingDetailsModal(${idx})">
+          <button style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600;" onclick="openFilingDetailsModal(${globalIdx})">
             🔍 Details
           </button>
         </td>
@@ -13807,7 +13819,32 @@ function sortStockDataHealth(col) {
   }
   SDH_CURRENT_PAGE = 1;
   syncSdhSortDropdown();
-  renderStockDataHealthTable();
+  const sortCols = [
+    'symbol', 'health_status', 'last_fetched', 'latest_period', 'filings_count',
+    'cmp', 'market_cap_cr', 'current_pe', 'current_ev_ebitda', 'roce_5y_avg',
+    'roe', 'sales_cagr_5y', 'pat_cagr_5y', 'cfo_pat_5y_ratio', 'debt_to_equity',
+    'revenue', 'net_profit', 'operating_cash_flow', 'shares_outstanding_m',
+    'share_dilution_3y_pct', 'provenance_status'
+  ];
+  sortCols.forEach(c => {
+    const el = document.getElementById(`sdh-sort-${c}`);
+    if (el) {
+      if (c === SDH_SORT_COL) {
+        el.textContent = SDH_SORT_DIR === 1 ? '▲' : '▼';
+        el.style.color = 'var(--accent)';
+        el.style.fontWeight = '800';
+      } else {
+        el.textContent = '⇅';
+        el.style.color = 'var(--muted)';
+        el.style.fontWeight = 'normal';
+      }
+    }
+  });
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      renderStockDataHealthTable();
+    }, 0);
+  });
 }
 
 function syncSdhSortDropdown() {
@@ -14232,7 +14269,9 @@ function renderStockDataHealthTable() {
     if (isNum) {
       return (Number(aVal) - Number(bVal)) * SDH_SORT_DIR;
     } else {
-      return String(aVal).localeCompare(String(bVal)) * SDH_SORT_DIR;
+      const sA = String(aVal);
+      const sB = String(bVal);
+      return (sA < sB ? -1 : (sA > sB ? 1 : 0)) * SDH_SORT_DIR;
     }
   });
 

@@ -2204,17 +2204,23 @@ def get_v2_scanner_health():
             max_age=5,
             precompressed_gzip=_V2_SCANNER_HEALTH_CACHE["gzip"]
         )
-    from master_orchestrator import orchestrator_v2
-    data = orchestrator_v2.get_scanner_health()
-    payload = json.dumps(data)
-    import hashlib
-    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
-    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
-    _V2_SCANNER_HEALTH_CACHE["ts"] = now_ts
-    _V2_SCANNER_HEALTH_CACHE["payload"] = payload
-    _V2_SCANNER_HEALTH_CACHE["gzip"] = gz
-    _V2_SCANNER_HEALTH_CACHE["etag"] = etag
-    return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
+    try:
+        from master_orchestrator import orchestrator_v2
+        data = orchestrator_v2.get_scanner_health()
+        payload = json.dumps(data, default=str)
+        import hashlib
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        _V2_SCANNER_HEALTH_CACHE["ts"] = now_ts
+        _V2_SCANNER_HEALTH_CACHE["payload"] = payload
+        _V2_SCANNER_HEALTH_CACHE["gzip"] = gz
+        _V2_SCANNER_HEALTH_CACHE["etag"] = etag
+        return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
+    except Exception as e:
+        logger.exception(f"❌ Failed to get v2 scanner health: {e}")
+        if _V2_SCANNER_HEALTH_CACHE["payload"]:
+            return _make_json_response(_V2_SCANNER_HEALTH_CACHE["payload"], etag=_V2_SCANNER_HEALTH_CACHE["etag"], max_age=5, precompressed_gzip=_V2_SCANNER_HEALTH_CACHE["gzip"])
+        return jsonify([])
 
 
 _UNIVERSE_HEALTH_CACHE = {"ts": 0, "payload": None}
@@ -2955,7 +2961,12 @@ def api_get_corporate_filings():
         with _CORP_FILINGS_LOCK:
             cached = _CORP_FILINGS_CACHE.get(cache_key)
             if not force and cached and (now_t - cached["ts"] < 30.0):
-                return jsonify(cached["payload"])
+                return _make_json_response(
+                    cached["payload"],
+                    etag=cached.get("etag"),
+                    max_age=30,
+                    precompressed_gzip=cached.get("gzip")
+                )
 
         # Map semantic result filters (e.g. Quarterly Results in event filter)
         if event_type.upper() in ("QUARTERLY_RESULT", "QUARTERLY"):
@@ -3002,10 +3013,20 @@ def api_get_corporate_filings():
             "server_time": datetime.now(IST).isoformat()
         }
 
-        with _CORP_FILINGS_LOCK:
-            _CORP_FILINGS_CACHE[cache_key] = {"payload": resp_payload, "ts": time.time()}
+        resp_json = json.dumps(resp_payload, default=str)
+        import hashlib
+        etag = f'"{hashlib.md5(resp_json.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(resp_json.encode("utf-8"), compresslevel=1)
 
-        return jsonify(resp_payload)
+        with _CORP_FILINGS_LOCK:
+            _CORP_FILINGS_CACHE[cache_key] = {
+                "payload": resp_json,
+                "etag": etag,
+                "gzip": gz,
+                "ts": time.time()
+            }
+
+        return _make_json_response(resp_json, etag=etag, max_age=30, precompressed_gzip=gz)
     except Exception as e:
         logger.exception(f"[API_CORPORATE_FILINGS] Error fetching filings: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -3026,8 +3047,13 @@ def api_admin_stock_data_health():
         force = request.args.get("force") in ("1", "true", "True")
         now_t = time.time()
         with _STOCK_DATA_HEALTH_LOCK:
-            if not force and _STOCK_DATA_HEALTH_CACHE["payload"] and (now_t - _STOCK_DATA_HEALTH_CACHE["ts"] < 30.0):
-                return jsonify(_STOCK_DATA_HEALTH_CACHE["payload"])
+            if not force and _STOCK_DATA_HEALTH_CACHE.get("payload") and (now_t - _STOCK_DATA_HEALTH_CACHE.get("ts", 0) < 30.0):
+                return _make_json_response(
+                    _STOCK_DATA_HEALTH_CACHE["payload"],
+                    etag=_STOCK_DATA_HEALTH_CACHE.get("etag"),
+                    max_age=30,
+                    precompressed_gzip=_STOCK_DATA_HEALTH_CACHE.get("gzip")
+                )
 
         from database import get_stale_stocks_audit, get_fresh_stocks_audit
         stale_stocks = get_stale_stocks_audit()
@@ -3052,11 +3078,18 @@ def api_admin_stock_data_health():
             "fresh_stocks": fresh_stocks
         }
 
+        resp_json = json.dumps(resp_payload, default=str)
+        import hashlib
+        etag = f'"{hashlib.md5(resp_json.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(resp_json.encode("utf-8"), compresslevel=1)
+
         with _STOCK_DATA_HEALTH_LOCK:
-            _STOCK_DATA_HEALTH_CACHE["payload"] = resp_payload
+            _STOCK_DATA_HEALTH_CACHE["payload"] = resp_json
+            _STOCK_DATA_HEALTH_CACHE["etag"] = etag
+            _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
             _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
 
-        return jsonify(resp_payload)
+        return _make_json_response(resp_json, etag=etag, max_age=30, precompressed_gzip=gz)
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
