@@ -129,6 +129,7 @@
     "filing_date": "2026-08-13",
     "broadcast_timestamp": "2026-08-13T16:50:08.827",
     "exchange": "BSE",
-    "filing_id": "BSE_522195_668259ff-c093-40e1-820d-1a5ed96dd32a"
+    "filing_id": "BSE_522195_668259ff-c093-40e1-820d-1a5ed96dd32a",
+    "source_record_hash": "ee8aa779071314526757906274f9b9d0a223399e876f064e032ec6335374d286"
   }
 ]

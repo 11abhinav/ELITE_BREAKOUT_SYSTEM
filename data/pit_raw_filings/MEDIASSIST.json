@@ -16,7 +16,7 @@
     "shares_outstanding": 70210000.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "9cee8431463eb9ca0dda2484b4635d3048b45472a0137858e3316e34e80c9d19"
+    "source_record_hash": "08fc298812c0ef78fe362f34d529342139edbee9102b3b24b7b026a2a0381ad5"
   },
   {
     "symbol": "MEDIASSIST",
@@ -35,7 +35,7 @@
     "shares_outstanding": 70210000.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "5d4fca5687d20c35264c8af2b01d264067ad2a74cbebee24acea0f443b83e24e"
+    "source_record_hash": "a7acb13687c1dc8ffe687bc5c847f96185e591edcd07ac4d3995613c433d0727"
   },
   {
     "symbol": "MEDIASSIST",
@@ -54,7 +54,7 @@
     "shares_outstanding": 70210000.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "30639894bac00aa1496f451804288dedf565c8c0438e3829d7b1f9c888707c0c"
+    "source_record_hash": "393819e4faf7125782d5a542ea7a7539c1e14f212134b0a931dd59c58975a433"
   },
   {
     "symbol": "MEDIASSIST",
@@ -73,6 +73,6 @@
     "shares_outstanding": 70210000.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "521e6072be5b89b6223e60c08ab6fd6d0d5244c0389eab9ccf4bc707e7e29b46"
+    "source_record_hash": "77d5456deeb1d539e55942075b4289cddb4d8d7af8ba04d3d50647945ca7aa47"
   }
 ]

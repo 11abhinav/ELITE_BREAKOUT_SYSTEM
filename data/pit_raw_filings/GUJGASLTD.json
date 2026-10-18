@@ -458,7 +458,7 @@
     "shares_outstanding": 688390125.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "e9507488b65a1d73368002cf64ac2c69f21fe041824c3008a97745617a019e4e",
+    "source_record_hash": "9de493ce890aaced7e4fed07e561e7cf2c3f21f75b7d68f18db4fe162a5eed06",
     "statement_type": "ANNUAL"
   },
   {
@@ -478,7 +478,7 @@
     "shares_outstanding": 688390125.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "51aa55b2ef8d71f8c3cbf4f4249138ed57938cab0a22268cc6787f358ba2ac73",
+    "source_record_hash": "8cc0cfc5b0204b5b6807274bec2c5abdc6230e0df7eb2fe664ee06d70ec6b824",
     "statement_type": "ANNUAL"
   },
   {
@@ -498,7 +498,7 @@
     "shares_outstanding": 688390125.0,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "f3fc901602015dd3f13a19181ab93777e10c385f9cda27dab7cb78731c3c06f9",
+    "source_record_hash": "a103317700b983b617a47fc22116210a0ff587dbd4a432d0f8c17e07723cebc6",
     "statement_type": "ANNUAL"
   },
   {
@@ -518,7 +518,7 @@
     "shares_outstanding": 688.39,
     "unit": "crore",
     "currency": "INR",
-    "source_record_hash": "9ddc9533ee731e784c0d856c8179bbc384a9b31a6956b8952723e03c05620465",
+    "source_record_hash": "daaec3ff036e670f81876a47eb5c8a7f2203d30d4a7718b527a02bfe5a76f683",
     "statement_type": "ANNUAL"
   }
 ]

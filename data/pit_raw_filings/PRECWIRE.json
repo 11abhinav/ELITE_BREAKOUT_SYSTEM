@@ -8,72 +8,22 @@
     "revenue": 884.03,
     "net_profit": 10.1,
     "operating_cash_flow": 32.18,
-    "total_debt": 38.0,
+    "total_debt": null,
     "total_equity": 186.84999999999997,
     "ebit": 16.78,
     "capital_employed": 186.84999999999997,
-    "eps": 0.58,
-    "shares_outstanding": 120000000.0,
+    "eps": null,
+    "shares_outstanding": null,
     "unit": "crore",
     "currency": "INR",
-    "filing_id": "PRECWIRE_20150331_A_v1",
-    "filing_date": "2015-05-30",
-    "actual_publication_timestamp": "2015-05-30 23:59:59",
-    "conservative_availability_timestamp": "2015-05-30 23:59:59",
-    "timestamp_basis": "LODR_STATUTORY_DEADLINE_CONSERVATIVE",
-    "document_id": "DOC_PRECWIRE_20150331_A_v1",
-    "revision_number": 1,
-    "is_original_filing": 1,
-    "statement_type": "ANNUAL",
-    "operating_profit": 47.0,
-    "free_cash_flow": 24.0,
-    "cash_and_equivalents": null,
-    "depreciation_amortization": 20.0,
-    "roce": 20.89,
-    "roe": 5.35,
-    "operating_margin": 5.0,
-    "net_margin": 1.1350737797956867,
-    "source_provider": "SCREENER",
-    "raw_NII": null,
-    "mapped_revenue": 881.0,
-    "mapping_rule": "REVENUE_DIRECT",
-    "source_record_hash": "0c74fb68a3a2dacfc0993774a51b027c81cc4d329c76e21a285bcf154f624473"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2015-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "01-Jun-2015 16:13",
-    "broadcast_timestamp": "01-Jun-2015 16:13:02",
-    "exchange": "NSE",
-    "filing_id": "130309"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2015-03-31",
     "statement_type": "QUARTERLY",
     "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
     "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
     "filing_date": "01-Jun-2015 16:13",
     "broadcast_timestamp": "01-Jun-2015 16:13:01",
     "exchange": "NSE",
-    "filing_id": "130308"
+    "filing_id": "130308",
+    "source_record_hash": "893c97f0a9833fb0113f688e0e4ab5f1e234e26e8bd659d82a45559ff33cafa5"
   },
   {
     "symbol": "PRECWIRE",
@@ -91,25 +41,8 @@
     "filing_date": "16-Aug-2015 12:21",
     "broadcast_timestamp": "16-Aug-2015 12:21:09",
     "exchange": "NSE",
-    "filing_id": "1001180"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2015-09-30",
-    "statement_type": "QUARTERLY",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "07-Nov-2015 12:44",
-    "broadcast_timestamp": "07-Nov-2015 12:44:47",
-    "exchange": "NSE",
-    "filing_id": "1002886"
+    "filing_id": "1001180",
+    "source_record_hash": "5cae94d7c94709a1eb4ed53d7be77d4221a9e5065e9a6038f3b5306e328f53a3"
   },
   {
     "symbol": "PRECWIRE",
@@ -127,41 +60,8 @@
     "filing_date": "06-Nov-2015 20:36",
     "broadcast_timestamp": "06-Nov-2015 20:36:16",
     "exchange": "NSE",
-    "filing_id": "1003141"
-  },
-  {
-    "filing_id": "PRECWIRE_20151231_Q_v1",
-    "symbol": "PRECWIRE",
-    "period_end_date": "2015-12-31",
-    "filing_date": "2016-02-14",
-    "actual_publication_timestamp": "2016-02-14 23:59:59",
-    "conservative_availability_timestamp": "2016-02-14 23:59:59",
-    "timestamp_basis": "LODR_STATUTORY_DEADLINE_CONSERVATIVE",
-    "source": "SCREENER_QUARTERLY_CONSOLIDATED",
-    "document_id": "DOC_PRECWIRE_20151231_Q_v1",
-    "revision_number": 1,
-    "is_original_filing": 1,
-    "statement_type": "QUARTERLY",
-    "revenue": 190.05,
-    "operating_profit": 11.99,
-    "net_profit": 3.34,
-    "eps": 0.19,
-    "shares_outstanding": null,
-    "operating_cash_flow": null,
-    "free_cash_flow": null,
-    "total_debt": null,
-    "total_equity": null,
-    "cash_and_equivalents": null,
-    "depreciation_amortization": null,
-    "roce": null,
-    "roe": null,
-    "operating_margin": 6.31,
-    "net_margin": 1.7574322546698236,
-    "source_provider": "SCREENER",
-    "raw_NII": null,
-    "mapped_revenue": 190.05,
-    "mapping_rule": "REVENUE_DIRECT",
-    "source_record_hash": "9bdc6e7a82887642814963fa092e8921861ea37cff0e2a1bcdddc3648e8929f1"
+    "filing_id": "1003141",
+    "source_record_hash": "b68369ce18c2703a5605b6d03f9e98eb28fabd1fb67a0bebc0f717f0be974777"
   },
   {
     "symbol": "PRECWIRE",
@@ -179,7 +79,8 @@
     "filing_date": "09-Feb-2016 17:39",
     "broadcast_timestamp": "09-Feb-2016 17:39:41",
     "exchange": "NSE",
-    "filing_id": "1005099"
+    "filing_id": "1005099",
+    "source_record_hash": "aed71849fb80c0700abc42fdeb54c9e0b922b8dd6860d1cca7ee798e4590a1cc"
   },
   {
     "symbol": "PRECWIRE",
@@ -190,90 +91,22 @@
     "revenue": 845.1,
     "net_profit": 17.03,
     "operating_cash_flow": 44.69,
-    "total_debt": 28.0,
+    "total_debt": null,
     "total_equity": 194.72,
     "ebit": 26.6,
     "capital_employed": 194.72,
-    "eps": 0.98,
-    "shares_outstanding": 120000000.0,
+    "eps": null,
+    "shares_outstanding": null,
     "unit": "crore",
     "currency": "INR",
-    "filing_id": "PRECWIRE_20160331_A_v1",
-    "filing_date": "2016-05-30",
-    "actual_publication_timestamp": "2016-05-30 23:59:59",
-    "conservative_availability_timestamp": "2016-05-30 23:59:59",
-    "timestamp_basis": "LODR_STATUTORY_DEADLINE_CONSERVATIVE",
-    "document_id": "DOC_PRECWIRE_20160331_A_v1",
-    "revision_number": 1,
-    "is_original_filing": 1,
-    "statement_type": "ANNUAL",
-    "operating_profit": 52.0,
-    "free_cash_flow": 26.0,
-    "cash_and_equivalents": null,
-    "depreciation_amortization": 16.0,
-    "roce": 17.0,
-    "roe": 8.72,
-    "operating_margin": 6.0,
-    "net_margin": 2.0166073546856467,
-    "source_provider": "SCREENER",
-    "raw_NII": null,
-    "mapped_revenue": 843.0,
-    "mapping_rule": "REVENUE_DIRECT",
-    "source_record_hash": "455a265e258938cd9dbdb7228e6979abea93a5dc2dc9cc55f9056fa1bcb86481"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2016-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "28-May-2016 18:50",
-    "broadcast_timestamp": "28-May-2016 18:50:35",
-    "exchange": "NSE",
-    "filing_id": "1008839"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2016-03-31",
-    "statement_type": "QUARTERLY",
-    "basis": "CONSOLIDATED",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "28-May-2016 18:50",
-    "broadcast_timestamp": "28-May-2016 18:50:35",
-    "exchange": "NSE",
-    "filing_id": "1008840"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2016-03-31",
     "statement_type": "QUARTERLY",
     "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
     "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
     "filing_date": "28-May-2016 18:50",
     "broadcast_timestamp": "28-May-2016 18:50:34",
     "exchange": "NSE",
-    "filing_id": "1008838"
+    "filing_id": "1008838",
+    "source_record_hash": "434050317b4fcc1fd421a18e40d2ca470eab0b4502367a9716c1eb8253f38be2"
   },
   {
     "symbol": "PRECWIRE",
@@ -291,7 +124,8 @@
     "filing_date": "11-Sep-2017 11:37",
     "broadcast_timestamp": "11-Sep-2017 11:37:48",
     "exchange": "NSE",
-    "filing_id": "1030440"
+    "filing_id": "1030440",
+    "source_record_hash": "493590b5d870ec6b9f9ffe2836f4d6cf3fd070166401e01e14b59fd2ca6b40ab"
   },
   {
     "symbol": "PRECWIRE",
@@ -309,7 +143,8 @@
     "filing_date": "12-Dec-2017 11:43",
     "broadcast_timestamp": "12-Dec-2017 11:43:43",
     "exchange": "NSE",
-    "filing_id": "1034363"
+    "filing_id": "1034363",
+    "source_record_hash": "363c7d7f33a1cd170409838bfde2545d0d55d2d99be557f791f2d22593b1e5ea"
   },
   {
     "symbol": "PRECWIRE",
@@ -327,25 +162,8 @@
     "filing_date": "21-Feb-2018 17:25",
     "broadcast_timestamp": "21-Feb-2018 17:25:52",
     "exchange": "NSE",
-    "filing_id": "1037283"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2017-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "26-Jun-2018 11:57",
-    "broadcast_timestamp": "26-Jun-2018 11:57:19",
-    "exchange": "NSE",
-    "filing_id": "1045027"
+    "filing_id": "1037283",
+    "source_record_hash": "fc6c6b81853319a13b0c4e887167f50a6143fc8e092f4798348872ba5008abc5"
   },
   {
     "symbol": "PRECWIRE",
@@ -363,7 +181,8 @@
     "filing_date": "11-Sep-2017 11:37",
     "broadcast_timestamp": "11-Sep-2017 11:37:47",
     "exchange": "NSE",
-    "filing_id": "1030439"
+    "filing_id": "1030439",
+    "source_record_hash": "cb648c4618fd9a90fb3c210694ae8e6e8141d5f816ff937205679d83ee788584"
   },
   {
     "symbol": "PRECWIRE",
@@ -381,7 +200,8 @@
     "filing_date": "11-Sep-2017 11:37",
     "broadcast_timestamp": "11-Sep-2017 11:37:46",
     "exchange": "NSE",
-    "filing_id": "1030438"
+    "filing_id": "1030438",
+    "source_record_hash": "e590cebdb352c72c1a55b0e3d0a8b4829e0915dcca86f035b9164c034eadb32a"
   },
   {
     "symbol": "PRECWIRE",
@@ -399,7 +219,8 @@
     "filing_date": "12-Dec-2017 11:43",
     "broadcast_timestamp": "12-Dec-2017 11:43:42",
     "exchange": "NSE",
-    "filing_id": "1034362"
+    "filing_id": "1034362",
+    "source_record_hash": "a2489eeb0ae6c9bdb5e759b646ba763ab78523190794f1ba43befee6c9dfce48"
   },
   {
     "symbol": "PRECWIRE",
@@ -417,25 +238,8 @@
     "filing_date": "21-Feb-2018 17:25",
     "broadcast_timestamp": "21-Feb-2018 17:25:51",
     "exchange": "NSE",
-    "filing_id": "1037282"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2018-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "26-Jun-2018 11:57",
-    "broadcast_timestamp": "26-Jun-2018 11:57:18",
-    "exchange": "NSE",
-    "filing_id": "1045026"
+    "filing_id": "1037282",
+    "source_record_hash": "7b8522ef65894466f6e9fcb6c92a1cd1b0e668f7eda88e92d79d2bd2817844ee"
   },
   {
     "symbol": "PRECWIRE",
@@ -453,7 +257,8 @@
     "filing_date": "26-Jun-2018 11:57",
     "broadcast_timestamp": "26-Jun-2018 11:57:18",
     "exchange": "NSE",
-    "filing_id": "1045025"
+    "filing_id": "1045025",
+    "source_record_hash": "d0f9c6e7604772e9230c155680fc2d4a161a23f9eb53bc3450d16af78201c93b"
   },
   {
     "symbol": "PRECWIRE",
@@ -471,7 +276,8 @@
     "filing_date": "30-Aug-2018 18:59",
     "broadcast_timestamp": "30-Aug-2018 18:59:01",
     "exchange": "NSE",
-    "filing_id": "1048847"
+    "filing_id": "1048847",
+    "source_record_hash": "9a13379ac03fb5dab8f2b0f153c382183635501bae46158cfba8bf539d26227d"
   },
   {
     "symbol": "PRECWIRE",
@@ -489,7 +295,8 @@
     "filing_date": "20-Nov-2018 18:42",
     "broadcast_timestamp": "20-Nov-2018 18:42:09",
     "exchange": "NSE",
-    "filing_id": "1051977"
+    "filing_id": "1051977",
+    "source_record_hash": "2c652bebc6a0a95843de4332a5eaa73a9f9498882b692f769c84d78f93f3a26c"
   },
   {
     "symbol": "PRECWIRE",
@@ -507,25 +314,8 @@
     "filing_date": "19-Feb-2019 16:47",
     "broadcast_timestamp": "19-Feb-2019 16:47:06",
     "exchange": "NSE",
-    "filing_id": "1056340"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2019-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "18-May-2019 17:42",
-    "broadcast_timestamp": "18-May-2019 17:42:33",
-    "exchange": "NSE",
-    "filing_id": "1060893"
+    "filing_id": "1056340",
+    "source_record_hash": "177da74e0ff85d9ab4f3e4333d575bb08faefbaa829b528d5d2484528d958f13"
   },
   {
     "symbol": "PRECWIRE",
@@ -543,7 +333,8 @@
     "filing_date": "18-May-2019 17:42",
     "broadcast_timestamp": "18-May-2019 17:42:32",
     "exchange": "NSE",
-    "filing_id": "1060892"
+    "filing_id": "1060892",
+    "source_record_hash": "745c56c1a8911fc446ec477994ff08e4a1a1fd826d7b63e38ae9a4b2ee59d889"
   },
   {
     "symbol": "PRECWIRE",
@@ -561,25 +352,8 @@
     "filing_date": "07-Aug-2019 17:02",
     "broadcast_timestamp": "07-Aug-2019 17:02:11",
     "exchange": "NSE",
-    "filing_id": "1066079"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2019-09-30",
-    "statement_type": "QUARTERLY",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "13-Nov-2019 14:30",
-    "broadcast_timestamp": "13-Nov-2019 14:30:05",
-    "exchange": "NSE",
-    "filing_id": "1071999"
+    "filing_id": "1066079",
+    "source_record_hash": "b6a4f1eb227976eda68ffecb1b098e1d7b37f9f6bd4a4a7634ffdf850fb3760e"
   },
   {
     "symbol": "PRECWIRE",
@@ -597,7 +371,8 @@
     "filing_date": "25-Nov-2019",
     "broadcast_timestamp": "25-Nov-2019 15:24:00",
     "exchange": "NSE",
-    "filing_id": "103944007"
+    "filing_id": "103944007",
+    "source_record_hash": "1286fc7b87a7c6058446f542f213fd235423f0dcfba634dceef8ed7eb396c5a2"
   },
   {
     "symbol": "PRECWIRE",
@@ -615,25 +390,8 @@
     "filing_date": "11-Feb-2020 12:05",
     "broadcast_timestamp": "11-Feb-2020 12:05:45",
     "exchange": "NSE",
-    "filing_id": "1077841"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2020-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "27-Jun-2020 19:56",
-    "broadcast_timestamp": "27-Jun-2020 19:56:18",
-    "exchange": "NSE",
-    "filing_id": "1085182"
+    "filing_id": "1077841",
+    "source_record_hash": "f4e2b992cb44b0e843be4caf48b1b2eb6065c4fb25c13734e6d6c8ed0f38b824"
   },
   {
     "symbol": "PRECWIRE",
@@ -651,7 +409,8 @@
     "filing_date": "27-Jun-2020 19:56",
     "broadcast_timestamp": "27-Jun-2020 19:56:18",
     "exchange": "NSE",
-    "filing_id": "1085181"
+    "filing_id": "1085181",
+    "source_record_hash": "0ab407703a259cc5e79dee1183e20cbf1e18a6e0c26fc86be12dfde0422b979a"
   },
   {
     "symbol": "PRECWIRE",
@@ -669,7 +428,8 @@
     "filing_date": "13-Aug-2020 16:39",
     "broadcast_timestamp": "13-Aug-2020 16:39:55",
     "exchange": "NSE",
-    "filing_id": "1090203"
+    "filing_id": "1090203",
+    "source_record_hash": "9f35e1dbea8f0c9df416fd59e558347100da82ee9a5f2525cf3cd410a9bd6375"
   },
   {
     "symbol": "PRECWIRE",
@@ -687,7 +447,8 @@
     "filing_date": "11-Nov-2020 23:28",
     "broadcast_timestamp": "11-Nov-2020 23:28:00",
     "exchange": "NSE",
-    "filing_id": "1096898"
+    "filing_id": "1096898",
+    "source_record_hash": "108363e618b0a5ea5c763dcb4ac2d6a35f01cc32df40b289d6bcce4122d053e8"
   },
   {
     "symbol": "PRECWIRE",
@@ -705,22 +466,8 @@
     "filing_date": "11-Feb-2021 17:51",
     "broadcast_timestamp": "11-Feb-2021 17:51:51",
     "exchange": "NSE",
-    "filing_id": "1103782"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2021-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 1800.0,
-    "net_profit": 45.0,
-    "operating_profit": 110.0,
-    "total_debt": 80.0,
-    "total_equity": 520.0,
-    "operating_cash_flow": 160.0,
-    "shares_outstanding": 120.0,
-    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
-    "source_provider": "BSE_EXCHANGE"
+    "filing_id": "1103782",
+    "source_record_hash": "6bf51963d27d21dcc9d74d128d75bfe90917067b5132163e043d31cc4e6e798a"
   },
   {
     "symbol": "PRECWIRE",
@@ -738,7 +485,8 @@
     "filing_date": "24-Jun-2021 11:10",
     "broadcast_timestamp": "24-Jun-2021 11:10:28",
     "exchange": "NSE",
-    "filing_id": "1111004"
+    "filing_id": "1111004",
+    "source_record_hash": "7544c15da9d9aebeba54a166acea32b060e1b19846146c03590a2d1f8ca48357"
   },
   {
     "symbol": "PRECWIRE",
@@ -756,7 +504,8 @@
     "filing_date": "14-Aug-2021 20:17",
     "broadcast_timestamp": "14-Aug-2021 20:17:59",
     "exchange": "NSE",
-    "filing_id": "1116828"
+    "filing_id": "1116828",
+    "source_record_hash": "76e02b90a03b43b27b8dfb5bca43f988e882da2b12122c269ec71f81e5c6f466"
   },
   {
     "symbol": "PRECWIRE",
@@ -774,7 +523,8 @@
     "filing_date": "04-Nov-2021 12:03",
     "broadcast_timestamp": "04-Nov-2021 12:03:34",
     "exchange": "NSE",
-    "filing_id": "1120067"
+    "filing_id": "1120067",
+    "source_record_hash": "b3f77193f8b3c18a07cfa311b304efe1b55a2a8b1ec1a7efb77a376d58261ab7"
   },
   {
     "symbol": "PRECWIRE",
@@ -792,22 +542,8 @@
     "filing_date": "07-Feb-2022 15:24",
     "broadcast_timestamp": "07-Feb-2022 15:24:51",
     "exchange": "NSE",
-    "filing_id": "1126850"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2022-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 2400.0,
-    "net_profit": 60.0,
-    "operating_profit": 140.0,
-    "total_debt": 80.0,
-    "total_equity": 520.0,
-    "operating_cash_flow": 160.0,
-    "shares_outstanding": 120.0,
-    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
-    "source_provider": "BSE_EXCHANGE"
+    "filing_id": "1126850",
+    "source_record_hash": "8fd946111a10fc07a501a2c5a450cac994f6d21ea6204852c3d8a06326f33674"
   },
   {
     "symbol": "PRECWIRE",
@@ -825,7 +561,8 @@
     "filing_date": "27-May-2022 18:00",
     "broadcast_timestamp": "27-May-2022 18:00:37",
     "exchange": "NSE",
-    "filing_id": "1135539"
+    "filing_id": "1135539",
+    "source_record_hash": "abafbabb900580b970af4ce522b7effc4e257bcc940f921eea26ce9f3f5724dd"
   },
   {
     "symbol": "PRECWIRE",
@@ -843,7 +580,8 @@
     "filing_date": "10-Aug-2022 17:29",
     "broadcast_timestamp": "10-Aug-2022 17:29:55",
     "exchange": "NSE",
-    "filing_id": "2417"
+    "filing_id": "2417",
+    "source_record_hash": "8f9ea6ff6eaa65500f37dc434df0dcf7c3b870186350364f724a7dbdc11475b1"
   },
   {
     "symbol": "PRECWIRE",
@@ -861,7 +599,8 @@
     "filing_date": "11-Nov-2022 10:56",
     "broadcast_timestamp": "11-Nov-2022 10:56:39",
     "exchange": "NSE",
-    "filing_id": "7804"
+    "filing_id": "7804",
+    "source_record_hash": "b60c52c5f4ddb42f4fbfdca0de1258d999943650cb338021f4ca237b04fb4bbd"
   },
   {
     "symbol": "PRECWIRE",
@@ -879,22 +618,8 @@
     "filing_date": "11-Feb-2023 15:10",
     "broadcast_timestamp": "11-Feb-2023 15:10:38",
     "exchange": "NSE",
-    "filing_id": "1143046"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2023-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 2900.0,
-    "net_profit": 85.0,
-    "operating_profit": 180.0,
-    "total_debt": 80.0,
-    "total_equity": 520.0,
-    "operating_cash_flow": 160.0,
-    "shares_outstanding": 120.0,
-    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
-    "source_provider": "BSE_EXCHANGE"
+    "filing_id": "1143046",
+    "source_record_hash": "23c4c6974b1f89041783b9a310847c6b47a5fc4f8aac0150454cfd7ed06a3014"
   },
   {
     "symbol": "PRECWIRE",
@@ -912,7 +637,8 @@
     "filing_date": "27-May-2023 18:23",
     "broadcast_timestamp": "27-May-2023 18:23:20",
     "exchange": "NSE",
-    "filing_id": "1149835"
+    "filing_id": "1149835",
+    "source_record_hash": "094d981bd1253ebc29fd71279843db879029224dd5a4bd0f0908d2bcafe603ab"
   },
   {
     "symbol": "PRECWIRE",
@@ -930,7 +656,8 @@
     "filing_date": "10-Aug-2023 15:22",
     "broadcast_timestamp": "10-Aug-2023 15:22:26",
     "exchange": "NSE",
-    "filing_id": "1153741"
+    "filing_id": "1153741",
+    "source_record_hash": "a23d1f32587cf4706d7ea05570853772b6da733ad04c943affb7207568a1e580"
   },
   {
     "symbol": "PRECWIRE",
@@ -948,7 +675,8 @@
     "filing_date": "09-Nov-2023 10:47",
     "broadcast_timestamp": "09-Nov-2023 10:47:51",
     "exchange": "NSE",
-    "filing_id": "1159417"
+    "filing_id": "1159417",
+    "source_record_hash": "f37c3b15b6492c3d0c91566ade58a96363a3530569556d0adc53343ea41f853e"
   },
   {
     "symbol": "PRECWIRE",
@@ -966,27 +694,8 @@
     "filing_date": "08-Feb-2024 15:38",
     "broadcast_timestamp": "08-Feb-2024 15:38:12",
     "exchange": "NSE",
-    "filing_id": "1165495"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2024-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 3301.6911,
-    "net_profit": 72.8538,
-    "operating_profit": 98.8042,
-    "total_debt": 98.6136,
-    "total_equity": 506.4412,
-    "operating_cash_flow": 59.6762,
-    "shares_outstanding": 120.0,
-    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
-    "source_provider": "BSE_EXCHANGE",
-    "eps": 4.08,
-    "filing_date": "2024-05-18",
-    "broadcast_timestamp": "18-May-2024 17:07:16",
-    "exchange": "NSE",
-    "filing_id": "1172437"
+    "filing_id": "1165495",
+    "source_record_hash": "d8f2fcda292aa0ee290c0ca6e2a70665cbd68d9a24afae2f51ebdfba24462883"
   },
   {
     "symbol": "PRECWIRE",
@@ -1004,7 +713,8 @@
     "filing_date": "2024-05-18",
     "broadcast_timestamp": "18-May-2024 17:07:16",
     "exchange": "NSE",
-    "filing_id": "1172437"
+    "filing_id": "1172437",
+    "source_record_hash": "e2746abe798f61f138c1d0aa90e1eac67ae87761f30691c09f6c151a182a4709"
   },
   {
     "symbol": "PRECWIRE",
@@ -1022,25 +732,8 @@
     "filing_date": "2024-08-10",
     "broadcast_timestamp": "10-Aug-2024 18:48:25",
     "exchange": "NSE",
-    "filing_id": "1179873"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2024-09-30",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 1989.8993,
-    "net_profit": 41.5028,
-    "operating_profit": 55.7137,
-    "eps": 2.32,
-    "total_debt": 104.4713,
-    "total_equity": 539.9042,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "2024-11-11",
-    "broadcast_timestamp": "11-Nov-2024 13:44:05",
-    "exchange": "NSE",
-    "filing_id": "1185357"
+    "filing_id": "1179873",
+    "source_record_hash": "1dbf2bcaf016cbf78f73c0f303347a1dd0fcaa48840de953060c7470d5e1f781"
   },
   {
     "symbol": "PRECWIRE",
@@ -1058,25 +751,8 @@
     "filing_date": "2024-11-11",
     "broadcast_timestamp": "11-Nov-2024 13:44:05",
     "exchange": "NSE",
-    "filing_id": "1185357"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2024-12-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 2969.0039,
-    "net_profit": 60.4561,
-    "operating_profit": 80.7963,
-    "eps": 3.38,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "2025-02-12",
-    "broadcast_timestamp": "12-Feb-2025 17:13:11",
-    "exchange": "NSE",
-    "filing_id": "1195013"
+    "filing_id": "1185357",
+    "source_record_hash": "d21163269bde95b9433e5e0d7e0b5adcda91cda84d4b4ca9da5bdd422a3c8059"
   },
   {
     "symbol": "PRECWIRE",
@@ -1094,22 +770,8 @@
     "filing_date": "2025-02-12",
     "broadcast_timestamp": "12-Feb-2025 17:13:11",
     "exchange": "NSE",
-    "filing_id": "1195013"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2025-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 3400.0,
-    "net_profit": 125.0,
-    "operating_profit": 230.0,
-    "total_debt": 80.0,
-    "total_equity": 520.0,
-    "operating_cash_flow": 160.0,
-    "shares_outstanding": 120.0,
-    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
-    "source_provider": "BSE_EXCHANGE"
+    "filing_id": "1195013",
+    "source_record_hash": "81a1f2cacb243416184b7e0d0f185faafa1695345751148834e672cff8fcf1d1"
   },
   {
     "symbol": "PRECWIRE",
@@ -1127,7 +789,8 @@
     "filing_date": "17-May-2025",
     "broadcast_timestamp": "17-May-2025 18:50:21",
     "exchange": "NSE",
-    "filing_id": "106236958"
+    "filing_id": "106236958",
+    "source_record_hash": "3dade2280a7b40b078429f8c4e8fb8ad6f4b81a796e78c06be00bfffb2302344"
   },
   {
     "symbol": "PRECWIRE",
@@ -1145,7 +808,8 @@
     "filing_date": "12-Nov-2025",
     "broadcast_timestamp": "12-Nov-2025 18:26:03",
     "exchange": "NSE",
-    "filing_id": "106440002"
+    "filing_id": "106440002",
+    "source_record_hash": "626cf419565ccd8b10e47d0248af1d847cc5080ca1c2d0fe51601ab63126efad"
   },
   {
     "symbol": "PRECWIRE",
@@ -1163,22 +827,8 @@
     "filing_date": "14-Feb-2026",
     "broadcast_timestamp": "14-Feb-2026 13:58:43",
     "exchange": "NSE",
-    "filing_id": "106535463"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2026-03-31",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": 3800.0,
-    "net_profit": 155.0,
-    "operating_profit": 260.0,
-    "total_debt": 80.0,
-    "total_equity": 520.0,
-    "operating_cash_flow": 160.0,
-    "shares_outstanding": 120.0,
-    "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
-    "source_provider": "BSE_EXCHANGE"
+    "filing_id": "106535463",
+    "source_record_hash": "1cb009c14c0e5c56f288c602cbf3e4ceb10368972aaab0236a69d1033976317b"
   },
   {
     "symbol": "PRECWIRE",
@@ -1196,7 +846,8 @@
     "filing_date": "23-May-2026",
     "broadcast_timestamp": "23-May-2026 14:11:46",
     "exchange": "NSE",
-    "filing_id": "106637719"
+    "filing_id": "106637719",
+    "source_record_hash": "529a26c3d01f9b129f11e8fe632b067216db1f59ea8dc1ca3e5a58b2c3e8ef37"
   },
   {
     "symbol": "PRECWIRE",
@@ -1214,25 +865,8 @@
     "filing_date": "12-Aug-2026",
     "broadcast_timestamp": "12-Aug-2026 14:08:17",
     "exchange": "NSE",
-    "filing_id": "106738790"
-  },
-  {
-    "symbol": "PRECWIRE",
-    "period_end_date": "2026-09-30",
-    "statement_type": "QUARTERLY",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "08-Oct-2026",
-    "broadcast_timestamp": "08-Oct-2026 11:01:49",
-    "exchange": "NSE",
-    "filing_id": "106810761"
+    "filing_id": "106738790",
+    "source_record_hash": "90837650ec4879b3d8a4020afb3f9a3cef33b7a6f5a865336651ba89b5f22ab1"
   },
   {
     "symbol": "PRECWIRE",
@@ -1250,6 +884,7 @@
     "filing_date": "2026-09-24",
     "broadcast_timestamp": "2026-09-24T12:01:36.727",
     "exchange": "BSE",
-    "filing_id": "BSE_523539_00a2eaa1-69c8-4e8e-bd4e-1f29303ab003"
+    "filing_id": "BSE_523539_00a2eaa1-69c8-4e8e-bd4e-1f29303ab003",
+    "source_record_hash": "a04474ade86bf2d304dc88a78ecd945248c98c75eb87e15c5047fe54384903ab"
   }
 ]

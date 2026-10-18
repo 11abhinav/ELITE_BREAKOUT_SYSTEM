@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-10-16T23:45:20.346226+05:30",
+    "last_successful_check_at": "2026-10-18T22:20:10.766835",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -14,160 +14,160 @@
         "last_successful_check_at": "2026-10-09T09:47:40.498572"
       },
       "ADOR": {
-        "last_successful_check_at": "2026-10-15T20:24:53.004317"
+        "last_successful_check_at": "2026-10-18T22:20:17.575454"
       },
       "BHARATWIRE": {
-        "last_successful_check_at": "2026-10-15T20:25:15.324746"
+        "last_successful_check_at": "2026-10-18T22:21:06.129026"
       },
       "BORORENEW": {
-        "last_successful_check_at": "2026-10-15T20:25:02.080477"
+        "last_successful_check_at": "2026-10-18T22:20:31.538686"
       },
       "CUPID": {
-        "last_successful_check_at": "2026-10-15T20:25:18.531605"
+        "last_successful_check_at": "2026-10-18T22:21:09.829959"
       },
       "DPABHUSHAN": {
-        "last_successful_check_at": "2026-10-15T20:25:20.604400"
+        "last_successful_check_at": "2026-10-18T22:21:12.707040"
       },
       "FOSECOIND": {
-        "last_successful_check_at": "2026-10-15T20:25:22.486892"
+        "last_successful_check_at": "2026-10-18T22:21:16.192141"
       },
       "GMBREW": {
-        "last_successful_check_at": "2026-10-15T20:25:24.672228"
+        "last_successful_check_at": "2026-10-18T22:21:19.824130"
       },
       "HIRECT": {
-        "last_successful_check_at": "2026-10-15T20:25:26.579329"
+        "last_successful_check_at": "2026-10-18T22:21:21.584174"
       },
       "KSL": {
-        "last_successful_check_at": "2026-10-18T09:59:59.277443"
+        "last_successful_check_at": "2026-10-18T22:21:26.767826"
       },
       "PRECWIRE": {
-        "last_successful_check_at": "2026-10-05T12:39:42.685931"
+        "last_successful_check_at": "2026-10-18T22:22:00.614533"
       },
       "TIMKEN": {
-        "last_successful_check_at": "2026-10-15T20:25:41.692883"
+        "last_successful_check_at": "2026-10-18T22:22:10.650849"
       },
       "UTLSOLAR": {
-        "last_successful_check_at": "2026-10-15T20:24:51.310881"
+        "last_successful_check_at": "2026-10-18T22:20:14.252026"
       },
       "BASF": {
-        "last_successful_check_at": "2026-10-15T20:24:54.100563"
+        "last_successful_check_at": "2026-10-18T22:20:19.601275"
       },
       "DPEL": {
-        "last_successful_check_at": "2026-10-15T20:24:55.372772"
+        "last_successful_check_at": "2026-10-18T22:20:21.884606"
       },
       "GABRIEL": {
-        "last_successful_check_at": "2026-10-15T20:24:56.296282"
+        "last_successful_check_at": "2026-10-18T22:20:23.110204"
       },
       "HARIOMPIPE": {
-        "last_successful_check_at": "2026-10-15T20:24:57.072792"
+        "last_successful_check_at": "2026-10-18T22:20:24.679688"
       },
       "HATSUN": {
-        "last_successful_check_at": "2026-10-15T20:24:58.810816"
+        "last_successful_check_at": "2026-10-18T22:20:26.313317"
       },
       "MARSONS": {
-        "last_successful_check_at": "2026-10-15T20:24:59.920407"
+        "last_successful_check_at": "2026-10-18T22:20:28.114871"
       },
       "STYRENIX": {
-        "last_successful_check_at": "2026-10-15T20:25:01.041868"
+        "last_successful_check_at": "2026-10-18T22:20:29.735517"
       },
       "DOLPHIN": {
-        "last_successful_check_at": "2026-10-15T20:25:03.240996"
+        "last_successful_check_at": "2026-10-18T22:20:33.735888"
       },
       "GLOBUSSPR": {
-        "last_successful_check_at": "2026-10-15T20:25:04.248561"
+        "last_successful_check_at": "2026-10-18T22:20:35.260936"
       },
       "JSLL": {
-        "last_successful_check_at": "2026-10-15T20:25:05.553046"
+        "last_successful_check_at": "2026-10-18T22:20:37.124880"
       },
       "KRSNAA": {
-        "last_successful_check_at": "2026-10-15T20:25:06.471125"
+        "last_successful_check_at": "2026-10-18T22:20:50.802279"
       },
       "QPOWER": {
-        "last_successful_check_at": "2026-10-15T20:25:07.542807"
+        "last_successful_check_at": "2026-10-18T22:20:52.664005"
       },
       "SANDUMA": {
-        "last_successful_check_at": "2026-10-15T20:25:08.683910"
+        "last_successful_check_at": "2026-10-18T22:20:54.129915"
       },
       "SANGHVIMOV": {
-        "last_successful_check_at": "2026-10-15T20:25:09.619063"
+        "last_successful_check_at": "2026-10-18T22:20:56.071350"
       },
       "SPARC": {
-        "last_successful_check_at": "2026-10-15T20:25:10.649920"
+        "last_successful_check_at": "2026-10-18T22:20:58.171035"
       },
       "FRONTSP": {
-        "last_successful_check_at": "2026-10-15T20:25:11.739364"
+        "last_successful_check_at": "2026-10-18T22:20:11.223034"
       },
       "AIMTRON": {
-        "last_successful_check_at": "2026-10-15T20:25:12.830992"
+        "last_successful_check_at": "2026-10-18T22:21:02.304238"
       },
       "ANONDITA": {
-        "last_successful_check_at": "2026-10-15T20:25:13.646797"
+        "last_successful_check_at": "2026-10-18T22:21:03.421375"
       },
       "ASALCBR": {
-        "last_successful_check_at": "2026-10-15T20:25:14.380365"
+        "last_successful_check_at": "2026-10-18T22:21:04.464883"
       },
       "BOROSCI": {
-        "last_successful_check_at": "2026-10-15T20:25:17.494741"
+        "last_successful_check_at": "2026-10-18T22:21:08.151890"
       },
       "DANISH": {
-        "last_successful_check_at": "2026-10-15T20:25:19.896783"
+        "last_successful_check_at": "2026-10-18T22:21:11.612776"
       },
       "EUROPRATIK": {
-        "last_successful_check_at": "2026-10-15T20:25:21.523968"
+        "last_successful_check_at": "2026-10-18T22:21:14.394031"
       },
       "GKENERGY": {
-        "last_successful_check_at": "2026-10-15T20:25:23.689308"
+        "last_successful_check_at": "2026-10-18T22:21:18.013663"
       },
       "GUJGASLTD": {
-        "last_successful_check_at": "2026-10-15T20:25:25.761442"
+        "last_successful_check_at": "2026-10-18T22:20:16.092766"
       },
       "JUBLCPL": {
-        "last_successful_check_at": "2026-10-15T20:25:27.531710"
+        "last_successful_check_at": "2026-10-18T22:21:23.397282"
       },
       "KRN": {
-        "last_successful_check_at": "2026-10-15T20:25:28.294847"
+        "last_successful_check_at": "2026-10-18T22:21:25.052249"
       },
       "MANORAMA": {
-        "last_successful_check_at": "2026-10-15T20:25:30.160567"
+        "last_successful_check_at": "2026-10-18T22:21:28.834568"
       },
       "MEDIASSIST": {
-        "last_successful_check_at": "2026-10-15T20:25:30.947400"
+        "last_successful_check_at": "2026-10-18T22:21:30.573507"
       },
       "MONOLITH": {
-        "last_successful_check_at": "2026-10-15T20:25:31.854369"
+        "last_successful_check_at": "2026-10-18T22:21:44.163920"
       },
       "NINSYS": {
-        "last_successful_check_at": "2026-10-15T20:25:32.520207"
+        "last_successful_check_at": "2026-10-18T22:21:45.295005"
       },
       "PATANJALI": {
-        "last_successful_check_at": "2026-10-15T20:25:34.161175"
+        "last_successful_check_at": "2026-10-18T22:21:46.851392"
       },
       "RATNAVEER": {
-        "last_successful_check_at": "2026-10-15T20:25:35.413033"
+        "last_successful_check_at": "2026-10-18T22:22:02.442654"
       },
       "ROSSTECH": {
-        "last_successful_check_at": "2026-10-15T20:25:36.625598"
+        "last_successful_check_at": "2026-10-18T22:22:04.188897"
       },
       "SANOFICONR": {
-        "last_successful_check_at": "2026-10-15T20:25:37.466919"
+        "last_successful_check_at": "2026-10-18T22:22:05.751887"
       },
       "SHREEJISPG": {
-        "last_successful_check_at": "2026-10-15T20:25:39.734786"
+        "last_successful_check_at": "2026-10-18T22:22:07.166157"
       },
       "SOLEX": {
-        "last_successful_check_at": "2026-10-15T20:25:40.785179"
+        "last_successful_check_at": "2026-10-18T22:22:08.893775"
       },
       "VENTIVE": {
-        "last_successful_check_at": "2026-10-15T20:25:43.250329"
+        "last_successful_check_at": "2026-10-18T22:22:12.432322"
       },
       "VMARCIND": {
-        "last_successful_check_at": "2026-10-15T20:25:44.195194"
+        "last_successful_check_at": "2026-10-18T22:22:13.915145"
       },
       "VSSL": {
-        "last_successful_check_at": "2026-10-15T20:25:45.305697"
+        "last_successful_check_at": "2026-10-18T22:22:15.028930"
       },
       "WEBELSOLAR": {
-        "last_successful_check_at": "2026-10-15T20:25:46.526594"
+        "last_successful_check_at": "2026-10-18T22:22:16.750775"
       },
       "CAMPUS": {
         "last_successful_check_at": "2026-10-15T20:25:47.681650"
@@ -179,7 +179,7 @@
         "last_successful_check_at": "2026-10-15T20:25:50.103728"
       },
       "MANYAVAR": {
-        "last_successful_check_at": "2026-10-15T20:25:51.051672"
+        "last_successful_check_at": "2026-10-18T22:21:00.023970"
       },
       "MOLDTKPAC": {
         "last_successful_check_at": "2026-10-15T20:25:51.998551"
@@ -197,7 +197,7 @@
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-10-16T23:45:20.346226+05:30",
+    "last_successful_check_at": "2026-10-18T22:20:10.770899",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -210,160 +210,160 @@
         "last_successful_check_at": "2026-10-09T09:47:40.501785"
       },
       "ADOR": {
-        "last_successful_check_at": "2026-10-15T20:24:53.007248"
+        "last_successful_check_at": "2026-10-18T22:20:17.581112"
       },
       "BHARATWIRE": {
-        "last_successful_check_at": "2026-10-15T20:25:15.327202"
+        "last_successful_check_at": "2026-10-18T22:21:06.131601"
       },
       "BORORENEW": {
-        "last_successful_check_at": "2026-10-15T20:25:02.082751"
+        "last_successful_check_at": "2026-10-18T22:20:31.541305"
       },
       "CUPID": {
-        "last_successful_check_at": "2026-10-15T20:25:18.534216"
+        "last_successful_check_at": "2026-10-18T22:21:09.832824"
       },
       "DPABHUSHAN": {
-        "last_successful_check_at": "2026-10-15T20:25:20.606830"
+        "last_successful_check_at": "2026-10-18T22:21:12.709651"
       },
       "FOSECOIND": {
-        "last_successful_check_at": "2026-10-15T20:25:22.489504"
+        "last_successful_check_at": "2026-10-18T22:21:16.194826"
       },
       "GMBREW": {
-        "last_successful_check_at": "2026-10-15T20:25:24.674682"
+        "last_successful_check_at": "2026-10-18T22:21:19.826479"
       },
       "HIRECT": {
-        "last_successful_check_at": "2026-10-15T20:25:26.581814"
+        "last_successful_check_at": "2026-10-18T22:21:21.586703"
       },
       "KSL": {
-        "last_successful_check_at": "2026-10-18T09:59:59.288071"
+        "last_successful_check_at": "2026-10-18T22:21:26.770758"
       },
       "PRECWIRE": {
-        "last_successful_check_at": "2026-10-05T12:39:42.687617"
+        "last_successful_check_at": "2026-10-18T22:22:00.616860"
       },
       "TIMKEN": {
-        "last_successful_check_at": "2026-10-15T20:25:41.695680"
+        "last_successful_check_at": "2026-10-18T22:22:10.653343"
       },
       "UTLSOLAR": {
-        "last_successful_check_at": "2026-10-15T20:24:51.316872"
+        "last_successful_check_at": "2026-10-18T22:20:14.261210"
       },
       "BASF": {
-        "last_successful_check_at": "2026-10-15T20:24:54.103755"
+        "last_successful_check_at": "2026-10-18T22:20:19.603926"
       },
       "DPEL": {
-        "last_successful_check_at": "2026-10-15T20:24:55.375547"
+        "last_successful_check_at": "2026-10-18T22:20:21.888627"
       },
       "GABRIEL": {
-        "last_successful_check_at": "2026-10-15T20:24:56.298741"
+        "last_successful_check_at": "2026-10-18T22:20:23.112675"
       },
       "HARIOMPIPE": {
-        "last_successful_check_at": "2026-10-15T20:24:57.075312"
+        "last_successful_check_at": "2026-10-18T22:20:24.683203"
       },
       "HATSUN": {
-        "last_successful_check_at": "2026-10-15T20:24:58.813332"
+        "last_successful_check_at": "2026-10-18T22:20:26.316383"
       },
       "MARSONS": {
-        "last_successful_check_at": "2026-10-15T20:24:59.922839"
+        "last_successful_check_at": "2026-10-18T22:20:28.117618"
       },
       "STYRENIX": {
-        "last_successful_check_at": "2026-10-15T20:25:01.044347"
+        "last_successful_check_at": "2026-10-18T22:20:29.738173"
       },
       "DOLPHIN": {
-        "last_successful_check_at": "2026-10-15T20:25:03.243583"
+        "last_successful_check_at": "2026-10-18T22:20:33.738598"
       },
       "GLOBUSSPR": {
-        "last_successful_check_at": "2026-10-15T20:25:04.254219"
+        "last_successful_check_at": "2026-10-18T22:20:35.263349"
       },
       "JSLL": {
-        "last_successful_check_at": "2026-10-15T20:25:05.555642"
+        "last_successful_check_at": "2026-10-18T22:20:37.127723"
       },
       "KRSNAA": {
-        "last_successful_check_at": "2026-10-15T20:25:06.473989"
+        "last_successful_check_at": "2026-10-18T22:20:50.804798"
       },
       "QPOWER": {
-        "last_successful_check_at": "2026-10-15T20:25:07.545361"
+        "last_successful_check_at": "2026-10-18T22:20:52.666435"
       },
       "SANDUMA": {
-        "last_successful_check_at": "2026-10-15T20:25:08.686922"
+        "last_successful_check_at": "2026-10-18T22:20:54.135654"
       },
       "SANGHVIMOV": {
-        "last_successful_check_at": "2026-10-15T20:25:09.623756"
+        "last_successful_check_at": "2026-10-18T22:20:56.074024"
       },
       "SPARC": {
-        "last_successful_check_at": "2026-10-15T20:25:10.658871"
+        "last_successful_check_at": "2026-10-18T22:20:58.173496"
       },
       "FRONTSP": {
-        "last_successful_check_at": "2026-10-15T20:25:11.743783"
+        "last_successful_check_at": "2026-10-18T22:20:11.228475"
       },
       "AIMTRON": {
-        "last_successful_check_at": "2026-10-15T20:25:12.835013"
+        "last_successful_check_at": "2026-10-18T22:21:02.306862"
       },
       "ANONDITA": {
-        "last_successful_check_at": "2026-10-15T20:25:13.650226"
+        "last_successful_check_at": "2026-10-18T22:21:03.425829"
       },
       "ASALCBR": {
-        "last_successful_check_at": "2026-10-15T20:25:14.383311"
+        "last_successful_check_at": "2026-10-18T22:21:04.467174"
       },
       "BOROSCI": {
-        "last_successful_check_at": "2026-10-15T20:25:17.497268"
+        "last_successful_check_at": "2026-10-18T22:21:08.155304"
       },
       "DANISH": {
-        "last_successful_check_at": "2026-10-15T20:25:19.900506"
+        "last_successful_check_at": "2026-10-18T22:21:11.615456"
       },
       "EUROPRATIK": {
-        "last_successful_check_at": "2026-10-15T20:25:21.526282"
+        "last_successful_check_at": "2026-10-18T22:21:14.397972"
       },
       "GKENERGY": {
-        "last_successful_check_at": "2026-10-15T20:25:23.691956"
+        "last_successful_check_at": "2026-10-18T22:21:18.016478"
       },
       "GUJGASLTD": {
-        "last_successful_check_at": "2026-10-15T20:25:25.768328"
+        "last_successful_check_at": "2026-10-18T22:20:16.095937"
       },
       "JUBLCPL": {
-        "last_successful_check_at": "2026-10-15T20:25:27.534111"
+        "last_successful_check_at": "2026-10-18T22:21:23.399959"
       },
       "KRN": {
-        "last_successful_check_at": "2026-10-15T20:25:28.299238"
+        "last_successful_check_at": "2026-10-18T22:21:25.056163"
       },
       "MANORAMA": {
-        "last_successful_check_at": "2026-10-15T20:25:30.163016"
+        "last_successful_check_at": "2026-10-18T22:21:28.837446"
       },
       "MEDIASSIST": {
-        "last_successful_check_at": "2026-10-15T20:25:30.950657"
+        "last_successful_check_at": "2026-10-18T22:21:30.576019"
       },
       "MONOLITH": {
-        "last_successful_check_at": "2026-10-15T20:25:31.857106"
+        "last_successful_check_at": "2026-10-18T22:21:44.167855"
       },
       "NINSYS": {
-        "last_successful_check_at": "2026-10-15T20:25:32.522907"
+        "last_successful_check_at": "2026-10-18T22:21:45.297426"
       },
       "PATANJALI": {
-        "last_successful_check_at": "2026-10-15T20:25:34.174971"
+        "last_successful_check_at": "2026-10-18T22:21:46.853972"
       },
       "RATNAVEER": {
-        "last_successful_check_at": "2026-10-15T20:25:35.416693"
+        "last_successful_check_at": "2026-10-18T22:22:02.445247"
       },
       "ROSSTECH": {
-        "last_successful_check_at": "2026-10-15T20:25:36.629278"
+        "last_successful_check_at": "2026-10-18T22:22:04.191453"
       },
       "SANOFICONR": {
-        "last_successful_check_at": "2026-10-15T20:25:37.469591"
+        "last_successful_check_at": "2026-10-18T22:22:05.754441"
       },
       "SHREEJISPG": {
-        "last_successful_check_at": "2026-10-15T20:25:39.738784"
+        "last_successful_check_at": "2026-10-18T22:22:07.168996"
       },
       "SOLEX": {
-        "last_successful_check_at": "2026-10-15T20:25:40.787925"
+        "last_successful_check_at": "2026-10-18T22:22:08.896559"
       },
       "VENTIVE": {
-        "last_successful_check_at": "2026-10-15T20:25:43.253515"
+        "last_successful_check_at": "2026-10-18T22:22:12.435923"
       },
       "VMARCIND": {
-        "last_successful_check_at": "2026-10-15T20:25:44.197883"
+        "last_successful_check_at": "2026-10-18T22:22:13.918520"
       },
       "VSSL": {
-        "last_successful_check_at": "2026-10-15T20:25:45.310749"
+        "last_successful_check_at": "2026-10-18T22:22:15.032130"
       },
       "WEBELSOLAR": {
-        "last_successful_check_at": "2026-10-15T20:25:46.532714"
+        "last_successful_check_at": "2026-10-18T22:22:16.754284"
       },
       "CAMPUS": {
         "last_successful_check_at": "2026-10-15T20:25:47.685367"
@@ -375,7 +375,7 @@
         "last_successful_check_at": "2026-10-15T20:25:50.107060"
       },
       "MANYAVAR": {
-        "last_successful_check_at": "2026-10-15T20:25:51.054258"
+        "last_successful_check_at": "2026-10-18T22:21:00.026887"
       },
       "MOLDTKPAC": {
         "last_successful_check_at": "2026-10-15T20:25:52.000931"
