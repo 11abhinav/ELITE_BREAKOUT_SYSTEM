@@ -4813,8 +4813,8 @@ function changeAdminPage(type, delta) {
       } else if (tabId === 'filings-discovery') {
         if (typeof loadCorporateFilingsDiscovery === 'function') loadCorporateFilingsDiscovery();
       } else if (tabId === 'stock-data-health') {
-        // Always force-fetch to ensure stale and fresh stocks are current (bypass 30s idempotency guard)
-        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(true);
+        // Instant SWR hydration from cache followed by smooth background sync
+        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(false);
       }
     }
 
@@ -13711,12 +13711,6 @@ function _applyStockDataHealthData(data) {
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
-  if (force) {
-    try { sessionStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
-    SDH_STALE_STOCKS = [];
-    SDH_FRESH_STOCKS = [];
-  }
-
   // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
   if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
     try {
@@ -13733,12 +13727,21 @@ async function fetchStockDataHealth(force = false) {
   }
 
   SDH_IS_FETCHING = true;
+  const refreshBtn = document.getElementById('btn-refresh-sdh') || document.querySelector('button[onclick*="fetchStockDataHealth"]');
+  const origBtnText = refreshBtn ? refreshBtn.innerHTML : '';
+  if (refreshBtn && force) {
+    refreshBtn.style.opacity = '0.7';
+    refreshBtn.innerHTML = '🔄 Refreshing...';
+  }
+
   try {
     const forceParam = force ? '&force=1' : '';
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`);
     
     if (res.status === 401) {
       try { sessionStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
+      SDH_STALE_STOCKS = [];
+      SDH_FRESH_STOCKS = [];
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444; font-weight:700;">🔒 Admin session expired or not authenticated. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a></td></tr>`;
       }
@@ -13756,7 +13759,7 @@ async function fetchStockDataHealth(force = false) {
       } catch (_) {}
       _applyStockDataHealthData(data);
     } else {
-      if (tbody) {
+      if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
         tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || data.error || 'Server returned invalid response'}</td></tr>`;
       }
     }
@@ -13767,6 +13770,10 @@ async function fetchStockDataHealth(force = false) {
     }
   } finally {
     SDH_IS_FETCHING = false;
+    if (refreshBtn && force && origBtnText) {
+      refreshBtn.style.opacity = '1';
+      refreshBtn.innerHTML = origBtnText;
+    }
   }
 }
 
