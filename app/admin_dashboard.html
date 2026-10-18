@@ -5818,6 +5818,20 @@ function changeAdminPage(type, delta) {
       }, 120);
     }
 
+    function openScannerCooloff(sc) {
+      switchAdminTab('stock-data-health');
+      setSdhFilter('STALE');
+      setTimeout(() => {
+        const sdhSelect = document.getElementById('sdhScannerFilter');
+        if (sdhSelect) {
+          sdhSelect.value = sc;
+        }
+        if (typeof onSdhFilterChange === 'function') onSdhFilterChange();
+        const sec = document.getElementById('tab-stock-data-health');
+        if (sec) sec.scrollIntoView({ behavior: 'smooth' });
+      }, 120);
+    }
+
     function renderScannerGrid(scanner_stats) {
       const el = document.getElementById('scannerGrid');
       const elTab1 = document.getElementById('scannerGridTab1');
@@ -5953,6 +5967,7 @@ function changeAdminPage(type, delta) {
             `;
           }
           actionBtns += `<button class="scanner-action-btn log" onclick="openScannerHistory('${sc}')">📜 Logs</button>`;
+          actionBtns += `<button class="scanner-action-btn" onclick="openScannerCooloff('${sc}')" style="background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); font-size:11px; padding:5px 8px; border-radius:6px; cursor:pointer; font-weight:700;" title="View cool-off stocks for ${sc}">⚠️ Cool-off</button>`;
 
           html_buffer += `
             <div class="scanner-row ${statusClass}">
@@ -9066,14 +9081,31 @@ function updateSehScannerDropdown(scanners) {
 
 function updateSdhScannerFilter(scanners) {
   const sdhSelect = document.getElementById('sdhScannerFilter');
-  if (!sdhSelect || !Array.isArray(scanners)) return;
+  if (!sdhSelect) return;
   const curVal = sdhSelect.value;
   const baseOptions = [
     { value: 'ALL', label: 'All Reasons & Scanners' },
     { value: 'COOLOFF_ACTIVE', label: '⚠️ Active Cool-off (Suppressed)' },
-    { value: 'PIT_STALENESS', label: '⏳ PIT Staleness (>2Y)' }
+    { value: 'PIT_STALENESS', label: '⏳ PIT Staleness (>2Y)' },
+    { value: 'CAT_VALUATION', label: 'Category: VALUATION' },
+    { value: 'CAT_QUALITY', label: 'Category: QUALITY' },
+    { value: 'CAT_PRICE', label: 'Category: PRICE' },
+    { value: 'CAT_SEBI_LODR', label: 'Category: SEBI LODR' },
+    { value: 'CAT_FILINGS', label: 'Category: FILINGS' },
+    { value: 'CAT_DATA_CONFLICT', label: 'Category: DATA CONFLICT' }
   ];
-  const dynamicOptions = scanners.map(s => ({
+  const standardScanners = [
+    'TECHNICAL',
+    'FUNDAMENTAL',
+    'QUALITY_COMPOUNDER',
+    'QUALITY_VALUE_RECOVERY',
+    'REVERSAL',
+    'DAILY_BUILDER',
+    'FILING_WATCHER',
+    'PERFORMANCE_TRACKER'
+  ];
+  const allScanners = Array.from(new Set([...standardScanners, ...(Array.isArray(scanners) ? scanners : [])]));
+  const dynamicOptions = allScanners.map(s => ({
     value: s,
     label: `Scanner: ${s}`
   }));
@@ -14159,7 +14191,8 @@ function renderStockDataHealthTable() {
         return (it.reason_category || '').toUpperCase() === cat;
       }
       if (fScanner === 'CERTIFIED') return (it.provenance_status === 'CERTIFIED');
-      return (it.scanner || '').toUpperCase() === fScanner;
+      const sc = (it.scanner || '').toUpperCase();
+      return sc === fScanner || sc === 'ALL';
     });
   }
 
