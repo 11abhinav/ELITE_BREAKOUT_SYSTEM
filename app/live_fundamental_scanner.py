@@ -2560,7 +2560,7 @@ class LiveFundamentalBuyScanner:
                         add_symbol_to_cooloff(
                             symbol=sym,
                             reason=reason_code,
-                            scanner="ALL",
+                            scanner="FUNDAMENTAL",
                             duration_days=7
                         )
                     except Exception as _ce:
@@ -5036,7 +5036,7 @@ class QualityCompounderValueV2Scanner:
                     add_symbol_to_cooloff(
                         symbol=sym,
                         reason="DATA_MISSING_PIT_FILINGS",
-                        scanner="ALL",
+                        scanner=self.strategy_id,
                         duration_days=7
                     )
                 except Exception as _ce:
@@ -5234,7 +5234,7 @@ class QualityCompounderValueV2Scanner:
                     add_symbol_to_cooloff(
                         symbol=sym,
                         reason="PRICE_DATA_MISSING:LIVE_CMP_UNAVAILABLE",
-                        scanner="ALL",
+                        scanner=self.strategy_id,
                         duration_days=7
                     )
                 except Exception as _ce:

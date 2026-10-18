@@ -9188,8 +9188,20 @@ def add_symbol_to_cooloff(
     with _LOCAL_COOLOFF_LOCK:
         # Check if symbol was already actively in cool-off
         existing = _LOCAL_COOLOFF_CACHE.get((sym, scan))
-        if not existing or (existing.get("cooloff_until") and existing.get("cooloff_until") <= now_dt):
+        if existing:
+            ex_until = existing.get("cooloff_until")
+            if isinstance(ex_until, str):
+                try:
+                    ex_until = datetime.fromisoformat(ex_until.replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            if ex_until and ex_until > now_dt:
+                is_new_stale = False
+            else:
+                is_new_stale = True
+        else:
             is_new_stale = True
+
         _LOCAL_COOLOFF_CACHE[(sym, scan)] = {
             "symbol": sym,
             "reason": reason_clean,
@@ -9203,24 +9215,43 @@ def add_symbol_to_cooloff(
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
+                    # 1. Check if symbol is already actively in cool-off in DB for this scanner or ALL
+                    cur.execute("""
+                        SELECT cooloff_until FROM symbol_cooloff_journal
+                        WHERE symbol = %s AND (scanner = %s OR scanner = 'ALL')
+                          AND cooloff_until > %s
+                        LIMIT 1
+                    """, (sym, scan, now_dt))
+                    row = cur.fetchone()
+                    if row is not None:
+                        is_new_stale = False
+
+                    # 2. Check if admin notification was already sent in the last 7 days for this symbol
                     if is_new_stale:
                         cur.execute("""
-                            SELECT cooloff_until FROM symbol_cooloff_journal
-                            WHERE symbol = %s AND (scanner = %s OR scanner = 'ALL')
-                              AND cooloff_until > %s
-                        """, (sym, scan, now_dt))
-                        row = cur.fetchone()
-                        if row and row[0] and row[0] > now_dt:
+                            SELECT id FROM global_notifications
+                            WHERE symbol = %s AND title LIKE %s
+                              AND created_at > %s
+                            LIMIT 1
+                        """, (sym, f"Stale Data: {sym}%", now_dt - timedelta(days=7)))
+                        if cur.fetchone() is not None:
                             is_new_stale = False
 
+                    # 3. Upsert into symbol_cooloff_journal. If active, preserve original cooloff_until window.
                     cur.execute("""
                         INSERT INTO symbol_cooloff_journal (
                             symbol, reason, scanner, cooloff_start_at, cooloff_until, provider_failures, created_at, updated_at
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (symbol, scanner) DO UPDATE SET
                             reason = EXCLUDED.reason,
-                            cooloff_start_at = EXCLUDED.cooloff_start_at,
-                            cooloff_until = EXCLUDED.cooloff_until,
+                            cooloff_start_at = CASE 
+                                WHEN symbol_cooloff_journal.cooloff_until > NOW() THEN symbol_cooloff_journal.cooloff_start_at 
+                                ELSE EXCLUDED.cooloff_start_at 
+                            END,
+                            cooloff_until = CASE 
+                                WHEN symbol_cooloff_journal.cooloff_until > NOW() THEN symbol_cooloff_journal.cooloff_until 
+                                ELSE EXCLUDED.cooloff_until 
+                            END,
                             provider_failures = EXCLUDED.provider_failures,
                             updated_at = EXCLUDED.updated_at
                     """, (
@@ -9249,12 +9280,12 @@ def add_symbol_to_cooloff(
     except Exception:
         pass
 
-    # Admin notification for marking stock as stale data
+    # Admin notification for marking stock as stale data (sent strictly ONCE per 7-day cooloff period)
     if notify_admin and is_new_stale:
         try:
-            title = f"Stale Data: {sym}"
+            title = f"Stale Data: {sym} ({scan})"
             msg = (
-                f"Marking as stale data: {sym}. Reason: {reason_clean}. "
+                f"Marking as stale data for {scan}: {sym}. Reason: {reason_clean}. "
                 f"Entered into cool-off table ({scan}) to not be processed for {duration_days} days "
                 f"(until {until_dt.strftime('%Y-%m-%d')})."
             )
@@ -9927,6 +9958,26 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
 
     stale_map = {}
 
+    def _classify_reason_category(reason: str, failures: Any = None) -> str:
+        r_upper = str(reason or "").upper()
+        pf_str = str(failures or "").upper()
+        comb = f"{r_upper} {pf_str}"
+        if any(k in comb for k in ("VALUATION", "EV_EBITDA", "PE_MEDIAN", "DISCOUNT")):
+            return "VALUATION"
+        if any(k in comb for k in ("QUALITY", "ROCE", "SALES_CAGR", "PAT_CAGR", "CFO", "DEBT", "DILUTION", "DILUTION_STATUS")):
+            return "QUALITY"
+        if any(k in comb for k in ("PRICE", "CMP", "OHLCV", "LOOKBACK")):
+            return "PRICE"
+        if any(k in comb for k in ("SEBI_LODR", "SEBI", "LOCAL_CACHE_BACKFILL")):
+            return "SEBI_LODR"
+        if any(k in comb for k in ("PIT_STALENESS", "STALE_SNAPSHOT", "STALENESS")):
+            return "STALENESS"
+        if any(k in comb for k in ("MISSING_RAW_FILINGS", "FILING_GAP", "NO_RAW_DISCLOSURES", "PIT_DATA")):
+            return "FILINGS"
+        if "CONFLICT" in comb:
+            return "DATA_CONFLICT"
+        return "OTHER"
+
     # Security master for company names
     sec_master = _get_bse_security_master()
 
@@ -10294,6 +10345,8 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
 
     reasons_counter = {}
     for item in stale_map.values():
+        if not item.get("reason_category"):
+            item["reason_category"] = _classify_reason_category(item.get("reason", ""), item.get("provider_failures"))
         r = item.get("reason", "UNKNOWN").split(" (")[0]
         reasons_counter[r] = reasons_counter.get(r, 0) + 1
 
