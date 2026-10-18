@@ -4217,6 +4217,11 @@ function changeAdminPage(type, delta) {
                   <option value="ALL">All Reasons &amp; Scanners</option>
                   <option value="COOLOFF_ACTIVE">⚠️ Active Cool-off (Suppressed)</option>
                   <option value="PIT_STALENESS">⏳ PIT Staleness (&gt;2Y)</option>
+                  <option value="CAT_VALUATION">Category: VALUATION</option>
+                  <option value="CAT_QUALITY">Category: QUALITY</option>
+                  <option value="CAT_PRICE">Category: PRICE</option>
+                  <option value="CAT_SEBI_LODR">Category: SEBI LODR</option>
+                  <option value="CAT_FILINGS">Category: FILINGS</option>
                   <option value="TECHNICAL">Scanner: TECHNICAL</option>
                   <option value="FUNDAMENTAL">Scanner: FUNDAMENTAL</option>
                   <option value="QUALITY_COMPOUNDER">Scanner: QUALITY_COMPOUNDER</option>
@@ -14002,7 +14007,7 @@ function exportStockDataHealthCSV() {
   }
 
   const headers = [
-    'Symbol', 'Company Name', 'ISIN', 'Health Status', 'Last Fetched',
+    'Symbol', 'Company Name', 'ISIN', 'Health Status', 'Category', 'Scanner', 'Last Fetched',
     'Latest Period', 'Filings Count In DB', 'Diagnostics / Reason', 'Cooloff Until',
     'CMP (Rs)', 'Market Cap (Cr)', 'PE', 'EV/EBITDA', 'ROCE 5Y (%)', 'ROE (%)',
     'Sales CAGR 5Y (%)', 'PAT CAGR 5Y (%)', 'CFO/PAT', 'Debt/Equity',
@@ -14052,6 +14057,8 @@ function exportStockDataHealthCSV() {
       escapeCsv(it.company_name || ''),
       escapeCsv(it.isin || ''),
       escapeCsv(isStale ? 'STALE' : 'FRESH'),
+      escapeCsv(isStale ? (it.reason_category || 'OTHER') : 'CERTIFIED'),
+      escapeCsv(isStale ? (it.scanner || 'ALL') : '—'),
       escapeCsv(isStale ? (it.cooloff_start_at ? it.cooloff_start_at.slice(0, 10) : '') : (it.last_fetched_at || it.as_of_date || '')),
       escapeCsv(it.latest_period_in_db || it.latest_annual_period || ''),
       escapeCsv(it.filings_count_in_db !== undefined ? it.filings_count_in_db : 0),
@@ -14146,6 +14153,10 @@ function renderStockDataHealthTable() {
       if (fScanner === 'COOLOFF_ACTIVE') return !!it._is_stale;
       if (fScanner === 'PIT_STALENESS') {
         return (it.reason || '').includes('PIT_STALENESS') || (it.missing_data_summary || '').includes('PIT');
+      }
+      if (fScanner.startsWith('CAT_')) {
+        const cat = fScanner.replace('CAT_', '');
+        return (it.reason_category || '').toUpperCase() === cat;
       }
       if (fScanner === 'CERTIFIED') return (it.provenance_status === 'CERTIFIED');
       return (it.scanner || '').toUpperCase() === fScanner;
@@ -14428,8 +14439,23 @@ function renderStockDataHealthTable() {
       const summaryText = (it.missing_data_summary || it.reason || 'Data criteria not met').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const daysLeft = it.days_remaining !== undefined ? it.days_remaining : 7.0;
       const untilDate = it.cooloff_until ? it.cooloff_until.slice(0, 10) : '';
+      const cat = it.reason_category || '';
+      let catBadge = '';
+      if (cat) {
+        let catColor = '#38bdf8';
+        let catBg = 'rgba(56,189,248,0.15)';
+        if (cat === 'VALUATION') { catColor = '#f59e0b'; catBg = 'rgba(245,158,11,0.15)'; }
+        else if (cat === 'QUALITY') { catColor = '#a855f7'; catBg = 'rgba(168,85,247,0.15)'; }
+        else if (cat === 'PRICE') { catColor = '#ec4899'; catBg = 'rgba(236,72,153,0.15)'; }
+        else if (cat === 'SEBI_LODR') { catColor = '#ef4444'; catBg = 'rgba(239,68,68,0.15)'; }
+        catBadge = `<span style="background:${catBg}; color:${catColor}; border:1px solid ${catColor}44; padding:1px 5px; border-radius:4px; font-size:9px; font-weight:800; text-transform:uppercase;">${cat}</span>`;
+      }
       diagHtml = `<div style="color:#ef4444; font-weight:700; font-size:11px; margin-bottom:2px; line-height:1.3;">${summaryText}</div>
-        <div style="font-size:10px; color:var(--muted);">Scanner: ${it.scanner || 'ALL'} &nbsp;|&nbsp; ⏳ ${daysLeft}d left (until ${untilDate})</div>`;
+        <div style="font-size:10px; color:var(--muted); display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-top:2px;">
+          ${catBadge}
+          <span>Scanner: <strong style="color:var(--text);">${it.scanner || 'ALL'}</strong></span>
+          <span>&nbsp;|&nbsp; ⏳ ${daysLeft}d left (until ${untilDate})</span>
+        </div>`;
     } else {
       let recentBadges = '';
       if (Array.isArray(it.recent_periods) && it.recent_periods.length > 0) {
