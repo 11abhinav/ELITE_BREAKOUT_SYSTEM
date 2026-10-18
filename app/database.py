@@ -9800,6 +9800,77 @@ def get_sebi_lodr_mandatory_filing_status(
     return (f"{y}-03-31", f"{y}-05-30", f"Q4/Annual Audited (ended Mar 31, {y})")
 
 
+def _load_canonical_snapshot_df() -> Optional[Any]:
+    """
+    Resilient loader for canonical_pit_rebuilt.parquet with multi-tier self-healing:
+      Tier 1: Load data/canonical_pit_rebuilt.parquet
+      Tier 2: If corrupted or missing, restore from data_seed/canonical_pit_rebuilt.parquet
+      Tier 3: Download authoritative snapshot from Postgres parquet_cache
+      Tier 4: Rebuild snapshot on-demand via canonical_pit_publisher
+    Guarantees that stale corruption in persistent volumes never produces 0 fresh stocks.
+    """
+    import os, shutil
+    import pandas as pd
+    base_dir = Path(__file__).resolve().parent.parent
+    snap_path = base_dir / "data" / "canonical_pit_rebuilt.parquet"
+
+    # Try Tier 1: Primary local snapshot
+    if snap_path.exists():
+        try:
+            df = pd.read_parquet(snap_path)
+            if df is not None and not df.empty and "symbol" in df.columns:
+                return df
+        except Exception as e:
+            logger.warning(f"⚠️ [CANONICAL_LOADER] Primary snapshot corrupted at {snap_path}: {e}. Initiating self-healing...")
+
+    # Try Tier 2: Seed directory (Docker /app/data_seed or local data_seed)
+    for seed_cand in [
+        base_dir / "data_seed" / "canonical_pit_rebuilt.parquet",
+        Path("/app/data_seed/canonical_pit_rebuilt.parquet"),
+        base_dir / "data" / "pit_fundamentals_v1" / "pit_fundamentals_v1.parquet",
+    ]:
+        if seed_cand.exists():
+            try:
+                df_seed = pd.read_parquet(seed_cand)
+                if df_seed is not None and not df_seed.empty and "symbol" in df_seed.columns:
+                    logger.info(f"✅ [CANONICAL_LOADER] Self-healed snapshot from seed {seed_cand} ({len(df_seed)} rows)")
+                    try:
+                        snap_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(seed_cand, snap_path)
+                        meta_seed = seed_cand.parent / "canonical_pit_rebuilt_meta.json"
+                        if meta_seed.exists():
+                            shutil.copy2(meta_seed, snap_path.parent / "canonical_pit_rebuilt_meta.json")
+                    except Exception:
+                        pass
+                    return df_seed
+            except Exception:
+                pass
+
+    # Try Tier 3: Postgres DB cache download
+    try:
+        tmp_db_path = str(snap_path) + ".db_loader_tmp"
+        if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_path):
+            df_db = pd.read_parquet(tmp_db_path)
+            if df_db is not None and not df_db.empty and "symbol" in df_db.columns:
+                shutil.move(tmp_db_path, str(snap_path))
+                logger.info(f"✅ [CANONICAL_LOADER] Self-healed snapshot from Postgres DB ({len(df_db)} rows)")
+                return df_db
+    except Exception as db_err:
+        logger.debug(f"[CANONICAL_LOADER] DB download attempt note: {db_err}")
+
+    # Try Tier 4: Quick rebuild if raw filings exist
+    try:
+        from scripts.canonical_pit_publisher import rebuild_and_publish_canonical_pit
+        logger.info("⚡ [CANONICAL_LOADER] Initiating emergency on-demand canonical PIT rebuild...")
+        df_rebuilt = rebuild_and_publish_canonical_pit()
+        if df_rebuilt is not None and not df_rebuilt.empty:
+            return df_rebuilt
+    except Exception as reb_err:
+        logger.error(f"❌ [CANONICAL_LOADER] Emergency rebuild failed: {reb_err}")
+
+    return None
+
+
 def get_stale_stocks_audit() -> List[Dict[str, Any]]:
     """
     Returns all stocks currently marked as stale or in the 7-day cool-off suppression table.
@@ -9933,9 +10004,8 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
     # 3. Check canonical snapshot for DATA_STALE, filing gaps, and enrich existing stale items
     raw_cache = _get_parsed_raw_filings_cache()
     try:
-        snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
-        if snap_path.exists():
-            snap_df = pd.read_parquet(snap_path)
+        snap_df = _load_canonical_snapshot_df()
+        if snap_df is not None and not snap_df.empty:
 
             def _val(x, round_n=2):
                 if x is None or pd.isna(x):
@@ -10218,14 +10288,8 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
         except Exception:
             pass
 
-    snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
-    if not snap_path.exists():
-        return []
-
-    try:
-        snap_df = pd.read_parquet(snap_path)
-    except Exception as e:
-        logger.debug(f"[FRESH_AUDIT] Error loading snapshot: {e}")
+    snap_df = _load_canonical_snapshot_df()
+    if snap_df is None or snap_df.empty:
         return []
 
     # Fetch active cool-off symbols to ensure strict mutual exclusivity

@@ -13711,6 +13711,12 @@ function _applyStockDataHealthData(data) {
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
+  if (force) {
+    try { sessionStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
+    SDH_STALE_STOCKS = [];
+    SDH_FRESH_STOCKS = [];
+  }
+
   // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
   if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
     try {
@@ -13732,8 +13738,9 @@ async function fetchStockDataHealth(force = false) {
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`);
     
     if (res.status === 401) {
-      if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
-        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">🔒 Admin session expired. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a></td></tr>`;
+      try { sessionStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444; font-weight:700;">🔒 Admin session expired or not authenticated. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a></td></tr>`;
       }
       return;
     }
@@ -13749,7 +13756,7 @@ async function fetchStockDataHealth(force = false) {
       } catch (_) {}
       _applyStockDataHealthData(data);
     } else {
-      if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
+      if (tbody) {
         tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || data.error || 'Server returned invalid response'}</td></tr>`;
       }
     }
