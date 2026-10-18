@@ -14614,83 +14614,63 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
         "affected_metrics": affected_metrics,
     }
 
-    # 2. Postgres Upsert (Strictly ONE finding row per stock per filing_date)
+    # 2. Postgres Upsert (Atomic ON CONFLICT against cfl_sym_filing_uniq)
     try:
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT id, period_end FROM corporate_filings_log
-                        WHERE symbol = %s AND filing_date = %s
-                    """, (sym, filing_date))
-                    existing_row = cur.fetchone()
-
-                    if existing_row:
-                        exist_id, exist_p_end = existing_row[0], str(existing_row[1] or "")
-                        # Only update if the incoming filing is for the same or a newer period_end
-                        if period_end >= exist_p_end:
-                            cur.execute("""
-                                UPDATE corporate_filings_log SET
-                                    discovered_at = %s,
-                                    period_end = %s,
-                                    filing_id = %s,
-                                    statement_type = %s,
-                                    basis = %s,
-                                    event_type = %s,
-                                    revenue_cr = COALESCE(%s, revenue_cr),
-                                    operating_profit_cr = COALESCE(%s, operating_profit_cr),
-                                    pat_cr = COALESCE(%s, pat_cr),
-                                    eps = COALESCE(%s, eps),
-                                    roce_pct = COALESCE(%s, roce_pct),
-                                    roe_pct = COALESCE(%s, roe_pct),
-                                    debt_to_equity = COALESCE(%s, debt_to_equity),
-                                    operating_margin_pct = COALESCE(%s, operating_margin_pct),
-                                    net_margin_pct = COALESCE(%s, net_margin_pct),
-                                    shares_outstanding = COALESCE(%s, shares_outstanding),
-                                    filing_broadcast_date = COALESCE(%s, filing_broadcast_date),
-                                    status = %s,
-                                    headline = %s,
-                                    raw_facts = %s::jsonb,
-                                    affected_metrics = %s::jsonb,
-                                    updated_at = NOW()
-                                WHERE id = %s
-                            """, (
-                                discovered_at, period_end, filing_id, st_type, basis, event_type,
-                                revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
-                                roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
-                                shares_outstanding, broadcast_date, status, headline,
-                                json.dumps(_sanitize_for_json(raw_facts)),
-                                json.dumps(_sanitize_for_json(affected_metrics)),
-                                exist_id
-                            ))
-                            conn.commit()
-                    else:
-                        cur.execute("""
-                            INSERT INTO corporate_filings_log (
-                                filing_date, discovered_at, symbol, company_name, exchange,
-                                filing_id, period_end, statement_type, basis, event_type,
-                                revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
-                                roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
-                                shares_outstanding, filing_broadcast_date, status, headline,
-                                source_url, raw_facts, affected_metrics, updated_at
-                            ) VALUES (
-                                %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s,
-                                %s::jsonb, %s::jsonb, NOW()
-                            )
-                        """, (
-                            filing_date, discovered_at, sym, company_name, exchange,
-                            filing_id, period_end, st_type, basis, event_type,
-                            revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
-                            roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
-                            shares_outstanding, broadcast_date, status, headline,
-                            source_url, json.dumps(_sanitize_for_json(raw_facts)),
-                            json.dumps(_sanitize_for_json(affected_metrics))
-                        ))
-                        conn.commit()
+                        INSERT INTO corporate_filings_log (
+                            filing_date, discovered_at, symbol, company_name, exchange,
+                            filing_id, period_end, statement_type, basis, event_type,
+                            revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
+                            roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
+                            shares_outstanding, filing_broadcast_date, status, headline,
+                            source_url, raw_facts, affected_metrics, updated_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s::jsonb, %s::jsonb, NOW()
+                        )
+                        ON CONFLICT (symbol, filing_id, statement_type, basis)
+                        DO UPDATE SET
+                            discovered_at = EXCLUDED.discovered_at,
+                            filing_date = EXCLUDED.filing_date,
+                            period_end = CASE 
+                                WHEN EXCLUDED.period_end >= corporate_filings_log.period_end THEN EXCLUDED.period_end 
+                                ELSE corporate_filings_log.period_end 
+                            END,
+                            event_type = EXCLUDED.event_type,
+                            revenue_cr = COALESCE(EXCLUDED.revenue_cr, corporate_filings_log.revenue_cr),
+                            operating_profit_cr = COALESCE(EXCLUDED.operating_profit_cr, corporate_filings_log.operating_profit_cr),
+                            pat_cr = COALESCE(EXCLUDED.pat_cr, corporate_filings_log.pat_cr),
+                            eps = COALESCE(EXCLUDED.eps, corporate_filings_log.eps),
+                            roce_pct = COALESCE(EXCLUDED.roce_pct, corporate_filings_log.roce_pct),
+                            roe_pct = COALESCE(EXCLUDED.roe_pct, corporate_filings_log.roe_pct),
+                            debt_to_equity = COALESCE(EXCLUDED.debt_to_equity, corporate_filings_log.debt_to_equity),
+                            operating_margin_pct = COALESCE(EXCLUDED.operating_margin_pct, corporate_filings_log.operating_margin_pct),
+                            net_margin_pct = COALESCE(EXCLUDED.net_margin_pct, corporate_filings_log.net_margin_pct),
+                            shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, corporate_filings_log.shares_outstanding),
+                            filing_broadcast_date = COALESCE(EXCLUDED.filing_broadcast_date, corporate_filings_log.filing_broadcast_date),
+                            status = EXCLUDED.status,
+                            headline = EXCLUDED.headline,
+                            source_url = COALESCE(EXCLUDED.source_url, corporate_filings_log.source_url),
+                            raw_facts = EXCLUDED.raw_facts,
+                            affected_metrics = EXCLUDED.affected_metrics,
+                            updated_at = NOW()
+                    """, (
+                        filing_date, discovered_at, sym, company_name, exchange,
+                        filing_id, period_end, st_type, basis, event_type,
+                        revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
+                        roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
+                        shares_outstanding, broadcast_date, status, headline,
+                        source_url, json.dumps(_sanitize_for_json(raw_facts)),
+                        json.dumps(_sanitize_for_json(affected_metrics))
+                    ))
+                    conn.commit()
     except Exception as pg_err:
         logger.debug(f"[CORPORATE_FILINGS] PG upsert note: {pg_err}")
 
