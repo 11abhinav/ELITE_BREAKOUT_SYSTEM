@@ -5372,7 +5372,7 @@ class QualityCompounderValueV2Scanner:
                         add_symbol_to_cooloff(
                             symbol=sym,
                             reason=f"DATA_INSUFFICIENT_QUALITY:{_miss_str}",
-                            scanner="ALL",
+                            scanner=self.strategy_id,
                             duration_days=7
                         )
                     except Exception as _ce:
@@ -5394,7 +5394,7 @@ class QualityCompounderValueV2Scanner:
                             add_symbol_to_cooloff(
                                 symbol=sym,
                                 reason="DATA_INSUFFICIENT_QUALITY:share_dilution_3y",
-                                scanner="ALL",
+                                scanner=self.strategy_id,
                                 duration_days=7
                             )
                         except Exception as _ce:
@@ -5539,7 +5539,7 @@ class QualityCompounderValueV2Scanner:
                         add_symbol_to_cooloff(
                             symbol=sym,
                             reason=f"DATA_INSUFFICIENT_VALUATION:{_val_reason or 'VALUATION_MISSING'}",
-                            scanner="ALL",
+                            scanner=self.strategy_id,
                             duration_days=7
                         )
                     except Exception as _ce:
@@ -7698,7 +7698,7 @@ class QualityValueRecoveryScanner:
                                 add_symbol_to_cooloff(
                                     symbol=sym,
                                     reason="PIT_DATA_MISSING",
-                                    scanner="ALL",
+                                    scanner=self.strategy_id,
                                     duration_days=7
                                 )
                             except Exception:
@@ -7817,7 +7817,7 @@ class QualityValueRecoveryScanner:
                                     add_symbol_to_cooloff(
                                         symbol=sym,
                                         reason=f"RECOVERY_DATA_INSUFFICIENT:{','.join(data_reasons)}",
-                                        scanner="ALL",
+                                        scanner=self.strategy_id,
                                         duration_days=7
                                     )
                                 except Exception as _ce:

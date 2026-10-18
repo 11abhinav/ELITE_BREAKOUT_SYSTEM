@@ -279,7 +279,7 @@ class FundamentalPreRecoveryEngine:
                                     add_symbol_to_cooloff(
                                         symbol=sym,
                                         reason=f"PIT_STALENESS_{round(staleness_years, 1)}Y_EXCEEDS_2.0Y",
-                                        scanner="ALL",
+                                        scanner="FUNDAMENTAL",
                                         duration_days=7
                                     )
                                 except Exception:
@@ -575,7 +575,7 @@ class FundamentalPreRecoveryEngine:
                         add_symbol_to_cooloff(
                             symbol=symbol,
                             reason=f"PARTIAL_RECOVERY_UNRESOLVED: {unrecovered}",
-                            scanner="ALL",
+                            scanner="FUNDAMENTAL",
                             duration_days=7
                         )
                     except Exception as _c_err:
@@ -634,7 +634,7 @@ class FundamentalPreRecoveryEngine:
                     add_symbol_to_cooloff(
                         symbol=symbol,
                         reason=reason_desc,
-                        scanner="ALL",
+                        scanner="FUNDAMENTAL",
                         duration_days=7
                     )
                 except Exception:

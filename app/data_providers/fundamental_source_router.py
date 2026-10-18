@@ -802,7 +802,7 @@ class FundamentalSourceRouter:
                     add_symbol_to_cooloff(
                         symbol=symbol,
                         reason=f"DATA_CONFLICT_ACROSS_{dual_src}",
-                        scanner="ALL",
+                        scanner="FUNDAMENTAL",
                         duration_days=7
                     )
                 except Exception:

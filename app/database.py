@@ -9156,7 +9156,7 @@ _LOCAL_COOLOFF_LOCK = threading.Lock()
 def add_symbol_to_cooloff(
     symbol: str,
     reason: str,
-    scanner: str = "ALL",
+    scanner: str = "FUNDAMENTAL",
     duration_days: int = 7,
     provider_failures: Optional[Any] = None,
     notify_admin: bool = True
@@ -9170,7 +9170,7 @@ def add_symbol_to_cooloff(
     if not symbol or not isinstance(symbol, str):
         return False
     sym = symbol.strip().upper()
-    scan = str(scanner or "ALL").strip().upper()
+    scan = str(scanner or "FUNDAMENTAL").strip().upper()
     reason_clean = str(reason or "APPROVED_PROVIDERS_EXHAUSTED").strip()
     
     pf_str = None
@@ -10208,7 +10208,7 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         stale_map[sym] = {
                             "symbol": sym,
                             "company_name": comp_name,
-                            "scanner": "ALL",
+                            "scanner": "FUNDAMENTAL",
                             "reason": reason,
                             "missing_data_summary": _format_missing_data(reason, row.get("filing_gaps"), sym),
                             "provider_failures": str(row.get("filing_gaps") or ""),
@@ -10270,7 +10270,7 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                             stale_map[sym] = {
                                 "symbol": sym,
                                 "company_name": comp_name,
-                                "scanner": "ALL",
+                                "scanner": "FUNDAMENTAL",
                                 "reason": reason,
                                 "missing_data_summary": missing_summary,
                                 "provider_failures": "",

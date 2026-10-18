@@ -863,7 +863,7 @@ class DataAvailabilityAuditor:
                                 add_symbol_to_cooloff(
                                     symbol=rec.symbol,
                                     reason=f"{rec.classification}: {rec.field} unavailable across primary sources",
-                                    scanner=rec.scanner or "ALL",
+                                    scanner=rec.scanner or "FUNDAMENTAL",
                                     duration_days=7,
                                     provider_failures={
                                         "field": rec.field,
