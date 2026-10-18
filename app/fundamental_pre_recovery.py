@@ -312,7 +312,7 @@ class FundamentalPreRecoveryEngine:
 
     def recover_symbol(self, symbol: str) -> ReconciledCanonicalMetrics:
         """Invokes the dual-source router to progressively fetch and reconcile."""
-        return self.router.execute_progressive_recovery(symbol, as_of_timestamp=self.as_of_timestamp)
+        return self.router.execute_progressive_recovery(symbol, as_of_timestamp=self.as_of_timestamp, scanner_name=self.scanner_name)
 
     def persist_verified_record(
         self,
@@ -561,6 +561,15 @@ class FundamentalPreRecoveryEngine:
                 self.persist_verified_record(df, symbol, metrics)
                 promoted_count += 1
                 logger.info(f"✅ [PRE_RECOVERY] {symbol}: recovery_status=SUCCESS | promotion_status=PROMOTED | fields={list(metrics.recovered_fields.keys())}")
+                try:
+                    try:
+                        from database import remove_symbol_from_cooloff
+                    except ImportError:
+                        from app.database import remove_symbol_from_cooloff
+                    remove_symbol_from_cooloff(symbol=symbol, scanner=self.scanner_name)
+                    logger.info(f"🔓 [PRE_RECOVERY] {symbol}: Successfully unblocked from cool-off for scanner={self.scanner_name}.")
+                except Exception as _rm_err:
+                    logger.debug(f"[PRE_RECOVERY] Cool-off removal notice for {symbol}: {_rm_err}")
             elif metrics.overall_status == FundamentalStatus.PARTIAL_RECOVERY or has_recovered:
                 unrecovered = [f for f in missing_fields if f not in (metrics.recovered_fields or {})]
                 if unrecovered:

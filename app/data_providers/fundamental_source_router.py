@@ -22,6 +22,7 @@ Economic identity:
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Any, Dict, List, Optional
 
@@ -518,6 +519,7 @@ class FundamentalSourceRouter:
         as_of_timestamp: Optional[str] = None,
         skip_canonical_pit: bool = False,
         required_fields: Optional[List[str]] = None,
+        scanner_name: str = "FUNDAMENTAL",
     ) -> ReconciledCanonicalMetrics:
         """
         Progressive field-level provider recovery with certified local raw filing fallback:
@@ -790,6 +792,13 @@ class FundamentalSourceRouter:
             dual_candidates.append((self._reconcile_upstox_and_local(symbol, nse_records, local_records, as_of_timestamp=as_of_timestamp), "NSE+LOCAL"))
         if has_bse and has_local:
             dual_candidates.append((self._reconcile_upstox_and_local(symbol, bse_records, local_records, as_of_timestamp=as_of_timestamp), "BSE+LOCAL"))
+        if sum([has_local, has_nse, has_upstox, has_bse]) >= 2:
+            all_primary = []
+            if has_nse: all_primary.extend(nse_records)
+            if has_bse: all_primary.extend(bse_records)
+            if has_upstox: all_primary.extend(upstox_records)
+            if all_primary and has_local:
+                dual_candidates.append((self._reconcile_upstox_and_local(symbol, all_primary, local_records, as_of_timestamp=as_of_timestamp), "MULTI_SOURCE_PRIMARY"))
 
         for dual_met, dual_src in dual_candidates:
             if dual_met and dual_met.overall_status == FundamentalStatus.DATA_CONFLICT:
@@ -802,7 +811,7 @@ class FundamentalSourceRouter:
                     add_symbol_to_cooloff(
                         symbol=symbol,
                         reason=f"DATA_CONFLICT_ACROSS_{dual_src}",
-                        scanner="FUNDAMENTAL",
+                        scanner=scanner_name,
                         duration_days=7
                     )
                 except Exception:
@@ -1041,7 +1050,7 @@ class FundamentalSourceRouter:
         ]
         populated_count = sum(1 for f in core_fields if f is not None)
         if populated_count == len(core_fields):
-            metrics.overall_status = FundamentalStatus.VERIFIED if overlap_dates else FundamentalStatus.VERIFIED_SINGLE_SOURCE
+            metrics.overall_status = FundamentalStatus.VERIFIED if overlap_periods else FundamentalStatus.VERIFIED_SINGLE_SOURCE
         elif populated_count > 0:
             metrics.overall_status = FundamentalStatus.PARTIAL_RECOVERY
         else:

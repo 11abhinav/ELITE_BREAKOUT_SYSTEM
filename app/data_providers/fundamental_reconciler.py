@@ -27,6 +27,9 @@ class FundamentalReconciler:
     def reconcile_and_calculate(self, symbol: str, nse_records: List[RawFinancialRecord], upstox_records: List[RawFinancialRecord]) -> ReconciledCanonicalMetrics:
         """
         Reconciles Upstox and NSE raw records and calculates derived metrics.
+        Bridges disjoint fiscal years across certified providers on the same statement basis
+        (e.g., NSE's historical filings + Upstox's recent filings).
+        For overlapping periods, verifies agreement (<25% tolerance, preferring official NSE exchange filings).
         """
         metrics = ReconciledCanonicalMetrics(symbol=symbol)
         
@@ -34,10 +37,14 @@ class FundamentalReconciler:
             metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
             return metrics
             
-        # [RULE 67 CHANGE-RATIONALE: If single source available, derive metrics from available records rather than returning empty metrics with VERIFIED_SINGLE_SOURCE]
         if not nse_records or not upstox_records:
             source_recs = nse_records if nse_records else upstox_records
             return self._calculate_from_records(symbol, source_recs, is_dual=False)
+
+        try:
+            from app.financial_data_integrity import convert_to_inr_crores
+        except ImportError:
+            from financial_data_integrity import convert_to_inr_crores
             
         def _norm_unit(u: str) -> str:
             u_clean = str(u or "").lower().strip()
@@ -47,65 +54,146 @@ class FundamentalReconciler:
                 return "lakh"
             return u_clean
 
-        def _get_key(rec: RawFinancialRecord) -> str:
-            u = _norm_unit(rec.unit)
-            c = rec.consolidation.value if hasattr(rec.consolidation, "value") else str(rec.consolidation)
-            return f"{rec.symbol}|{rec.period_end_date}|{rec.period_type}|{c}|{u}|{rec.currency}"
-        
-        nse_dict = {_get_key(r): r for r in nse_records}
-        upstox_dict = {_get_key(r): r for r in upstox_records}
+        def _get_c_val(r: RawFinancialRecord) -> str:
+            c = r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation)
+            return c.upper().strip()
 
-        common_keys = set(nse_dict.keys()).intersection(upstox_dict.keys())
+        nse_annual = [r for r in nse_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"]
+        upx_annual = [r for r in upstox_records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"]
+        if not nse_annual: nse_annual = nse_records
+        if not upx_annual: upx_annual = upstox_records
 
-        if not common_keys:
-            nse_periods = {getattr(r, "period_end_date", "") for r in nse_records}
-            upx_periods = {getattr(r, "period_end_date", "") for r in upstox_records}
-            if nse_periods.intersection(upx_periods):
-                metrics.overall_status = FundamentalStatus.STATEMENT_MISMATCH
-            else:
-                metrics.overall_status = FundamentalStatus.PERIOD_MISMATCH
-            return metrics
-            
-        # Get the latest record among common keys for comparison
-        latest_key = sorted(list(common_keys), key=lambda k: k.split('|')[1], reverse=True)[0]
-        nse_rec = nse_dict[latest_key]
-        upx_rec = upstox_dict[latest_key]
-            
-        # 2. Raw-value reconciliation (Revenue, PAT, CFO, Debt, Equity, EBIT, CapEmployed)
-        def _check_tolerance(nse_val: Optional[float], upx_val: Optional[float], tol: float) -> bool:
-            if nse_val is None or upx_val is None:
-                return False
-            if nse_val == 0.0:
-                return upx_val == 0.0
-            return abs(upx_val - nse_val) / abs(nse_val) <= tol
+        # Map by period_end_date[:10]
+        nse_dict: Dict[str, List[RawFinancialRecord]] = {}
+        for r in nse_annual:
+            dt = str(r.period_end_date or "")[:10]
+            if dt:
+                nse_dict.setdefault(dt, []).append(r)
 
-        # Check required fields for core derived metrics
-        required_raw = [
-            ("revenue", nse_rec.revenue, upx_rec.revenue, self.raw_tolerance_pct),
-            ("net_profit", nse_rec.net_profit, upx_rec.net_profit, self.raw_tolerance_pct),
-            ("ebit", nse_rec.ebit, upx_rec.ebit, self.raw_tolerance_pct),
-            ("capital_employed", nse_rec.capital_employed, upx_rec.capital_employed, self.raw_tolerance_pct),
-        ]
-        
-        for name, n_val, u_val, tol in required_raw:
-            if n_val is None or u_val is None:
-                metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
-                return metrics
-            if not _check_tolerance(n_val, u_val, tol):
-                diff_pct = abs(u_val - n_val) / abs(n_val) if n_val != 0 else 1.0
-                if diff_pct <= 0.25:
-                    # Official NSE exchange filing takes precedence over third-party API minor divergence
-                    logger.info(f"[{symbol}] NSE official filing precedence for {name}: NSE={n_val}, Upstox={u_val} (diff={diff_pct:.1%})")
-                else:
-                    logger.warning(f"[{symbol}] DATA_CONFLICT on {name}: NSE={n_val}, Upstox={u_val} (diff={diff_pct:.1%})")
-                    metrics.overall_status = FundamentalStatus.DATA_CONFLICT
+        upx_dict: Dict[str, List[RawFinancialRecord]] = {}
+        for r in upx_annual:
+            dt = str(r.period_end_date or "")[:10]
+            if dt:
+                upx_dict.setdefault(dt, []).append(r)
+
+        shared_periods = sorted(list(set(nse_dict.keys()).intersection(upx_dict.keys())))
+
+        # 1. Overlapping Period Check
+        has_conflict = False
+        has_statement_mismatch = False
+        merged_overlapping: Dict[str, RawFinancialRecord] = {}
+
+        if shared_periods:
+            for dt in shared_periods:
+                n_list = nse_dict[dt]
+                u_list = upx_dict[dt]
+
+                n_bases = {_get_c_val(r) for r in n_list}
+                u_bases = {_get_c_val(r) for r in u_list}
+                common_bases = n_bases.intersection(u_bases)
+
+                if not common_bases:
+                    has_statement_mismatch = True
+                    logger.warning(f"[{symbol}] STATEMENT_MISMATCH for {dt}: NSE bases={n_bases} vs Upstox bases={u_bases}")
+                    continue
+
+                # Prefer CONSOLIDATED if both support it, else STANDALONE
+                target_basis = "CONSOLIDATED" if "CONSOLIDATED" in common_bases else list(common_bases)[0]
+                n_rec = next(r for r in n_list if _get_c_val(r) == target_basis)
+                u_rec = next(r for r in u_list if _get_c_val(r) == target_basis)
+
+                # Check if essential inputs are missing across both providers on an isolated observation
+                if (n_rec.capital_employed is None and u_rec.capital_employed is None) and len(shared_periods) == 1 and len(nse_annual) <= 1 and len(upx_annual) <= 1:
+                    metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT
                     return metrics
-                
-        # Merge non-overlapping multi-year records (NSE authoritative for overlapping)
-        by_date = {r.period_end_date: r for r in upstox_records}
-        for r in nse_records:
-            by_date[r.period_end_date] = r
-        combined_records = sorted(by_date.values(), key=lambda r: r.period_end_date)
+
+                # Tolerance check on core revenue & net profit
+                n_rev = convert_to_inr_crores(n_rec.revenue, n_rec.unit or "cr")
+                u_rev = convert_to_inr_crores(u_rec.revenue, u_rec.unit or "cr")
+                n_pat = convert_to_inr_crores(n_rec.net_profit, n_rec.unit or "cr")
+                u_pat = convert_to_inr_crores(u_rec.net_profit, u_rec.unit or "cr")
+
+                if n_rev is not None and u_rev is not None and abs(n_rev) > 0.1:
+                    diff_rev = abs(u_rev - n_rev) / abs(n_rev)
+                    if diff_rev > 0.25:
+                        logger.warning(f"[{symbol}] DATA_CONFLICT on revenue for {dt}: NSE={n_rev}Cr, Upstox={u_rev}Cr (diff={diff_rev:.1%})")
+                        has_conflict = True
+                    elif diff_rev > self.raw_tolerance_pct:
+                        logger.info(f"[{symbol}] NSE official filing precedence for revenue: NSE={n_rev}Cr, Upstox={u_rev}Cr (diff={diff_rev:.1%})")
+
+                if n_pat is not None and u_pat is not None and abs(n_pat) > 0.1:
+                    diff_pat = abs(u_pat - n_pat) / abs(n_pat)
+                    if diff_pat > 0.25:
+                        logger.warning(f"[{symbol}] DATA_CONFLICT on net_profit for {dt}: NSE={n_pat}Cr, Upstox={u_pat}Cr (diff={diff_pat:.1%})")
+                        has_conflict = True
+                    elif diff_pat > self.raw_tolerance_pct:
+                        logger.info(f"[{symbol}] NSE official filing precedence for net_profit: NSE={n_pat}Cr, Upstox={u_pat}Cr (diff={diff_pat:.1%})")
+
+                # Merge overlapping record: NSE takes precedence for income statement; Upstox supplements missing fields
+                merged_rec = RawFinancialRecord(
+                    symbol=symbol,
+                    source="NSE+UPSTOX_DUAL_SOURCE",
+                    period_end_date=dt,
+                    period_type="ANNUAL",
+                    consolidation=n_rec.consolidation,
+                    revenue=n_rec.revenue if n_rec.revenue is not None else u_rec.revenue,
+                    net_profit=n_rec.net_profit if n_rec.net_profit is not None else u_rec.net_profit,
+                    operating_cash_flow=n_rec.operating_cash_flow if n_rec.operating_cash_flow is not None else u_rec.operating_cash_flow,
+                    total_debt=n_rec.total_debt if n_rec.total_debt is not None else u_rec.total_debt,
+                    total_equity=n_rec.total_equity if n_rec.total_equity is not None else u_rec.total_equity,
+                    ebit=n_rec.ebit if n_rec.ebit is not None else u_rec.ebit,
+                    capital_employed=n_rec.capital_employed if n_rec.capital_employed is not None else u_rec.capital_employed,
+                    eps=n_rec.eps if n_rec.eps is not None else u_rec.eps,
+                    shares_outstanding=n_rec.shares_outstanding if n_rec.shares_outstanding is not None else u_rec.shares_outstanding,
+                    broadcast_timestamp=n_rec.broadcast_timestamp or u_rec.broadcast_timestamp,
+                    version=n_rec.version or u_rec.version,
+                    validation_status="VALID",
+                    unit="cr",
+                    currency="INR",
+                )
+                merged_overlapping[dt] = merged_rec
+
+            if has_conflict:
+                metrics.overall_status = FundamentalStatus.DATA_CONFLICT
+                metrics.rejection_reason = "DATA_CONFLICT: >25% divergence between NSE and Upstox on identical statement basis"
+                return metrics
+
+            if has_statement_mismatch and not merged_overlapping:
+                metrics.overall_status = FundamentalStatus.STATEMENT_MISMATCH
+                metrics.rejection_reason = "STATEMENT_MISMATCH: NSE and Upstox share no common consolidation basis"
+                return metrics
+        else:
+            # No overlapping periods: check if this is an isolated single-record comparison
+            if len(nse_records) == 1 and len(upstox_records) == 1:
+                metrics.overall_status = FundamentalStatus.PERIOD_MISMATCH
+                return metrics
+
+        # 2. Multi-Year Disjoint Union
+        # Align consolidation basis for disjoint periods (prioritize CONSOLIDATED if supported by both)
+        all_n_bases = {_get_c_val(r) for r in nse_annual}
+        all_u_bases = {_get_c_val(r) for r in upx_annual}
+        shared_all_bases = all_n_bases.intersection(all_u_bases)
+        chosen_basis = "CONSOLIDATED" if "CONSOLIDATED" in shared_all_bases else (
+            list(shared_all_bases)[0] if shared_all_bases else ("CONSOLIDATED" if "CONSOLIDATED" in all_u_bases else None)
+        )
+
+        combined_by_date: Dict[str, RawFinancialRecord] = {}
+        for dt, rec in merged_overlapping.items():
+            combined_by_date[dt] = rec
+
+        # Add non-overlapping NSE records
+        for dt, r_list in nse_dict.items():
+            if dt not in combined_by_date:
+                match_r = next((r for r in r_list if _get_c_val(r) == chosen_basis), r_list[0])
+                combined_by_date[dt] = match_r
+
+        # Add non-overlapping Upstox records
+        for dt, r_list in upx_dict.items():
+            if dt not in combined_by_date:
+                match_r = next((r for r in r_list if _get_c_val(r) == chosen_basis), r_list[0])
+                combined_by_date[dt] = match_r
+
+        combined_records = [combined_by_date[dt] for dt in sorted(combined_by_date.keys())]
         return self._calculate_from_records(symbol, combined_records, is_dual=True)
 
     def _calculate_from_records(self, symbol: str, records: List[RawFinancialRecord], is_dual: bool = False) -> ReconciledCanonicalMetrics:

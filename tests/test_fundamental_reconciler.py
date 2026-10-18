@@ -100,10 +100,95 @@ class TestFundamentalReconcilerRedTeam(unittest.TestCase):
         # Reconciler should ignore the vendor's 19.8 and succeed using the verified raw inputs 150 & 500.
         upstox = self._make_series("UPSTOX")
         nse = self._make_series("NSE")
-        
         metrics = self.reconciler.reconcile_and_calculate("TEST", nse, upstox)
         self.assertEqual(metrics.overall_status, FundamentalStatus.VERIFIED)
         self.assertEqual(metrics.roce_5y, 30.0) # 150 / 500
+
+    def test_11_multi_year_disjoint_cross_provider_union(self):
+        # TEST 11: Multi-year disjoint union across NSE (FY20-FY23) and Upstox (FY24-FY25)
+        # Assembles full 6-year series (2020-2025) to compute 5Y CAGR and derived metrics
+        nse_disjoint = [
+            RawFinancialRecord(
+                symbol="TEST", source="NSE", period_end_date=f"{yr}-03-31",
+                period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED,
+                revenue=1000.0 * (1.10 ** i), net_profit=100.0 * (1.10 ** i),
+                ebit=150.0, capital_employed=500.0, total_debt=50.0, total_equity=450.0,
+                operating_cash_flow=120.0, shares_outstanding=10.0
+            )
+            for i, yr in enumerate(range(2020, 2024)) # 2020, 2021, 2022, 2023
+        ]
+        upstox_disjoint = [
+            RawFinancialRecord(
+                symbol="TEST", source="UPSTOX", period_end_date=f"{yr}-03-31",
+                period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED,
+                revenue=1000.0 * (1.10 ** (i + 4)), net_profit=100.0 * (1.10 ** (i + 4)),
+                ebit=150.0, capital_employed=500.0, total_debt=50.0, total_equity=450.0,
+                operating_cash_flow=120.0, shares_outstanding=10.0
+            )
+            for i, yr in enumerate(range(2024, 2026)) # 2024, 2025
+        ]
+
+        metrics = self.reconciler.reconcile_and_calculate("TEST", nse_disjoint, upstox_disjoint)
+        self.assertEqual(metrics.overall_status, FundamentalStatus.VERIFIED)
+        self.assertIsNotNone(metrics.sales_cagr_5y)
+        self.assertIsNotNone(metrics.pat_cagr_5y)
+        self.assertEqual(metrics.roce_5y, 30.0)
+
+    def test_12_disjoint_with_overlap_tolerance_passed(self):
+        # TEST 12: Overlap on FY24 with 4% difference -> NSE precedence -> VERIFIED
+        nse = [
+            RawFinancialRecord(
+                symbol="TEST", source="NSE", period_end_date=f"{yr}-03-31",
+                period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED,
+                revenue=1000.0 * (1.10 ** i), net_profit=100.0 * (1.10 ** i),
+                ebit=150.0, capital_employed=500.0, total_debt=50.0, total_equity=450.0,
+                operating_cash_flow=120.0, shares_outstanding=10.0
+            )
+            for i, yr in enumerate(range(2020, 2025)) # 2020-2024
+        ]
+        upstox = [
+            RawFinancialRecord(
+                symbol="TEST", source="UPSTOX", period_end_date="2024-03-31",
+                period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED,
+                revenue=1000.0 * (1.10 ** 4) * 1.04, net_profit=100.0 * (1.10 ** 4) * 1.04,
+                ebit=150.0, capital_employed=500.0, total_debt=50.0, total_equity=450.0,
+                operating_cash_flow=120.0, shares_outstanding=10.0
+            ),
+            RawFinancialRecord(
+                symbol="TEST", source="UPSTOX", period_end_date="2025-03-31",
+                period_type="ANNUAL", consolidation=ConsolidationType.CONSOLIDATED,
+                revenue=1000.0 * (1.10 ** 5), net_profit=100.0 * (1.10 ** 5),
+                ebit=150.0, capital_employed=500.0, total_debt=50.0, total_equity=450.0,
+                operating_cash_flow=120.0, shares_outstanding=10.0
+            ),
+        ]
+
+        metrics = self.reconciler.reconcile_and_calculate("TEST", nse, upstox)
+        self.assertEqual(metrics.overall_status, FundamentalStatus.VERIFIED)
+        self.assertIsNotNone(metrics.sales_cagr_5y)
+
+    def test_13_cooloff_unblocked_only_for_recovering_scanner(self):
+        # TEST 13: When a scanner unblocks a symbol, other scanners keep their cooloff
+        from app.database import add_symbol_to_cooloff, remove_symbol_from_cooloff, get_active_cooloff_symbols
+        sym = "TEST_ISOLATION_SYM"
+        # Put symbol into cooloff for both QUALITY_COMPOUNDER and FUNDAMENTAL
+        add_symbol_to_cooloff(sym, "TEST_REASON", scanner="QUALITY_COMPOUNDER", duration_days=7)
+        add_symbol_to_cooloff(sym, "TEST_REASON", scanner="FUNDAMENTAL", duration_days=7)
+
+        # Confirm both are in cooloff
+        self.assertIn(sym, get_active_cooloff_symbols("QUALITY_COMPOUNDER"))
+        self.assertIn(sym, get_active_cooloff_symbols("FUNDAMENTAL"))
+
+        # Unblock ONLY for QUALITY_COMPOUNDER
+        remove_symbol_from_cooloff(sym, scanner="QUALITY_COMPOUNDER")
+
+        # Confirm QUALITY_COMPOUNDER is unblocked, but FUNDAMENTAL is STILL in cooloff
+        self.assertNotIn(sym, get_active_cooloff_symbols("QUALITY_COMPOUNDER"))
+        self.assertIn(sym, get_active_cooloff_symbols("FUNDAMENTAL"))
+
+        # Cleanup
+        remove_symbol_from_cooloff(sym, scanner="FUNDAMENTAL")
+
 
 if __name__ == '__main__':
     unittest.main()
