@@ -9254,6 +9254,14 @@ function showSehErrorModal(runId) {
     notesHtml += `<br><br><strong>Pipeline Summary / Notes:</strong><br><div style="font-family:var(--font-mono); font-size:11px; color:var(--text); background:var(--bg); padding:8px 10px; border-radius:6px; margin-top:4px; border:1px solid var(--border); line-height:1.4;">${escapeHTML(r.summary_notes)}</div>`;
   }
   if (r.metrics_json && typeof r.metrics_json === 'object' && Object.keys(r.metrics_json).length > 0) {
+    if (r.metrics_json.incomplete_stocks && Object.keys(r.metrics_json.incomplete_stocks).length > 0) {
+      const inc = r.metrics_json.incomplete_stocks;
+      const count = Object.keys(inc).length;
+      let incRows = Object.entries(inc).map(([sym, reason]) => 
+        `<tr><td style="padding:4px 8px; font-weight:700; color:#38bdf8; border-bottom:1px solid rgba(255,255,255,0.05);">${escapeHTML(sym)}</td><td style="padding:4px 8px; color:var(--text); border-bottom:1px solid rgba(255,255,255,0.05);">${escapeHTML(reason)}</td></tr>`
+      ).join('');
+      notesHtml += `<br><strong>⚠️ Incomplete Stocks Breakdown (${count} stocks):</strong><div style="max-height:220px; overflow-y:auto; border:1px solid rgba(245,158,11,0.3); border-radius:6px; margin-top:4px;"><table style="width:100%; border-collapse:collapse; font-size:11px; font-family:var(--font-mono);"><thead style="background:rgba(245,158,11,0.1); color:#f59e0b;"><tr><th style="padding:6px 8px; text-align:left; width:120px;">Symbol</th><th style="padding:6px 8px; text-align:left;">Missing Information</th></tr></thead><tbody>${incRows}</tbody></table></div>`;
+    }
     notesHtml += `<br><strong>Structured Metrics:</strong><br><pre style="background:var(--bg); padding:8px 10px; border-radius:6px; font-size:11px; max-height:160px; overflow-y:auto; border:1px solid var(--border); margin-top:4px;">${escapeHTML(JSON.stringify(r.metrics_json, null, 2))}</pre>`;
   }
 

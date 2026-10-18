@@ -2986,6 +2986,33 @@ class LiveFundamentalBuyScanner:
                     if is_pit_missing:
                         funnel["data_missing_count"] += 1
 
+                    # Explicit per-stock audit detail: which stock is missing what info
+                    if is_price_insuff or is_quality_insuff or is_growth_insuff or is_pit_missing or is_provider_fail:
+                        missing_reasons = []
+                        if is_price_insuff:
+                            bars_len = len(df_bars) if df_bars is not None else 0
+                            missing_reasons.append(f"1D Price History Insufficient ({bars_len} bars; min 50 required)")
+                        if is_quality_insuff:
+                            missing_q_fields = [f for f in ["roce", "roe", "debt_equity", "operating_cash_flow"] if funds.get(f) is None]
+                            if missing_q_fields:
+                                missing_reasons.append(f"Quality Metrics Missing: {', '.join(missing_q_fields)}")
+                            else:
+                                missing_reasons.append("Quality Statement History Incomplete")
+                        if is_growth_insuff:
+                            missing_g_fields = [f for f in ["rev_yoy_latest", "op_profit_yoy_latest", "eps_yoy_latest"] if funds.get(f) is None]
+                            if missing_g_fields:
+                                missing_reasons.append(f"Growth Acceleration Missing: {', '.join(missing_g_fields)}")
+                            else:
+                                missing_reasons.append("Quarterly Statement History Incomplete for YoY")
+                        if is_pit_missing:
+                            missing_reasons.append("PIT Fundamentals Record Missing")
+                        if is_provider_fail:
+                            missing_reasons.append("Provider Feed Failure")
+
+                        reason_str = "; ".join(missing_reasons)
+                        funnel.setdefault("incomplete_stocks", {})[sym] = reason_str
+                        logger.warning(f"⚠️ [FUNDAMENTAL_INCOMPLETE] {sym:<12} | {reason_str}")
+
                     for r in res["rejection_reasons"]:
                         r_key = r.value if hasattr(r, "value") else str(r)
                         funnel["rejection_summary"][r_key] = funnel["rejection_summary"].get(r_key, 0) + 1
@@ -3018,6 +3045,18 @@ class LiveFundamentalBuyScanner:
                 f"LOCAL_BUILDER_HITS={local_builder_hits_count} | LOCAL_HISTORY_SHORT_KNOWN={local_history_short_known_count} | "
                 f"SCAN_DURATION_MS={scan_duration_ms:.1f}ms"
             )
+
+            # Consolidated Audit Log: Print all incomplete stocks and their missing fields
+            if funnel.get("incomplete_stocks"):
+                inc_list = sorted(funnel["incomplete_stocks"].items())
+                inc_lines = "\n".join(f"   • {i_sym:<12}: {i_reason}" for i_sym, i_reason in inc_list)
+                logger.warning(
+                    f"\n================================================================================\n"
+                    f"📋 [FUNDAMENTAL] INCOMPLETE STOCKS AUDIT ({len(inc_list)} STOCKS MISSING DATA)\n"
+                    f"================================================================================\n"
+                    f"{inc_lines}\n"
+                    f"================================================================================"
+                )
 
             if ctx and complete_scanner_execution_run is not None:
                 try:
@@ -3062,6 +3101,7 @@ class LiveFundamentalBuyScanner:
                         "telemetry_integrity": funnel.get("telemetry_integrity", "N/A"),
                         "breakdown": funnel.get("breakdown", {}),
                         "telemetry_sla": funnel["telemetry_sla"],
+                        "incomplete_stocks": funnel.get("incomplete_stocks", {}),
                     }
                     complete_scanner_execution_run(ctx, metrics_json=ctx.metrics_json)
                 except Exception as ce_err:
