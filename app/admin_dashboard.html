@@ -5967,7 +5967,6 @@ function changeAdminPage(type, delta) {
             `;
           }
           actionBtns += `<button class="scanner-action-btn log" onclick="openScannerHistory('${sc}')">📜 Logs</button>`;
-          actionBtns += `<button class="scanner-action-btn" onclick="openScannerCooloff('${sc}')" style="background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); font-size:11px; padding:5px 8px; border-radius:6px; cursor:pointer; font-weight:700;" title="View cool-off stocks for ${sc}">⚠️ Cool-off</button>`;
 
           html_buffer += `
             <div class="scanner-row ${statusClass}">
