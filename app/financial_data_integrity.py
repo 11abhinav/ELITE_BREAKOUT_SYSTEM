@@ -3644,6 +3644,11 @@ def load_all_shared_financial_snapshots(
             # Daily Builder quarterly acceleration facts
             db_rec = db_funds.get(sym, {})
 
+            def _clean(val):
+                if val is None or pd.isna(val):
+                    return None
+                return val
+
             snap = SharedFinancialSnapshot(
                 symbol=sym,
                 isin=str(r.get("isin", "")),
@@ -3653,20 +3658,20 @@ def load_all_shared_financial_snapshots(
                 snapshot_status=w_status,
                 pit_freshness_status=str(r.get("pit_freshness_status", DataStatus.VALID.value)),
                 provenance_status=str(r.get("provenance_status", "CERTIFIED")),
-                roce=r.get("roce") or (db_rec.get("roce") if db_rec else None),
-                roe=r.get("roe") or (db_rec.get("roe") if db_rec else None),
-                roce_5y_avg=r.get("roce_5y_avg"),
+                roce=_clean(r.get("roce")) or (_clean(db_rec.get("roce")) if db_rec else None),
+                roe=_clean(r.get("roe")) or (_clean(db_rec.get("roe")) if db_rec else None),
+                roce_5y_avg=_clean(r.get("roce_5y_avg")),
                 operating_cash_flow=convert_to_inr_crores(r.get("operating_cash_flow"), source_unit=MonetaryUnit.INR_CRORES) or (convert_to_inr_crores(db_rec.get("operating_cash_flow"), source_unit=MonetaryUnit.INR_CRORES) if db_rec else None),
-                cfo_pat_5y_ratio=r.get("cfo_pat_5y_ratio"),
+                cfo_pat_5y_ratio=_clean(r.get("cfo_pat_5y_ratio")),
                 total_debt=convert_to_inr_crores(r.get("total_debt"), source_unit=MonetaryUnit.INR_CRORES),
                 total_equity=convert_to_inr_crores(r.get("total_equity"), source_unit=MonetaryUnit.INR_CRORES),
-                debt_equity=r.get("debt_to_equity") if r.get("debt_to_equity") is not None else (db_rec.get("debt_equity") if db_rec else None),
+                debt_equity=_clean(r.get("debt_to_equity")) if _clean(r.get("debt_to_equity")) is not None else (_clean(db_rec.get("debt_equity")) if db_rec else None),
                 cash_and_equivalents=convert_to_inr_crores(r.get("cash_and_equivalents"), source_unit=MonetaryUnit.INR_CRORES),
                 ebitda=convert_to_inr_crores(r.get("ebitda"), source_unit=MonetaryUnit.INR_CRORES),
                 net_profit=convert_to_inr_crores(r.get("net_profit"), source_unit=MonetaryUnit.INR_CRORES),
                 revenue=convert_to_inr_crores(r.get("revenue"), source_unit=MonetaryUnit.INR_CRORES),
-                sales_cagr_5y=r.get("sales_cagr_5y"),
-                pat_cagr_5y=r.get("pat_cagr_5y"),
+                sales_cagr_5y=_clean(r.get("sales_cagr_5y")),
+                pat_cagr_5y=_clean(r.get("pat_cagr_5y")),
                 filing_gap_detected=bool(r.get("filing_gap_detected", False)),
                 filing_gaps=str(r.get("filing_gaps", "[]")),
                 growth_start_period=r.get("growth_start_period"),

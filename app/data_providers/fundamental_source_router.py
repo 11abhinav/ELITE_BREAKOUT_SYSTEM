@@ -1024,6 +1024,7 @@ class FundamentalSourceRouter:
                     ebit=u.ebit if u.ebit is not None else l.ebit,
                     capital_employed=u.capital_employed if u.capital_employed is not None else l.capital_employed,
                     eps=u.eps if u.eps is not None else l.eps,
+                    shares_outstanding=u.shares_outstanding if getattr(u, "shares_outstanding", None) is not None else getattr(l, "shares_outstanding", None),
                     broadcast_timestamp=u.broadcast_timestamp or l.broadcast_timestamp,
                     version=u.version or l.version,
                     validation_status="VALID",

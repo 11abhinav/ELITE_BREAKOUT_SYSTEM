@@ -130,21 +130,32 @@ class FundamentalReconciler:
                         logger.info(f"[{symbol}] NSE official filing precedence for net_profit: NSE={n_pat}Cr, Upstox={u_pat}Cr (diff={diff_pat:.1%})")
 
                 # Merge overlapping record: NSE takes precedence for income statement; Upstox supplements missing fields
+                n_cfo = convert_to_inr_crores(n_rec.operating_cash_flow, n_rec.unit or "cr")
+                u_cfo = convert_to_inr_crores(u_rec.operating_cash_flow, u_rec.unit or "cr")
+                n_debt = convert_to_inr_crores(n_rec.total_debt, n_rec.unit or "cr")
+                u_debt = convert_to_inr_crores(u_rec.total_debt, u_rec.unit or "cr")
+                n_eq = convert_to_inr_crores(n_rec.total_equity, n_rec.unit or "cr")
+                u_eq = convert_to_inr_crores(u_rec.total_equity, u_rec.unit or "cr")
+                n_ebit = convert_to_inr_crores(n_rec.ebit, n_rec.unit or "cr")
+                u_ebit = convert_to_inr_crores(u_rec.ebit, u_rec.unit or "cr")
+                n_cap = convert_to_inr_crores(n_rec.capital_employed, n_rec.unit or "cr")
+                u_cap = convert_to_inr_crores(u_rec.capital_employed, u_rec.unit or "cr")
+
                 merged_rec = RawFinancialRecord(
                     symbol=symbol,
                     source="NSE+UPSTOX_DUAL_SOURCE",
                     period_end_date=dt,
                     period_type="ANNUAL",
                     consolidation=n_rec.consolidation,
-                    revenue=n_rec.revenue if n_rec.revenue is not None else u_rec.revenue,
-                    net_profit=n_rec.net_profit if n_rec.net_profit is not None else u_rec.net_profit,
-                    operating_cash_flow=n_rec.operating_cash_flow if n_rec.operating_cash_flow is not None else u_rec.operating_cash_flow,
-                    total_debt=n_rec.total_debt if n_rec.total_debt is not None else u_rec.total_debt,
-                    total_equity=n_rec.total_equity if n_rec.total_equity is not None else u_rec.total_equity,
-                    ebit=n_rec.ebit if n_rec.ebit is not None else u_rec.ebit,
-                    capital_employed=n_rec.capital_employed if n_rec.capital_employed is not None else u_rec.capital_employed,
+                    revenue=n_rev if n_rev is not None else u_rev,
+                    net_profit=n_pat if n_pat is not None else u_pat,
+                    operating_cash_flow=n_cfo if n_cfo is not None else u_cfo,
+                    total_debt=n_debt if n_debt is not None else u_debt,
+                    total_equity=n_eq if n_eq is not None else u_eq,
+                    ebit=n_ebit if n_ebit is not None else u_ebit,
+                    capital_employed=n_cap if n_cap is not None else u_cap,
                     eps=n_rec.eps if n_rec.eps is not None else u_rec.eps,
-                    shares_outstanding=n_rec.shares_outstanding if n_rec.shares_outstanding is not None else u_rec.shares_outstanding,
+                    shares_outstanding=n_rec.shares_outstanding if getattr(n_rec, "shares_outstanding", None) is not None else getattr(u_rec, "shares_outstanding", None),
                     broadcast_timestamp=n_rec.broadcast_timestamp or u_rec.broadcast_timestamp,
                     version=n_rec.version or u_rec.version,
                     validation_status="VALID",
@@ -185,16 +196,48 @@ class FundamentalReconciler:
         for dt, r_list in nse_dict.items():
             if dt not in combined_by_date:
                 match_r = next((r for r in r_list if _get_c_val(r) == chosen_basis), r_list[0])
-                combined_by_date[dt] = match_r
+                combined_by_date[dt] = self._normalize_to_crores(match_r)
 
         # Add non-overlapping Upstox records
         for dt, r_list in upx_dict.items():
             if dt not in combined_by_date:
                 match_r = next((r for r in r_list if _get_c_val(r) == chosen_basis), r_list[0])
-                combined_by_date[dt] = match_r
+                combined_by_date[dt] = self._normalize_to_crores(match_r)
 
         combined_records = [combined_by_date[dt] for dt in sorted(combined_by_date.keys())]
         return self._calculate_from_records(symbol, combined_records, is_dual=True)
+
+    @staticmethod
+    def _normalize_to_crores(rec: RawFinancialRecord) -> RawFinancialRecord:
+        try:
+            from app.financial_data_integrity import convert_to_inr_crores
+        except ImportError:
+            from financial_data_integrity import convert_to_inr_crores
+
+        u = rec.unit or "cr"
+        return RawFinancialRecord(
+            symbol=rec.symbol,
+            source=rec.source,
+            period_end_date=rec.period_end_date,
+            period_type=getattr(rec, "period_type", "ANNUAL"),
+            consolidation=rec.consolidation,
+            duration_days=getattr(rec, "duration_days", None),
+            fiscal_year=getattr(rec, "fiscal_year", None),
+            revenue=convert_to_inr_crores(rec.revenue, u),
+            net_profit=convert_to_inr_crores(rec.net_profit, u),
+            operating_cash_flow=convert_to_inr_crores(rec.operating_cash_flow, u),
+            total_debt=convert_to_inr_crores(rec.total_debt, u),
+            total_equity=convert_to_inr_crores(rec.total_equity, u),
+            ebit=convert_to_inr_crores(rec.ebit, u),
+            capital_employed=convert_to_inr_crores(rec.capital_employed, u),
+            eps=rec.eps,
+            shares_outstanding=getattr(rec, "shares_outstanding", None),
+            broadcast_timestamp=rec.broadcast_timestamp,
+            version=rec.version,
+            validation_status=rec.validation_status,
+            unit="cr",
+            currency="INR",
+        )
 
     def _calculate_from_records(self, symbol: str, records: List[RawFinancialRecord], is_dual: bool = False) -> ReconciledCanonicalMetrics:
         """
@@ -204,9 +247,9 @@ class FundamentalReconciler:
           - STRICT VERIFICATION: VERIFIED requires all fields non-null, else PARTIAL_RECOVERY.
         """
         metrics = ReconciledCanonicalMetrics(symbol=symbol)
-        annual_records = [r for r in records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"]
+        annual_records = [self._normalize_to_crores(r) for r in records if getattr(r, "period_type", "ANNUAL") == "ANNUAL"]
         if not annual_records:
-            annual_records = records
+            annual_records = [self._normalize_to_crores(r) for r in records]
         annual_records.sort(key=lambda r: r.period_end_date)
         if not annual_records:
             metrics.overall_status = FundamentalStatus.DATA_INSUFFICIENT

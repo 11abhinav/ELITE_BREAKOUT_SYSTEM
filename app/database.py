@@ -9463,6 +9463,15 @@ def remove_symbol_from_cooloff(symbol: str, scanner: str = "ALL") -> bool:
             del _LOCAL_COOLOFF_CACHE[k]
 
     try:
+        try:
+            from app.pit_recovery_cache import get_pit_recovery_store
+        except ImportError:
+            from pit_recovery_cache import get_pit_recovery_store
+        get_pit_recovery_store().clear_quarantine(sym, scanner_family=scan)
+    except Exception as _q_err:
+        logger.debug(f"Store quarantine clear notice for {sym}: {_q_err}")
+
+    try:
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:

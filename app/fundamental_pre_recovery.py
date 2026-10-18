@@ -495,6 +495,9 @@ class FundamentalPreRecoveryEngine:
                 f"⚠️ [SCANNER: {self.scanner_name}] Pre-recovery schema validation flagged issues: {schema_audit['critical_issues']}."
             )
 
+        incomplete_symbols, field_map = self.identify_incomplete_symbols(df)
+        total_universe = len(df)
+
         try:
             try:
                 from database import get_active_cooloff_symbols
@@ -504,15 +507,14 @@ class FundamentalPreRecoveryEngine:
         except Exception:
             active_cooloff = set()
 
-        if active_cooloff and "symbol" in df.columns:
-            orig_total = total_universe
-            df = df[~df["symbol"].astype(str).str.strip().str.upper().isin(active_cooloff)].copy()
-            total_universe = len(df)
+        if active_cooloff:
+            cooloff_set = set(str(s).strip().upper() for s in active_cooloff)
+            orig_incomp = len(field_map)
+            field_map = {sym: flds for sym, flds in field_map.items() if str(sym).strip().upper() not in cooloff_set}
+            incomplete_symbols = list(field_map.keys())
             logger.info(
-                f"🛡️ [PRE_RECOVERY_COOLOFF] Excluded {orig_total - total_universe} symbols under active 7-day cool-off from pre-recovery sweep. Active universe reduced from {orig_total} to {total_universe}."
+                f"🛡️ [PRE_RECOVERY_COOLOFF] Excluded {orig_incomp - len(field_map)} symbols under active 7-day cool-off from recovery queue (total universe remains {total_universe} rows)."
             )
-
-        incomplete_symbols, field_map = self.identify_incomplete_symbols(df)
         complete_count = total_universe - len(incomplete_symbols)
 
         # Field-level diagnostic log
@@ -687,6 +689,11 @@ class FundamentalPreRecoveryEngine:
                 decision = pub_result.get("publication_decision", "UNKNOWN")
                 if decision == "PUBLISHED":
                     published = True
+                    try:
+                        from app.financial_data_integrity import clear_shared_snapshot_cache
+                        clear_shared_snapshot_cache()
+                    except Exception:
+                        pass
                     logger.info(
                         f"✅ [PRE_RECOVERY] Canonical PIT updated via publisher. "
                         f"SHA256: {pub_result.get('dataset_sha256', 'N/A')[:16]}..."
