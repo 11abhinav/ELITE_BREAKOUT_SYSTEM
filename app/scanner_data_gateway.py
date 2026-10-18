@@ -147,11 +147,27 @@ class ScannerDataGateway:
         Returns the unified working dataset.
         """
         path = pit_parquet_path or self.pit_parquet_path
-        if not os.path.exists(path):
-            logger.warning(f"⚠️ [GATEWAY] Base PIT parquet not found at {path}")
+        df = None
+        if os.path.exists(path):
+            try:
+                df = pd.read_parquet(path)
+            except Exception as e:
+                logger.warning(f"⚠️ [GATEWAY] Primary parquet read failed at {path}: {e}. Initiating self-healing...")
+
+        if df is None or df.empty:
+            try:
+                try:
+                    from database import _load_canonical_snapshot_df
+                except ImportError:
+                    from app.database import _load_canonical_snapshot_df
+                df = _load_canonical_snapshot_df()
+            except Exception:
+                pass
+
+        if df is None or df.empty:
+            logger.warning(f"⚠️ [GATEWAY] Base PIT parquet not found or unreadable at {path}")
             return pd.DataFrame()
 
-        df = pd.read_parquet(path)
         val_records = self.validated_cache.get_all_validated_records()
         if not val_records:
             return df

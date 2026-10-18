@@ -567,7 +567,7 @@ def check_pit_freshness(
 
     # ── Layer 1: Annual staleness check ──
     if staleness_years > max_staleness_years:
-        logger.error(
+        logger.warning(
             f"[PIT_STALENESS] {symbol}: latest_annual_period={latest_dt} is "
             f"{staleness_years:.1f} years before scan_date={scan_date}. "
             f"BLOCKING (max={max_staleness_years}Y). Expected: {expected_latest_fy_end}."

@@ -464,17 +464,28 @@ class FundamentalPreRecoveryEngine:
         """
         logger.info(f"🧹 [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] START — pre-scan fundamental sweep.")
 
-        if not os.path.exists(self.pit_parquet_path):
-            logger.warning(
-                f"⚠️ [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] PIT dataset not found at {self.pit_parquet_path}. Skipping."
-            )
-            return
-
+        df = None
         try:
-            df = pd.read_parquet(self.pit_parquet_path)
-        except Exception as e:
-            logger.error(f"❌ [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Failed to load PIT parquet: {e}")
-            return
+            try:
+                from database import _load_canonical_snapshot_df
+            except ImportError:
+                from app.database import _load_canonical_snapshot_df
+            df = _load_canonical_snapshot_df()
+        except Exception:
+            pass
+
+        if df is None:
+            if not os.path.exists(self.pit_parquet_path):
+                logger.warning(
+                    f"⚠️ [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] PIT dataset not found at {self.pit_parquet_path}. Skipping."
+                )
+                return
+
+            try:
+                df = pd.read_parquet(self.pit_parquet_path)
+            except Exception as e:
+                logger.error(f"❌ [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Failed to load PIT parquet: {e}")
+                return
 
         total_universe = len(df)
         schema_audit = self.validate_pre_recovery_cache_schema(df)
