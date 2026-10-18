@@ -1888,7 +1888,7 @@ class LiveFundamentalBuyScanner:
             # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
             try:
                 from database import get_active_cooloff_symbols
-                db_cooloff = get_active_cooloff_symbols("FUNDAMENTAL") | get_active_cooloff_symbols("ALL")
+                db_cooloff = get_active_cooloff_symbols("FUNDAMENTAL")
             except Exception:
                 db_cooloff = set()
 
@@ -4435,11 +4435,11 @@ class QualityCompounderValueV2Scanner:
         # are excluded from the target universe before scanning so they are not evaluated or flagged as incomplete data.
         try:
             from database import get_active_cooloff_symbols
-            db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER") | get_active_cooloff_symbols("ALL")
+            db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
         except Exception:
             try:
                 from app.database import get_active_cooloff_symbols
-                db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER") | get_active_cooloff_symbols("ALL")
+                db_cooloff_qc = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
             except Exception:
                 db_cooloff_qc = set()
 
@@ -7614,11 +7614,11 @@ class QualityValueRecoveryScanner:
                     approved_univ = sorted(list(self.universe_registry.approved_symbols))
                     try:
                         from database import get_active_cooloff_symbols
-                        db_cooloff_qvr = get_active_cooloff_symbols(self.strategy_id) | get_active_cooloff_symbols("ALL")
+                        db_cooloff_qvr = get_active_cooloff_symbols(self.strategy_id)
                     except Exception:
                         try:
                             from app.database import get_active_cooloff_symbols
-                            db_cooloff_qvr = get_active_cooloff_symbols(self.strategy_id) | get_active_cooloff_symbols("ALL")
+                            db_cooloff_qvr = get_active_cooloff_symbols(self.strategy_id)
                         except Exception:
                             db_cooloff_qvr = set()
 

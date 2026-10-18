@@ -9171,6 +9171,8 @@ def add_symbol_to_cooloff(
         return False
     sym = symbol.strip().upper()
     scan = str(scanner or "FUNDAMENTAL").strip().upper()
+    if not scan or scan == "ALL":
+        scan = "FUNDAMENTAL"  # Strictly forbid 'ALL' cool-off; entries must be against the specific scanner
     reason_clean = str(reason or "APPROVED_PROVIDERS_EXHAUSTED").strip()
     
     pf_str = None
@@ -9186,7 +9188,7 @@ def add_symbol_to_cooloff(
 
     is_new_stale = False
     with _LOCAL_COOLOFF_LOCK:
-        # Check if symbol was already actively in cool-off
+        # Check if symbol was already actively in cool-off for this scanner
         existing = _LOCAL_COOLOFF_CACHE.get((sym, scan))
         if existing:
             ex_until = existing.get("cooloff_until")
@@ -9215,10 +9217,16 @@ def add_symbol_to_cooloff(
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
-                    # 1. Check if symbol is already actively in cool-off in DB for this scanner or ALL
+                    # 1. Clean up expired rows at startup/call
+                    cur.execute("""
+                        DELETE FROM symbol_cooloff_journal
+                        WHERE cooloff_until <= %s
+                    """, (now_dt,))
+
+                    # 2. Check if symbol is already actively in cool-off in DB for this scanner
                     cur.execute("""
                         SELECT cooloff_until FROM symbol_cooloff_journal
-                        WHERE symbol = %s AND (scanner = %s OR scanner = 'ALL')
+                        WHERE symbol = %s AND UPPER(scanner) = %s
                           AND cooloff_until > %s
                         LIMIT 1
                     """, (sym, scan, now_dt))
@@ -9226,18 +9234,18 @@ def add_symbol_to_cooloff(
                     if row is not None:
                         is_new_stale = False
 
-                    # 2. Check if admin notification was already sent in the last 7 days for this symbol
+                    # 3. Check if admin notification was already sent in the last 7 days for this symbol and scanner
                     if is_new_stale:
                         cur.execute("""
                             SELECT id FROM global_notifications
                             WHERE symbol = %s AND title LIKE %s
                               AND created_at > %s
                             LIMIT 1
-                        """, (sym, f"Stale Data: {sym}%", now_dt - timedelta(days=7)))
+                        """, (sym, f"Stale Data: {sym} ({scan})%", now_dt - timedelta(days=duration_days)))
                         if cur.fetchone() is not None:
                             is_new_stale = False
 
-                    # 3. Upsert into symbol_cooloff_journal. If active, preserve original cooloff_until window.
+                    # 4. Upsert into symbol_cooloff_journal. If active, preserve original cooloff_until window.
                     cur.execute("""
                         INSERT INTO symbol_cooloff_journal (
                             symbol, reason, scanner, cooloff_start_at, cooloff_until, provider_failures, created_at, updated_at
@@ -9261,10 +9269,29 @@ def add_symbol_to_cooloff(
     except Exception as e:
         logger.debug(f"Cool-off DB insertion notice: {e}")
 
-    details_str = f" | ProviderFailures={pf_str}" if pf_str else ""
+    # Build missing details string mentioning all missing data fields
+    missing_desc = ""
+    if provider_failures:
+        if isinstance(provider_failures, dict):
+            mf = provider_failures.get("missing_fields") or provider_failures.get("field")
+            if mf:
+                if isinstance(mf, (list, set, tuple)):
+                    missing_desc = f" | Missing fields: {', '.join(str(x) for x in mf)}"
+                else:
+                    missing_desc = f" | Missing fields: {mf}"
+        elif isinstance(provider_failures, (list, set, tuple)):
+            missing_desc = f" | Missing fields: {', '.join(str(x) for x in provider_failures)}"
+        elif isinstance(provider_failures, str) and provider_failures.strip():
+            missing_desc = f" | Missing fields: {provider_failures.strip()}"
+
+    if not missing_desc and ":" in reason_clean:
+        part = reason_clean.split(":", 1)[1].strip()
+        if part:
+            missing_desc = f" | Missing fields: {part}"
+
     logger.warning(
         f"⚠️ [STALE_STOCK_MARKED] Symbol={sym} evaluated and marked STALE "
-        f"| Scanner='{scan}' | Reason={reason_clean}{details_str} "
+        f"| Scanner='{scan}' | Reason={reason_clean}{missing_desc} "
         f"| Duration={duration_days}d (Cool-off active until {until_dt.strftime('%Y-%m-%d %H:%M:%S IST')})"
     )
 
@@ -9285,7 +9312,7 @@ def add_symbol_to_cooloff(
         try:
             title = f"Stale Data: {sym} ({scan})"
             msg = (
-                f"Marking as stale data for {scan}: {sym}. Reason: {reason_clean}. "
+                f"Marking as stale data for {scan}: {sym}. Reason: {reason_clean}.{missing_desc} "
                 f"Entered into cool-off table ({scan}) to not be processed for {duration_days} days "
                 f"(until {until_dt.strftime('%Y-%m-%d')})."
             )
@@ -9326,31 +9353,56 @@ def mark_symbol_stale(
 
 def get_active_cooloff_symbols(scanner: str = "ALL") -> set:
     """
-    Returns a set of symbol strings currently under an active 7-day cool-off (cooloff_until > NOW()).
+    Returns a set of symbol strings currently under an active 7-day cool-off for the specified scanner.
+    Also automatically cleans up any expired entries (cooloff_until <= NOW()) from symbol_cooloff_journal
+    and _LOCAL_COOLOFF_CACHE at startup.
     """
     scan = str(scanner or "ALL").strip().upper()
     active_syms = set()
     from datetime import datetime
     now_dt = datetime.now(IST)
 
+    # 1. Purge expired from memory cache
     with _LOCAL_COOLOFF_LOCK:
         for (sym, s_fam), rec in list(_LOCAL_COOLOFF_CACHE.items()):
             until = rec.get("cooloff_until")
             if until and until <= now_dt:
                 del _LOCAL_COOLOFF_CACHE[(sym, s_fam)]
                 continue
-            if s_fam == "ALL" or scan == "ALL" or s_fam == scan:
+            # If a specific scanner is requested, match ONLY that scanner
+            if scan in ("", "ALL"):
+                active_syms.add(sym)
+            elif s_fam == scan:
                 active_syms.add(sym)
 
+    # 2. Purge expired from database & fetch active symbols for this scanner
     try:
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
+                    # REMOVE ENTRY AT SCANNER STARTUP IF EXPIRY DONE FOR THAT STOCK IN COOLOFF
                     cur.execute("""
-                        SELECT symbol FROM symbol_cooloff_journal
-                        WHERE cooloff_until > %s
-                          AND (UPPER(scanner) = %s OR UPPER(scanner) = 'ALL' OR %s = 'ALL')
-                    """, (now_dt, scan, scan))
+                        DELETE FROM symbol_cooloff_journal
+                        WHERE cooloff_until <= %s
+                    """, (now_dt,))
+                    # Clean up any legacy 'ALL' rows so they don't pollute specific scanners
+                    cur.execute("""
+                        DELETE FROM symbol_cooloff_journal
+                        WHERE UPPER(scanner) = 'ALL'
+                    """)
+                    conn.commit()
+
+                    if scan in ("", "ALL"):
+                        cur.execute("""
+                            SELECT symbol FROM symbol_cooloff_journal
+                            WHERE cooloff_until > %s
+                        """, (now_dt,))
+                    else:
+                        cur.execute("""
+                            SELECT symbol FROM symbol_cooloff_journal
+                            WHERE cooloff_until > %s
+                              AND UPPER(scanner) = %s
+                        """, (now_dt, scan))
                     rows = cur.fetchall()
                     for r in rows:
                         if r and r[0]:

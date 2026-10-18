@@ -279,8 +279,9 @@ class FundamentalPreRecoveryEngine:
                                     add_symbol_to_cooloff(
                                         symbol=sym,
                                         reason=f"PIT_STALENESS_{round(staleness_years, 1)}Y_EXCEEDS_2.0Y",
-                                        scanner="FUNDAMENTAL",
-                                        duration_days=7
+                                        scanner=self.scanner_name,
+                                        duration_days=7,
+                                        provider_failures={"missing_fields": ["latest_annual_period", "pit_staleness"]}
                                     )
                                 except Exception:
                                     pass
@@ -499,7 +500,7 @@ class FundamentalPreRecoveryEngine:
                 from database import get_active_cooloff_symbols
             except ImportError:
                 from app.database import get_active_cooloff_symbols
-            active_cooloff = get_active_cooloff_symbols(self.scanner_name) | get_active_cooloff_symbols("ALL")
+            active_cooloff = get_active_cooloff_symbols(self.scanner_name)
         except Exception:
             active_cooloff = set()
 
@@ -572,11 +573,13 @@ class FundamentalPreRecoveryEngine:
                             from database import add_symbol_to_cooloff
                         except ImportError:
                             from app.database import add_symbol_to_cooloff
+                        unrec_str = ", ".join(unrecovered) if unrecovered else "DATA_UNRESOLVED"
                         add_symbol_to_cooloff(
                             symbol=symbol,
-                            reason=f"PARTIAL_RECOVERY_UNRESOLVED: {unrecovered}",
-                            scanner="FUNDAMENTAL",
-                            duration_days=7
+                            reason=f"PARTIAL_RECOVERY_UNRESOLVED: {unrec_str}",
+                            scanner=self.scanner_name,
+                            duration_days=7,
+                            provider_failures={"missing_fields": unrecovered}
                         )
                     except Exception as _c_err:
                         logger.debug(f"Cool-off notice for {symbol}: {_c_err}")
@@ -626,16 +629,18 @@ class FundamentalPreRecoveryEngine:
                         from database import add_symbol_to_cooloff
                     except ImportError:
                         from app.database import add_symbol_to_cooloff
+                    miss_str = ", ".join(missing_fields) if missing_fields else "DATA_UNAVAILABLE"
                     reason_desc = (
-                        f"DATA_CONFLICT_ACROSS_PROVIDERS: {missing_fields}"
+                        f"DATA_CONFLICT_ACROSS_PROVIDERS: {miss_str}"
                         if metrics.overall_status == FundamentalStatus.DATA_CONFLICT
-                        else f"RECOVERY_UNAVAILABLE: {missing_fields}"
+                        else f"RECOVERY_UNAVAILABLE: {miss_str}"
                     )
                     add_symbol_to_cooloff(
                         symbol=symbol,
                         reason=reason_desc,
-                        scanner="FUNDAMENTAL",
-                        duration_days=7
+                        scanner=self.scanner_name,
+                        duration_days=7,
+                        provider_failures={"missing_fields": missing_fields}
                     )
                 except Exception:
                     pass
