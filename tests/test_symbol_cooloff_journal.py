@@ -160,7 +160,7 @@ def test_missing_data_7_day_cooloff_and_8th_day_retry_flow(monkeypatch):
     assert len(filtered_univ_qc) == 2
 
     # 3. Day 8: Cool-off expires, allowing retry
-    past_time = datetime.now(IST) - timedelta(seconds=1)
+    past_time = base_time - timedelta(seconds=1)
     with get_connection() as conn:
         if not isinstance(conn, DummyConnection):
             with conn.cursor() as cur:
@@ -170,8 +170,9 @@ def test_missing_data_7_day_cooloff_and_8th_day_retry_flow(monkeypatch):
                 )
     from app.database import _LOCAL_COOLOFF_CACHE, _LOCAL_COOLOFF_LOCK
     with _LOCAL_COOLOFF_LOCK:
-        if (sym, "ALL") in _LOCAL_COOLOFF_CACHE:
-            _LOCAL_COOLOFF_CACHE[(sym, "ALL")]["cooloff_until"] = past_time
+        for k in list(_LOCAL_COOLOFF_CACHE.keys()):
+            if k[0] == sym:
+                _LOCAL_COOLOFF_CACHE[k]["cooloff_until"] = past_time
 
     active_qc_day8 = get_active_cooloff_symbols("QUALITY_COMPOUNDER")
     active_qvr_day8 = get_active_cooloff_symbols("QUALITY_VALUE_RECOVERY")

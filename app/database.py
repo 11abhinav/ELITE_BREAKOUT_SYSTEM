@@ -9153,28 +9153,14 @@ def get_elite_watchlist() -> list:
 _LOCAL_COOLOFF_CACHE: dict = {}
 _LOCAL_COOLOFF_LOCK = threading.Lock()
 
-def add_symbol_to_cooloff(
-    symbol: str,
-    reason: str,
-    scanner: str = "FUNDAMENTAL",
+def _enroll_single_cooloff(
+    sym: str,
+    reason_clean: str,
+    scan: str,
     duration_days: int = 7,
     provider_failures: Optional[Any] = None,
     notify_admin: bool = True
 ) -> bool:
-    """
-    [7-DAY DATA FAILURE COOL-OFF GATE]
-    Puts a stock whose required data is missing/invalid/stale across all validated providers into a 7-day cool-off.
-    Active cool-off stocks are excluded at universe initialization on subsequent runs, reducing scanned_count.
-    Sends an admin notification alerting that the stock has been marked as stale data.
-    """
-    if not symbol or not isinstance(symbol, str):
-        return False
-    sym = symbol.strip().upper()
-    scan = str(scanner or "FUNDAMENTAL").strip().upper()
-    if not scan or scan == "ALL":
-        scan = "FUNDAMENTAL"  # Strictly forbid 'ALL' cool-off; entries must be against the specific scanner
-    reason_clean = str(reason or "APPROVED_PROVIDERS_EXHAUSTED").strip()
-    
     pf_str = None
     if provider_failures is not None:
         try:
@@ -9199,6 +9185,16 @@ def add_symbol_to_cooloff(
                     pass
             if ex_until and ex_until > now_dt:
                 is_new_stale = False
+                # STRICT 7-DAY INVARIANT: Preserve original cool-off window
+                until_dt = ex_until
+                ex_start = existing.get("cooloff_start_at")
+                if isinstance(ex_start, str):
+                    try:
+                        ex_start = datetime.fromisoformat(ex_start.replace("Z", "+00:00"))
+                    except Exception:
+                        pass
+                if ex_start and isinstance(ex_start, datetime):
+                    now_dt = ex_start
             else:
                 is_new_stale = True
         else:
@@ -9328,6 +9324,44 @@ def add_symbol_to_cooloff(
     return True
 
 
+def add_symbol_to_cooloff(
+    symbol: str,
+    reason: str,
+    scanner: str = "FUNDAMENTAL",
+    duration_days: int = 7,
+    provider_failures: Optional[Any] = None,
+    notify_admin: bool = True
+) -> bool:
+    """
+    [7-DAY DATA FAILURE COOL-OFF GATE]
+    Puts a stock whose required data is missing/invalid/stale across all validated providers into a 7-day cool-off.
+    Active cool-off stocks are excluded at universe initialization on subsequent runs, reducing scanned_count.
+    Sends an admin notification alerting that the stock has been marked as stale data.
+    """
+    if not symbol or not isinstance(symbol, str):
+        return False
+    sym = symbol.strip().upper()
+    scan = str(scanner or "FUNDAMENTAL").strip().upper()
+    reason_clean = str(reason or "APPROVED_PROVIDERS_EXHAUSTED").strip()
+
+    # STRICT INVARIANT: No row is ever stored as 'ALL'. If ALL is requested, fan out to each scanner family.
+    target_scanners = ["FUNDAMENTAL", "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY"] if scan in ("", "ALL") else [scan]
+    res_all = True
+    for sc in target_scanners:
+        r = _enroll_single_cooloff(
+            sym=sym,
+            reason_clean=reason_clean,
+            scan=sc,
+            duration_days=duration_days,
+            provider_failures=provider_failures,
+            notify_admin=notify_admin
+        )
+        res_all = res_all and r
+    return res_all
+
+
+
+
 def mark_symbol_stale(
     symbol: str,
     reason: str = "DATA_STALE",
@@ -9380,16 +9414,11 @@ def get_active_cooloff_symbols(scanner: str = "ALL") -> set:
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
-                    # REMOVE ENTRY AT SCANNER STARTUP IF EXPIRY DONE FOR THAT STOCK IN COOLOFF
+                    # REMOVE ENTRY AT SCANNER STARTUP ONLY IF 7-DAY EXPIRY HAS REACHED
                     cur.execute("""
                         DELETE FROM symbol_cooloff_journal
                         WHERE cooloff_until <= %s
                     """, (now_dt,))
-                    # Clean up any legacy 'ALL' rows so they don't pollute specific scanners
-                    cur.execute("""
-                        DELETE FROM symbol_cooloff_journal
-                        WHERE UPPER(scanner) = 'ALL'
-                    """)
                     conn.commit()
 
                     if scan in ("", "ALL"):
@@ -9401,7 +9430,7 @@ def get_active_cooloff_symbols(scanner: str = "ALL") -> set:
                         cur.execute("""
                             SELECT symbol FROM symbol_cooloff_journal
                             WHERE cooloff_until > %s
-                              AND UPPER(scanner) = %s
+                              AND (UPPER(scanner) = %s OR UPPER(scanner) = 'ALL')
                         """, (now_dt, scan))
                     rows = cur.fetchall()
                     for r in rows:
@@ -9569,7 +9598,7 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
 
 
 def cleanup_expired_cooloffs() -> int:
-    """Removes expired cool-off records from database and auto-evicts resolved price history stocks."""
+    """Removes expired cool-off records from database ONLY when 7-day cooloff_until window has reached."""
     try:
         from datetime import datetime
         now_dt = datetime.now(IST)
@@ -9578,35 +9607,9 @@ def cleanup_expired_cooloffs() -> int:
                 with conn.cursor() as cur:
                     cur.execute("DELETE FROM symbol_cooloff_journal WHERE cooloff_until <= %s", (now_dt,))
                     cnt = cur.rowcount
-
-                    # Self-healing: auto-evict any PRICE_HISTORY cool-offs whose 1D history is verified on disk (>= 50 bars)
-                    try:
-                        history_1d_dir = Path(__file__).resolve().parent.parent / "data" / "history" / "1d"
-                        cur.execute("SELECT DISTINCT symbol FROM symbol_cooloff_journal WHERE UPPER(reason) LIKE '%PRICE_HISTORY%'")
-                        price_rows = cur.fetchall()
-                        evicted_price = 0
-                        for pr in price_rows:
-                            if pr and pr[0]:
-                                p_sym = str(pr[0]).strip().upper()
-                                p_file = history_1d_dir / f"{p_sym}.parquet"
-                                if p_file.exists():
-                                    try:
-                                        import pandas as pd
-                                        df_c = pd.read_parquet(p_file)
-                                        if len(df_c) >= 50:
-                                            cur.execute("DELETE FROM symbol_cooloff_journal WHERE symbol = %s AND UPPER(reason) LIKE '%PRICE_HISTORY%'", (p_sym,))
-                                            evicted_price += 1
-                                            logger.info(f"🧹 [COOLOFF_EVICT] Unblocked {p_sym} (1D history verified on disk with {len(df_c)} bars).")
-                                    except Exception:
-                                        pass
-                        if evicted_price > 0:
-                            cnt = (cnt or 0) + evicted_price
-                    except Exception as _pe:
-                        logger.debug(f"[CLEANUP_COOLOFFS] Price history check note: {_pe}")
-
                 conn.commit()
                 if cnt and cnt > 0:
-                    logger.info(f"🧹 Evicted {cnt} expired/resolved entries from symbol_cooloff_journal.")
+                    logger.info(f"🧹 Evicted {cnt} expired (7-day reached) entries from symbol_cooloff_journal.")
                 return cnt or 0
         return 0
     except Exception as e:
@@ -9618,28 +9621,45 @@ def check_and_restore_stale_stock(
     symbol: str,
     source: str = "FILING_WATCHER",
     period_end: Optional[str] = None,
-    notify_admin: bool = True
+    notify_admin: bool = True,
+    force: bool = False
 ) -> bool:
     """
     [STALE STOCK RESTORATION & UNBLOCKING GATE]
-    Whenever new financial data or filings are fetched for any stock:
-      1. Checks if the same stock was previously marked stale or entered into cool-off / suppression table
-         (symbol_cooloff_journal, _LOCAL_COOLOFF_CACHE, pit_recovery_cache, or canonical snapshot).
-      2. If previously stale: removes it from symbol_cooloff_journal and _LOCAL_COOLOFF_CACHE
-         across all scanners (FUNDAMENTAL, QUALITY_COMPOUNDER, QUALITY_VALUE_RECOVERY, ALL).
-      3. Clears dynamic quarantine in PitRecoveryStatusStore.
-      4. Restores snapshot freshness in data/canonical_pit_rebuilt.parquet (updates pit_freshness_status
-         to 'FRESH', clears filing_gap_detected, updates latest_period) so scanners immediately
-         re-evaluate if the data is complete and tradeable.
-      5. Dispatches an admin notification: 'Stale Stock Restored: <symbol>' so admin is alerted.
-
-    Returns True if the stock was stale and has been restored, False otherwise.
+    Removes cool-off record ONLY when 7-day cooloff_until has reached, OR when admin explicitly forces manual validation (force=True).
+    Active cool-offs created within the 7-day window are STRICTLY PRESERVED against premature deletion.
     """
     if not symbol:
         return False
     sym = str(symbol).strip().upper()
     was_stale = False
     stale_reasons = []
+
+    from datetime import datetime
+    now_dt = datetime.now(IST)
+
+    # STRICT 7-DAY INVARIANT: Do not delete active cool-off unless expired (cooloff_until <= now_dt) or force=True (manual admin override)
+    if not force:
+        with _LOCAL_COOLOFF_LOCK:
+            active_cache = [k for k, v in _LOCAL_COOLOFF_CACHE.items() if k[0] == sym and v.get("cooloff_until") and v.get("cooloff_until") > now_dt]
+            if active_cache:
+                logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in cache. Preserving cool-off record until 7 days reach.")
+                return False
+
+        try:
+            with get_connection() as conn:
+                if not isinstance(conn, DummyConnection):
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT cooloff_until, scanner FROM symbol_cooloff_journal WHERE symbol = %s AND cooloff_until > %s",
+                            (sym, now_dt)
+                        )
+                        active_db = cur.fetchall()
+                        if active_db:
+                            logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in DB until {active_db[0][0]}. Preserving cool-off record until 7 days reach.")
+                            return False
+        except Exception:
+            pass
 
     # 1. Check & evict from _LOCAL_COOLOFF_CACHE
     with _LOCAL_COOLOFF_LOCK:
@@ -10068,6 +10088,11 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
             return "CMP quote is stale or missing live market session closing bar."
         elif "FILING_GAP" in r_upper:
             return "Historical fiscal year gap detected in filing sequence (missing annual year)."
+        elif "PARTIAL_RECOVERY_UNRESOLVED" in r_upper or "RECOVERY_UNAVAILABLE" in r_upper or "DATA_CONFLICT" in r_upper:
+            if ":" in str(reason):
+                prefix = "Data conflict between exchange and broker feeds" if "DATA_CONFLICT" in r_upper else "Required fundamental metrics missing"
+                return f"{prefix}: {str(reason).split(':', 1)[1].strip()}"
+            return "Required fundamental metrics unresolved across primary sources"
         elif failures:
             return f"Provider verification: {str(failures)[:120]}"
         return r_upper or "Data quality criteria not met"
@@ -10182,43 +10207,9 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                     )
 
                     # If symbol is already in stale_map (from cooloff journal or local cooloff cache),
-                    # check if its data has since been completely refreshed. If so, auto-restore it!
+                    # enrich it with snapshot fundamental metrics for dashboard display
                     if sym in stale_map:
                         item = stale_map[sym]
-                        r_str = str(item.get("reason") or "").upper()
-
-                        # 1. Price History resolution check:
-                        if "PRICE_HISTORY" in r_str or "INSUFFICIENT_LOOKBACK" in r_str:
-                            p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1d" / f"{sym}.parquet"
-                            if not p_1d.exists():
-                                p_1d = Path(__file__).resolve().parent.parent / "data" / "history" / "1D" / f"{sym}.parquet"
-                            if p_1d.exists():
-                                try:
-                                    df_px = pd.read_parquet(p_1d)
-                                    if len(df_px) >= 50:
-                                        try:
-                                            check_and_restore_stale_stock(sym, source="AUTO_EVICT_PRICE_HISTORY_RESOLVED", notify_admin=False)
-                                        except Exception:
-                                            pass
-                                        del stale_map[sym]
-                                        continue
-                                except Exception:
-                                    pass
-
-                        raw_info = raw_cache.get(sym)
-                        freshness_status = str(row.get("pit_freshness_status", "")).upper()
-                        has_gap = bool(row.get("filing_gap_detected", False))
-                        staleness_y = float(row.get("pit_staleness_years") or 0.0)
-                        has_live_price = (row.get("cmp") is not None and not pd.isna(row.get("cmp")) and float(row.get("cmp")) > 0)
-                        has_fresh_raw = bool(raw_info and raw_info.get("count", 0) > 0 and raw_info.get("latest") not in ("None", "Empty", "Error") and raw_info.get("latest") >= sym_mand_period)
-
-                        if freshness_status in ("VALID", "FRESH") and not has_gap and staleness_y <= 2.0 and has_live_price and has_fresh_raw:
-                            try:
-                                check_and_restore_stale_stock(sym, source="AUTO_EVICT_VERIFIED_FRESH", notify_admin=False)
-                            except Exception:
-                                pass
-                            del stale_map[sym]
-                            continue
 
                         item = stale_map[sym]
                         if not item.get("latest_annual_period"):

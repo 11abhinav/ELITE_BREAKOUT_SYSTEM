@@ -580,7 +580,7 @@ def check_pit_freshness(
             add_symbol_to_cooloff(
                 symbol=symbol,
                 reason=f"PIT_STALENESS_{round(staleness_years, 1)}Y_EXCEEDS_{max_staleness_years}Y",
-                scanner="FUNDAMENTAL",
+                scanner="ALL",
                 duration_days=7
             )
         except Exception:
