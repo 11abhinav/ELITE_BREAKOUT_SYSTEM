@@ -5287,25 +5287,29 @@ class QualityCompounderValueV2Scanner:
                 quality_data_missing = False
                 quality_reject_count += 1
             else:
+                is_young_5y = (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 5.0)
+                is_young_3y = (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 3.0)
+                is_bfsi_flag = bool(row.get("is_bfsi", False)) or (sym in self.KNOWN_FINANCIAL_SYMBOLS)
+
                 quality_data_missing = (
-                    (roce_5y is None or pd.isna(roce_5y)) or
-                    ((sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and not sales_cagr_loss) or
-                    ((pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and not pat_cagr_loss) or
+                    ((roce_5y is None or pd.isna(roce_5y)) and not is_bfsi_flag) or
+                    ((sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and not sales_cagr_loss and not is_young_5y) or
+                    ((pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and not pat_cagr_loss and not is_young_5y) or
                     ((cfo_pat_5y is None or pd.isna(cfo_pat_5y)) and not cfo_pat_loss) or
-                    (de_ratio is None or pd.isna(de_ratio)) or
-                    (share_dilution_3y is None or pd.isna(share_dilution_3y))
+                    ((de_ratio is None or pd.isna(de_ratio)) and not is_bfsi_flag) or
+                    ((share_dilution_3y is None or pd.isna(share_dilution_3y)) and not is_young_3y)
                 )
                 if quality_data_missing:
                     # Identify exactly which fields are missing for the audit log
                     _missing_fields = [
-                        name for name, val, is_loss in [
-                            ("roce_5y", roce_5y, False),
-                            ("sales_cagr_5y", sales_cagr_5y, sales_cagr_loss),
-                            ("pat_cagr_5y", pat_cagr_5y, pat_cagr_loss),
-                            ("cfo_pat_5y", cfo_pat_5y, cfo_pat_loss),
-                            ("debt_to_equity", de_ratio, False),
-                            ("share_dilution_3y", share_dilution_3y, False),
-                        ] if (val is None or pd.isna(val)) and not is_loss
+                        name for name, val, is_loss, is_exempt in [
+                            ("roce_5y", roce_5y, False, is_bfsi_flag),
+                            ("sales_cagr_5y", sales_cagr_5y, sales_cagr_loss, is_young_5y),
+                            ("pat_cagr_5y", pat_cagr_5y, pat_cagr_loss, is_young_5y),
+                            ("cfo_pat_5y", cfo_pat_5y, cfo_pat_loss, False),
+                            ("debt_to_equity", de_ratio, False, is_bfsi_flag),
+                            ("share_dilution_3y", share_dilution_3y, False, is_young_3y),
+                        ] if (val is None or pd.isna(val)) and not is_loss and not is_exempt
                     ]
                     # ── NO ACTIVE UPSTREAM RECOVERY ──
                     # JIT recovery is now handled strictly in the Pre-Recovery Engine upstream.
@@ -5436,12 +5440,12 @@ class QualityCompounderValueV2Scanner:
                     if de_val > 0.50: rejections.append("FAIL_DEBT")
 
                     if share_dilution_3y is None or pd.isna(share_dilution_3y):
-                        rejections.append("DATA_INSUFFICIENT_QUALITY")
                         _is_struct_sd = (
                             bool(row.get("is_structural_ineligible", False))
-                            or (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 3.0)
+                            or is_young_3y
                         )
                         if not _is_struct_sd:
+                            rejections.append("DATA_INSUFFICIENT_QUALITY")
                             try:
                                 add_symbol_to_cooloff(
                                     symbol=sym,

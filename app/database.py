@@ -10119,6 +10119,15 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
             return f"Provider verification: {str(failures)[:120]}"
         return r_upper or "Data quality criteria not met"
 
+    # 0. Load canonical snapshot lookup for structural exemption evaluation
+    snap_df = _load_canonical_snapshot_df()
+    snap_lookup = {}
+    if snap_df is not None and not snap_df.empty and "symbol" in snap_df.columns:
+        for _r in snap_df.to_dict("records"):
+            _s = str(_r.get("symbol", "")).strip().upper()
+            if _s:
+                snap_lookup[_s] = _r
+
     # 1. Query symbol_cooloff_journal in DB
     try:
         with get_connection() as conn:
@@ -10131,6 +10140,7 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         ORDER BY cooloff_until DESC
                     """, (now_dt,))
                     rows = cur.fetchall()
+                    to_purge = []
                     for r in rows:
                         sym = str(r[0]).strip().upper()
                         scan = str(r[1] or "ALL").strip().upper()
@@ -10138,6 +10148,24 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         pf = r[3]
                         start_at = r[4]
                         until_dt = r[5]
+
+                        # Check structural exemption or already fresh state
+                        snap_item = snap_lookup.get(sym)
+                        if snap_item:
+                            l_age = float(snap_item.get("listing_age_years") or 99.0)
+                            r_low = reason.lower()
+                            # Young company (<3Y) exempt from 3Y dilution
+                            if "share_dilution_3y" in r_low and l_age < 3.0:
+                                to_purge.append((sym, scan))
+                                continue
+                            # Young company (<5Y) exempt from 5Y CAGR
+                            if ("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and l_age < 5.0 and "share_dilution_3y" not in r_low:
+                                to_purge.append((sym, scan))
+                                continue
+                            # Base year net loss is a financial fact, not missing data
+                            if "base year net loss" in r_low or bool(snap_item.get("pat_base_year_loss", False)):
+                                to_purge.append((sym, scan))
+                                continue
                         
                         days_left = round((until_dt - now_dt).total_seconds() / 86400.0, 1) if until_dt else 7.0
                         sm_info = sec_master.get(sym, {})
@@ -10158,34 +10186,56 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                             "status": "STALE_COOLOFF",
                             "source": "COOLOFF_JOURNAL"
                         }
+
+                    if to_purge:
+                        for p_sym, p_scan in to_purge:
+                            try:
+                                cur.execute("DELETE FROM symbol_cooloff_journal WHERE symbol = %s", (p_sym,))
+                            except Exception:
+                                pass
+                        conn.commit()
     except Exception as e:
         logger.debug(f"[STALE_AUDIT] DB cooloff query note: {e}")
 
     # 2. Check _LOCAL_COOLOFF_CACHE
     with _LOCAL_COOLOFF_LOCK:
+        local_keys_to_del = []
         for (sym, scan), rec in _LOCAL_COOLOFF_CACHE.items():
             until = rec.get("cooloff_until")
-            if until and until > now_dt and sym not in stale_map:
+            if until and until > now_dt:
+                snap_item = snap_lookup.get(sym)
                 reason = rec.get("reason", "DATA_STALE")
-                pf = rec.get("provider_failures")
-                days_left = round((until - now_dt).total_seconds() / 86400.0, 1)
-                sm_info = sec_master.get(sym, {})
-                comp_name = sm_info.get("company_name", sym)
-                isin_val = sm_info.get("isin", "")
-                stale_map[sym] = {
-                    "symbol": sym,
-                    "company_name": comp_name,
-                    "isin": isin_val,
-                    "scanner": scan,
-                    "reason": reason,
-                    "missing_data_summary": _format_missing_data(reason, pf, sym),
-                    "provider_failures": pf,
-                    "cooloff_start_at": rec.get("cooloff_start_at", now_dt).isoformat() if hasattr(rec.get("cooloff_start_at"), "isoformat") else str(rec.get("cooloff_start_at")),
-                    "cooloff_until": until.isoformat() if hasattr(until, "isoformat") else str(until),
-                    "days_remaining": max(0.0, days_left),
-                    "status": "STALE_COOLOFF",
-                    "source": "COOLOFF_CACHE"
-                }
+                if snap_item:
+                    l_age = float(snap_item.get("listing_age_years") or 99.0)
+                    r_low = reason.lower()
+                    if ("share_dilution_3y" in r_low and l_age < 3.0) or (("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and l_age < 5.0 and "share_dilution_3y" not in r_low):
+                        local_keys_to_del.append((sym, scan))
+                        continue
+                if sym not in stale_map:
+                    pf = rec.get("provider_failures")
+                    days_left = round((until - now_dt).total_seconds() / 86400.0, 1)
+                    sm_info = sec_master.get(sym, {})
+                    comp_name = sm_info.get("company_name", sym)
+                    isin_val = sm_info.get("isin", "")
+                    stale_map[sym] = {
+                        "symbol": sym,
+                        "company_name": comp_name,
+                        "isin": isin_val,
+                        "scanner": scan,
+                        "reason": reason,
+                        "missing_data_summary": _format_missing_data(reason, pf, sym),
+                        "provider_failures": pf,
+                        "cooloff_start_at": rec.get("cooloff_start_at", now_dt).isoformat() if hasattr(rec.get("cooloff_start_at"), "isoformat") else str(rec.get("cooloff_start_at")),
+                        "cooloff_until": until.isoformat() if hasattr(until, "isoformat") else str(until),
+                        "days_remaining": max(0.0, days_left),
+                        "status": "STALE_COOLOFF",
+                        "source": "COOLOFF_CACHE"
+                    }
+        for k in local_keys_to_del:
+            try:
+                del _LOCAL_COOLOFF_CACHE[k]
+            except Exception:
+                pass
 
     # 3. Check canonical snapshot for DATA_STALE, filing gaps, and enrich existing stale items
     raw_cache = _get_parsed_raw_filings_cache()

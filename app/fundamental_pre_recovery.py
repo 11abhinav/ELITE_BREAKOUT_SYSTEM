@@ -564,23 +564,34 @@ class FundamentalPreRecoveryEngine:
                     logger.debug(f"[PRE_RECOVERY] Cool-off removal notice for {symbol}: {_rm_err}")
             elif metrics.overall_status == FundamentalStatus.PARTIAL_RECOVERY or has_recovered:
                 unrecovered = [f for f in missing_fields if f not in (metrics.recovered_fields or {})]
-                if unrecovered:
+                # Exclude structurally exempt fields for young companies before sending to cool-off
+                sym_row = df[df["symbol"] == symbol] if "symbol" in df.columns else None
+                l_age = float(sym_row.iloc[0].get("listing_age_years") or 99.0) if (sym_row is not None and not sym_row.empty) else 99.0
+                actionable_unrecovered = []
+                for f in unrecovered:
+                    if f in ("sales_cagr_5y", "pat_cagr_5y") and l_age < 5.0:
+                        continue
+                    if f in ("share_dilution_3y", "share_dilution_3y_pct") and l_age < 3.0:
+                        continue
+                    actionable_unrecovered.append(f)
+
+                if actionable_unrecovered:
                     logger.info(
                         f"⚠️ [PRE_RECOVERY] {symbol}: recovery_status=PARTIAL_SUCCESS | promotion_status=BLOCKED | "
-                        f"unrecovered_fields={unrecovered} | recovered_fields={list((metrics.recovered_fields or {}).keys())}"
+                        f"unrecovered_fields={actionable_unrecovered} | recovered_fields={list((metrics.recovered_fields or {}).keys())}"
                     )
                     try:
                         try:
                             from database import add_symbol_to_cooloff
                         except ImportError:
                             from app.database import add_symbol_to_cooloff
-                        unrec_str = ", ".join(unrecovered) if unrecovered else "DATA_UNRESOLVED"
+                        unrec_str = ", ".join(actionable_unrecovered) if actionable_unrecovered else "DATA_UNRESOLVED"
                         add_symbol_to_cooloff(
                             symbol=symbol,
                             reason=f"PARTIAL_RECOVERY_UNRESOLVED: {unrec_str}",
                             scanner=self.scanner_name,
                             duration_days=7,
-                            provider_failures={"missing_fields": unrecovered}
+                            provider_failures={"missing_fields": actionable_unrecovered}
                         )
                     except Exception as _c_err:
                         logger.debug(f"Cool-off notice for {symbol}: {_c_err}")
