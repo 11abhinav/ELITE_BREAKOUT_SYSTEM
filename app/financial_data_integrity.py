@@ -3514,6 +3514,12 @@ class SharedFinancialSnapshot:
             "roe": self.roe,
             "debt_equity": self.debt_equity,
             "operating_cash_flow": self.operating_cash_flow,
+            "sales_cagr_5y": self.sales_cagr_5y,
+            "pat_cagr_5y": self.pat_cagr_5y,
+            "cfo_pat_5y_ratio": self.cfo_pat_5y_ratio,
+            "share_dilution_3y": self.share_dilution_3y,
+            "shares_outstanding_m": self.shares_outstanding_m,
+            "shares_outstanding": (self.shares_outstanding_m * 1e6) if self.shares_outstanding_m is not None else None,
             "rev_yoy_latest": self.rev_yoy_latest,
             "rev_yoy_prev": self.rev_yoy_prev,
             "op_profit_yoy_latest": self.op_profit_yoy_latest,
@@ -3564,12 +3570,34 @@ def load_all_shared_financial_snapshots(
     as_of = as_of_date or date.today()
     base_data = data_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
     sym_key = hashlib.sha256(",".join(sorted(symbols)).encode()).hexdigest()[:12] if symbols else "ALL"
-    cache_key = f"{as_of.isoformat()}_{sym_key}_{base_data}"
+
+    # Track mtime of canonical dataset and watcher state for instant automatic invalidation
+    canon_mtime = 0.0
+    for c_cand in [
+        os.path.join(base_data, "canonical_pit_rebuilt.parquet"),
+        os.path.join(base_data, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet"),
+        os.path.join(base_data, "pit_fundamentals_v1.parquet"),
+    ]:
+        if os.path.exists(c_cand):
+            try:
+                canon_mtime = os.path.getmtime(c_cand)
+                break
+            except OSError:
+                pass
+
+    watcher_mtime = 0.0
+    watcher_state_file = os.path.join(base_data, "filing_watcher_state.json")
+    if os.path.exists(watcher_state_file):
+        try:
+            watcher_mtime = os.path.getmtime(watcher_state_file)
+        except OSError:
+            pass
+
+    cache_key = f"{as_of.isoformat()}_{sym_key}_{base_data}_{canon_mtime}_{watcher_mtime}"
     if not force_reload and cache_key in _SHARED_SNAPSHOT_CACHE:
         return _SHARED_SNAPSHOT_CACHE[cache_key]
 
     # 1. Load watcher state for filing freshness and pending updates
-    watcher_state_file = os.path.join(base_data, "filing_watcher_state.json")
     watcher_state = {}
     if os.path.exists(watcher_state_file):
         try:
@@ -3578,7 +3606,7 @@ def load_all_shared_financial_snapshots(
         except Exception as e:
             logger.warning(f"Could not load watcher state: {e}")
 
-    # 2. Check if rebuilt canonical PIT parquet exists, with fallbacks
+    # 2. Check if rebuilt canonical PIT parquet exists, routing via ScannerDataGateway (with Layer B Overlay)
     df_canonical = None
     canonical_candidates = [
         os.path.join(base_data, "canonical_pit_rebuilt.parquet"),
@@ -3588,11 +3616,21 @@ def load_all_shared_financial_snapshots(
     for c_path in canonical_candidates:
         if os.path.exists(c_path):
             try:
-                df_canonical = pd.read_parquet(c_path)
+                try:
+                    from app.scanner_data_gateway import ScannerDataGateway
+                except ImportError:
+                    from scanner_data_gateway import ScannerDataGateway
+                gateway = ScannerDataGateway(pit_parquet_path=c_path)
+                df_canonical = gateway.get_working_dataset()
                 if df_canonical is not None and not df_canonical.empty:
                     break
             except Exception as e:
-                logger.warning(f"Could not read canonical parquet at {c_path}: {e}")
+                try:
+                    df_canonical = pd.read_parquet(c_path)
+                    if df_canonical is not None and not df_canonical.empty:
+                        break
+                except Exception as _pe:
+                    logger.warning(f"Could not read canonical parquet at {c_path}: {_pe}")
 
     # 3. Load valuation cache
     val_cache = {}
@@ -3658,8 +3696,8 @@ def load_all_shared_financial_snapshots(
                 snapshot_status=w_status,
                 pit_freshness_status=str(r.get("pit_freshness_status", DataStatus.VALID.value)),
                 provenance_status=str(r.get("provenance_status", "CERTIFIED")),
-                roce=_clean(r.get("roce")) or (_clean(db_rec.get("roce")) if db_rec else None),
-                roe=_clean(r.get("roe")) or (_clean(db_rec.get("roe")) if db_rec else None),
+                roce=_clean(r.get("roce")) or _clean(r.get("roce_5y_avg")) or (_clean(db_rec.get("roce")) if db_rec else None),
+                roe=_clean(r.get("roe")) or _clean(r.get("roe_5y_avg")) or (_clean(db_rec.get("roe")) if db_rec else None),
                 roce_5y_avg=_clean(r.get("roce_5y_avg")),
                 operating_cash_flow=convert_to_inr_crores(r.get("operating_cash_flow"), source_unit=MonetaryUnit.INR_CRORES) or (convert_to_inr_crores(db_rec.get("operating_cash_flow"), source_unit=MonetaryUnit.INR_CRORES) if db_rec else None),
                 cfo_pat_5y_ratio=_clean(r.get("cfo_pat_5y_ratio")),
@@ -3679,10 +3717,10 @@ def load_all_shared_financial_snapshots(
                 growth_years_elapsed=float(r.get("growth_years_elapsed", 5.0) or 5.0),
                 financial_periods_used=int(r.get("financial_periods_used", 5) or 5),
                 roce_periods_used=int(r.get("roce_periods_used", 5) or 5),
-                shares_outstanding_m=r.get("shares_outstanding_m"),
+                shares_outstanding_m=_clean(r.get("shares_outstanding_m")),
                 shares_status=str(r.get("shares_status", DataStatus.VALID.value)),
                 shares_scaling_applied=bool(r.get("shares_scaling_applied", False)),
-                share_dilution_3y=r.get("share_dilution_3y"),
+                share_dilution_3y=_clean(r.get("share_dilution_3y")) if _clean(r.get("share_dilution_3y")) is not None else _clean(r.get("share_dilution_3y_pct")),
                 rev_yoy_latest=db_rec.get("rev_yoy_latest"),
                 rev_yoy_prev=db_rec.get("rev_yoy_prev"),
                 op_profit_yoy_latest=db_rec.get("op_profit_yoy_latest"),

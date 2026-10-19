@@ -1255,8 +1255,15 @@ class DailyBuilderFundamentalProvider:
             canonical_pit_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
             if os.path.exists(canonical_pit_path):
                 try:
-                    df_canon = pd.read_parquet(canonical_pit_path)
-                    if not df_canon.empty:
+                    try:
+                        from app.scanner_data_gateway import ScannerDataGateway
+                    except ImportError:
+                        from scanner_data_gateway import ScannerDataGateway
+                    gateway = ScannerDataGateway(pit_parquet_path=canonical_pit_path)
+                    df_canon = gateway.get_working_dataset()
+                    if df_canon is None or df_canon.empty:
+                        df_canon = pd.read_parquet(canonical_pit_path)
+                    if df_canon is not None and not df_canon.empty:
                         for cr in df_canon.to_dict(orient="records"):
                             c_sym = str(cr.get("symbol", "")).strip().upper()
                             if not c_sym:
@@ -1265,6 +1272,13 @@ class DailyBuilderFundamentalProvider:
                             c_roe = cr.get("roe_5y_avg", cr.get("ROE", cr.get("roe", cr.get("return_on_equity"))))
                             c_debt = cr.get("debt_to_equity", cr.get("debt_equity", cr.get("debt")))
                             c_ocf = cr.get("operating_cash_flow", cr.get("cfo_pat_5y_ratio"))
+                            c_sales_cagr = cr.get("sales_cagr_5y")
+                            c_pat_cagr = cr.get("pat_cagr_5y")
+                            c_cfo_pat = cr.get("cfo_pat_5y_ratio")
+                            c_dil = cr.get("share_dilution_3y")
+                            if c_dil is None or pd.isna(c_dil):
+                                c_dil = cr.get("share_dilution_3y_pct")
+                            c_dilution = float(c_dil) if (c_dil is not None and not pd.isna(c_dil)) else None
 
                             c_roce_v = float(c_roce) if (c_roce is not None and not pd.isna(c_roce)) else None
                             c_roe_v = float(c_roe) if (c_roe is not None and not pd.isna(c_roe)) else None
@@ -1296,6 +1310,10 @@ class DailyBuilderFundamentalProvider:
                                     "roe": c_roe_v,
                                     "debt_equity": c_debt_v,
                                     "operating_cash_flow": c_ocf_v,
+                                    "sales_cagr_5y": c_sales_cagr,
+                                    "pat_cagr_5y": c_pat_cagr,
+                                    "cfo_pat_5y_ratio": c_cfo_pat,
+                                    "share_dilution_3y": c_dilution,
                                     "fundamental_category": "NONE",
                                     "is_value_trap": False,
                                     "quality_score": 0.0,
@@ -1323,18 +1341,26 @@ class DailyBuilderFundamentalProvider:
                                 }
                             else:
                                 f_item = funds_map[c_sym]
-                                if f_item.get("roce") is None and c_roce_v is not None:
+                                if (f_item.get("roce") is None or pd.isna(f_item.get("roce"))) and c_roce_v is not None:
                                     f_item["roce"] = c_roce_v
-                                if f_item.get("roe") is None and c_roe_v is not None:
+                                if (f_item.get("roe") is None or pd.isna(f_item.get("roe"))) and c_roe_v is not None:
                                     f_item["roe"] = c_roe_v
-                                if f_item.get("debt_equity") is None and c_debt is not None and not pd.isna(c_debt):
+                                if (f_item.get("debt_equity") is None or pd.isna(f_item.get("debt_equity"))) and c_debt is not None and not pd.isna(c_debt):
                                     f_item["debt_equity"] = float(c_debt)
-                                if f_item.get("operating_cash_flow") is None and c_ocf is not None and not pd.isna(c_ocf):
+                                if (f_item.get("operating_cash_flow") is None or pd.isna(f_item.get("operating_cash_flow"))) and c_ocf is not None and not pd.isna(c_ocf):
                                     try:
                                         v = float(c_ocf)
                                         f_item["operating_cash_flow"] = round(v / 1e7, 2) if abs(v) > 1e6 else round(v, 2)
                                     except (ValueError, TypeError):
                                         pass
+                                if (f_item.get("sales_cagr_5y") is None or pd.isna(f_item.get("sales_cagr_5y"))) and c_sales_cagr is not None and not pd.isna(c_sales_cagr):
+                                    f_item["sales_cagr_5y"] = float(c_sales_cagr)
+                                if (f_item.get("pat_cagr_5y") is None or pd.isna(f_item.get("pat_cagr_5y"))) and c_pat_cagr is not None and not pd.isna(c_pat_cagr):
+                                    f_item["pat_cagr_5y"] = float(c_pat_cagr)
+                                if (f_item.get("cfo_pat_5y_ratio") is None or pd.isna(f_item.get("cfo_pat_5y_ratio"))) and c_cfo_pat is not None and not pd.isna(c_cfo_pat):
+                                    f_item["cfo_pat_5y_ratio"] = float(c_cfo_pat)
+                                if (f_item.get("share_dilution_3y") is None or pd.isna(f_item.get("share_dilution_3y"))) and c_dilution is not None and not pd.isna(c_dilution):
+                                    f_item["share_dilution_3y"] = float(c_dilution)
                                 if not f_item.get("latest_annual_period") and c_ann_period:
                                     f_item["latest_annual_period"] = c_ann_period
                                 if not f_item.get("period_end") and c_ann_period:

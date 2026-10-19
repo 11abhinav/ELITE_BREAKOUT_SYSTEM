@@ -508,6 +508,43 @@ def publish_canonical_pit(
             except Exception as _db_err:
                 logger.warning(f"[CANONICAL_PUBLISHER] DB parquet cache upload warning: {_db_err}")
 
+        # --- Step 10: Invalidate in-memory caches across modules ---
+        try:
+            from app.financial_data_integrity import clear_shared_snapshot_cache
+            clear_shared_snapshot_cache()
+            logger.info("🧹 [CANONICAL_PUBLISHER] Cleared in-memory shared financial snapshot cache")
+        except Exception:
+            try:
+                from financial_data_integrity import clear_shared_snapshot_cache
+                clear_shared_snapshot_cache()
+            except Exception:
+                pass
+
+        try:
+            try:
+                import app.database as _app_db
+            except ImportError:
+                import database as _app_db
+            if hasattr(_app_db, "_CANONICAL_DF_LOCK"):
+                with _app_db._CANONICAL_DF_LOCK:
+                    _app_db._CANONICAL_DF_CACHE = None
+                    _app_db._CANONICAL_DF_MTIME = 0.0
+                logger.info("🧹 [CANONICAL_PUBLISHER] Cleared database canonical snapshot cache")
+        except Exception:
+            pass
+
+        try:
+            try:
+                import app.dashboard_server as _app_dash
+            except ImportError:
+                import dashboard_server as _app_dash
+            if hasattr(_app_dash, "_STOCK_DATA_HEALTH_CACHE"):
+                with _app_dash._STOCK_DATA_HEALTH_CACHE_LOCK:
+                    _app_dash._STOCK_DATA_HEALTH_CACHE.clear()
+                logger.info("🧹 [CANONICAL_PUBLISHER] Cleared dashboard stock data health cache")
+        except Exception:
+            pass
+
         logger.info(
             f"✅ [CANONICAL_PUBLISHER] Published {len(df_target)} symbols | "
             f"EV/EBITDA: {meta['current_ev_ebitda_complete']}/{len(df_target)} | "

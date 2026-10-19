@@ -168,6 +168,12 @@ class ScannerDataGateway:
             logger.warning(f"⚠️ [GATEWAY] Base PIT parquet not found or unreadable at {path}")
             return pd.DataFrame()
 
+        if df is not None and not df.empty:
+            if "shares_outstanding" not in df.columns and "shares_outstanding_m" in df.columns:
+                df["shares_outstanding"] = df["shares_outstanding_m"] * 1e6
+            elif "shares_outstanding_m" not in df.columns and "shares_outstanding" in df.columns:
+                df["shares_outstanding_m"] = df["shares_outstanding"] / 1e6
+
         val_records = self.validated_cache.get_all_validated_records()
         if not val_records:
             return df
