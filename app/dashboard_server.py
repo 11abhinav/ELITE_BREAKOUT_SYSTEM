@@ -3302,16 +3302,10 @@ def api_admin_batch_validate_stocks():
         for sym in unique_symbols:
             try:
                 res = validate_and_restore_stock(sym)
-                if res.get("restored") or res.get("is_data_perfect"):
-                    try:
-                        from database import remove_stale_stock_from_cooloff
-                        remove_stale_stock_from_cooloff(sym)
-                    except Exception:
-                        pass
-                    if res.get("restored"):
-                        logger.info(f"🎉 [BATCH_VALIDATE] {sym}: RESTORED TO FRESH | Unblocked from cool-off")
-                    else:
-                        logger.info(f"✅ [BATCH_VALIDATE] {sym}: DATA PERFECT | All checks passed (already clean)")
+                if res.get("restored"):
+                    logger.info(f"🎉 [BATCH_VALIDATE] {sym}: RESTORED TO FRESH | Unblocked from cool-off")
+                elif res.get("is_data_perfect"):
+                    logger.info(f"✅ [BATCH_VALIDATE] {sym}: DATA PERFECT | All checks passed (already clean)")
                 else:
                     missing_str = "; ".join(res.get("missing_metrics") or ["Validation criteria failed"])
                     logger.warning(f"⚠️ [BATCH_VALIDATE] {sym}: STALE / INCOMPLETE | Reasons: {missing_str}")
@@ -3321,9 +3315,10 @@ def api_admin_batch_validate_stocks():
                 res_list.append({"symbol": sym, "ok": False, "is_data_perfect": False, "restored": False, "error": str(_val_err)})
 
         results_map = {sym: res for sym, res in zip(unique_symbols, res_list)}
+        clean_cnt = sum(1 for r in res_list if r.get("restored") or r.get("is_data_perfect"))
         restored_cnt = sum(1 for r in res_list if r.get("restored"))
-        perfect_cnt = sum(1 for r in res_list if r.get("is_data_perfect"))
-        failed_cnt = len(unique_symbols) - (restored_cnt + perfect_cnt)
+        perfect_cnt = sum(1 for r in res_list if r.get("is_data_perfect") and not r.get("restored"))
+        failed_cnt = max(0, len(unique_symbols) - clean_cnt)
 
         with _STOCK_DATA_HEALTH_LOCK:
             _STOCK_DATA_HEALTH_CACHE["payload"] = None
@@ -3333,9 +3328,10 @@ def api_admin_batch_validate_stocks():
             "status": "success",
             "ok": True,
             "total_requested": len(unique_symbols),
+            "clean_count": clean_cnt,
             "restored_count": restored_cnt,
             "perfect_count": perfect_cnt,
-            "failed_count": max(0, failed_cnt),
+            "failed_count": failed_cnt,
             "results": results_map,
             "server_time": datetime.now(IST).isoformat()
         })

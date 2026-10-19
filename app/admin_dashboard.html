@@ -14756,14 +14756,14 @@ async function batchValidateAndRestoreSelected() {
     if (processedSyms.length > 0) {
       for (const s of processedSyms) {
         const item = results[s] || {};
-        if (item.is_data_perfect || item.restored) {
+        if (item.is_data_perfect || item.restored || (item.ok && (!item.missing_metrics || item.missing_metrics.length === 0))) {
           foundClean++;
         } else {
           remainStale++;
         }
       }
     } else if (data) {
-      foundClean = Number(data.perfect_count || data.restored_count || 0);
+      foundClean = data.clean_count !== undefined ? Number(data.clean_count) : Number(data.perfect_count || data.restored_count || 0);
       remainStale = data.failed_count !== undefined ? Number(data.failed_count) : Math.max(0, syms.length - foundClean);
     } else {
       remainStale = syms.length;

@@ -9560,7 +9560,7 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
             if "symbol" in snap_df.columns:
                 mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym_u
                 if mask.any():
-                    snap_df.loc[mask, "pit_freshness_status"] = "FRESH"
+                    snap_df.loc[mask, "pit_freshness_status"] = "VALID"
                     if "snapshot_status" in snap_df.columns:
                         snap_df.loc[mask, "snapshot_status"] = "FRESH"
                     if "filing_gap_detected" in snap_df.columns:
@@ -9733,7 +9733,7 @@ def check_and_restore_stale_stock(
                     if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap:
                         was_stale = True
                         stale_reasons.append(f"Snapshot:{curr_status or 'GAP'}")
-                        snap_df.loc[mask, "pit_freshness_status"] = "FRESH"
+                        snap_df.loc[mask, "pit_freshness_status"] = "VALID"
                         if "snapshot_status" in snap_df.columns:
                             snap_df.loc[mask, "snapshot_status"] = "FRESH"
                         if "filing_gap_detected" in snap_df.columns:
@@ -10467,9 +10467,9 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
         except Exception:
             return None
 
-    # Filter to valid, non-stale rows
+    # Filter to valid, non-stale rows (accept both VALID and FRESH status)
     mask = (
-        (snap_df["pit_freshness_status"] == "VALID") &
+        (snap_df["pit_freshness_status"].isin(["VALID", "FRESH"])) &
         (snap_df["filing_gap_detected"] == False) &
         (snap_df["pit_staleness_years"] <= 2.0)
     )
@@ -10488,8 +10488,31 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
             continue  # STRICT GATE: Exclude from fresh if raw filings missing on disk
 
         latest_period_in_db = raw_info["latest"]
-        if latest_period_in_db in ("None", "Empty", "Error") or latest_period_in_db < sebi_mand_period:
-            continue  # STRICT SEBI REG 33 FRESHNESS GATE: Hard exclude if latest filing on disk is older than mandatory SEBI period
+        if latest_period_in_db in ("None", "Empty", "Error"):
+            continue
+
+        val_fy = row.get("fy_end_month")
+        try:
+            fy_end_m = 3 if (val_fy is None or pd.isna(val_fy)) else int(float(val_fy))
+        except Exception:
+            fy_end_m = 3
+
+        try:
+            from app.financial_data_integrity import is_half_yearly_filer
+            is_half_y = is_half_yearly_filer(sym)
+        except Exception:
+            is_half_y = False
+
+        sym_mand_period, sym_deadline, sym_label = get_sebi_lodr_mandatory_filing_status(
+            now_dt, fy_end_month=fy_end_m, is_half_yearly=is_half_y
+        )
+
+        # STRICT SEBI REG 33 FRESHNESS GATE: Symmetrically align with get_stale_stocks_audit
+        if latest_period_in_db < sym_mand_period:
+            ann_p = str(row.get("latest_annual_period") or "")
+            st_years = float(row.get("pit_staleness_years") or 0.0)
+            if not ann_p or (ann_p < "2026-03-31" and st_years > 1.0):
+                continue
 
         filings_count = raw_info["count"]
         recent_periods = raw_info.get("recent", [])
