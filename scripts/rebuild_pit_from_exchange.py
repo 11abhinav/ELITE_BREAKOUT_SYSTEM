@@ -470,6 +470,15 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     else:
         prov_status = "UNCERTIFIED"
 
+    # 3-Year Share Dilution
+    try:
+        from app.financial_data_integrity import compute_share_dilution_3y
+    except ImportError:
+        from financial_data_integrity import compute_share_dilution_3y
+    dilution_res = compute_share_dilution_3y(pit_eligible_annual, symbol=sym_u)
+    dilution_val = dilution_res.share_dilution_3y
+    dilution_status = dilution_res.status.value if hasattr(dilution_res.status, "value") else str(dilution_res.status)
+
     return {
         "symbol": sym_u,
         "is_bfsi": is_bfsi,
@@ -482,10 +491,13 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "filing_gap_detected": has_gaps,
         "filing_gaps": str(gaps),
         "roce_5y_avg": round(roce_5y, 2) if roce_5y is not None else None,
-        "sales_cagr_5y": sales_cagr_res.cagr if sales_cagr_res.ok else None,
-        "pat_cagr_5y": pat_cagr_res.cagr if pat_cagr_res.ok else None,
+        "sales_cagr_5y": sales_cagr_res.cagr if sales_cagr_res.ok else (-999.0 if (sales_cagr_res.reason and "CAGR_BASE_NON_POSITIVE" in sales_cagr_res.reason) else None),
+        "pat_cagr_5y": pat_cagr_res.cagr if pat_cagr_res.ok else (-999.0 if (pat_cagr_res.reason and "CAGR_BASE_NON_POSITIVE" in pat_cagr_res.reason) else None),
         "cfo_pat_5y_ratio": round(cfo_pat_5y, 2) if cfo_pat_5y is not None else None,
         "debt_to_equity": de_ratio,
+        "share_dilution_3y": dilution_val,
+        "share_dilution_3y_pct": dilution_val,
+        "share_dilution_status": dilution_status,
         "shares_outstanding_m": shares_m,
         "shares_status": shares_res.status.value,
         "shares_source": shares_source,
@@ -646,6 +658,13 @@ def rebuild_canonical_pit_dataset(
                     df_merged.loc[sym, "filing_gap_detected"] = False
                 elif not old_row.get("filing_gap_detected", False):
                     df_merged.loc[sym, "filing_gap_detected"] = False
+
+                # Preserve share_dilution_3y from old if new is null
+                if new_row is not None and (pd.isna(new_row.get("share_dilution_3y")) or new_row.get("share_dilution_3y") is None):
+                    old_dil = old_row.get("share_dilution_3y")
+                    if old_dil is not None and not pd.isna(old_dil):
+                        df_merged.loc[sym, "share_dilution_3y"] = old_dil
+                        df_merged.loc[sym, "share_dilution_3y_pct"] = old_dil
 
             df_final = df_merged.reset_index().sort_values("symbol").reset_index(drop=True)
         except Exception as merge_err:

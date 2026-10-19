@@ -5112,8 +5112,10 @@ class QualityCompounderValueV2Scanner:
             sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_cagr', row.get('revenue_cagr_3y'))))
             pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_cagr')))
             cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y', row.get('cfo_pat')))
-            de_ratio = row.get('debt_to_equity')
-            share_dilution_3y = row.get('share_dilution_3y_pct', row.get('share_dilution_3y'))
+            _sd = row.get('share_dilution_3y')
+            if _sd is None or (isinstance(_sd, float) and pd.isna(_sd)):
+                _sd = row.get('share_dilution_3y_pct')
+            share_dilution_3y = float(_sd) if (_sd is not None and not (isinstance(_sd, float) and pd.isna(_sd))) else None
 
             ev_ebitda_curr = row.get('current_ev_ebitda', row.get('ev_to_ebitda', row.get('ev_ebitda')))
             ev_ebitda_med = row.get('ev_ebitda_3y_median', row.get('ev_to_ebitda_3y_median', row.get('ev_ebitda_median')))
@@ -5406,16 +5408,22 @@ class QualityCompounderValueV2Scanner:
                         validation_reason=val_reason,
                         final_action="STOCK_SKIPPED",
                     )
-                    try:
-                        _miss_str = ",".join(_missing_fields) if _missing_fields else "QUALITY_FIELDS_MISSING"
-                        add_symbol_to_cooloff(
-                            symbol=sym,
-                            reason=f"DATA_INSUFFICIENT_QUALITY:{_miss_str}",
-                            scanner=self.strategy_id,
-                            duration_days=7
-                        )
-                    except Exception as _ce:
-                        logger.debug(f"Cool-off dispatch notice for quality failure {sym}: {_ce}")
+                    _is_struct_qc = (
+                        _inc_cls.get("is_structural", False)
+                        or bool(row.get("is_structural_ineligible", False))
+                        or (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 5.0)
+                    )
+                    if not _is_struct_qc:
+                        try:
+                            _miss_str = ",".join(_missing_fields) if _missing_fields else "QUALITY_FIELDS_MISSING"
+                            add_symbol_to_cooloff(
+                                symbol=sym,
+                                reason=f"DATA_INSUFFICIENT_QUALITY:{_miss_str}",
+                                scanner=self.strategy_id,
+                                duration_days=7
+                            )
+                        except Exception as _ce:
+                            logger.debug(f"Cool-off dispatch notice for quality failure {sym}: {_ce}")
 
                 else:
                     roce_val = float(roce_5y)
@@ -5429,15 +5437,20 @@ class QualityCompounderValueV2Scanner:
 
                     if share_dilution_3y is None or pd.isna(share_dilution_3y):
                         rejections.append("DATA_INSUFFICIENT_QUALITY")
-                        try:
-                            add_symbol_to_cooloff(
-                                symbol=sym,
-                                reason="DATA_INSUFFICIENT_QUALITY:share_dilution_3y",
-                                scanner=self.strategy_id,
-                                duration_days=7
-                            )
-                        except Exception as _ce:
-                            logger.debug(f"Cool-off dispatch notice for dilution failure {sym}: {_ce}")
+                        _is_struct_sd = (
+                            bool(row.get("is_structural_ineligible", False))
+                            or (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 3.0)
+                        )
+                        if not _is_struct_sd:
+                            try:
+                                add_symbol_to_cooloff(
+                                    symbol=sym,
+                                    reason="DATA_INSUFFICIENT_QUALITY:share_dilution_3y",
+                                    scanner=self.strategy_id,
+                                    duration_days=7
+                                )
+                            except Exception as _ce:
+                                logger.debug(f"Cool-off dispatch notice for dilution failure {sym}: {_ce}")
                     elif float(share_dilution_3y) > 10.0:
                         rejections.append("FAIL_DILUTION")
 
@@ -5574,15 +5587,20 @@ class QualityCompounderValueV2Scanner:
                         validation_reason=_val_reason,
                         final_action="STOCK_SKIPPED",
                     )
-                    try:
-                        add_symbol_to_cooloff(
-                            symbol=sym,
-                            reason=f"DATA_INSUFFICIENT_VALUATION:{_val_reason or 'VALUATION_MISSING'}",
-                            scanner=self.strategy_id,
-                            duration_days=7
-                        )
-                    except Exception as _ce:
-                        logger.debug(f"Cool-off dispatch notice for valuation failure {sym}: {_ce}")
+                    _is_struct_val = (
+                        bool(row.get("is_structural_ineligible", False))
+                        or (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 3.0)
+                    )
+                    if not _is_struct_val:
+                        try:
+                            add_symbol_to_cooloff(
+                                symbol=sym,
+                                reason=f"DATA_INSUFFICIENT_VALUATION:{_val_reason or 'VALUATION_MISSING'}",
+                                scanner=self.strategy_id,
+                                duration_days=7
+                            )
+                        except Exception as _ce:
+                            logger.debug(f"Cool-off dispatch notice for valuation failure {sym}: {_ce}")
                 else:
                     ev_discount = calc_discount
                     if ev_discount < 0.25:
@@ -7860,7 +7878,7 @@ class QualityValueRecoveryScanner:
                                 r for r in rejection_reasons
                                 if r in ('QUALITY_DATA_INSUFFICIENT', 'VALUATION_DATA_INSUFFICIENT', 'PRICE_DATA_INSUFFICIENT', 'PRICE_HISTORY_MISSING', 'STALE_PRICE_DATA')
                             ]
-                            if data_reasons:
+                            if data_reasons and not bool(row.get("is_structural_ineligible", False)):
                                 try:
                                     try:
                                         from database import add_symbol_to_cooloff

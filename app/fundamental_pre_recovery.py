@@ -218,12 +218,14 @@ class FundamentalPreRecoveryEngine:
         """
         field_map: Dict[str, List[str]] = {}
 
-        # Isolate eligible non-BFSI symbols for debt/operating metrics check
+        # Isolate eligible non-BFSI and non-structural-ineligible symbols for debt/operating metrics check
         eval_df = df
-        if "is_bfsi" in df.columns:
-            eval_df = df[~df["is_bfsi"].fillna(False)]
-        elif "is_structural_ineligible" in df.columns:
-            eval_df = df[~df["is_structural_ineligible"].fillna(False)]
+        if "is_bfsi" in eval_df.columns:
+            eval_df = eval_df[~eval_df["is_bfsi"].fillna(False)]
+        if "is_structural_ineligible" in eval_df.columns:
+            eval_df = eval_df[~eval_df["is_structural_ineligible"].fillna(False)]
+        if "listing_age_years" in eval_df.columns:
+            eval_df = eval_df[~(eval_df["listing_age_years"].fillna(99.0) < 5.0)]
 
         for field_name, aliases in REQUIRED_FIELD_ALIASES.items():
             matched_col = None

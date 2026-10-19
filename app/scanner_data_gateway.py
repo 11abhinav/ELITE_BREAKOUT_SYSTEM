@@ -173,6 +173,13 @@ class ScannerDataGateway:
                 df["shares_outstanding"] = df["shares_outstanding_m"] * 1e6
             elif "shares_outstanding_m" not in df.columns and "shares_outstanding" in df.columns:
                 df["shares_outstanding_m"] = df["shares_outstanding"] / 1e6
+            if "share_dilution_3y" in df.columns and "share_dilution_3y_pct" in df.columns:
+                df["share_dilution_3y"] = df["share_dilution_3y"].fillna(df["share_dilution_3y_pct"])
+                df["share_dilution_3y_pct"] = df["share_dilution_3y_pct"].fillna(df["share_dilution_3y"])
+            elif "share_dilution_3y" in df.columns:
+                df["share_dilution_3y_pct"] = df["share_dilution_3y"]
+            elif "share_dilution_3y_pct" in df.columns:
+                df["share_dilution_3y"] = df["share_dilution_3y_pct"]
 
         val_records = self.validated_cache.get_all_validated_records()
         if not val_records:

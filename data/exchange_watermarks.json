@@ -179,7 +179,7 @@
         "last_successful_check_at": "2026-10-15T20:25:50.103728"
       },
       "MANYAVAR": {
-        "last_successful_check_at": "2026-10-18T22:21:00.023970"
+        "last_successful_check_at": "2026-10-19T11:49:21.756078"
       },
       "MOLDTKPAC": {
         "last_successful_check_at": "2026-10-15T20:25:51.998551"
@@ -192,6 +192,9 @@
       },
       "CORRUPT_CO": {
         "last_successful_check_at": "2026-10-17T09:59:05.794591"
+      },
+      "MOIL": {
+        "last_successful_check_at": "2026-10-19T11:50:18.124073"
       }
     }
   },
@@ -375,7 +378,7 @@
         "last_successful_check_at": "2026-10-15T20:25:50.107060"
       },
       "MANYAVAR": {
-        "last_successful_check_at": "2026-10-18T22:21:00.026887"
+        "last_successful_check_at": "2026-10-19T11:49:21.760849"
       },
       "MOLDTKPAC": {
         "last_successful_check_at": "2026-10-15T20:25:52.000931"
@@ -388,6 +391,9 @@
       },
       "CORRUPT_CO": {
         "last_successful_check_at": "2026-10-17T09:59:05.799800"
+      },
+      "MOIL": {
+        "last_successful_check_at": "2026-10-19T11:50:18.127621"
       }
     }
   }
