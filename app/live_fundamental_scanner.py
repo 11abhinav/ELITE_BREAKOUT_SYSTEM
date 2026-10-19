@@ -795,7 +795,16 @@ class DailyBuilderFundamentalProvider:
 
     @classmethod
     def load_pit_dataset(cls, parquet_path: Optional[str] = None) -> Optional[pd.DataFrame]:
-        """Loads master records as a pandas DataFrame."""
+        """Loads master records as a pandas DataFrame from Single Source of Truth."""
+        try:
+            from app.scanner_data_gateway import ScannerDataGateway
+            gateway = ScannerDataGateway(pit_parquet_path=parquet_path)
+            df = gateway.get_working_dataset()
+            if df is not None and not df.empty and len(df) >= 50:
+                return df
+        except Exception as _gwe:
+            logger.debug(f"[DAILY_BUILDER_PROVIDER] Gateway load fallback: {_gwe}")
+
         path = parquet_path or os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
         if not os.path.exists(path) and os.path.exists(cls.MASTER_PARQUET):
             path = cls.MASTER_PARQUET
@@ -5287,8 +5296,10 @@ class QualityCompounderValueV2Scanner:
                 quality_data_missing = False
                 quality_reject_count += 1
             else:
-                is_young_5y = (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 5.0)
-                is_young_3y = (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 3.0)
+                listing_age_val = float(row.get("listing_age_years") or 99.0) if row.get("listing_age_years") is not None else 99.0
+                ann_count_val = float(row.get("annual_filing_count") or 99.0) if row.get("annual_filing_count") is not None else 99.0
+                is_young_5y = (listing_age_val < 5.0) or (ann_count_val < 6.0)
+                is_young_3y = (listing_age_val < 3.0) or (ann_count_val < 4.0)
                 is_bfsi_flag = bool(row.get("is_bfsi", False)) or (sym in self.KNOWN_FINANCIAL_SYMBOLS)
 
                 quality_data_missing = (

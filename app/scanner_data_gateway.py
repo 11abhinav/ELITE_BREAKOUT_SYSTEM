@@ -186,6 +186,7 @@ class ScannerDataGateway:
             return df
 
         overlay_count = 0
+        updated_cells = 0
         for sym, rec in val_records.items():
             fields = rec.get("fields", {})
             idx = df["symbol"] == sym
@@ -198,10 +199,30 @@ class ScannerDataGateway:
                     target_col = next((a for a in aliases if a in df.columns), f_name)
                     if target_col not in df.columns:
                         df[target_col] = None
-                    df.loc[idx, target_col] = val
+                    existing_val = df.loc[idx, target_col].iloc[0] if target_col in df.columns else None
+                    if existing_val is None or pd.isna(existing_val) or existing_val != val:
+                        df.loc[idx, target_col] = val
+                        updated_cells += 1
                     overlay_count += 1
 
-        logger.info(f"⚡ [GATEWAY] Applied {overlay_count} validated overlay metrics for {len(val_records)} symbols.")
+        logger.info(f"⚡ [GATEWAY] Applied {overlay_count} validated overlay metrics for {len(val_records)} symbols (new/updated cells: {updated_cells}).")
+
+        # Materialize single source of truth to disk and PostgreSQL DB cache
+        if updated_cells > 0 and path and os.path.exists(path):
+            try:
+                tmp_p = f"{path}.tmp.{os.getpid()}"
+                df.to_parquet(tmp_p, index=False)
+                os.replace(tmp_p, path)
+                try:
+                    from app.database import upload_parquet_to_db, clear_canonical_snapshot_cache
+                except ImportError:
+                    from database import upload_parquet_to_db, clear_canonical_snapshot_cache
+                clear_canonical_snapshot_cache()
+                upload_parquet_to_db("canonical_pit_rebuilt", path)
+                logger.info(f"💾 [GATEWAY] Materialized {updated_cells} updated cells to disk ({path}) and synced to PostgreSQL DB.")
+            except Exception as _sync_err:
+                logger.debug(f"[GATEWAY] Sync note: {_sync_err}")
+
         return df
 
     def get_data(

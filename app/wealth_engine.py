@@ -298,7 +298,8 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
     defaults = {
         "sma_200": None, "sma_50": None, "ema_20": None, "cmp": None,
         "rs_6m": None, "dist_52w_high": None, "liquidity": 0.0,
-        "RSI": 50.0, "ATR_Pct": 0.0, "data_quality": DataQuality.MISSING_PARTIAL.value
+        "RSI": 50.0, "ATR_Pct": 0.0, "data_quality": DataQuality.MISSING_PARTIAL.value,
+        "is_stale": True, "last_candle_date": None
     }
     for attempt in range(RETRY_ATTEMPTS):
         try:
@@ -416,6 +417,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 "momentum_confidence": mom_conf,
                 "data_quality": "STALE_INTRADAY" if is_stale else DataQuality.LIVE.value,
                 "is_stale": is_stale,
+                "last_candle_date": str(last_candle_date) if last_candle_date else None,
                 "above_sma200": bool(cmp >= sma_200) if sma_200 is not None else False
             }
             if historical_cache is not None and _h is not None and not _h.empty:
@@ -1720,7 +1722,32 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         # cmp_is_stale (set by the CMP injection block) tracks live-price freshness independently.
         # A fresh LTP NEVER clears is_stale — these are two separate axes.
         # A definitive technical stop (SMA200 / RS breakdown) must NEVER fire on stale indicator data!
-        is_indicator_stale = bool(r.get("is_stale") or data_quality == "STALE_INTRADAY" or r.get("orphan_enrichment_failed") or sma <= 0)
+        is_indicator_stale = bool(
+            r.get("is_stale") or
+            data_quality in ("STALE_INTRADAY", "STALE", "CACHED_MULTI_DAY", "MISSING_PARTIAL", "DATA_STALE") or
+            r.get("orphan_enrichment_failed") or
+            r.get("used_fallback_data") or
+            r.get("indicators_stale") or
+            sma <= 0 or
+            pd.isna(sma)
+        )
+
+        # Check candle age staleness (>4 days is definitively stale)
+        last_c_d = r.get("last_candle_date")
+        if last_c_d:
+            try:
+                if isinstance(last_c_d, str):
+                    c_date = datetime.strptime(str(last_c_d)[:10], "%Y-%m-%d").date()
+                elif isinstance(last_c_d, (datetime, pd.Timestamp)):
+                    c_date = last_c_d.date()
+                elif isinstance(last_c_d, date):
+                    c_date = last_c_d
+                else:
+                    c_date = None
+                if c_date and (datetime.now(IST).date() - c_date).days > 4:
+                    is_indicator_stale = True
+            except Exception:
+                pass
 
         # WINNING TRADE GUARD:
         # A winning/profitable trade (cmp > entry_price) must NEVER be closed on catastrophic trend breakdown or RS loss stops!
@@ -1732,7 +1759,14 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             else:
                 exit_code, exit_reason = "SELL", f"Confirmed RS Breakdown [{macro_regime}] (RS: {rs:.1f} < {rs_threshold} & CMP < 200SMA)"
         elif not is_winning_trade and sma > 0 and cmp < (0.75 * sma):
-            if is_indicator_stale:
+            # MATHEMATICAL INVARIANT: For positions entered above 200SMA, CMP cannot be < 75% 200SMA if drawdown from entry is < 20%!
+            if drawdown_pct < 20.0:
+                logger.warning(
+                    f"🛡️ [FALSE_COLLAPSE_GUARD] {sym}: CMP {cmp} < 0.75*SMA ({0.75*sma:.2f}) rejected! "
+                    f"Drawdown is only {drawdown_pct:.1f}% (< 20%). Implies stale/mismatched SMA ({sma:.2f})."
+                )
+                exit_code, exit_reason = "DATA_STALE", f"Stale/Mismatched SMA200 (SMA={sma:.1f}, Drawdown={drawdown_pct:.1f}% < 20%) — Exit deferred"
+            elif is_indicator_stale:
                 exit_code, exit_reason = "DATA_STALE", "Stale Technical Indicator Data — Exit evaluation deferred until fresh candles"
             else:
                 exit_code, exit_reason = "SELL", "Catastrophic Trend Collapse (CMP < 75% 200SMA)"
@@ -3107,6 +3141,19 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
             wealth_stock_map = {r["Stock"]: r for r in wealth_df.to_dict(orient="records")}
 
         stage_tracker.start_stage(3, "Exit Rule & Trailing Stop Loss Evaluation", "Evaluating exit triggers")
+
+        # ── SINGLE POINT OF TRUTH: Pre-fetch fresh 1D historical data for open positions ──
+        # NEVER rely on frozen/stale indicators from parquet snapshots for real money exit decisions!
+        open_historical_cache = {}
+        if open_symbols:
+            try:
+                from price_cache import fetch_unified_historical
+                open_historical_cache = fetch_unified_historical(list(open_symbols), period="1y", interval="1d", requester="WEALTH_EXIT_UPDATE") or {}
+            except Exception as _fhe:
+                logger.warning(f"Failed to fetch fresh historical candles for open positions: {_fhe}")
+
+        nifty_6m_ret, _ = fetch_nifty_macro_state()
+
         portfolio_rows = []
         for al in open_alerts:
             sym = al["symbol"]
@@ -3120,6 +3167,25 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
                         row[k] = v
                 else:
                     row["orphan_enrichment_failed"] = True
+
+            # DYNAMIC UNIFIED FRESH TECHNICAL INDICATOR RESOLUTION:
+            # Recompute technicals from the single unified source of truth (Upstox API historical cache)
+            tech = calculate_wealth_technicals(sym, nifty_6m_ret, historical_cache=open_historical_cache)
+            if tech.get("sma_200") is not None and not tech.get("is_stale"):
+                row["sma_200"] = tech.get("sma_200")
+                row["sma_50"] = tech.get("sma_50")
+                row["ema_20"] = tech.get("ema_20")
+                row["rs_6m"] = tech.get("rs_6m")
+                row["RSI"] = tech.get("RSI")
+                row["ATR_Pct"] = tech.get("ATR_Pct")
+                row["prev_close"] = tech.get("prev_close")
+                row["is_stale"] = False
+                row["last_candle_date"] = tech.get("last_candle_date")
+                row["data_quality"] = DataQuality.LIVE.value
+            else:
+                row["is_stale"] = True
+                row["data_quality"] = "DATA_STALE"
+
             row["alert_id"] = al.get("id")
             row["entry_price"] = al["entry_price"]
             row["entry_date"] = al["entry_date"]
@@ -3129,9 +3195,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
-                row["data_quality"] = DataQuality.LIVE.value
                 row["cmp_is_stale"] = False
-                # DO NOT touch row["is_stale"] — historical indicator freshness is immutable here
                 row["last_updated"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             portfolio_rows.append(row)
 
@@ -3140,6 +3204,25 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
             portfolio_df = pd.DataFrame(portfolio_rows)
             portfolio_df = evaluate_open_positions(portfolio_df, portfolio_dict)
             if not portfolio_df.empty:
+                # ── STALE DATA DEFENSE: Notify admin for any open positions with deferred exits ──
+                stale_positions = portfolio_df[portfolio_df["Exit_Code"] == "DATA_STALE"]
+                for _, s_row in stale_positions.iterrows():
+                    s_sym = s_row.get("Stock")
+                    s_reason = s_row.get("Exit_Reason")
+                    logger.warning(f"⚠️ [STALE DATA DEFENSE] Open position {s_sym} exit evaluation deferred: {s_reason}")
+                    try:
+                        from telegram_engine import queue_telegram_message
+                        queue_telegram_message(
+                            f"⚠️ <b>[DATA STALE ALERT] Open Position Exit Deferred</b>\n"
+                            f"<b>Stock:</b> {s_sym} (Alert ID: {s_row.get('alert_id')})\n"
+                            f"<b>CMP:</b> ₹{s_row.get('cmp')}\n"
+                            f"<b>Reason:</b> {s_reason}\n"
+                            f"<b>Action:</b> Exit deferred until fresh verified market data is acquired.",
+                            symbol=s_sym
+                        )
+                    except Exception:
+                        pass
+
                 sell_signals = portfolio_df[portfolio_df["Exit_Code"] == "SELL"]
                 sell_signal_count = len(sell_signals)
                 for _, row in sell_signals.iterrows():
@@ -3150,6 +3233,41 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
                     alert_id = row.get("alert_id")
                     scanner = row.get("scanner")
                     if symbol and cmp:
+                        # ── MANDATORY PRE-CLOSE FRESH DATA RE-VALIDATION GATE ──
+                        if "Catastrophic Trend Collapse" in (exit_reason or "") or "RS Breakdown" in (exit_reason or ""):
+                            h_df = open_historical_cache.get(symbol)
+                            if h_df is None or h_df.empty or len(h_df) < 200:
+                                logger.error(f"🚫 [EXIT BLOCKED] Cannot close {symbol}: Fresh historical candles missing from single point of truth!")
+                                try:
+                                    from telegram_engine import send_telegram_message
+                                    send_telegram_message(
+                                        f"🚨 <b>EXIT BLOCKED (DATA UNAVAILABLE)</b>\n"
+                                        f"<b>Stock:</b> {symbol} (Alert ID: {alert_id})\n"
+                                        f"<b>Attempted Exit:</b> {exit_reason}\n"
+                                        f"<b>CMP:</b> ₹{cmp}\n"
+                                        f"<b>Action:</b> Automated close blocked because fresh 200-day historical candles could not be verified."
+                                    )
+                                except Exception:
+                                    pass
+                                continue
+
+                            fresh_sma200 = float(h_df['Close'].tail(200).mean())
+                            if "Catastrophic Trend Collapse" in exit_reason and cmp >= (0.75 * fresh_sma200):
+                                logger.error(f"🚫 [FALSE EXIT BLOCKED] {symbol}: Live CMP {cmp} >= 75% of fresh 200SMA ({fresh_sma200:.2f}, 75%={0.75*fresh_sma200:.2f})!")
+                                try:
+                                    from telegram_engine import send_telegram_message
+                                    send_telegram_message(
+                                        f"🛡️ <b>FALSE EXIT PREVENTED</b>\n"
+                                        f"<b>Stock:</b> {symbol} (Alert ID: {alert_id})\n"
+                                        f"<b>Attempted Reason:</b> Catastrophic Trend Collapse\n"
+                                        f"<b>Fresh 200SMA:</b> ₹{fresh_sma200:.2f} (75% threshold: ₹{0.75*fresh_sma200:.2f})\n"
+                                        f"<b>Live CMP:</b> ₹{cmp:.2f}\n"
+                                        f"<b>Status:</b> Position kept OPEN. False exit prevented."
+                                    )
+                                except Exception:
+                                    pass
+                                continue
+
                         if is_test_mode:
                             logger.info(f"🧪 [TEST MODE] Would close position {symbol} (Alert ID: {alert_id}, Strategy: {scanner}) at {cmp} due to {exit_reason} (Source: {p_source})")
                         elif not is_eod:

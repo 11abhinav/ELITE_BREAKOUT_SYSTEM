@@ -1170,12 +1170,20 @@ class FinancialFilingWatcher:
         except ImportError:
             from database import upsert_corporate_filing_finding
 
-        # Load canonical PIT snapshot used by trading scanners
+        # Load canonical PIT snapshot used by trading scanners (Single Source of Truth)
         snap_map: Dict[str, Any] = {}
         try:
             import pandas as pd
-            if SNAPSHOT_PATH.exists():
-                snap_df = pd.read_parquet(SNAPSHOT_PATH)
+            try:
+                from app.scanner_data_gateway import ScannerDataGateway
+            except ImportError:
+                from scanner_data_gateway import ScannerDataGateway
+            gateway = ScannerDataGateway(pit_parquet_path=str(SNAPSHOT_PATH))
+            snap_df = gateway.get_working_dataset()
+            if snap_df is None or snap_df.empty:
+                if SNAPSHOT_PATH.exists():
+                    snap_df = pd.read_parquet(SNAPSHOT_PATH)
+            if snap_df is not None and not snap_df.empty:
                 for _, r in snap_df.iterrows():
                     s = str(r.get("symbol", "")).strip().upper()
                     if s:

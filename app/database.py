@@ -8365,9 +8365,24 @@ def close_position_atomic(
                             pnl_pct = None
                             if alert_p and alert_p > 0 and exit_price is not None:
                                 calc_ret = ((exit_price - alert_p) / alert_p) * 100.0
-                                if calc_ret >= 0 and "Catastrophic Trend Collapse" in (exit_reason or ""):
-                                    logger.warning(f"🚫 [SAFEGUARD] Refusing to close winning position {symbol} (Alert ID {r_id}, +{calc_ret:.2f}%) on Catastrophic Trend Collapse!")
-                                    continue
+                                if "Catastrophic Trend Collapse" in (exit_reason or ""):
+                                    if calc_ret >= 0:
+                                        logger.warning(f"🚫 [SAFEGUARD] Refusing to close winning position {symbol} (Alert ID {r_id}, +{calc_ret:.2f}%) on Catastrophic Trend Collapse!")
+                                        continue
+                                    if calc_ret > -20.0:
+                                        logger.warning(f"🚫 [SAFEGUARD] Refusing to close position {symbol} (Alert ID {r_id}, {calc_ret:+.2f}%) on Catastrophic Trend Collapse! Drawdown < 20% indicates stale/corrupted indicator data.")
+                                        try:
+                                            from telegram_engine import send_telegram_message
+                                            send_telegram_message(
+                                                f"🛡️ <b>[SAFEGUARD BLOCKED FALSE EXIT]</b>\n"
+                                                f"Refused to close <b>{symbol}</b> (Alert ID: {r_id})!\n"
+                                                f"Reason given: Catastrophic Trend Collapse\n"
+                                                f"Return: {calc_ret:+.2f}%\n"
+                                                f"Drawdown is < 20.0% from entry ₹{alert_p:.2f} — Catastrophic Trend Collapse mathematically invalid. Position kept OPEN."
+                                            )
+                                        except Exception:
+                                            pass
+                                        continue
                                 final_st = "WIN" if calc_ret >= 0 else "LOSS"
                                 pnl_rs   = round(exit_price - alert_p, 4)
                                 pnl_pct  = round(calc_ret, 4)
@@ -9573,8 +9588,13 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
                     try:
                         from app.financial_data_integrity import clear_shared_snapshot_cache
                         clear_shared_snapshot_cache()
+                        clear_canonical_snapshot_cache()
                     except Exception:
                         pass
+                    try:
+                        upload_parquet_to_db("canonical_pit_rebuilt", str(snap_path))
+                    except Exception as _up_err:
+                        logger.debug(f"[REMOVE_STALE] DB upload note: {_up_err}")
     except Exception as s_err:
         logger.debug(f"[REMOVE_STALE] Snapshot update error for {sym_u}: {s_err}")
 
@@ -9647,7 +9667,11 @@ def check_and_restore_stale_stock(
     from datetime import datetime
     now_dt = datetime.now(IST)
 
-    # STRICT 7-DAY INVARIANT: Do not delete active cool-off unless expired (cooloff_until <= now_dt) or force=True (manual admin override)
+    # Fresh exchange filings or recovery promotion directly satisfy the data requirement and override cool-off
+    if source in ("CORPORATE_FILING_WATCHER", "BATCH_FILINGS_INGESTION", "FILING_WATCHER", "EXCHANGE_INGESTION", "PRE_RECOVERY_PROMOTED", "EXCHANGE_VERIFIED"):
+        force = True
+
+    # STRICT 7-DAY INVARIANT: Do not delete active cool-off unless expired (cooloff_until <= now_dt) or force=True
     if not force:
         with _LOCAL_COOLOFF_LOCK:
             active_cache = [k for k, v in _LOCAL_COOLOFF_CACHE.items() if k[0] == sym and v.get("cooloff_until") and v.get("cooloff_until") > now_dt]
@@ -9968,10 +9992,22 @@ def _load_canonical_snapshot_df() -> Optional[Any]:
     """
     Resilient loader for canonical_pit_rebuilt.parquet with multi-tier self-healing
     and in-memory mtime caching for sub-millisecond retrieval.
+    Routes through ScannerDataGateway to ensure Layer B validated overlay is included.
     """
     global _CANONICAL_DF_CACHE, _CANONICAL_DF_MTIME
     import os, shutil
     import pandas as pd
+
+    # Try Tier 0: Single Point of Truth (ScannerDataGateway: Base + Layer B Validated Overlay)
+    try:
+        from scanner_data_gateway import ScannerDataGateway
+        gateway = ScannerDataGateway()
+        df_gw = gateway.get_working_dataset()
+        if df_gw is not None and not df_gw.empty and "symbol" in df_gw.columns:
+            return df_gw
+    except Exception as _gw_e:
+        logger.debug(f"[CANONICAL_LOADER] Gateway load fallback: {_gw_e}")
+
     base_dir = Path(__file__).resolve().parent.parent
     snap_path = base_dir / "data" / "canonical_pit_rebuilt.parquet"
 
@@ -10153,17 +10189,25 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         snap_item = snap_lookup.get(sym)
                         if snap_item:
                             l_age = float(snap_item.get("listing_age_years") or 99.0)
+                            ann_c = int(snap_item.get("annual_filing_count") or snap_item.get("annual_count") or snap_item.get("filings_count") or 99)
                             r_low = reason.lower()
-                            # Young company (<3Y) exempt from 3Y dilution
-                            if "share_dilution_3y" in r_low and l_age < 3.0:
+                            # Young company (<3Y or <4 annual filings) exempt from 3Y dilution
+                            if "share_dilution_3y" in r_low and (l_age < 3.0 or ann_c < 4):
                                 to_purge.append((sym, scan))
                                 continue
-                            # Young company (<5Y) exempt from 5Y CAGR
-                            if ("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and l_age < 5.0 and "share_dilution_3y" not in r_low:
+                            # Young company (<5Y or <6 annual filings) exempt from 5Y CAGR
+                            if ("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and (l_age < 5.0 or ann_c < 6) and "share_dilution_3y" not in r_low:
                                 to_purge.append((sym, scan))
                                 continue
                             # Base year net loss is a financial fact, not missing data
                             if "base year net loss" in r_low or bool(snap_item.get("pat_base_year_loss", False)):
+                                to_purge.append((sym, scan))
+                                continue
+                            # If metric is now present in the working dataset, purge from cool-off immediately
+                            if "share_dilution_3y" in r_low and snap_item.get("share_dilution_3y") is not None and not pd.isna(snap_item.get("share_dilution_3y")):
+                                to_purge.append((sym, scan))
+                                continue
+                            if "roce" in r_low and snap_item.get("roce_5y_avg") is not None and not pd.isna(snap_item.get("roce_5y_avg")):
                                 to_purge.append((sym, scan))
                                 continue
                         
@@ -10820,11 +10864,20 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
     else:
         checks["missing_metrics"].append("1D price history file missing")
 
-    # 3. Check canonical snapshot
-    snap_p = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
-    if snap_p.exists():
+    # 3. Check canonical snapshot (Single Source of Truth: Base + Layer B Validated Overlay)
+    sdf = None
+    try:
         try:
-            sdf = pd.read_parquet(snap_p)
+            from app.scanner_data_gateway import ScannerDataGateway
+        except ImportError:
+            from scanner_data_gateway import ScannerDataGateway
+        gateway = ScannerDataGateway()
+        sdf = gateway.get_working_dataset()
+    except Exception:
+        sdf = _load_canonical_snapshot_df()
+
+    if sdf is not None and not sdf.empty:
+        try:
             match = sdf[sdf["symbol"].str.upper() == sym_u]
             if not match.empty:
                 checks["has_canonical_snapshot"] = True
@@ -10839,8 +10892,9 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
                     checks["missing_metrics"].append("Fiscal annual filing gap detected in historical series")
                 # Structural exemption checks: Young companies (<5Y for 5Y metrics, <3Y for 3Y dilution) and BFSI financial firms
                 listing_age_val = float(row.get("listing_age_years") or 99.0) if row.get("listing_age_years") is not None else 99.0
-                is_young_5y = listing_age_val < 5.0
-                is_young_3y = listing_age_val < 3.0
+                ann_count_val = float(row.get("annual_filing_count") or 99.0) if row.get("annual_filing_count") is not None else 99.0
+                is_young_5y = (listing_age_val < 5.0) or (ann_count_val < 6.0)
+                is_young_3y = (listing_age_val < 3.0) or (ann_count_val < 4.0)
                 try:
                     from app.live_fundamental_scanner import QualityCompounderValueV2Scanner
                     is_bfsi = sym_u in QualityCompounderValueV2Scanner.KNOWN_FINANCIAL_SYMBOLS
@@ -14935,16 +14989,55 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     except Exception as io_err:
         logger.debug(f"[CORPORATE_FILINGS] Local cache write warning: {io_err}")
 
-    # 4. Check if stock was previously marked stale/cool-off and restore it
+    # 4. Check if stock was previously marked stale/cool-off and restore it (force=True on verified exchange filing)
     try:
         check_and_restore_stale_stock(
             symbol=sym,
             source="CORPORATE_FILING_WATCHER",
             period_end=period_end,
-            notify_admin=True
+            notify_admin=True,
+            force=True
         )
     except Exception as restore_err:
         logger.debug(f"[CORPORATE_FILINGS] check_and_restore_stale_stock note for {sym}: {restore_err}")
+
+    # 5. Push verified financial metrics into Layer B Validated Disk Overlay & clear dashboard cache
+    try:
+        from pit_recovery_cache import get_validated_recovery_cache
+        v_cache = get_validated_recovery_cache()
+        field_updates = {}
+        for f_name, f_val in [
+            ("revenue", revenue_cr),
+            ("operating_profit", op_cr),
+            ("net_profit", pat_cr),
+            ("pat", pat_cr),
+            ("eps", eps_val),
+            ("roce", roce_val),
+            ("roce_5y_avg", roce_val),
+            ("roe", roe_val),
+            ("debt_to_equity", de_val),
+            ("operating_margin", op_margin),
+            ("shares_outstanding", shares_out),
+            ("latest_period_end", period_end),
+        ]:
+            if f_val is not None:
+                field_updates[f_name] = {
+                    "value": f_val,
+                    "status": "VERIFIED",
+                    "provider": f"EXCHANGE_{exchange}",
+                    "verified_at": datetime.now(IST).isoformat(),
+                    "period_end": period_end
+                }
+        if field_updates:
+            v_cache.save_validated_record(sym, field_updates)
+    except Exception as _vc_err:
+        logger.debug(f"[CORPORATE_FILINGS] Layer B overlay update note for {sym}: {_vc_err}")
+
+    try:
+        from dashboard_server import _STOCK_DATA_HEALTH_CACHE
+        _STOCK_DATA_HEALTH_CACHE.clear()
+    except Exception:
+        pass
 
     return True
 
@@ -15131,17 +15224,62 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
     except Exception as io_err:
         logger.debug(f"[CORPORATE_FILINGS] Local cache batch write warning: {io_err}")
 
-    # Check and restore any stocks that were previously marked stale
+    # Check and restore any stocks that were previously marked stale (force=True on verified exchange filings)
+    try:
+        from pit_recovery_cache import get_validated_recovery_cache
+        v_cache = get_validated_recovery_cache()
+    except Exception:
+        v_cache = None
+
     for rec in valid_records:
+        sym = rec["symbol"]
         try:
             check_and_restore_stale_stock(
-                symbol=rec["symbol"],
+                symbol=sym,
                 source="BATCH_FILINGS_INGESTION",
                 period_end=rec.get("period_end"),
-                notify_admin=True
+                notify_admin=True,
+                force=True
             )
         except Exception as res_err:
-            logger.debug(f"[CORPORATE_FILINGS] Batch stale restore note for {rec.get('symbol')}: {res_err}")
+            logger.debug(f"[CORPORATE_FILINGS] Batch stale restore note for {sym}: {res_err}")
+
+        if v_cache is not None:
+            try:
+                field_updates = {}
+                for f_name, k_in in [
+                    ("revenue", "revenue_cr"),
+                    ("operating_profit", "operating_profit_cr"),
+                    ("net_profit", "pat_cr"),
+                    ("pat", "pat_cr"),
+                    ("eps", "eps"),
+                    ("roce", "roce_pct"),
+                    ("roce_5y_avg", "roce_pct"),
+                    ("roe", "roe_pct"),
+                    ("debt_to_equity", "debt_to_equity"),
+                    ("operating_margin", "operating_margin_pct"),
+                    ("shares_outstanding", "shares_outstanding"),
+                    ("latest_period_end", "period_end"),
+                ]:
+                    f_val = rec.get(k_in)
+                    if f_val is not None:
+                        field_updates[f_name] = {
+                            "value": f_val,
+                            "status": "VERIFIED",
+                            "provider": f"EXCHANGE_{rec.get('exchange', 'NSE')}",
+                            "verified_at": datetime.now(IST).isoformat(),
+                            "period_end": rec.get("period_end")
+                        }
+                if field_updates:
+                    v_cache.save_validated_record(sym, field_updates)
+            except Exception as _bve:
+                logger.debug(f"[CORPORATE_FILINGS] Layer B batch update note for {sym}: {_bve}")
+
+    try:
+        from dashboard_server import _STOCK_DATA_HEALTH_CACHE
+        _STOCK_DATA_HEALTH_CACHE.clear()
+    except Exception:
+        pass
 
     return len(valid_records)
 

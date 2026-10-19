@@ -1361,6 +1361,15 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
             except Exception: pass
         return {"status": "SUCCESS", "active_count": 0, "processed": 0}
 
+    active_symbols = list({str(al["symbol"]).upper() for al in active_alerts if al.get("symbol")})
+    unified_hist_cache = {}
+    if active_symbols:
+        try:
+            from price_cache import fetch_unified_historical
+            unified_hist_cache = fetch_unified_historical(active_symbols, period="1y", interval="1d", requester="V2_EXIT_MONITOR") or {}
+        except Exception as _fe:
+            logger.warning(f"V2 exit monitor failed to fetch unified history: {_fe}")
+
     history_dir = os.path.join(DATA_DIR, "history", "1d")
     processed_count = 0
     warnings_count = 0
@@ -1374,15 +1383,20 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
         seen_symbols.add(sym)
 
         processed_count += 1
-        p_path = os.path.join(history_dir, f"{sym}.parquet")
-        if not os.path.exists(p_path):
+        df = unified_hist_cache.get(sym)
+        if df is None or df.empty:
+            p_path = os.path.join(history_dir, f"{sym}.parquet")
+            if os.path.exists(p_path):
+                try:
+                    df = pd.read_parquet(p_path)
+                except Exception:
+                    df = None
+
+        if df is None or df.empty or len(df) < 50:
             logger.warning(f"No price history found for active candidate {sym}")
             continue
 
         try:
-            df = pd.read_parquet(p_path)
-            if df.empty or len(df) < 50:
-                continue
             closes = df["Close" if "Close" in df.columns else "close"].values.astype(np.float64)
             sma200_series = pd.Series(closes).rolling(200, min_periods=50).mean().values
             close_t = float(closes[-1])
