@@ -3060,6 +3060,64 @@ def api_get_corporate_filings():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+_STOCK_DATA_HEALTH_REFRESHING = False
+
+
+def _compute_stock_data_health_payload() -> Tuple[str, str, bytes]:
+    """
+    Computes unified stock data health audit JSON payload, etag, and precompressed gzip bytes.
+    """
+    try:
+        from app.database import get_unified_stock_data_health_audit
+    except ImportError:
+        from database import get_unified_stock_data_health_audit
+
+    stale_stocks, fresh_stocks = get_unified_stock_data_health_audit(limit_fresh=2000)
+    total = len(stale_stocks) + len(fresh_stocks)
+    coverage_pct = round((len(fresh_stocks) / total * 100), 1) if total > 0 else 0.0
+
+    resp_payload = {
+        "status": "success",
+        "summary": {
+            "total_universe": total,
+            "stale_count": len(stale_stocks),
+            "fresh_count": len(fresh_stocks),
+            "coverage_pct": coverage_pct,
+            "cooloff_suppression_days": 7,
+            "server_time": datetime.now(IST).isoformat()
+        },
+        "stale_stocks": stale_stocks,
+        "fresh_stocks": fresh_stocks
+    }
+
+    resp_json = json.dumps(resp_payload, default=str)
+    import hashlib
+    etag = f'"{hashlib.md5(resp_json.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(resp_json.encode("utf-8"), compresslevel=1)
+
+    with _STOCK_DATA_HEALTH_LOCK:
+        _STOCK_DATA_HEALTH_CACHE["payload"] = resp_json
+        _STOCK_DATA_HEALTH_CACHE["etag"] = etag
+        _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
+        _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
+
+    return resp_json, etag, gz
+
+
+def _background_refresh_stock_data_health():
+    """Asynchronous background refresh for stale-while-revalidate."""
+    global _STOCK_DATA_HEALTH_REFRESHING
+    if _STOCK_DATA_HEALTH_REFRESHING:
+        return
+    _STOCK_DATA_HEALTH_REFRESHING = True
+    try:
+        _compute_stock_data_health_payload()
+    except Exception as e:
+        logger.debug(f"[STOCK_DATA_HEALTH_BG_REFRESH] Note: {e}")
+    finally:
+        _STOCK_DATA_HEALTH_REFRESHING = False
+
+
 @app.route("/api/admin/stock_data_health", methods=["GET"])
 @app.route("/api/stock_data_health", methods=["GET"])
 @login_required
@@ -3069,54 +3127,35 @@ def api_admin_stock_data_health():
     - All stocks marked as stale or currently suppressed under 7-day cool-off
     - All stocks with certified, fresh data along with their latest filing and total filing counts
     - Summary metrics (total universe, stale count, fresh count, coverage %)
-    Cached for 30s to provide instant, sub-millisecond response. Use ?force=1 to recompute immediately.
+    Cached with Stale-While-Revalidate (SWR) for instant, sub-millisecond response. Use ?force=1 to recompute immediately.
     """
     try:
         force = request.args.get("force") in ("1", "true", "True")
         now_t = time.time()
-        with _STOCK_DATA_HEALTH_LOCK:
-            if not force and _STOCK_DATA_HEALTH_CACHE.get("payload") and (now_t - _STOCK_DATA_HEALTH_CACHE.get("ts", 0) < 30.0):
-                return _make_json_response(
-                    _STOCK_DATA_HEALTH_CACHE["payload"],
-                    etag=_STOCK_DATA_HEALTH_CACHE.get("etag"),
-                    max_age=30,
-                    precompressed_gzip=_STOCK_DATA_HEALTH_CACHE.get("gzip")
-                )
-
-        from database import get_stale_stocks_audit, get_fresh_stocks_audit
-        stale_stocks = get_stale_stocks_audit()
-        stale_syms = {s["symbol"] for s in stale_stocks}
-        raw_fresh = get_fresh_stocks_audit(limit=2000)
-        fresh_stocks = [f for f in raw_fresh if f["symbol"] not in stale_syms]
-
-        total = len(stale_stocks) + len(fresh_stocks)
-        coverage_pct = round((len(fresh_stocks) / total * 100), 1) if total > 0 else 0.0
-
-        resp_payload = {
-            "status": "success",
-            "summary": {
-                "total_universe": total,
-                "stale_count": len(stale_stocks),
-                "fresh_count": len(fresh_stocks),
-                "coverage_pct": coverage_pct,
-                "cooloff_suppression_days": 7,
-                "server_time": datetime.now(IST).isoformat()
-            },
-            "stale_stocks": stale_stocks,
-            "fresh_stocks": fresh_stocks
-        }
-
-        resp_json = json.dumps(resp_payload, default=str)
-        import hashlib
-        etag = f'"{hashlib.md5(resp_json.encode("utf-8")).hexdigest()}"'
-        gz = _gzip.compress(resp_json.encode("utf-8"), compresslevel=1)
+        req_etag = request.headers.get("If-None-Match")
 
         with _STOCK_DATA_HEALTH_LOCK:
-            _STOCK_DATA_HEALTH_CACHE["payload"] = resp_json
-            _STOCK_DATA_HEALTH_CACHE["etag"] = etag
-            _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
-            _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
+            cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
+            cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
+            cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
+            cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
+        if not force and cached_payload:
+            # Check 304 Not Modified
+            if req_etag and cached_etag and req_etag == cached_etag:
+                resp = Response(status=304)
+                resp.headers["ETag"] = cached_etag
+                resp.headers["Cache-Control"] = "public, max-age=30"
+                return resp
+
+            # Stale-While-Revalidate: refresh in background if cache is >60s old
+            if now_t - cached_ts > 60.0:
+                threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
+
+            return _make_json_response(cached_payload, etag=cached_etag, max_age=30, precompressed_gzip=cached_gz)
+
+        # Cache miss or forced reload: compute synchronously
+        resp_json, etag, gz = _compute_stock_data_health_payload()
         return _make_json_response(resp_json, etag=etag, max_age=30, precompressed_gzip=gz)
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
@@ -7153,6 +7192,8 @@ def start_dashboard_server_async():
         _DASHBOARD_SERVER_STARTED = True
         t = threading.Thread(target=start_dashboard_server, name="FlaskDashboardServer", daemon=True)
         t.start()
+        # Async background pre-warm of stock data health cache so first user view is instant
+        threading.Thread(target=_background_refresh_stock_data_health, name="StockDataHealthPrewarm", daemon=True).start()
         return t
 
 

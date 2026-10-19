@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -77,6 +78,10 @@ KNOWN_ALIASES: Dict[str, str] = {
 }
 
 
+_BSE_MASTER_LOCK = threading.Lock()
+_BSE_MASTER_DB_SYNCED = False
+
+
 class BseSecurityMasterResolver:
     """
     Singleton Dynamic BSE Security Master Resolver.
@@ -86,8 +91,10 @@ class BseSecurityMasterResolver:
 
     def __new__(cls) -> BseSecurityMasterResolver:
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with _BSE_MASTER_LOCK:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
 
     def __init__(self):
@@ -204,15 +211,20 @@ class BseSecurityMasterResolver:
             self._available = True
             logger.info(f"✅ [BSE_MASTER] Loaded {count} dynamic BSE security entries into memory.")
             
-            # Sync to DB parquet_cache so future container instances can download it
-            try:
-                try:
-                    from app.database import upload_parquet_to_db
-                except ImportError:
-                    from database import upload_parquet_to_db
-                upload_parquet_to_db("bse_security_master", MASTER_JSON_PATH)
-            except Exception as _sync_err:
-                logger.debug(f"DB parquet_cache upload for bse_security_master non-fatal: {_sync_err}")
+            # Sync to DB parquet_cache so future container instances can download it (debounced once per process)
+            global _BSE_MASTER_DB_SYNCED
+            if not _BSE_MASTER_DB_SYNCED:
+                with _BSE_MASTER_LOCK:
+                    if not _BSE_MASTER_DB_SYNCED:
+                        try:
+                            try:
+                                from app.database import upload_parquet_to_db
+                            except ImportError:
+                                from database import upload_parquet_to_db
+                            upload_parquet_to_db("bse_security_master", MASTER_JSON_PATH)
+                            _BSE_MASTER_DB_SYNCED = True
+                        except Exception as _sync_err:
+                            logger.debug(f"DB parquet_cache upload for bse_security_master non-fatal: {_sync_err}")
         except Exception as e:
             logger.error(f"[BSE_MASTER] Failed to load {MASTER_JSON_PATH}: {e}")
 

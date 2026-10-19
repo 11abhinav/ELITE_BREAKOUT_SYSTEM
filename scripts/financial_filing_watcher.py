@@ -801,8 +801,9 @@ class FinancialFilingWatcher:
                 snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
                 freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
 
-                # Look back 2 years to discover newly declared quarters, annual statements, and revisions
+                # Look back 2 years for routine scheduled sweeps; full historical backfill only if single symbol targeted
                 min_poll_date = f"{as_of.year - 2}-01-01"
+                min_cutoff = min_poll_date if not symbol else "2015-01-01"
 
                 raw_filings_list: List[Dict[str, Any]] = []
                 nse_fetch_count = 0
@@ -811,12 +812,12 @@ class FinancialFilingWatcher:
                 # 1. Poll NSE XBRL / Corporate Results
                 if nse_prov:
                     try:
-                        nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_poll_date)
+                        nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_cutoff)
                         if nse_records:
                             nse_fetch_count = len(nse_records)
                             for r in nse_records:
                                 norm_p = _normalize_iso_date(r.period_end_date)
-                                if not norm_p or norm_p < "2015-01-01":
+                                if not norm_p or norm_p < min_cutoff:
                                     continue
                                 raw_filings_list.append({
                                     "exchange": "NSE",
@@ -850,7 +851,7 @@ class FinancialFilingWatcher:
                                         r_copy = dict(r)
                                         r_copy["exchange"] = "NSE"
                                         p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
-                                        if p_end and p_end >= "2015-01-01":
+                                        if p_end and p_end >= min_cutoff:
                                             raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
                                             st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
                                             if (p_end, st) not in existing_periods:
@@ -874,7 +875,7 @@ class FinancialFilingWatcher:
                                 bse_count += len(bse_rows)
                                 for r in bse_rows:
                                     norm_p = _normalize_iso_date(r.period_end_date)
-                                    if not norm_p or norm_p < "2015-01-01":
+                                    if not norm_p or norm_p < min_cutoff:
                                         continue
                                     raw_filings_list.append({
                                         "exchange": "BSE",
@@ -908,7 +909,7 @@ class FinancialFilingWatcher:
                                             r_copy = dict(r)
                                             r_copy["exchange"] = "BSE"
                                             p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
-                                            if p_end and p_end >= "2015-01-01":
+                                            if p_end and p_end >= min_cutoff:
                                                 raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
                                                 st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
                                                 if (p_end, st) not in existing_periods:
