@@ -271,20 +271,6 @@ class FundamentalPreRecoveryEngine:
                             staleness_years = (now_date - dt).days / 365.25
                             if staleness_years > 2.0:
                                 field_map.setdefault(sym, []).append("pit_staleness")
-                                try:
-                                    try:
-                                        from database import add_symbol_to_cooloff
-                                    except ImportError:
-                                        from app.database import add_symbol_to_cooloff
-                                    add_symbol_to_cooloff(
-                                        symbol=sym,
-                                        reason=f"PIT_STALENESS_{round(staleness_years, 1)}Y_EXCEEDS_2.0Y",
-                                        scanner=self.scanner_name,
-                                        duration_days=7,
-                                        provider_failures={"missing_fields": ["latest_annual_period", "pit_staleness"]}
-                                    )
-                                except Exception:
-                                    pass
                         except Exception:
                             pass
             except Exception as st_err:

@@ -10305,8 +10305,12 @@ def get_stale_stocks_audit() -> List[Dict[str, Any]]:
                         else:
                             raw_count = raw_info["count"]
                             raw_period = raw_info["latest"]
-                            if raw_count == 0 or raw_period in ("None", "Empty", "Error") or raw_period < sym_mand_period:
+                            if raw_count == 0 or raw_period in ("None", "Empty", "Error"):
                                 raw_stale = True
+                            elif raw_period < sym_mand_period:
+                                ann_p = str(row.get("latest_annual_period") or "")
+                                if not ann_p or (ann_p < "2026-03-31" and staleness_years > 1.0):
+                                    raw_stale = True
 
                         if raw_stale:
                             comp_name = sec_master.get(sym, {}).get("company_name", sym)
@@ -10774,10 +10778,17 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
             datetime.now(IST), fy_end_month=fy_end_m, is_half_yearly=is_half_y
         )
         raw_p_latest = checks.get("latest_raw_period") or checks.get("latest_annual_period")
-        if not raw_p_latest or str(raw_p_latest) in ("None", "Empty", "Error", "No local file") or str(raw_p_latest) < sym_mand_period:
+        ann_p = checks.get("latest_annual_period") or ""
+        st_years = checks.get("staleness_years") if checks.get("staleness_years") is not None else 99.0
+        if not raw_p_latest or str(raw_p_latest) in ("None", "Empty", "Error", "No local file"):
             checks["missing_metrics"].append(
-                f"SEBI LODR Reg 33 filing overdue ({sym_label}): Required period {sym_mand_period} (statutory deadline {sym_deadline}), but latest available is {raw_p_latest or 'None'}"
+                f"SEBI LODR Reg 33 filing missing ({sym_label}): Required period {sym_mand_period} (statutory deadline {sym_deadline}), no local disclosures"
             )
+        elif str(raw_p_latest) < sym_mand_period:
+            if not ann_p or (ann_p < "2026-03-31" and st_years > 1.0):
+                checks["missing_metrics"].append(
+                    f"SEBI LODR Reg 33 filing overdue ({sym_label}): Required period {sym_mand_period} (statutory deadline {sym_deadline}), but latest available is {raw_p_latest or 'None'}"
+                )
     except Exception as _sebi_err:
         logger.debug(f"[VALIDATE_STOCK] SEBI LODR check note for {sym_u}: {_sebi_err}")
 
@@ -10799,7 +10810,8 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
             symbol=sym_u,
             source="ADMIN_MANUAL_VALIDATION",
             period_end=latest_period,
-            notify_admin=True
+            notify_admin=True,
+            force=True
         )
         checks["was_stale"] = restored
         checks["restored"] = restored
