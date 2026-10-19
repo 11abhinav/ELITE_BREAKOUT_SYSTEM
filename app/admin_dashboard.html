@@ -5221,7 +5221,9 @@ function changeAdminPage(type, delta) {
     }
 
     function renderKPIs(s) {
-      const filteredTrades = window._currentFilteredTrades || ALL_TRADES;
+      const filteredTrades = (window._currentFilteredTrades && window._currentFilteredTrades.length > 0)
+        ? window._currentFilteredTrades
+        : (ALL_TRADES || []);
       const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
       const todayStr = formatter.format(new Date());
 
@@ -7910,6 +7912,10 @@ function changeAdminPage(type, delta) {
       if (typeof SELECTED_TRADE_IDS !== 'undefined') SELECTED_TRADE_IDS.clear();
       const selectAll = document.getElementById('selectAllTrades');
       if (selectAll) selectAll.checked = false;
+      activeKpi = null;
+      document.querySelectorAll('.small-tile, .kpi-card').forEach(t => t.classList.remove('active'));
+      const kpiResetBtn = document.getElementById('kpiResetBtn');
+      if (kpiResetBtn) kpiResetBtn.style.display = 'none';
       updateBulkActionsVisibility();
       renderTradeTable();
     }
@@ -7918,12 +7924,15 @@ function changeAdminPage(type, delta) {
       // Prevent rendering the All Trades table when user is viewing other admin tabs (e.g., Scanner Health)
       if (typeof activeAdminTab !== 'undefined' && activeAdminTab !== 'signals-trades') return;
       try {
-        /* [RULE 67 CHANGE-RATIONALE]: Add safe optional chaining to prevent TypeError if filter elements are not yet mounted on page load */
+        /* [RULE 67 CHANGE-RATIONALE]: Add safe optional chaining and explicit ALL sentinel guards to prevent false zero-trade filters */
         const rawSc = document.getElementById('filterScanner')?.value || '';
-        const sc = rawSc ? normalizeScannerName(rawSc) : '';
-        const st = document.getElementById('filterStatus')?.value || '';
-        const pnlState = document.getElementById('filterPnlState')?.value || '';
-        const rMultipleFilt = document.getElementById('filterRMultiple')?.value || '';
+        const sc = (rawSc && rawSc !== 'ALL' && rawSc !== 'ALL_SCANNERS' && rawSc !== 'UNKNOWN') ? normalizeScannerName(rawSc) : '';
+        const rawSt = (document.getElementById('filterStatus')?.value || '').trim();
+        const st = (rawSt && rawSt.toUpperCase() !== 'ALL' && rawSt.toUpperCase() !== 'ALL_STATUS') ? rawSt.toUpperCase() : '';
+        const rawPnl = (document.getElementById('filterPnlState')?.value || '').trim();
+        const pnlState = (rawPnl && rawPnl.toUpperCase() !== 'ALL') ? rawPnl.toUpperCase() : '';
+        const rawR = (document.getElementById('filterRMultiple')?.value || '').trim();
+        const rMultipleFilt = (rawR && rawR.toUpperCase() !== 'ALL') ? rawR.toUpperCase() : '';
         const sym = (document.getElementById('filterSymbol')?.value || '').trim().toUpperCase();
         const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
         
@@ -7945,7 +7954,7 @@ function changeAdminPage(type, delta) {
 
         let filtered = (ALL_TRADES || []).filter(t => {
           if (!t) return false;
-          if (sc && sc !== 'ALL' && sc !== 'UNKNOWN' && normalizeScannerName(t.scanner) !== sc) return false;
+          if (sc && normalizeScannerName(t.scanner) !== sc) return false;
           
           if (st) {
             const tSt = (t.status || '').trim().toUpperCase();
@@ -7974,7 +7983,7 @@ function changeAdminPage(type, delta) {
             } else if (st === 'T1_HIT') {
               if (tSt !== 'T1_HIT' && tSt !== 'PARTIAL_WIN_1' && tExec !== 'PARTIAL_WIN_1' && !t.t1_hit) return false;
             } else {
-              if (tSt !== st.toUpperCase() && tExec !== st.toUpperCase()) return false;
+              if (tSt !== st && tExec !== st) return false;
             }
           } else {
             if (t.status === 'REJECTED') return false; // Hide rejected trades by default unless explicitly selected
@@ -8166,7 +8175,11 @@ function changeAdminPage(type, delta) {
         if (!filtered.length) {
           body.innerHTML = `<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
           if (pInfo) pInfo.innerText = '';
-          renderKPIs(window._kpiDefs ? window._kpiDefs.find(k => k.id === 'total') : { total_alerts: 0 });
+          const recalcCount = document.getElementById('recalcFilteredCount');
+          if (recalcCount) recalcCount.innerText = '0';
+          if (!activeKpi && !sc && !st && !pnlState && !rMultipleFilt && !sym && dateFilt === 'ALL') {
+            renderKPIs();
+          }
           renderCategoryStats();
           return;
         }
@@ -8888,6 +8901,19 @@ function changeAdminPage(type, delta) {
       Promise.all(promises).catch(e => console.error("Error refreshing background components:", e));
 
       const data = await dataPromise;
+      if (data && data.trades) {
+        ALL_TRADES = (data.trades || []).filter(t => t && t.execution_state !== 'PENDING_ENTRY' && t.status !== 'PENDING' && t.status !== 'PENDING_ENTRY').map(t => {
+          if (t) t.scanner = normalizeScannerName(t.scanner);
+          return t;
+        });
+        EXIT_HISTORY_CACHE.clear();
+        populateFilters(ALL_TRADES);
+        renderExposureBar(ALL_TRADES);
+        updateScannerChipCounts(ALL_TRADES);
+        renderTradeTable();
+        updateSim();
+        if (data.scanner_stats) renderScannerGrid(data.scanner_stats);
+      }
       if (btn) btn.classList.remove('spinning');
       return data;
     }
@@ -9671,6 +9697,7 @@ async function initDashboard() {
     renderExposureBar(ALL_TRADES);
     updateScannerChipCounts(ALL_TRADES);
     renderTradeTable();
+    updateSim();
     renderScannerGrid(data.scanner_stats);
 
     // Load secondary dashboard components for default tab (non-blocking)
@@ -14191,6 +14218,7 @@ function renderStockDataHealthTable() {
       }
       if (fScanner === 'CERTIFIED') return (it.provenance_status === 'CERTIFIED');
       const sc = (it.scanner || '').toUpperCase();
+      if (!sc) return true;
       return sc === fScanner || sc === 'ALL';
     });
   }

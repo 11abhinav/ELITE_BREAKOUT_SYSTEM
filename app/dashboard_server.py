@@ -3174,6 +3174,9 @@ def api_admin_validate_stock():
             missing_str = "; ".join(result.get("missing_metrics") or ["Validation criteria failed"])
             logger.warning(f"⚠️ [API_VALIDATE_STOCK] {symbol}: STALE / INCOMPLETE | Reasons: {missing_str}")
 
+        with _STOCK_DATA_HEALTH_LOCK:
+            _STOCK_DATA_HEALTH_CACHE.clear()
+
         return jsonify({
             "status": "success",
             "result": result,

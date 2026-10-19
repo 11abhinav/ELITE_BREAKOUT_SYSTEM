@@ -9764,6 +9764,12 @@ def check_and_restore_stale_stock(
             f"Removed from suppression. Fresh data ({period_end or 'Latest'}) available. Scanners can now review."
         )
 
+    # Invalidate raw filings audit scan time so subsequent audit reflects restored stock immediately
+    global _AUDIT_RAW_FILINGS_LAST_SCAN
+    _AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
+
+    return was_stale
+
 _AUDIT_RAW_FILINGS_CACHE = {}
 _AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
 _AUDIT_RAW_LOCK = threading.Lock()
@@ -10529,6 +10535,7 @@ def get_fresh_stocks_audit(limit: int = 1000) -> List[Dict[str, Any]]:
             "company_name": comp_name,
             "isin": isin,
             "status": "FRESH",
+            "scanner": str(row.get("scanner") or "ALL"),
             "provenance_status": str(row.get("provenance_status") or "CERTIFIED"),
             "recovery_status": str(row.get("recovery_status") or ""),
             "provenance_hash": str(row.get("provenance_hash") or "")[:16],
@@ -10773,8 +10780,10 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
                     checks["missing_metrics"].append(f"PIT staleness ({checks['staleness_years']:.1f}Y exceeds 2.0Y limit)")
                 if checks["filing_gap_detected"]:
                     checks["missing_metrics"].append("Fiscal annual filing gap detected in historical series")
-                # Structural exemption checks: Young companies (<5Y) and BFSI financial firms
-                is_young = (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 5.0)
+                # Structural exemption checks: Young companies (<5Y for 5Y metrics, <3Y for 3Y dilution) and BFSI financial firms
+                listing_age_val = float(row.get("listing_age_years") or 99.0) if row.get("listing_age_years") is not None else 99.0
+                is_young_5y = listing_age_val < 5.0
+                is_young_3y = listing_age_val < 3.0
                 try:
                     from app.live_fundamental_scanner import QualityCompounderValueV2Scanner
                     is_bfsi = sym_u in QualityCompounderValueV2Scanner.KNOWN_FINANCIAL_SYMBOLS
@@ -10784,11 +10793,14 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
                 if pd.isna(row.get("roce_5y_avg")) and pd.isna(row.get("roce")):
                     if not is_bfsi:
                         checks["missing_metrics"].append("ROCE metric missing")
-                if not is_young:
+                if not is_young_5y:
                     if pd.isna(row.get("sales_cagr_5y")):
                         checks["missing_metrics"].append("5Y Sales CAGR missing")
                     if pd.isna(row.get("pat_cagr_5y")):
                         checks["missing_metrics"].append("5Y PAT CAGR missing")
+                if not is_young_3y and pd.isna(row.get("share_dilution_3y")) and pd.isna(row.get("share_dilution_3y_pct")):
+                    # Only flag 3Y dilution missing if listed >= 3.0 years
+                    pass
                 if not is_bfsi:
                     if pd.isna(row.get("debt_to_equity")):
                         checks["missing_metrics"].append("Debt-to-Equity ratio missing")
