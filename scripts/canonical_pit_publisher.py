@@ -149,6 +149,11 @@ def _run_never_downgrade_gate(
     _chk_completeness("shares_outstanding_m", "Shares complete")
     _chk_completeness("roce_5y_avg",          "ROCE 5Y complete")
     _chk_completeness("annual_filing_count",  "Filing coverage complete")
+    _chk_completeness("sales_cagr_5y",        "Sales CAGR 5Y complete")
+    _chk_completeness("pat_cagr_5y",          "PAT CAGR 5Y complete")
+    _chk_completeness("cfo_pat_5y_ratio",     "CFO/PAT ratio complete")
+    _chk_completeness("debt_to_equity",       "Debt-to-Equity complete")
+    _chk_completeness("share_dilution_3y_pct", "Share dilution complete")
 
     # 16. Certified provenance count
     old_cert = _value_count(df_old, "provenance_status", "CERTIFIED")
@@ -413,7 +418,10 @@ def publish_canonical_pit(
                     tracked_preserve_cols = [
                         "current_ev_ebitda", "ev_ebitda_3y_median", "current_pe", "pe_3y_median",
                         "revenue", "ebitda", "net_profit", "operating_cash_flow", "total_debt",
-                        "cash_and_equivalents", "shares_outstanding_m", "roce_5y_avg", "annual_filing_count"
+                        "cash_and_equivalents", "shares_outstanding_m", "shares_outstanding",
+                        "roce_5y_avg", "roce", "annual_filing_count",
+                        "sales_cagr_5y", "pat_cagr_5y", "cfo_pat_5y_ratio", "cfo_pat_5y",
+                        "debt_to_equity", "share_dilution_3y_pct", "share_dilution_3y"
                     ]
                     preserved_count = 0
                     for col in tracked_preserve_cols:

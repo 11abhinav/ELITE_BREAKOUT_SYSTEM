@@ -526,6 +526,7 @@ class FundamentalPreRecoveryEngine:
         logger.info(f"🚀 [SCANNER: {self.scanner_name}] [FETCH_DATA] [PRE_RECOVERY] Starting data recovery for {len(recovery_queue)} symbols.")
         recovery_success_count = 0
         promoted_count = 0
+        promoted_symbols: List[str] = []
 
         for symbol, missing_fields in recovery_queue:
             logger.info(f"📥 [SCANNER: {self.scanner_name}] [FETCH_DATA] Fetching Upstox/NSE filings for {symbol} (missing: {missing_fields})...")
@@ -548,14 +549,15 @@ class FundamentalPreRecoveryEngine:
             ):
                 self.persist_verified_record(df, symbol, metrics)
                 promoted_count += 1
+                promoted_symbols.append(symbol)
                 logger.info(f"✅ [PRE_RECOVERY] {symbol}: recovery_status=SUCCESS | promotion_status=PROMOTED | fields={list(metrics.recovered_fields.keys())}")
                 try:
                     try:
                         from database import remove_symbol_from_cooloff
                     except ImportError:
                         from app.database import remove_symbol_from_cooloff
-                    remove_symbol_from_cooloff(symbol=symbol, scanner=self.scanner_name)
-                    logger.info(f"🔓 [PRE_RECOVERY] {symbol}: Successfully unblocked from cool-off for scanner={self.scanner_name}.")
+                    remove_symbol_from_cooloff(symbol=symbol, scanner="ALL")
+                    logger.info(f"🔓 [PRE_RECOVERY] {symbol}: Successfully unblocked from cool-off for ALL scanners.")
                 except Exception as _rm_err:
                     logger.debug(f"[PRE_RECOVERY] Cool-off removal notice for {symbol}: {_rm_err}")
             elif metrics.overall_status == FundamentalStatus.PARTIAL_RECOVERY or has_recovered:
@@ -680,8 +682,37 @@ class FundamentalPreRecoveryEngine:
                         clear_shared_snapshot_cache()
                     except Exception:
                         pass
+
+                    # Synchronize DB state: restore all promoted symbols in DB symbol_cooloff_journal
+                    try:
+                        try:
+                            from database import check_and_restore_stale_stock
+                        except ImportError:
+                            from app.database import check_and_restore_stale_stock
+                        for p_sym in promoted_symbols:
+                            check_and_restore_stale_stock(
+                                symbol=p_sym,
+                                source="PRE_RECOVERY_PROMOTED",
+                                notify_admin=False,
+                                force=True
+                            )
+                        logger.info(f"🔄 [PRE_RECOVERY] Synchronized DB: restored {len(promoted_symbols)} symbols in DB symbol_cooloff_journal.")
+                    except Exception as _rest_err:
+                        logger.debug(f"[PRE_RECOVERY] DB restore notice: {_rest_err}")
+
+                    # Invalidate admin dashboard stock_data_health cache for instant UI refresh
+                    try:
+                        try:
+                            from dashboard_server import _STOCK_DATA_HEALTH_CACHE
+                        except ImportError:
+                            from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE
+                        _STOCK_DATA_HEALTH_CACHE.clear()
+                        logger.info("⚡ [PRE_RECOVERY] Invalidated stock_data_health dashboard cache.")
+                    except Exception:
+                        pass
+
                     logger.info(
-                        f"✅ [PRE_RECOVERY] Canonical PIT updated via publisher. "
+                        f"✅ [PRE_RECOVERY] Canonical PIT updated via publisher & DB synchronized. "
                         f"SHA256: {pub_result.get('dataset_sha256', 'N/A')[:16]}..."
                     )
                 else:

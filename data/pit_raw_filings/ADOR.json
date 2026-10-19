@@ -379,7 +379,8 @@
     "roe": 14.2,
     "operating_margin": 10.6,
     "net_margin": 7.47,
-    "source_provider": "NSE_XBRL"
+    "source_provider": "NSE_XBRL",
+    "source_record_hash": "8b3b79aace83fa90d2df371141cccba4fa99edd3e7b95c695aa5c0848a4c6a80"
   },
   {
     "filing_id": "ADOR_20230930_Q_v1",
