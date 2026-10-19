@@ -126,6 +126,21 @@ class DataBundle:
     evidence_fingerprint: str = ""
 
 
+_GATEWAY_CACHE: Optional[pd.DataFrame] = None
+_GATEWAY_PATH_MTIME: float = 0.0
+_GATEWAY_VAL_MTIME: float = 0.0
+_GATEWAY_LOCK = threading.Lock()
+
+
+def clear_gateway_cache() -> None:
+    """Clears the ScannerDataGateway memory cache."""
+    global _GATEWAY_CACHE, _GATEWAY_PATH_MTIME, _GATEWAY_VAL_MTIME
+    with _GATEWAY_LOCK:
+        _GATEWAY_CACHE = None
+        _GATEWAY_PATH_MTIME = 0.0
+        _GATEWAY_VAL_MTIME = 0.0
+
+
 class ScannerDataGateway:
     """
     Central Data Access Gateway. Ensures every active scanner reads from the exact same
@@ -144,9 +159,19 @@ class ScannerDataGateway:
     def get_working_dataset(self, pit_parquet_path: Optional[str] = None) -> pd.DataFrame:
         """
         Loads the Canonical PIT base dataset and applies the Layer B Validated Recovery Disk Cache overlay.
-        Returns the unified working dataset.
+        Returns the unified working dataset. High-speed mtime memory cache eliminates redundant parsing.
         """
+        global _GATEWAY_CACHE, _GATEWAY_PATH_MTIME, _GATEWAY_VAL_MTIME
         path = pit_parquet_path or self.pit_parquet_path
+
+        p_mtime = os.path.getmtime(path) if (path and os.path.exists(path)) else 0.0
+        val_path = getattr(self.validated_cache, "cache_path", "data/validated_recovery_cache.json")
+        v_mtime = os.path.getmtime(val_path) if (val_path and os.path.exists(val_path)) else 0.0
+
+        with _GATEWAY_LOCK:
+            if _GATEWAY_CACHE is not None and p_mtime == _GATEWAY_PATH_MTIME and v_mtime == _GATEWAY_VAL_MTIME:
+                return _GATEWAY_CACHE
+
         df = None
         if os.path.exists(path):
             try:
@@ -222,6 +247,11 @@ class ScannerDataGateway:
                 logger.info(f"💾 [GATEWAY] Materialized {updated_cells} updated cells to disk ({path}) and synced to PostgreSQL DB.")
             except Exception as _sync_err:
                 logger.debug(f"[GATEWAY] Sync note: {_sync_err}")
+
+        with _GATEWAY_LOCK:
+            _GATEWAY_CACHE = df
+            _GATEWAY_PATH_MTIME = os.path.getmtime(path) if (path and os.path.exists(path)) else 0.0
+            _GATEWAY_VAL_MTIME = os.path.getmtime(val_path) if (val_path and os.path.exists(val_path)) else 0.0
 
         return df
 

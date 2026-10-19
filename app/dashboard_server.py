@@ -3063,7 +3063,7 @@ def api_get_corporate_filings():
 _STOCK_DATA_HEALTH_REFRESHING = False
 
 
-def _compute_stock_data_health_payload() -> Tuple[str, str, bytes]:
+def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, bytes]:
     """
     Computes unified stock data health audit JSON payload, etag, and precompressed gzip bytes.
     """
@@ -3072,7 +3072,7 @@ def _compute_stock_data_health_payload() -> Tuple[str, str, bytes]:
     except ImportError:
         from database import get_unified_stock_data_health_audit
 
-    stale_stocks, fresh_stocks = get_unified_stock_data_health_audit(limit_fresh=2000)
+    stale_stocks, fresh_stocks = get_unified_stock_data_health_audit(limit_fresh=2000, force=force)
     total = len(stale_stocks) + len(fresh_stocks)
     coverage_pct = round((len(fresh_stocks) / total * 100), 1) if total > 0 else 0.0
 
@@ -3111,7 +3111,7 @@ def _background_refresh_stock_data_health():
         return
     _STOCK_DATA_HEALTH_REFRESHING = True
     try:
-        _compute_stock_data_health_payload()
+        _compute_stock_data_health_payload(force=True)
     except Exception as e:
         logger.debug(f"[STOCK_DATA_HEALTH_BG_REFRESH] Note: {e}")
     finally:
@@ -3155,7 +3155,7 @@ def api_admin_stock_data_health():
             return _make_json_response(cached_payload, etag=cached_etag, max_age=30, precompressed_gzip=cached_gz)
 
         # Cache miss or forced reload: compute synchronously
-        resp_json, etag, gz = _compute_stock_data_health_payload()
+        resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
         return _make_json_response(resp_json, etag=etag, max_age=30, precompressed_gzip=gz)
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")

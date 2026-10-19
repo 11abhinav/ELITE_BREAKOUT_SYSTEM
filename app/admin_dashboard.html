@@ -13782,10 +13782,10 @@ function _applyStockDataHealthData(data) {
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
-  // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
+  // SWR: Instant local hydration from localStorage / sessionStorage / memory (0ms UI render)
   if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
     try {
-      const cachedStr = sessionStorage.getItem('CACHE_SDH_DATA');
+      const cachedStr = localStorage.getItem('CACHE_SDH_DATA') || sessionStorage.getItem('CACHE_SDH_DATA');
       if (cachedStr) {
         _applyStockDataHealthData(JSON.parse(cachedStr));
       }
@@ -13805,15 +13805,12 @@ async function fetchStockDataHealth(force = false) {
     refreshBtn.innerHTML = '🔄 Refreshing...';
   }
 
-    if (force) {
-      try { sessionStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
-    }
   try {
     const forceParam = force ? '&force=1' : '';
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`);
     
     if (res.status === 401) {
-      try { sessionStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
+      try { sessionStorage.removeItem('CACHE_SDH_DATA'); localStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
       SDH_STALE_STOCKS = [];
       SDH_FRESH_STOCKS = [];
       if (tbody) {
@@ -13829,6 +13826,7 @@ async function fetchStockDataHealth(force = false) {
 
     if (data.status === 'success') {
       try {
+        localStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
         sessionStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
       } catch (_) {}
       _applyStockDataHealthData(data);

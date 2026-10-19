@@ -1813,6 +1813,7 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_until_sym ON symbol_cooloff_journal(cooloff_until DESC, symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_sym_until ON symbol_cooloff_journal(symbol, cooloff_until DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_active_until ON symbol_cooloff_journal(cooloff_until DESC, symbol, scanner)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_cooloff_active_covering ON symbol_cooloff_journal(cooloff_until DESC, symbol, scanner, reason, cooloff_start_at)")
 
                 # 38. stock_analysis_master
                 cur.execute("""
@@ -10018,6 +10019,14 @@ def clear_canonical_snapshot_cache() -> None:
     with _CANONICAL_DF_LOCK:
         _CANONICAL_DF_CACHE = None
         _CANONICAL_DF_MTIME = 0.0
+    try:
+        try:
+            from app.scanner_data_gateway import clear_gateway_cache
+        except ImportError:
+            from scanner_data_gateway import clear_gateway_cache
+        clear_gateway_cache()
+    except Exception:
+        pass
 
 def _load_canonical_snapshot_df() -> Optional[Any]:
     """
@@ -10031,7 +10040,10 @@ def _load_canonical_snapshot_df() -> Optional[Any]:
 
     # Try Tier 0: Single Point of Truth (ScannerDataGateway: Base + Layer B Validated Overlay)
     try:
-        from scanner_data_gateway import ScannerDataGateway
+        try:
+            from app.scanner_data_gateway import ScannerDataGateway
+        except ImportError:
+            from scanner_data_gateway import ScannerDataGateway
         gateway = ScannerDataGateway()
         df_gw = gateway.get_working_dataset()
         if df_gw is not None and not df_gw.empty and "symbol" in df_gw.columns:
@@ -10172,19 +10184,40 @@ def _format_missing_data(reason: str, failures: Any, symbol: str = "") -> str:
     return r_upper or "Data quality criteria not met"
 
 
-def get_unified_stock_data_health_audit(limit_fresh: int = 2000) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+_UNIFIED_AUDIT_CACHE: Optional[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]] = None
+_UNIFIED_AUDIT_CACHE_TS: float = 0.0
+_UNIFIED_AUDIT_LOCK = threading.Lock()
+
+
+def clear_unified_stock_data_health_cache() -> None:
+    """Invalidates the unified stock data health cache."""
+    global _UNIFIED_AUDIT_CACHE, _UNIFIED_AUDIT_CACHE_TS
+    with _UNIFIED_AUDIT_LOCK:
+        _UNIFIED_AUDIT_CACHE = None
+        _UNIFIED_AUDIT_CACHE_TS = 0.0
+
+
+def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = False) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Unified high-performance single-pass audit of the tracked universe:
     - Symmetrically evaluates all stocks in canonical snapshot and PostgreSQL cool-off journal.
     - Guarantees strict mutual exclusivity: every stock is either STALE or FRESH.
     - Performs batch DB purge for restored symbols using index-backed query.
     - Eliminates redundant multi-pass iterations, disk stat scans, and per-stock parquet file reads.
-    - Completes in ~0.04s - 0.15s across the entire universe.
+    - Returns in <1ms on cached evaluation, ~0.04s - 0.15s on full evaluation.
     """
+    global _UNIFIED_AUDIT_CACHE, _UNIFIED_AUDIT_CACHE_TS
     import os, json
     import pandas as pd
     from datetime import datetime, timedelta
     now_dt = datetime.now(IST)
+    now_t = time.time()
+
+    if not force:
+        with _UNIFIED_AUDIT_LOCK:
+            if _UNIFIED_AUDIT_CACHE is not None and (now_t - _UNIFIED_AUDIT_CACHE_TS < 15.0):
+                stale_cached, fresh_cached = _UNIFIED_AUDIT_CACHE
+                return stale_cached, fresh_cached[:limit_fresh]
 
     sec_master = _get_bse_security_master()
     raw_cache = _get_parsed_raw_filings_cache()
@@ -10575,6 +10608,10 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000) -> Tuple[List[D
 
     stale_sorted = sorted(list(stale_map.values()), key=lambda x: x["symbol"])
     fresh_sorted = sorted(fresh_list, key=lambda x: x["symbol"])
+
+    with _UNIFIED_AUDIT_LOCK:
+        _UNIFIED_AUDIT_CACHE = (stale_sorted, fresh_sorted)
+        _UNIFIED_AUDIT_CACHE_TS = time.time()
 
     return stale_sorted, fresh_sorted
 
