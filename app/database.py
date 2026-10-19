@@ -10773,14 +10773,25 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
                     checks["missing_metrics"].append(f"PIT staleness ({checks['staleness_years']:.1f}Y exceeds 2.0Y limit)")
                 if checks["filing_gap_detected"]:
                     checks["missing_metrics"].append("Fiscal annual filing gap detected in historical series")
+                # Structural exemption checks: Young companies (<5Y) and BFSI financial firms
+                is_young = (row.get("listing_age_years") is not None and float(row.get("listing_age_years") or 99.0) < 5.0)
+                try:
+                    from app.live_fundamental_scanner import QualityCompounderValueV2Scanner
+                    is_bfsi = sym_u in QualityCompounderValueV2Scanner.KNOWN_FINANCIAL_SYMBOLS
+                except Exception:
+                    is_bfsi = sym_u in ("HDBFS", "ICICIPRULI", "INDIASHLTR", "SBICARD", "CHOICEIN")
+
                 if pd.isna(row.get("roce_5y_avg")) and pd.isna(row.get("roce")):
-                    checks["missing_metrics"].append("ROCE metric missing")
-                if pd.isna(row.get("sales_cagr_5y")):
-                    checks["missing_metrics"].append("5Y Sales CAGR missing")
-                if pd.isna(row.get("pat_cagr_5y")):
-                    checks["missing_metrics"].append("5Y PAT CAGR missing")
-                if pd.isna(row.get("debt_to_equity")):
-                    checks["missing_metrics"].append("Debt-to-Equity ratio missing")
+                    if not is_bfsi:
+                        checks["missing_metrics"].append("ROCE metric missing")
+                if not is_young:
+                    if pd.isna(row.get("sales_cagr_5y")):
+                        checks["missing_metrics"].append("5Y Sales CAGR missing")
+                    if pd.isna(row.get("pat_cagr_5y")):
+                        checks["missing_metrics"].append("5Y PAT CAGR missing")
+                if not is_bfsi:
+                    if pd.isna(row.get("debt_to_equity")):
+                        checks["missing_metrics"].append("Debt-to-Equity ratio missing")
             else:
                 checks["missing_metrics"].append("Symbol not found in canonical PIT snapshot")
         except Exception as e:
