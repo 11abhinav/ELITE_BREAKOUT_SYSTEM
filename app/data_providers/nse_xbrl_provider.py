@@ -243,6 +243,23 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
         unit_type="INR_PER_SHARE",
         allow_negative=True,
     ),
+    "shares_outstanding": ControlledMetricTag(
+        metric="shares_outstanding",
+        preferred_tags=[
+            "NumberOfSharesOutstanding",
+            "NumberOfEquitySharesOutstanding",
+            "EquityShareCapital",
+            "PaidUpEquityShareCapital",
+        ],
+        fallback_tags=[
+            "numberOfShares",
+            "sharesOutstanding",
+            "equityShareCapital",
+        ],
+        context_type="INSTANT",
+        unit_type="SHARES",
+        allow_negative=False,
+    ),
 }
 
 
@@ -412,6 +429,17 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         except Exception:
             pass
 
+    eps = _safe_float(row.get("eps") or row.get("basicEps") or row.get("basicEPS"))
+    shares = _safe_float(row.get("shares_outstanding") or row.get("sharesOutstanding") or row.get("numberOfShares"))
+    if shares is None and net_p is not None and eps is not None and eps != 0:
+        try:
+            from app.financial_data_integrity import derive_and_validate_shares
+            _sh_r = derive_and_validate_shares(symbol, net_p, eps, None, scanner="NSE_XBRL")
+            if _sh_r.ok and _sh_r.shares_millions is not None and _sh_r.shares_millions > 0:
+                shares = _sh_r.shares_millions * 1e6
+        except Exception:
+            pass
+
     return RawFinancialRecord(
         symbol=symbol,
         source="NSE_XBRL",
@@ -428,6 +456,8 @@ def _parse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         total_equity=total_equity,
         ebit=ebit,
         capital_employed=cap_emp,
+        eps=eps,
+        shares_outstanding=shares,
         unit="cr",
         currency="INR",
         availability_date=_parse_date_to_iso(row.get("filingDate")),

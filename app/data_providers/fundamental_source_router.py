@@ -389,8 +389,22 @@ class FundamentalSourceRouter:
 
         # 5. 3Y Share Dilution calculation
         dilution_dicts = []
+        try:
+            from app.financial_data_integrity import derive_and_validate_shares
+        except ImportError:
+            from financial_data_integrity import derive_and_validate_shares
+
         for r in annual:
             shs = getattr(r, "shares_outstanding", getattr(r, "shares_outstanding_m", None))
+            if shs is None or (isinstance(shs, float) and math.isnan(shs)) or shs <= 0:
+                # Fallback: derive shares from net_profit and eps
+                np_val = getattr(r, "net_profit", None)
+                eps_val = getattr(r, "eps", None)
+                if np_val is not None and eps_val is not None and eps_val != 0:
+                    sh_res = derive_and_validate_shares(symbol, np_val, eps_val, None, scanner=source_name)
+                    if sh_res.ok and sh_res.shares_millions is not None and sh_res.shares_millions > 0:
+                        shs = sh_res.shares_millions
+
             dilution_dicts.append({
                 "period_end_date": r.period_end_date,
                 "shares_outstanding_m": shs,

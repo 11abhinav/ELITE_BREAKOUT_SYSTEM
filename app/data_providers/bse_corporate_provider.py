@@ -231,6 +231,22 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
 
     eps = _safe_float(row.get("EPS") or row.get("BasicEPS") or lower_row.get("eps"))
 
+    shares_outstanding = _safe_float(
+        row.get("SharesOutstanding")
+        or row.get("NumberOfShares")
+        or row.get("shares_outstanding")
+        or lower_row.get("sharesoutstanding")
+        or lower_row.get("numberofshares")
+    )
+    if shares_outstanding is None and net_profit is not None and eps is not None and eps != 0:
+        try:
+            from app.financial_data_integrity import derive_and_validate_shares
+            _sh_r = derive_and_validate_shares(symbol, net_profit, eps, None, scanner="BSE_CORPORATE")
+            if _sh_r.ok and _sh_r.shares_millions is not None and _sh_r.shares_millions > 0:
+                shares_outstanding = _sh_r.shares_millions * 1e6
+        except Exception:
+            pass
+
     availability_date = (
         row.get("BroadcastDate")
         or row.get("FilingDate")
@@ -276,6 +292,7 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         total_equity=total_equity,
         capital_employed=capital_employed,
         eps=eps,
+        shares_outstanding=shares_outstanding,
         availability_date=str(availability_date) if availability_date else None,
         broadcast_timestamp=str(availability_date) if availability_date else None,
         unit=unit,
