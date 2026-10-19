@@ -13805,6 +13805,9 @@ async function fetchStockDataHealth(force = false) {
     refreshBtn.innerHTML = '🔄 Refreshing...';
   }
 
+    if (force) {
+      try { sessionStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
+    }
   try {
     const forceParam = force ? '&force=1' : '';
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`);
@@ -14778,16 +14781,18 @@ async function batchValidateAndRestoreSelected() {
     const results = (data && data.results) || {};
     const processedSyms = Object.keys(results);
 
-    let foundClean = 0;
-    let remainStale = 0;
-
+    const cleanSyms = [];
+    const staleSyms = [];
     if (processedSyms.length > 0) {
       for (const s of processedSyms) {
         const item = results[s] || {};
         if (item.is_data_perfect || item.restored || (item.ok && (!item.missing_metrics || item.missing_metrics.length === 0))) {
           foundClean++;
+          cleanSyms.push(s);
         } else {
           remainStale++;
+          const reasonStr = (item.missing_metrics && item.missing_metrics.length > 0) ? item.missing_metrics[0] : 'Needs Filings';
+          staleSyms.push(`${s} (${reasonStr})`);
         }
       }
     } else if (data) {
@@ -14799,13 +14804,13 @@ async function batchValidateAndRestoreSelected() {
 
     const totalProcessed = syms.length;
 
-    let msg = `📊 BATCH VALIDATION SUMMARY:\n${totalProcessed} processed — ${foundClean} found clean / restored, ${remainStale} remain stale.`;
+    let msg = `📊 BATCH VALIDATION SUMMARY:\n${totalProcessed} processed — ${foundClean} verified clean/restored, ${remainStale} need upstream filings.`;
 
     if (foundClean > 0) {
-      msg += `\n\n✅ ${foundClean} stock(s) verified clean or restored to active scanners.`;
+      msg += `\n\n✅ Clean / Restored to FRESH (${foundClean}):\n` + cleanSyms.slice(0, 15).join(', ') + (cleanSyms.length > 15 ? ` ...+${cleanSyms.length - 15} more` : '');
     }
     if (remainStale > 0) {
-      msg += `\n⚠️ ${remainStale} stock(s) still have missing statements or overdue SEBI LODR 33 filings.`;
+      msg += `\n\n⚠️ Requires Filing Ingestion / Overdue Filings (${remainStale}):\n• ` + staleSyms.slice(0, 8).join('\n• ') + (staleSyms.length > 8 ? `\n...and ${staleSyms.length - 8} more` : '');
     }
 
     alert(msg);

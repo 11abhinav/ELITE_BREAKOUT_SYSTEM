@@ -3293,7 +3293,8 @@ def api_admin_batch_validate_stocks():
                     df_s.to_parquet(tmp_snap, index=False)
                     os.replace(tmp_snap, snap_p)
                     try:
-                        from database import upload_parquet_to_db
+                        from database import upload_parquet_to_db, clear_canonical_snapshot_cache
+                        clear_canonical_snapshot_cache()
                         upload_parquet_to_db("canonical_pit_rebuilt", str(snap_p), date.today())
                     except Exception:
                         pass
@@ -3324,8 +3325,7 @@ def api_admin_batch_validate_stocks():
         failed_cnt = max(0, len(unique_symbols) - clean_cnt)
 
         with _STOCK_DATA_HEALTH_LOCK:
-            _STOCK_DATA_HEALTH_CACHE["payload"] = None
-            _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
+            _STOCK_DATA_HEALTH_CACHE.clear()
 
         return jsonify({
             "status": "success",

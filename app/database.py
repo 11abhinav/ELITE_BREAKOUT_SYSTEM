@@ -9747,6 +9747,7 @@ def check_and_restore_stale_stock(
                         try:
                             from app.financial_data_integrity import clear_shared_snapshot_cache
                             clear_shared_snapshot_cache()
+                            clear_canonical_snapshot_cache()
                         except Exception:
                             pass
                         try:
@@ -9956,6 +9957,12 @@ def get_sebi_lodr_mandatory_filing_status(
 _CANONICAL_DF_CACHE = None
 _CANONICAL_DF_MTIME = 0.0
 _CANONICAL_DF_LOCK = threading.Lock()
+
+def clear_canonical_snapshot_cache() -> None:
+    global _CANONICAL_DF_CACHE, _CANONICAL_DF_MTIME
+    with _CANONICAL_DF_LOCK:
+        _CANONICAL_DF_CACHE = None
+        _CANONICAL_DF_MTIME = 0.0
 
 def _load_canonical_snapshot_df() -> Optional[Any]:
     """
