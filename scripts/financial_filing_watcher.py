@@ -852,11 +852,12 @@ class FinancialFilingWatcher:
 
                 is_single_target = bool(target_symbols and len(target_symbols) == 1)
                 bootstrap_state_done = bool(self.state.get(sym_u, {}).get("bootstrap_completed"))
+                is_fresh_or_valid = freshness in ("FRESH", "VALID")
 
                 # Incomplete if:
                 # 1. Force backfill requested or single-symbol targeted, OR
                 # 2. Local raw file missing or < 6 annual observations (insufficient for 5Y CAGR), OR
-                # 3. Missing from snapshot or not FRESH, OR
+                # 3. Missing from snapshot or not FRESH/VALID, OR
                 # 4. No latest_local_period resolved
                 needs_bootstrap = (
                     force_backfill
@@ -864,7 +865,7 @@ class FinancialFilingWatcher:
                     or not raw_path.exists()
                     or (local_annual_count < 6 and not bootstrap_state_done)
                     or snap_row is None
-                    or freshness != "FRESH"
+                    or not is_fresh_or_valid
                     or not snap_annual
                     or not latest_local_period
                 )
