@@ -13,7 +13,7 @@
     "ebit": 3.85,
     "capital_employed": null,
     "eps": 2.71,
-    "shares_outstanding": null,
+    "shares_outstanding": 10000000.0,
     "unit": "crore",
     "currency": "INR",
     "filing_id": "SOLEX_20230331_A_v1",

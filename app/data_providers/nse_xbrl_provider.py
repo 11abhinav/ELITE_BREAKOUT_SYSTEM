@@ -248,6 +248,9 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
         preferred_tags=[
             "NumberOfSharesOutstanding",
             "NumberOfEquitySharesOutstanding",
+            "WeightedAverageNumberOfEquitySharesUsedInCalculatingBasicEarningsPerShare",
+            "WeightedAverageNumberOfSharesOutstandingBasic",
+            "WeightedAverageNumberOfEquitySharesOutstanding",
             "EquityShareCapital",
             "PaidUpEquityShareCapital",
         ],
@@ -255,6 +258,7 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
             "numberOfShares",
             "sharesOutstanding",
             "equityShareCapital",
+            "WeightedAverageNumberOfSharesOutstandingDiluted",
         ],
         context_type="INSTANT",
         unit_type="SHARES",

@@ -396,7 +396,9 @@ class FundamentalSourceRouter:
 
         for r in annual:
             shs = getattr(r, "shares_outstanding", getattr(r, "shares_outstanding_m", None))
-            if shs is None or (isinstance(shs, float) and math.isnan(shs)) or shs <= 0:
+            if shs is not None and not (isinstance(shs, float) and math.isnan(shs)) and shs > 10000.0:
+                shs = shs / 1e6
+            elif shs is None or (isinstance(shs, float) and math.isnan(shs)) or shs <= 0:
                 # Fallback: derive shares from net_profit and eps
                 np_val = getattr(r, "net_profit", None)
                 eps_val = getattr(r, "eps", None)

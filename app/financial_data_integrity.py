@@ -1035,10 +1035,26 @@ def compute_share_dilution_3y(
     valid_rows = []
     for r in annual_rows_sorted:
         sh = r.get("shares_outstanding_m")
-        if sh is None or (isinstance(sh, float) and math.isnan(sh)) or sh <= 0:
+        if sh is not None and not (isinstance(sh, float) and math.isnan(sh)) and sh > 0:
+            if sh > 10000.0:
+                sh = sh / 1e6
+        else:
             sh_raw = r.get("shares_outstanding")
             if sh_raw is not None and not (isinstance(sh_raw, float) and math.isnan(sh_raw)) and sh_raw > 0:
                 sh = sh_raw / 1e6 if sh_raw > 1e4 else sh_raw
+
+        # Fallback: derive shares from net_profit (Cr) and eps (Rs) if shares still missing
+        if sh is None or (isinstance(sh, float) and math.isnan(sh)) or sh <= 0:
+            np_val = r.get("net_profit") if r.get("net_profit") is not None else r.get("pat")
+            eps_val = r.get("eps") if r.get("eps") is not None else r.get("basic_eps")
+            if np_val is not None and eps_val is not None and eps_val != 0:
+                try:
+                    sh_res = derive_and_validate_shares(symbol, float(np_val), float(eps_val), None, scanner="DILUTION")
+                    if sh_res.ok and sh_res.shares_millions is not None and sh_res.shares_millions > 0:
+                        sh = sh_res.shares_millions
+                except Exception:
+                    pass
+
         if sh is not None and sh > 0:
             r_copy = dict(r)
             r_copy["_resolved_shares_m"] = float(sh)

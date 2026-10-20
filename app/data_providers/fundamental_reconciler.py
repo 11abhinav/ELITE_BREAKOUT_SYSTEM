@@ -314,14 +314,27 @@ class FundamentalReconciler:
         elif pat_vals and sum(pat_vals) <= 0:
             metrics.cfo_pat_5y = -999.0
         # 5. 3Y Share Dilution
-        dilution_dicts = [
-            {
+        dilution_dicts = []
+        for r in annual_records:
+            shs = getattr(r, "shares_outstanding", getattr(r, "shares_outstanding_m", None))
+            if shs is not None and not (isinstance(shs, float) and math.isnan(shs)) and shs > 10000.0:
+                shs = shs / 1e6
+            elif shs is None or (isinstance(shs, float) and math.isnan(shs)) or shs <= 0:
+                np_val = getattr(r, "net_profit", None)
+                eps_val = getattr(r, "eps", None)
+                if np_val is not None and eps_val is not None and eps_val != 0:
+                    try:
+                        from app.financial_data_integrity import derive_and_validate_shares
+                        sh_res = derive_and_validate_shares(symbol, float(np_val), float(eps_val), None, scanner="RECONCILER")
+                        if sh_res.ok and sh_res.shares_millions is not None and sh_res.shares_millions > 0:
+                            shs = sh_res.shares_millions
+                    except Exception:
+                        pass
+            dilution_dicts.append({
                 "period_end_date": r.period_end_date,
-                "shares_outstanding_m": getattr(r, "shares_outstanding", getattr(r, "shares_outstanding_m", None)),
+                "shares_outstanding_m": shs,
                 "filing_date": r.broadcast_timestamp or getattr(r, "filing_date", None),
-            }
-            for r in annual_records
-        ]
+            })
         try:
             try:
                 from app.financial_data_integrity import compute_share_dilution_3y
