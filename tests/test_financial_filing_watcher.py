@@ -366,3 +366,153 @@ def test_db_upload_on_fetching_and_rebuild_for_restart_resilience(temp_watcher, 
 
     assert any(name == "canonical_pit_rebuilt" for name, _ in parquet_uploaded), "upload_parquet_to_db was not called after snapshot rebuild!"
 
+
+def test_partial_missing_balance_sheet_facts_reconciled(temp_watcher):
+    """
+    Verifies that when a local record has revenue/pat but total_debt/total_equity/ebit
+    is null, detect_filing_changes recognizes CHANGED_PAYLOAD and reconciles the missing facts.
+    """
+    from scripts.financial_filing_watcher import FilingEventType
+    watcher, tmpdir = temp_watcher
+    sym = "TEST_PARTIAL"
+
+    raw_dir = Path(tmpdir) / "pit_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    watcher.pit_raw_dir = raw_dir
+
+    # Local record has revenue=100 and net_profit=10, but total_debt=None, total_equity=None, ebit=None
+    stock_json = raw_dir / f"{sym}.json"
+    with open(stock_json, "w") as f:
+        json.dump([{
+            "symbol": sym,
+            "period_end_date": "2024-03-31",
+            "statement_type": "ANNUAL",
+            "basis": "CONSOLIDATED",
+            "revenue": 100.0,
+            "net_profit": 10.0,
+            "total_debt": None,
+            "total_equity": None,
+            "operating_profit": None,
+        }], f)
+
+    # Incoming exchange filing provides total_debt=50.0, total_equity=200.0, operating_profit=25.0
+    incoming = {
+        "filing_id": f"NSE_{sym}_2024-03-31",
+        "period_end_date": "2024-03-31",
+        "statement_type": "ANNUAL",
+        "basis": "CONSOLIDATED",
+        "source_exchange": "NSE",
+        "facts": {
+            "revenue": 100.0,
+            "net_profit": 10.0,
+            "total_debt": 50.0,
+            "total_equity": 200.0,
+            "operating_profit": 25.0,
+        }
+    }
+    raw_payload = json.dumps(incoming).encode("utf-8")
+
+    event = watcher.detect_filing_changes(sym, incoming, raw_payload)
+    assert event.event_type == FilingEventType.CHANGED_PAYLOAD, f"Expected CHANGED_PAYLOAD, got {event.event_type}"
+
+    # Verify merge updates the missing facts
+    watcher._merge_into_pit_raw_filings(sym, incoming["facts"], "2024-03-31", "ANNUAL", "CONSOLIDATED")
+    with open(stock_json) as f:
+        updated = json.load(f)
+    assert updated[0]["total_debt"] == 50.0
+    assert updated[0]["total_equity"] == 200.0
+    assert updated[0]["operating_profit"] == 25.0
+
+
+def test_quarterly_gap_triggers_bootstrap(temp_watcher, monkeypatch):
+    """
+    Verifies that if an intermediate quarter is missing in the trailing 24 months
+    (e.g. Q1 and Q3 present, but Q2 missing with > 120 days gap), bootstrap from 2015-01-01 is triggered.
+    """
+    from unittest.mock import patch
+    watcher, tmpdir = temp_watcher
+    sym = "TEST_Q_GAP"
+
+    raw_dir = Path(tmpdir) / "pit_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    watcher.pit_raw_dir = raw_dir
+
+    # Has continuous annual filings from 2018 to 2024, BUT in 2024/2025:
+    # 2024-06-30 (Q1) and 2024-12-31 (Q3) are present, but 2024-09-30 (Q2) is missing! (gap = 184 days)
+    filings = [
+        {"period_end_date": f"{y}-03-31", "statement_type": "ANNUAL", "revenue": 100, "net_profit": 10, "total_debt": 10, "total_equity": 50}
+        for y in range(2018, 2025)
+    ]
+    filings.append({"period_end_date": "2024-06-30", "statement_type": "QUARTERLY", "revenue": 30, "net_profit": 3})
+    filings.append({"period_end_date": "2024-12-31", "statement_type": "QUARTERLY", "revenue": 35, "net_profit": 4})
+
+    with open(raw_dir / f"{sym}.json", "w") as f:
+        json.dump(filings, f)
+
+    requested_cutoffs = []
+    class MockNSE:
+        def fetch_raw_financials(self, symbol, min_period_end_date=None, **kwargs):
+            requested_cutoffs.append(min_period_end_date)
+            return []
+        def discover_filings(self, symbol):
+            return []
+
+    import pandas as pd
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            mock_read.return_value = pd.DataFrame([{
+                "symbol": sym, "latest_annual_period": "2024-03-31", "pit_freshness_status": "VALID",
+                "sales_cagr_5y": 12.0, "current_ev_ebitda": 15.0, "debt_to_equity": 0.2, "roce_5y_avg": 18.0,
+                "provenance_status": "CERTIFIED", "is_bfsi": False, "is_structural_ineligible": False, "filing_gap_detected": False
+            }])
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=MockNSE()):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
+                    watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
+
+    assert "2015-01-01" in requested_cutoffs, f"Expected 2015-01-01 cutoff due to quarterly gap, got {requested_cutoffs}"
+
+
+def test_missing_canonical_metrics_triggers_bootstrap(temp_watcher, monkeypatch):
+    """
+    Verifies that if a stock has valid continuous raw files, but its canonical row
+    is UNCERTIFIED or missing EV/EBITDA, bootstrap from 2015-01-01 is triggered to recover it.
+    """
+    from unittest.mock import patch
+    watcher, tmpdir = temp_watcher
+    sym = "TEST_UNCERT"
+
+    raw_dir = Path(tmpdir) / "pit_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    watcher.pit_raw_dir = raw_dir
+
+    filings = [
+        {"period_end_date": f"{y}-03-31", "statement_type": "ANNUAL", "revenue": 100, "net_profit": 10, "total_debt": 10, "total_equity": 50}
+        for y in range(2018, 2027)
+    ]
+    with open(raw_dir / f"{sym}.json", "w") as f:
+        json.dump(filings, f)
+
+    requested_cutoffs = []
+    class MockNSE:
+        def fetch_raw_financials(self, symbol, min_period_end_date=None, **kwargs):
+            requested_cutoffs.append(min_period_end_date)
+            return []
+        def discover_filings(self, symbol):
+            return []
+
+    import pandas as pd
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            # Row has valid annual period, but provenance_status is UNCERTIFIED and EV/EBITDA is NaN!
+            mock_read.return_value = pd.DataFrame([{
+                "symbol": sym, "latest_annual_period": "2026-03-31", "pit_freshness_status": "VALID",
+                "sales_cagr_5y": 15.0, "current_ev_ebitda": None, "debt_to_equity": 0.2, "roce_5y_avg": 20.0,
+                "provenance_status": "UNCERTIFIED", "is_bfsi": False, "is_structural_ineligible": False, "filing_gap_detected": False
+            }])
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=MockNSE()):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
+                    watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
+
+    assert "2015-01-01" in requested_cutoffs, f"Expected 2015-01-01 cutoff due to UNCERTIFIED status, got {requested_cutoffs}"
+
+

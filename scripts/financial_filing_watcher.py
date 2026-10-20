@@ -383,11 +383,32 @@ class FinancialFilingWatcher:
                 loc_rev = local_matched_row.get("revenue") or local_matched_row.get("mapped_revenue")
                 loc_pat = local_matched_row.get("net_profit") or local_matched_row.get("pat")
                 loc_eps = local_matched_row.get("eps")
+                loc_debt = local_matched_row.get("total_debt") or local_matched_row.get("debt")
+                loc_equity = local_matched_row.get("total_equity") or local_matched_row.get("equity")
+                loc_ebit = local_matched_row.get("operating_profit") or local_matched_row.get("ebit")
+                loc_shares = local_matched_row.get("shares_outstanding")
+                loc_ocf = local_matched_row.get("operating_cash_flow") or local_matched_row.get("ocf")
 
-                # Check if local has nulls while exchange has actual figures
-                if (loc_rev is None and inc_rev is not None) or (loc_pat is None and inc_pat is not None):
+                inc_debt = facts.get("total_debt") or facts.get("debt")
+                inc_equity = facts.get("total_equity") or facts.get("equity")
+                inc_ebit = facts.get("operating_profit") or facts.get("ebit") or facts.get("operatingProfit")
+                inc_shares = facts.get("shares_outstanding")
+                inc_ocf = facts.get("operating_cash_flow") or facts.get("ocf")
+
+                # Check if local has nulls while exchange has actual figures (Partial Missing Fact Recovery)
+                has_reconcilable_fact = (
+                    (loc_rev is None and inc_rev is not None)
+                    or (loc_pat is None and inc_pat is not None)
+                    or (loc_debt is None and inc_debt is not None)
+                    or (loc_equity is None and inc_equity is not None)
+                    or (loc_ebit is None and inc_ebit is not None)
+                    or (loc_shares is None and inc_shares is not None)
+                    or (loc_ocf is None and inc_ocf is not None)
+                )
+
+                if has_reconcilable_fact:
                     event_type = FilingEventType.CHANGED_PAYLOAD
-                    unmatching_reason = "Local record has missing/null metrics; reconciled from exchange facts"
+                    unmatching_reason = "Local record has missing/null financial statement facts; reconciled from exchange facts"
                 # Check for numerical discrepancy (> 0.1 Cr)
                 elif inc_rev is not None and loc_rev is not None:
                     try:
@@ -791,12 +812,20 @@ class FinancialFilingWatcher:
         try:
             if SNAPSHOT_PATH.exists():
                 import pandas as _pd_p
+                _target_cols = [
+                    "symbol", "is_bfsi", "latest_annual_period", "latest_quarterly_period",
+                    "pit_freshness_status", "filing_gap_detected", "provenance_status",
+                    "sales_cagr_5y", "pat_cagr_5y", "roce_5y_avg", "debt_to_equity",
+                    "current_ev_ebitda", "total_debt", "annual_filing_count", "is_structural_ineligible"
+                ]
                 try:
-                    _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status", "sales_cagr_5y"])
+                    _sdf_head = _pd_p.read_parquet(SNAPSHOT_PATH, nrows=1)
+                    _avail_cols = [c for c in _target_cols if c in _sdf_head.columns]
+                    _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=_avail_cols)
                 except Exception:
-                    _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status"])
+                    _sdf = _pd_p.read_parquet(SNAPSHOT_PATH)
                 for _, _r in _sdf.iterrows():
-                    snap_lookup[str(_r["symbol"]).strip().upper()] = _r
+                    snap_lookup[str(_r["symbol"]).strip().upper()] = _r.to_dict()
         except Exception as _snap_err:
             logger.debug(f"[filling scanner] Could not pre-load snapshot lookup: {_snap_err}")
 
@@ -839,19 +868,26 @@ class FinancialFilingWatcher:
                 snap_row = snap_lookup.get(sym_u)
                 snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
                 freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
+                prov_status = str(snap_row.get("provenance_status") or "") if snap_row is not None else "MISSING"
+                is_bfsi = bool(snap_row.get("is_bfsi", False)) if snap_row is not None else False
+                is_struct_ineligible = bool(snap_row.get("is_structural_ineligible", False)) if snap_row is not None else False
+                snap_gap_flag = bool(snap_row.get("filing_gap_detected", False)) if snap_row is not None else False
 
                 # ── HIGH-WATER MARK & BOOTSTRAP INGESTION GATE ──
-                # [RULE 67 CHANGE-RATIONALE: Bootstrap Ingestion Gate vs. High-Water Mark Polling]
                 # Check local raw filing coverage in data/pit_raw_filings/<symbol>.json
                 raw_path = self.pit_raw_dir / f"{sym_u}.json"
                 local_annual_count = 0
                 latest_local_period = None
                 annual_years = set()
+                quarterly_periods = set()
+                latest_annual_rec = None
+                has_corrupt_or_empty_raw = False
+
                 if raw_path.exists():
                     try:
                         with open(raw_path, "r", encoding="utf-8") as _rf:
                             _ldata = json.load(_rf)
-                        if isinstance(_ldata, list):
+                        if isinstance(_ldata, list) and len(_ldata) > 0:
                             for _r in _ldata:
                                 _p = _normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or ""))
                                 if not _p or _p < "2015-01-01":
@@ -863,17 +899,21 @@ class FinancialFilingWatcher:
                                         annual_years.add(int(_p[:4]))
                                     except Exception:
                                         pass
+                                    if latest_annual_rec is None or _p > str(latest_annual_rec.get("period_end_date", "")):
+                                        latest_annual_rec = _r
+                                else:
+                                    quarterly_periods.add(_p)
                                 if not latest_local_period or _p > latest_local_period:
                                     latest_local_period = _p
+                        else:
+                            has_corrupt_or_empty_raw = True
                     except Exception as _r_err:
                         logger.debug(f"[filling scanner] Local file read error for {sym_u}: {_r_err}")
-                        local_annual_count = 0
-                        latest_local_period = None
-                        annual_years = set()
+                        has_corrupt_or_empty_raw = True
+                else:
+                    has_corrupt_or_empty_raw = True
 
-                # [RULE 67 CHANGE-RATIONALE: Check continuity of annual observations across all historical years.
-                # If a stock has 2026, but 2024 or 2025 is missing, has_intermediate_gap triggers bootstrap from 2015-01-01
-                # to fetch all missing intermediate years in that single first pass.]
+                # 1. Intermediate Annual Gap Detection (y[i+1] - y[i] > 1)
                 sorted_annual_years = sorted(annual_years)
                 has_intermediate_gap = False
                 intermediate_gap_reason = None
@@ -885,46 +925,87 @@ class FinancialFilingWatcher:
                         intermediate_gap_reason = f"Missing intermediate FY {missing_years} between {sorted_annual_years[i]} and {sorted_annual_years[i + 1]} in {sorted_annual_years}"
                         break
 
-                # Check tail gap: If latest quarterly filing is in FY25 or FY26, but the annual report is missing
+                # 2. Tail Annual Gap Detection (Latest annual vs expected completed FY from calendar date)
+                # In India, FY ends March 31 and audited results are published by May 30.
+                # June 1 onwards, current year FY is completed. Prior to June, previous year FY is completed.
+                now_dt = date.today()
+                expected_completed_annual_yr = now_dt.year if now_dt.month >= 6 else (now_dt.year - 1)
                 has_tail_annual_gap = False
                 tail_gap_reason = None
-                if latest_local_period and annual_years:
-                    try:
-                        p_yr = int(latest_local_period[:4])
-                        p_mo = int(latest_local_period[5:7])
-                        exp_annual_yr = p_yr if p_mo >= 4 else (p_yr - 1)
-                        if max(annual_years) < exp_annual_yr:
-                            has_tail_annual_gap = True
-                            tail_gap_reason = f"Latest annual FY {max(annual_years)} is older than completed FY {exp_annual_yr} (latest filing period={latest_local_period})"
-                    except Exception:
-                        pass
+                if not annual_years or max(annual_years) < expected_completed_annual_yr:
+                    has_tail_annual_gap = True
+                    tail_gap_reason = f"Latest annual FY {max(annual_years) if annual_years else 'NONE'} is older than expected completed FY {expected_completed_annual_yr}"
 
-                is_single_target = bool(target_symbols and len(target_symbols) == 1)
-                bootstrap_state_done = bool(self.state.get(sym_u, {}).get("bootstrap_completed"))
+                # 3. Intermediate Quarterly Gap Detection in Trailing 24 Months (>120 days between consecutive quarters)
+                has_quarterly_gap = False
+                quarterly_gap_reason = None
+                if quarterly_periods:
+                    recent_qs = sorted([p for p in quarterly_periods if p >= "2024-01-01"])
+                    for qi in range(len(recent_qs) - 1):
+                        try:
+                            d1 = datetime.strptime(recent_qs[qi], "%Y-%m-%d").date()
+                            d2 = datetime.strptime(recent_qs[qi + 1], "%Y-%m-%d").date()
+                            if (d2 - d1).days > 120:
+                                has_quarterly_gap = True
+                                quarterly_gap_reason = f"Missing intermediate quarter between {recent_qs[qi]} and {recent_qs[qi+1]} ({(d2 - d1).days}d gap)"
+                                break
+                        except Exception:
+                            pass
+
+                # 4. Insufficient Depth (< 6 annual observations) with Missing 5Y CAGR
                 insufficient_depth = len(sorted_annual_years) < 6
-                depth_reason = f"Insufficient annual depth ({len(sorted_annual_years)} < 6 years: {sorted_annual_years})" if (insufficient_depth and not bootstrap_state_done) else None
+                has_missing_cagr = snap_row is not None and (snap_row.get("sales_cagr_5y") is None or pd.isna(snap_row.get("sales_cagr_5y")))
+                depth_reason = None
+                if insufficient_depth and not is_struct_ineligible and has_missing_cagr:
+                    depth_reason = f"Insufficient annual depth ({len(sorted_annual_years)} < 6 years: {sorted_annual_years}) with missing 5Y CAGR"
 
-                is_fresh_or_valid = freshness in ("FRESH", "VALID")
-                snap_gap_flag = bool(snap_row.get("filing_gap_detected", False)) if snap_row is not None else False
+                # 5. Missing Balance Sheet Facts in Latest Annual Record (total_debt or total_equity)
+                has_missing_bs_facts = False
+                missing_bs_reason = None
+                if latest_annual_rec and not is_bfsi:
+                    debt_val = latest_annual_rec.get("total_debt") or latest_annual_rec.get("debt")
+                    eq_val = latest_annual_rec.get("total_equity") or latest_annual_rec.get("equity")
+                    if debt_val is None or eq_val is None:
+                        has_missing_bs_facts = True
+                        missing_bs_reason = f"Latest annual record ({latest_annual_rec.get('period_end_date')}) missing total_debt or total_equity"
 
-                # Incomplete if:
-                # 1. Force backfill requested or single-symbol targeted, OR
-                # 2. Local raw file missing, OR
-                # 3. Missing intermediate fiscal years (gap anywhere in annual sequence, e.g. 2026 present but 2024/2025 missing), OR
-                # 4. Tail annual gap (quarterly filings exist up to 2025/2026, but annual report for completed FY missing), OR
-                # 5. Insufficient depth (< 6 annual observations) AND bootstrap not yet completed from 2015, OR
-                # 6. Missing from snapshot or not FRESH/VALID, OR
-                # 7. Snap row reports filing_gap_detected=True, OR
-                # 8. No latest_local_period or snap_annual resolved
+                # 6. Missing Canonical Snapshot Metrics (UNCERTIFIED, Sales CAGR, EV/EBITDA, D/E, ROCE)
+                has_missing_canonical_metrics = False
+                missing_metric_reason = None
+                if snap_row is not None and not is_struct_ineligible:
+                    if prov_status == "UNCERTIFIED":
+                        has_missing_canonical_metrics = True
+                        missing_metric_reason = "Canonical snapshot row is UNCERTIFIED"
+                    elif pd.isna(snap_row.get("sales_cagr_5y")) and len(sorted_annual_years) >= 6:
+                        has_missing_canonical_metrics = True
+                        missing_metric_reason = "Missing 5Y Sales CAGR despite 6+ annual filings"
+                    elif not is_bfsi and pd.isna(snap_row.get("current_ev_ebitda")):
+                        has_missing_canonical_metrics = True
+                        missing_metric_reason = "Missing current EV/EBITDA in canonical snapshot"
+                    elif not is_bfsi and (pd.isna(snap_row.get("debt_to_equity")) or snap_row.get("total_debt") is None):
+                        has_missing_canonical_metrics = True
+                        missing_metric_reason = "Missing Debt/Equity or Total Debt in canonical snapshot"
+                    elif pd.isna(snap_row.get("roce_5y_avg")) and len(sorted_annual_years) >= 6:
+                        has_missing_canonical_metrics = True
+                        missing_metric_reason = "Missing 5Y ROCE average in canonical snapshot"
+
+                # 7. Targeted or Forced Backfill
+                is_single_target = bool(target_symbols and len(target_symbols) == 1)
+
+                # ── CONSOLIDATED BOOTSTRAP DECISION ──
                 needs_bootstrap = (
                     force_backfill
                     or is_single_target
-                    or not raw_path.exists()
+                    or has_corrupt_or_empty_raw
+                    or (len(sorted_annual_years) == 0)
                     or has_intermediate_gap
                     or has_tail_annual_gap
-                    or (insufficient_depth and not bootstrap_state_done)
+                    or has_quarterly_gap
+                    or (depth_reason is not None)
+                    or has_missing_bs_facts
+                    or has_missing_canonical_metrics
                     or snap_row is None
-                    or not is_fresh_or_valid
+                    or freshness not in ("FRESH", "VALID")
                     or not snap_annual
                     or not latest_local_period
                     or snap_gap_flag
@@ -932,13 +1013,23 @@ class FinancialFilingWatcher:
 
                 if needs_bootstrap:
                     min_cutoff = "2015-01-01"
-                    reason_desc = intermediate_gap_reason or tail_gap_reason or depth_reason or ("SNAP_GAP" if snap_gap_flag else f"freshness={freshness}")
+                    reason_desc = (
+                        intermediate_gap_reason
+                        or tail_gap_reason
+                        or quarterly_gap_reason
+                        or missing_bs_reason
+                        or missing_metric_reason
+                        or depth_reason
+                        or ("EMPTY_OR_CORRUPT_RAW" if has_corrupt_or_empty_raw else None)
+                        or ("ZERO_ANNUAL_OBSERVATIONS" if len(sorted_annual_years) == 0 else None)
+                        or ("SNAP_GAP" if snap_gap_flag else f"freshness={freshness}")
+                    )
                     logger.info(
                         f"🚀 [filling scanner] {sym_u}: BOOTSTRAP NEEDED ({reason_desc}, "
                         f"local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). Ingesting complete history from 2015-01-01."
                     )
                 else:
-                    # High-Water Mark: Symbol has verified continuous multi-year history.
+                    # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
                     # Only poll filings for periods >= latest_local_period.
                     # All past years/quarters are skipped in 0ms!
                     min_cutoff = latest_local_period
