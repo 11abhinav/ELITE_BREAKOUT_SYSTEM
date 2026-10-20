@@ -803,7 +803,7 @@ class FinancialFilingWatcher:
 
                 # Look back 2 years for routine scheduled sweeps; full historical backfill only if single symbol targeted
                 min_poll_date = f"{as_of.year - 2}-01-01"
-                min_cutoff = min_poll_date if not symbol else "2015-01-01"
+                min_cutoff = min_poll_date if (not target_symbols or len(target_symbols) > 1) else "2015-01-01"
 
                 raw_filings_list: List[Dict[str, Any]] = []
                 nse_fetch_count = 0

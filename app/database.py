@@ -10178,10 +10178,13 @@ def _format_missing_data(reason: str, failures: Any, symbol: str = "") -> str:
         if ":" in str(reason):
             prefix = "Data conflict between exchange and broker feeds" if "DATA_CONFLICT" in r_upper else "Required fundamental metrics missing"
             return f"{prefix}: {str(reason).split(':', 1)[1].strip()}"
-        return "Required fundamental metrics unresolved across primary sources"
+    elif "DATA_STALE" in r_upper or "LOCAL_CACHE" in r_upper:
+        return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files require backfill."
     elif failures:
-        return f"Provider verification: {str(failures)[:120]}"
-    return r_upper or "Data quality criteria not met"
+        clean_f = str(failures).strip()
+        if clean_f and clean_f not in ("[]", "{}", "None", "''", '""'):
+            return f"Provider verification: {clean_f[:120]}"
+    return reason or "Data quality criteria not met"
 
 
 _UNIFIED_AUDIT_CACHE: Optional[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]] = None

@@ -159,7 +159,10 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                             p_end = str(it.get("period_end_date") or it.get("toDate") or "")[:10]
                             st_type = str(it.get("statement_type") or it.get("period_type") or it.get("period") or "").upper()
                             src = str(it.get("source") or "").upper()
-                            is_ann = ("ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type or "AUDITED" in src or "ANNUAL" in src)
+                            is_ann = (
+                                "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type or "AUDITED" in src or "ANNUAL" in src
+                                or (p_end.endswith("-03-31") and (it.get("revenue") is not None or it.get("net_profit") is not None))
+                            )
                             st = "ANNUAL" if is_ann else "QUARTERLY"
                             it["statement_type"] = st
                             bs = "STANDALONE" if ("STANDALONE" in str(it.get("basis") or it.get("consolidated") or "").upper() or "STANDALONE" in src) else "CONSOLIDATED"
@@ -182,9 +185,18 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                 continue
             bs = str(f.get("basis") or "CONSOLIDATED").upper()
             is_cons = bs in (StatementBasis.CONSOLIDATED, "NONE", "")
+            curr_has_facts = (f.get("revenue") is not None or f.get("net_profit") is not None)
+            prev = annual_map.get(p_end)
+            prev_has_facts = (prev is not None and (prev.get("revenue") is not None or prev.get("net_profit") is not None))
             # Prefer CONSOLIDATED if available for this specific period; fallback to STANDALONE
-            if p_end not in annual_map or (is_cons and annual_map[p_end].get("basis") == "STANDALONE"):
+            # Never overwrite a record that has numeric facts with a placeholder that has None
+            if p_end not in annual_map:
                 annual_map[p_end] = f
+            elif not prev_has_facts and curr_has_facts:
+                annual_map[p_end] = f
+            elif is_cons and prev.get("basis") == "STANDALONE":
+                if curr_has_facts or not prev_has_facts:
+                    annual_map[p_end] = f
     annual_filings = sorted(list(annual_map.values()), key=lambda x: str(x.get("period_end_date", "")))
 
     # Filter by as-of-date PIT causality (C14)
@@ -291,8 +303,9 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         as_of_date=as_of,
     )
 
-    # Latest filing facts
-    latest_f = pit_eligible_annual[-1] if pit_eligible_annual else {}
+    # Latest filing facts (prefer record with actual revenue/net_profit facts over raw empty placeholders)
+    fact_eligible = [f for f in pit_eligible_annual if (f.get("revenue") is not None or f.get("net_profit") is not None)]
+    latest_f = fact_eligible[-1] if fact_eligible else (pit_eligible_annual[-1] if pit_eligible_annual else {})
 
     # Share count derivation and validation (C4)
     net_profit_val = latest_f.get("net_profit")
@@ -354,6 +367,31 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     de_ratio = None
     if total_equity is not None and float(total_equity) > 0:
         de_ratio = round(float(total_debt or 0.0) / float(total_equity), 2)
+
+    # Return on Equity (ROE) = Net Profit / Total Equity * 100
+    roe_val = None
+    if net_profit_val is not None and total_equity is not None:
+        try:
+            eq_f = float(total_equity)
+            if eq_f > 0:
+                roe_val = round((float(net_profit_val) / eq_f) * 100.0, 2)
+        except Exception:
+            pass
+    if roe_val is None:
+        isin_str = str(latest_f.get("isin", "")).strip()
+        for p in [
+            os.path.join(BASE_DIR, "data", "upstox_key_ratios", f"{sym_u}.json"),
+            os.path.join(BASE_DIR, "data", "upstox_key_ratios", f"{isin_str}.json"),
+        ]:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as _krf:
+                        _kr_data = json.load(_krf)
+                    if _kr_data.get("current_roe") is not None:
+                        roe_val = float(_kr_data["current_roe"])
+                        break
+                except Exception:
+                    pass
 
     # Cash & Equivalents for EV (C3)
     cash_val = latest_f.get("cash_and_equivalents")
@@ -491,6 +529,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "filing_gap_detected": has_gaps,
         "filing_gaps": str(gaps),
         "roce_5y_avg": round(roce_5y, 2) if roce_5y is not None else None,
+        "roce": round(roce_vals[-1], 2) if (roce_vals and len(roce_vals) > 0) else None,
+        "roe": roe_val,
         "sales_cagr_5y": sales_cagr_res.cagr if sales_cagr_res.ok else (-999.0 if (sales_cagr_res.reason and "CAGR_BASE_NON_POSITIVE" in sales_cagr_res.reason) else None),
         "pat_cagr_5y": pat_cagr_res.cagr if pat_cagr_res.ok else (-999.0 if (pat_cagr_res.reason and "CAGR_BASE_NON_POSITIVE" in pat_cagr_res.reason) else None),
         "cfo_pat_5y_ratio": round(cfo_pat_5y, 2) if cfo_pat_5y is not None else None,

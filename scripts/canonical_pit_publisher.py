@@ -419,7 +419,7 @@ def publish_canonical_pit(
                         "current_ev_ebitda", "ev_ebitda_3y_median", "current_pe", "pe_3y_median",
                         "revenue", "ebitda", "net_profit", "operating_cash_flow", "total_debt",
                         "cash_and_equivalents", "shares_outstanding_m", "shares_outstanding",
-                        "roce_5y_avg", "roce", "annual_filing_count",
+                        "roce_5y_avg", "roce", "roe", "annual_filing_count",
                         "sales_cagr_5y", "pat_cagr_5y", "cfo_pat_5y_ratio", "cfo_pat_5y",
                         "debt_to_equity", "share_dilution_3y_pct", "share_dilution_3y"
                     ]
