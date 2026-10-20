@@ -118,6 +118,15 @@ QUARANTINE_JSON = os.path.join(DATA_DIR, "quarantined_anomaly_symbols_41.json")
 FROZEN_GIT_SHA = "35fe412d"
 RULES_HASH_BUY = "bf04bf9ca9810bb62b4c1aa5e4125d19e99a807d9f75bfdc8ce645c38bc35fc2"
 
+try:
+    from database import complete_scanner_execution_run, upsert_scanner_health
+except ImportError:
+    try:
+        from app.database import complete_scanner_execution_run, upsert_scanner_health
+    except ImportError:
+        complete_scanner_execution_run = None
+        upsert_scanner_health = None
+
 
 # -------------------------------------------------------------------------------------
 # REJECTION REASONS ENUMERATION
@@ -4309,6 +4318,20 @@ class QualityCompounderValueV2Scanner:
                 record_full_evidence=record_full_evidence
             )
             return _core_result_holder[0]
+        except Exception as _core_exc:
+            _computed_v2_health_status = "DOWN"
+            if complete_scanner_execution_run is not None and exec_run_ctx_holder and exec_run_ctx_holder[0]:
+                try:
+                    complete_scanner_execution_run(
+                        ctx=exec_run_ctx_holder[0],
+                        run_id=getattr(exec_run_ctx_holder[0], "run_id", None),
+                        lifecycle_status="FAILED",
+                        quality_status="DOWN",
+                        error_message=str(_core_exc)[:250]
+                    )
+                except Exception as _close_err:
+                    logger.debug(f"Failed to close execution run on exception: {_close_err}")
+            raise
         finally:
             try:
                 run_id = getattr(exec_run_ctx_holder[0], "run_id", None) if exec_run_ctx_holder[0] else None
@@ -5121,6 +5144,7 @@ class QualityCompounderValueV2Scanner:
             sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_cagr', row.get('revenue_cagr_3y'))))
             pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_cagr')))
             cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y', row.get('cfo_pat')))
+            de_ratio = row.get('debt_to_equity', row.get('debt_equity', row.get('d_e', row.get('debt'))))
             _sd = row.get('share_dilution_3y')
             if _sd is None or (isinstance(_sd, float) and pd.isna(_sd)):
                 _sd = row.get('share_dilution_3y_pct')
@@ -5442,13 +5466,13 @@ class QualityCompounderValueV2Scanner:
 
                 else:
                     roce_val = float(roce_5y)
-                    de_val = float(de_ratio)
+                    de_val = float(de_ratio) if (de_ratio is not None and not pd.isna(de_ratio)) else 0.0
 
                     if roce_val < 15.0: rejections.append("FAIL_ROCE")
                     if sales_cagr_loss or float(sales_cagr_5y) < 10.0: rejections.append("FAIL_SALES_CAGR")
                     if pat_cagr_loss or float(pat_cagr_5y) < 10.0: rejections.append("FAIL_PAT_CAGR")
                     if cfo_pat_loss or float(cfo_pat_5y) < 0.80: rejections.append("FAIL_CFO_PAT")
-                    if de_val > 0.50: rejections.append("FAIL_DEBT")
+                    if not is_bfsi_flag and de_val > 0.50: rejections.append("FAIL_DEBT")
 
                     if share_dilution_3y is None or pd.isna(share_dilution_3y):
                         _is_struct_sd = (
@@ -5686,7 +5710,7 @@ class QualityCompounderValueV2Scanner:
             if cfo_pat_loss or cfo_pat_5y is None or pd.isna(cfo_pat_5y) or float(cfo_pat_5y) < 0.80:
                 cur_v = "N/A (CUMULATIVE_LOSS)" if cfo_pat_loss else (f"{float(cfo_pat_5y):.2f}" if cfo_pat_5y is not None and not pd.isna(cfo_pat_5y) else "N/A")
                 required_improvements.append(f"5Y Cum CFO/PAT >= 0.80 (Current: {cur_v})")
-            if de_ratio is not None and not pd.isna(de_ratio) and float(de_ratio) > 0.50:
+            if not is_fin and not is_bfsi_flag and de_ratio is not None and not pd.isna(de_ratio) and float(de_ratio) > 0.50:
                 required_improvements.append(f"Debt/Equity <= 0.50 (Current: {float(de_ratio):.2f})")
             if is_fin:
                 required_improvements.append("Sector: Non-Financial Required (Current: Financial Sector Excluded)")
