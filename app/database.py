@@ -1453,8 +1453,6 @@ def init_db(force: bool = False):
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_parquet_cache_name_date ON parquet_cache(name, date DESC)")
-                cur.execute("ALTER TABLE parquet_cache ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_parquet_cache_name_date_created ON parquet_cache(name, date DESC, created_at DESC)")
 
                 # 24b. screener_cache (Canonical fundamental data with TIMESTAMPTZ)
                 cur.execute("""
@@ -7059,10 +7057,12 @@ def upload_parquet_to_db(name: str, file_path: str) -> bool:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO parquet_cache (name, date, data, created_at)
-                    VALUES (%s, %s, %s, NOW())
-                    ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data, created_at = NOW()
+                    INSERT INTO parquet_cache (name, date, data)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
                 """, (name, today, psycopg2.Binary(binary_data)))
+                # Keep exactly one source copy: prune older date entries for this cache name
+                cur.execute("DELETE FROM parquet_cache WHERE name = %s AND date < %s", (name, today))
             conn.commit()
         dur_s = time.perf_counter() - _t_start
         logger.info(f"💾 [PARQUET DB SYNC SUCCESS] Uploaded '{name}' ({size_kb:.1f} KB) for {today} to Postgres DB parquet_cache in {dur_s:.2f}s")
@@ -7077,7 +7077,7 @@ def download_parquet_from_db(name: str, file_path: str) -> bool:
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC, created_at DESC LIMIT 1", (name,))
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC LIMIT 1", (name,))
                 row = cur.fetchone()
                 if row and row[0] and isinstance(row[0], (bytes, bytearray, memoryview)):
                     import os
@@ -7368,10 +7368,12 @@ def upload_pit_raw_bundle_to_db() -> bool:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        INSERT INTO parquet_cache (name, date, data, created_at)
-                        VALUES (%s, %s, %s, NOW())
-                        ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data, created_at = NOW()
+                        INSERT INTO parquet_cache (name, date, data)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
                     """, ("pit_raw_bundle", today, psycopg2.Binary(binary_data)))
+                    # Keep exactly one source copy: prune older date entries
+                    cur.execute("DELETE FROM parquet_cache WHERE name = 'pit_raw_bundle' AND date < %s", (today,))
                 conn.commit()
 
         logger.info(f"💾 [PIT RAW BUNDLE SYNC] Uploaded {len(files)} raw JSON filings ({len(binary_data)/1024.0:.1f} KB) to DB parquet_cache")
@@ -7396,7 +7398,7 @@ def restore_pit_raw_bundle_from_db() -> bool:
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'pit_raw_bundle' ORDER BY date DESC, created_at DESC LIMIT 1")
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'pit_raw_bundle' ORDER BY date DESC LIMIT 1")
                 row = cur.fetchone()
                 if not row or not row[0] or not isinstance(row[0], (bytes, bytearray, memoryview)):
                     return False
