@@ -1274,6 +1274,16 @@ def run_system_scheduler():
                     # Adopt DB snapshot as authoritative
                     shutil.move(db_cand_path, canonical_path)
                     logger.info(f"✅ [CANONICAL BOOT] Adopted authoritative DB snapshot ({len(_df_db)} symbols, {db_fresh_cnt} certified fresh vs {local_fresh_cnt} local)")
+                    try:
+                        from app.financial_data_integrity import set_financial_snapshot_status, FinancialSnapshotStatus
+                        set_financial_snapshot_status(FinancialSnapshotStatus.READY, {
+                            "source": "POSTGRES_DB_SNAPSHOT",
+                            "adopted_at": datetime.now(IST).isoformat(),
+                            "total_symbols": len(_df_db),
+                            "fresh_symbols": db_fresh_cnt
+                        }, data_dir=DATA_DIR)
+                    except Exception as _meta_e:
+                        logger.debug(f"Meta status write error: {_meta_e}")
                 else:
                     # Local snapshot has more fresh rows (e.g. freshly rebuilt locally) -> push to DB
                     if os.path.exists(db_cand_path):

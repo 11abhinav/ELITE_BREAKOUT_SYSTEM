@@ -687,6 +687,21 @@ class FinancialFilingWatcher:
 
             logger.info(f"✅ [filling scanner] [SNAPSHOT_REBUILD: SUCCESS] Rebuilt {len(df)} rows. Current EV/EBITDA Complete: {ev_count}/{len(df)}. Status set to FRESH.")
 
+            # [RULE 67: RESTART RESILIENCE]
+            # Upload newly rebuilt canonical snapshot and raw filings bundle to DB parquet_cache
+            # so container restarts adopt the latest verified copy without data loss.
+            try:
+                try:
+                    from app.database import upload_parquet_to_db, upload_pit_raw_bundle_to_db
+                except ImportError:
+                    from database import upload_parquet_to_db, upload_pit_raw_bundle_to_db
+                if SNAPSHOT_PATH.exists():
+                    upload_parquet_to_db("canonical_pit_rebuilt", str(SNAPSHOT_PATH))
+                upload_pit_raw_bundle_to_db()
+                logger.info("💾 [filling scanner] Uploaded latest canonical snapshot & raw filings bundle to Postgres DB.")
+            except Exception as _db_up_err:
+                logger.warning(f"[filling scanner] DB snapshot upload notice: {_db_up_err}")
+
             # If rebuilding for specific symbol(s), check and restore if previously stale
             if sym_list:
                 for sym_u in sym_list:
@@ -1169,6 +1184,16 @@ class FinancialFilingWatcher:
 
         logger.info(f"✅ [filling scanner] Exchange polling complete. Discovered {len(discovered_events)} new/amended filing events across {len(symbols)} symbols.")
 
+        # Invariant: Always upload updated pit_raw_bundle to DB so newly discovered/healed filings survive container restarts
+        try:
+            try:
+                from app.database import upload_pit_raw_bundle_to_db
+            except ImportError:
+                from database import upload_pit_raw_bundle_to_db
+            upload_pit_raw_bundle_to_db()
+        except Exception as bundle_err:
+            logger.debug(f"[filling scanner] Raw filings bundle upload note: {bundle_err}")
+
         if discovered_events:
             new_syms = sorted({str(e.get("symbol")).strip().upper() for e in discovered_events if e.get("symbol")})
             logger.info(f"🔄 [filling scanner] Auto-rebuilding snapshot for {len(new_syms)} newly disclosed symbols: {new_syms[:10]}...")
@@ -1176,15 +1201,6 @@ class FinancialFilingWatcher:
                 self.invalidate_and_rebuild_snapshot(symbol=new_syms, as_of_date=as_of_date)
             except Exception as auto_rb_err:
                 logger.warning(f"[filling scanner] Auto snapshot rebuild error: {auto_rb_err}")
-
-            try:
-                try:
-                    from app.database import upload_pit_raw_bundle_to_db
-                except ImportError:
-                    from database import upload_pit_raw_bundle_to_db
-                upload_pit_raw_bundle_to_db()
-            except Exception as bundle_err:
-                logger.debug(f"[filling scanner] Raw filings bundle upload note: {bundle_err}")
 
         return discovered_events
 
@@ -1729,6 +1745,20 @@ class FinancialFilingWatcher:
             except Exception as _wm_err:
                 logger.warning(f"[filling scanner] Failed to record exchange watermarks: {_wm_err}")
 
+            # 5c. [RULE 67: RESTART RESILIENCE]
+            # Ensure latest canonical snapshot and raw filings bundle are uploaded to PostgreSQL parquet_cache
+            # so server restarts and container redeployments immediately adopt the latest copy.
+            try:
+                try:
+                    from app.database import upload_parquet_to_db, upload_pit_raw_bundle_to_db
+                except ImportError:
+                    from database import upload_parquet_to_db, upload_pit_raw_bundle_to_db
+                if SNAPSHOT_PATH.exists():
+                    upload_parquet_to_db("canonical_pit_rebuilt", str(SNAPSHOT_PATH))
+                upload_pit_raw_bundle_to_db()
+                logger.info("💾 [filling scanner] Synchronized latest canonical snapshot & raw filings bundle to DB parquet_cache.")
+            except Exception as _sync_db_err:
+                logger.warning(f"[filling scanner] End-of-cycle DB sync notice: {_sync_db_err}")
 
             # 6. Complete scanner_execution_history
             if run_ctx:

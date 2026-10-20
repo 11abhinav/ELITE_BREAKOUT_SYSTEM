@@ -1453,6 +1453,8 @@ def init_db(force: bool = False):
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_parquet_cache_name_date ON parquet_cache(name, date DESC)")
+                cur.execute("ALTER TABLE parquet_cache ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_parquet_cache_name_date_created ON parquet_cache(name, date DESC, created_at DESC)")
 
                 # 24b. screener_cache (Canonical fundamental data with TIMESTAMPTZ)
                 cur.execute("""
@@ -7057,9 +7059,9 @@ def upload_parquet_to_db(name: str, file_path: str) -> bool:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO parquet_cache (name, date, data)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
+                    INSERT INTO parquet_cache (name, date, data, created_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data, created_at = NOW()
                 """, (name, today, psycopg2.Binary(binary_data)))
             conn.commit()
         dur_s = time.perf_counter() - _t_start
@@ -7075,7 +7077,7 @@ def download_parquet_from_db(name: str, file_path: str) -> bool:
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC LIMIT 1", (name,))
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC, created_at DESC LIMIT 1", (name,))
                 row = cur.fetchone()
                 if row and row[0] and isinstance(row[0], (bytes, bytearray, memoryview)):
                     import os
@@ -7366,9 +7368,9 @@ def upload_pit_raw_bundle_to_db() -> bool:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                        INSERT INTO parquet_cache (name, date, data)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
+                        INSERT INTO parquet_cache (name, date, data, created_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data, created_at = NOW()
                     """, ("pit_raw_bundle", today, psycopg2.Binary(binary_data)))
                 conn.commit()
 
@@ -7394,7 +7396,7 @@ def restore_pit_raw_bundle_from_db() -> bool:
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'pit_raw_bundle' ORDER BY date DESC LIMIT 1")
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'pit_raw_bundle' ORDER BY date DESC, created_at DESC LIMIT 1")
                 row = cur.fetchone()
                 if not row or not row[0] or not isinstance(row[0], (bytes, bytearray, memoryview)):
                     return False

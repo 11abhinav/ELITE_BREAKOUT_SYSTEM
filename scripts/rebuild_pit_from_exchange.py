@@ -818,12 +818,20 @@ def rebuild_canonical_pit_dataset(
 
     set_financial_snapshot_status(status_verdict, meta_updates=meta)
 
-    logger.info(
-        f"✅ [filling scanner] Rebuilt Canonical PIT dataset complete: {len(df_final)} symbols | "
-        f"FINANCIAL_SNAPSHOT_STATUS={status_verdict.value} | "
-        f"Certified: {meta['certified_symbols']} | Current EV/EBITDA Complete: {meta['current_ev_ebitda_complete']}/{len(df_final)} | "
-        f"SHA256: {file_hash[:16]}..."
-    )
+    # [RULE 67: RESTART RESILIENCE]
+    # Upload newly rebuilt canonical snapshot and raw filings bundle to DB parquet_cache
+    # so container restarts adopt the latest verified copy without data loss.
+    try:
+        try:
+            from app.database import upload_parquet_to_db, upload_pit_raw_bundle_to_db
+        except ImportError:
+            from database import upload_parquet_to_db, upload_pit_raw_bundle_to_db
+        upload_parquet_to_db("canonical_pit_rebuilt", out_file)
+        upload_pit_raw_bundle_to_db()
+        logger.info("💾 [CANONICAL REBUILD] Uploaded latest canonical snapshot & raw filings bundle to Postgres DB.")
+    except Exception as _up_err:
+        logger.warning(f"⚠️ [CANONICAL REBUILD] DB sync upload notice: {_up_err}")
+
     return df_final
 
 

@@ -146,6 +146,15 @@ def update_canonical_parquet_row(row: Dict[str, Any], parquet_path: Path = CANON
                 f"💾 [JIT_PERSISTED] {sym}: Successfully persisted to {parquet_path.name} "
                 f"(SHA256: {new_hash[:16]}..., Total Symbols: {len(df_updated)})"
             )
+            try:
+                try:
+                    from app.database import upload_parquet_to_db
+                except ImportError:
+                    from database import upload_parquet_to_db
+                upload_parquet_to_db("canonical_pit_rebuilt", str(parquet_path))
+            except Exception as _jit_up_err:
+                logger.debug(f"[JIT DB SYNC] Notice: {_jit_up_err}")
+
             return True
         except Exception as e:
             logger.error(f"❌ [JIT_UPDATE_FAILED] Failed to update canonical parquet for {row.get('symbol')}: {e}")

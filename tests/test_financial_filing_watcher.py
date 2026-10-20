@@ -316,3 +316,53 @@ def test_gap_detection_heals_missing_intermediate_years(temp_watcher, monkeypatc
     assert "2024-03-31" in periods_present, "Missing 2024-03-31 was not healed!"
     assert "2025-03-31" in periods_present, "Missing 2025-03-31 was not healed!"
     assert "2026-03-31" in periods_present, "2026-03-31 was retained!"
+
+
+def test_db_upload_on_fetching_and_rebuild_for_restart_resilience(temp_watcher, monkeypatch):
+    """
+    Verifies that whenever filings are polled or the snapshot is rebuilt,
+    upload_pit_raw_bundle_to_db and upload_parquet_to_db are called so container
+    restarts / redeployments immediately adopt the latest copy.
+    """
+    from unittest.mock import MagicMock, patch
+    watcher, tmpdir = temp_watcher
+
+    bundle_uploaded = []
+    parquet_uploaded = []
+
+    def mock_upload_bundle():
+        bundle_uploaded.append(True)
+        return True
+
+    def mock_upload_parquet(name, path):
+        parquet_uploaded.append((name, path))
+        return True
+
+    monkeypatch.setattr("app.database.upload_pit_raw_bundle_to_db", mock_upload_bundle)
+    monkeypatch.setattr("app.database.upload_parquet_to_db", mock_upload_parquet)
+
+    # 1. Test poll_exchange_filings calls upload_pit_raw_bundle_to_db unconditionally
+    class EmptyProvider:
+        def fetch_raw_financials(self, *args, **kwargs):
+            return []
+        def discover_filings(self, *args, **kwargs):
+            return []
+
+    with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=EmptyProvider()):
+        with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=EmptyProvider()):
+            watcher.poll_exchange_filings(target_symbols=["SBIN"], max_workers=1)
+
+    assert len(bundle_uploaded) >= 1, "upload_pit_raw_bundle_to_db was not called after polling filings!"
+
+    # 2. Test invalidate_and_rebuild_snapshot calls both upload_parquet_to_db and upload_pit_raw_bundle_to_db
+    import pandas as pd
+    test_snap = Path(tmpdir) / "test_snap.parquet"
+    pd.DataFrame([{"symbol": "SBIN", "status": "FRESH"}]).to_parquet(test_snap)
+
+    with patch("scripts.financial_filing_watcher.SNAPSHOT_PATH", test_snap):
+        with patch("scripts.rebuild_pit_from_exchange.rebuild_canonical_pit_dataset") as mock_rebuild:
+            mock_rebuild.return_value = pd.DataFrame([{"symbol": "SBIN", "current_ev_ebitda": 10.0}])
+            watcher.invalidate_and_rebuild_snapshot(symbol=["SBIN"])
+
+    assert any(name == "canonical_pit_rebuilt" for name, _ in parquet_uploaded), "upload_parquet_to_db was not called after snapshot rebuild!"
+
