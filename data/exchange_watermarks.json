@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-10-18T22:20:10.766835",
+    "last_successful_check_at": "2026-10-20T16:21:21.764359+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -188,10 +188,10 @@
         "last_successful_check_at": "2026-10-15T20:25:53.065921"
       },
       "TCS": {
-        "last_successful_check_at": "2026-10-20T10:43:19.487154"
+        "last_successful_check_at": "2026-10-20T15:38:53.398061"
       },
       "CORRUPT_CO": {
-        "last_successful_check_at": "2026-10-20T10:43:19.500307"
+        "last_successful_check_at": "2026-10-20T15:38:53.454747"
       },
       "MOIL": {
         "last_successful_check_at": "2026-10-19T11:50:18.124073"
@@ -200,7 +200,7 @@
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-10-18T22:20:10.770899",
+    "last_successful_check_at": "2026-10-20T16:21:21.764359+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -387,10 +387,10 @@
         "last_successful_check_at": "2026-10-15T20:25:53.068599"
       },
       "TCS": {
-        "last_successful_check_at": "2026-10-20T10:43:19.490139"
+        "last_successful_check_at": "2026-10-20T15:38:53.407524"
       },
       "CORRUPT_CO": {
-        "last_successful_check_at": "2026-10-20T10:43:19.508995"
+        "last_successful_check_at": "2026-10-20T15:38:53.457445"
       },
       "MOIL": {
         "last_successful_check_at": "2026-10-19T11:50:18.127621"

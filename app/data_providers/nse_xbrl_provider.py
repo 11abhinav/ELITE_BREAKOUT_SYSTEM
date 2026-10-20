@@ -1370,28 +1370,30 @@ class NseXbrlProvider:
             if not basis_recs:
                 basis_recs = cons_recs or ann_recs
 
-        basis_recs.sort(key=lambda r: r.period_end_date)
-
-        # Need at least target_years + 1 observations for target_years growth (e.g. 6 rows for 5Y CAGR)
-        req_obs = target_years + 1
-        if len(basis_recs) < req_obs:
-            return False, f"INSUFFICIENT_ANNUAL_OBSERVATIONS: {len(basis_recs)} < {req_obs}", []
-
-        window_recs = basis_recs[-req_obs:]
-
-        # 3. Verify continuous fiscal years (no missing intermediate periods)
-        years = []
-        for r in window_recs:
+        # Deduplicate by fiscal year (keeping latest amendment/publication in sorted sequence)
+        deduped_by_fy: Dict[int, Any] = {}
+        for r in basis_recs:
             try:
                 y = int(r.fiscal_year.replace("FY", "")) if r.fiscal_year else date.fromisoformat(r.period_end_date).year
-                years.append(y)
+                deduped_by_fy[y] = r
             except Exception:
-                return False, "UNPARSEABLE_FISCAL_YEAR", []
+                continue
 
-        for i in range(len(years) - 1):
-            if years[i + 1] - years[i] != 1:
-                gap_desc = f"Missing FY between {years[i]} and {years[i + 1]}"
+        sorted_fy = sorted(deduped_by_fy.keys())
+
+        # Need at least target_years + 1 distinct observations for target_years growth (e.g. 6 rows for 5Y CAGR)
+        req_obs = target_years + 1
+        if len(sorted_fy) < req_obs:
+            return False, f"INSUFFICIENT_ANNUAL_OBSERVATIONS: {len(sorted_fy)} < {req_obs}", []
+
+        trailing_fy = sorted_fy[-req_obs:]
+
+        # 3. Verify continuous fiscal years (no missing intermediate periods)
+        for i in range(len(trailing_fy) - 1):
+            if trailing_fy[i + 1] - trailing_fy[i] != 1:
+                gap_desc = f"Missing FY between {trailing_fy[i]} and {trailing_fy[i + 1]}"
                 logger.error(f"[NSE_CAGR] Continuous annual period gap detected: {gap_desc}")
                 return False, f"PIT_FILING_GAP_IN_GROWTH_WINDOW: {gap_desc}", []
 
+        window_recs = [deduped_by_fy[y] for y in trailing_fy]
         return True, None, window_recs

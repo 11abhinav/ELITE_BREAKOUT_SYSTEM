@@ -189,16 +189,20 @@ def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[st
         for k in stale_keys:
             del _recent_quotes_cache[k]
                 
-    # Evaluate completely dead symbols (not returned by any provider)
+    # Evaluate missing symbols from live quote response
     missing = set(valid_symbols) - set(new_prices.keys())
-    if missing:
+    if missing and len(missing) < len(valid_symbols) * 0.5:
+        # Only mark dead for individual persistently missing symbols (not when bulk market quote fails/market closed)
         _cleanup_dead_symbols_cache()
         for s in missing:
             cache[s] = time.time()
-            logger.warning(f"🚫 Marking {s} as completely DEAD for 24h (failed across all configured providers).")
+            logger.debug(f"ℹ️ Live quote unavailable for {s}. Will check verified latest market close fallback.")
 
     # Filter output dictionary strictly to requested input symbols (1-to-1 mapping, no duplicate alias inflation)
     output_prices = {}
+    base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    h_dir = os.path.join(base_dir, "data", "history", "1d")
+
     for s in symbols:
         if not s or not isinstance(s, str):
             continue
@@ -206,6 +210,25 @@ def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[st
         val = prices.get(s)
         if val is None or float(val or 0) <= 0:
             val = prices.get(clean_s)
+
+        # [RULE 67: AGENTS.md ALERT CMP & MARKET-CLOSE PRICE INVARIANT]
+        # During non-trading hours or provider quote unavailability, fall back
+        # strictly to the latest official closing price from verified 1D exchange history.
+        if (val is None or float(val or 0) <= 0) and os.path.isdir(h_dir):
+            p_file = os.path.join(h_dir, f"{clean_s}.parquet")
+            if os.path.isfile(p_file):
+                try:
+                    import pandas as _pd
+                    df_h = _pd.read_parquet(p_file)
+                    if not df_h.empty:
+                        c_col = 'Close' if 'Close' in df_h.columns else ('close' if 'close' in df_h.columns else None)
+                        if c_col:
+                            last_c = float(df_h[c_col].dropna().iloc[-1])
+                            if last_c > 0:
+                                val = last_c
+                except Exception:
+                    pass
+
         if val is not None and float(val) > 0:
             output_prices[s] = float(val)
 

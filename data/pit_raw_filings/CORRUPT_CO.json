@@ -13,6 +13,7 @@
     "ebit": 60.0,
     "capital_employed": 210.0,
     "eps": null,
+    "shares_outstanding": null,
     "unit": "cr",
     "currency": "INR",
     "source_record_hash": "4279f760c7077c107349de8fde2d0748dd981d283eeb4763179dd60709a4314b"

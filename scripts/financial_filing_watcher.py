@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import sys
 import threading
@@ -507,8 +508,26 @@ class FinancialFilingWatcher:
                     if unmatching_reason:
                         headline += f" [{event_type.value}]"
 
+                    # [RULE 67 CHANGE-RATIONALE: Resolve true filing/broadcast date instead of hardcoding today_ist.
+                    # Prevents historical backfills/amendments for past periods (e.g. FY2021) from being falsely
+                    # reported in corporate_filings_log as if declared today. Audit discovery timestamp is preserved in discovered_at.]
+                    true_filing_date = None
+                    if broadcast_time and str(broadcast_time).strip():
+                        b_str = str(broadcast_time).strip()
+                        b_norm = _normalize_iso_date(b_str[:10])
+                        if b_norm:
+                            true_filing_date = b_norm
+                    if not true_filing_date and facts.get("availability_date"):
+                        true_filing_date = _normalize_iso_date(str(facts.get("availability_date"))[:10])
+                    if not true_filing_date and facts.get("filingDate"):
+                        true_filing_date = _normalize_iso_date(str(facts.get("filingDate"))[:10])
+                    if not true_filing_date and facts.get("filing_date"):
+                        true_filing_date = _normalize_iso_date(str(facts.get("filing_date"))[:10])
+                    if not true_filing_date:
+                        true_filing_date = period_end or today_ist
+
                     upsert_corporate_filing_finding({
-                        "filing_date": today_ist,  # Explicitly log under today's date so admin view immediately shows it!
+                        "filing_date": true_filing_date,
                         "discovered_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
                         "symbol": sym,
                         "company_name": sym,
@@ -724,6 +743,8 @@ class FinancialFilingWatcher:
         as_of_date: Optional[date] = None,
         max_symbols: Optional[int] = None,
         max_workers: Optional[int] = None,
+        run_ctx: Optional[Any] = None,
+        force_backfill: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Actively polls exchange sources (NSE XBRL API, BSE Corporate API, and FundamentalSourceRouter)
@@ -755,7 +776,10 @@ class FinancialFilingWatcher:
         try:
             if SNAPSHOT_PATH.exists():
                 import pandas as _pd_p
-                _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status"])
+                try:
+                    _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status", "sales_cagr_5y"])
+                except Exception:
+                    _sdf = _pd_p.read_parquet(SNAPSHOT_PATH, columns=["symbol", "latest_annual_period", "pit_freshness_status"])
                 for _, _r in _sdf.iterrows():
                     snap_lookup[str(_r["symbol"]).strip().upper()] = _r
         except Exception as _snap_err:
@@ -801,9 +825,65 @@ class FinancialFilingWatcher:
                 snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
                 freshness = str(snap_row.get("pit_freshness_status") or "FRESH") if snap_row is not None else "MISSING"
 
-                # Look back 2 years for routine scheduled sweeps; full historical backfill only if single symbol targeted
-                min_poll_date = f"{as_of.year - 2}-01-01"
-                min_cutoff = min_poll_date if (not target_symbols or len(target_symbols) > 1) else "2015-01-01"
+                # ── HIGH-WATER MARK & BOOTSTRAP INGESTION GATE ──
+                # [RULE 67 CHANGE-RATIONALE: Bootstrap Ingestion Gate vs. High-Water Mark Polling]
+                # Check local raw filing coverage in data/pit_raw_filings/<symbol>.json
+                raw_path = self.pit_raw_dir / f"{sym_u}.json"
+                local_annual_count = 0
+                latest_local_period = None
+                if raw_path.exists():
+                    try:
+                        with open(raw_path, "r", encoding="utf-8") as _rf:
+                            _ldata = json.load(_rf)
+                        if isinstance(_ldata, list):
+                            for _r in _ldata:
+                                _p = _normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or ""))
+                                if not _p or _p < "2015-01-01":
+                                    continue
+                                _st = str(_r.get("statement_type") or _r.get("period") or "").upper()
+                                if "ANNUAL" in _st or _p.endswith("-03-31"):
+                                    local_annual_count += 1
+                                if not latest_local_period or _p > latest_local_period:
+                                    latest_local_period = _p
+                    except Exception as _r_err:
+                        logger.debug(f"[filling scanner] Local file read error for {sym_u}: {_r_err}")
+                        local_annual_count = 0
+                        latest_local_period = None
+
+                is_single_target = bool(target_symbols and len(target_symbols) == 1)
+                bootstrap_state_done = bool(self.state.get(sym_u, {}).get("bootstrap_completed"))
+
+                # Incomplete if:
+                # 1. Force backfill requested or single-symbol targeted, OR
+                # 2. Local raw file missing or < 6 annual observations (insufficient for 5Y CAGR), OR
+                # 3. Missing from snapshot or not FRESH, OR
+                # 4. No latest_local_period resolved
+                needs_bootstrap = (
+                    force_backfill
+                    or is_single_target
+                    or not raw_path.exists()
+                    or (local_annual_count < 6 and not bootstrap_state_done)
+                    or snap_row is None
+                    or freshness != "FRESH"
+                    or not snap_annual
+                    or not latest_local_period
+                )
+
+                if needs_bootstrap:
+                    min_cutoff = "2015-01-01"
+                    logger.info(
+                        f"🚀 [filling scanner] {sym_u}: BOOTSTRAP NEEDED (local_annual={local_annual_count}, "
+                        f"freshness={freshness}, snap_annual={snap_annual or 'NONE'}). Ingesting complete history from 2015-01-01."
+                    )
+                else:
+                    # High-Water Mark: Symbol already has complete multi-year history.
+                    # Only poll filings for periods >= latest_local_period.
+                    # All past years/quarters are skipped in 0ms!
+                    min_cutoff = latest_local_period
+                    logger.debug(
+                        f"⚡ [filling scanner] {sym_u}: HIGH-WATER MARK ACTIVE (latest_period={latest_local_period}, "
+                        f"annual_count={local_annual_count}). Skipping historical filings < {min_cutoff}."
+                    )
 
                 raw_filings_list: List[Dict[str, Any]] = []
                 nse_fetch_count = 0
@@ -833,8 +913,8 @@ class FinancialFilingWatcher:
                                     "total_equity": r.total_equity,
                                     "operating_cash_flow": getattr(r, "operating_cash_flow", None),
                                     "shares_outstanding": r.shares_outstanding,
-                                    "filing_date": r.availability_date or as_of_str,
-                                    "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
+                                    "filing_date": r.availability_date or f"{norm_p}T00:00:00",
+                                    "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
                                 })
 
                         try:
@@ -891,8 +971,8 @@ class FinancialFilingWatcher:
                                         "total_equity": r.total_equity,
                                         "operating_cash_flow": getattr(r, "operating_cash_flow", None),
                                         "shares_outstanding": r.shares_outstanding,
-                                        "filing_date": r.availability_date or as_of_str,
-                                        "broadcast_timestamp": getattr(r, "broadcast_timestamp", as_of_str),
+                                        "filing_date": r.availability_date or f"{norm_p}T00:00:00",
+                                        "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
                                     })
                             # 3b. BSE Corporate Announcements (same-day results & board meetings)
                             try:
@@ -964,7 +1044,8 @@ class FinancialFilingWatcher:
                 sym_new_events = 0
                 for (period_end, st_type, basis), item in by_statement.items():
                     fid = str(item.get("seqNumber") or item.get("filing_id") or f"{sym_u}_{period_end}_{st_type}_v1")
-                    bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or as_of_str)
+                    # [RULE 67 CHANGE-RATIONALE: Immutable deterministic timestamp prevents volatile payload hash mutation across daily runs]
+                    bcast_time = str(item.get("broadCastDate") or item.get("filingDate") or item.get("broadcast_timestamp") or f"{period_end}T00:00:00")
 
                     raw_bytes = json.dumps(item, sort_keys=True).encode("utf-8")
                     meta_incoming = {
@@ -993,12 +1074,33 @@ class FinancialFilingWatcher:
                         f"(NSE_records={nse_fetch_count}, NSE_discovered={nse_disc_count}, BSE={bse_count})."
                     )
 
+                # Record bootstrap completion for the symbol
+                with self._state_lock:
+                    if sym_u not in self.state:
+                        self.state[sym_u] = {
+                            "filings": {},
+                            "latest_filing_date": latest_local_period,
+                            "snapshot_status": freshness,
+                            "bootstrap_completed": True,
+                        }
+                    else:
+                        self.state[sym_u]["bootstrap_completed"] = True
+
             except Exception as sym_err:
                 logger.warning(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
             finally:
                 with counter_lock:
                     completed_count[0] += 1
                     curr_c = completed_count[0]
+                    if (curr_c % 5 == 0 or curr_c == len(symbols)) and run_ctx and getattr(run_ctx, "run_id", None):
+                        try:
+                            try:
+                                from database import update_scanner_run_heartbeat
+                            except ImportError:
+                                from app.database import update_scanner_run_heartbeat
+                            update_scanner_run_heartbeat(run_ctx.run_id)
+                        except Exception:
+                            pass
                     if curr_c % 25 == 0 or curr_c == len(symbols):
                         with events_lock:
                             disc_len = len(discovered_events)
@@ -1006,6 +1108,10 @@ class FinancialFilingWatcher:
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="FilingPoll") as executor:
             list(executor.map(_process_symbol, symbols))
+
+        # Atomically persist updated watcher state (including bootstrap_completed markers)
+        with self._state_lock:
+            self._save_state()
 
         logger.info(f"✅ [filling scanner] Exchange polling complete. Discovered {len(discovered_events)} new/amended filing events across {len(symbols)} symbols.")
 
@@ -1092,7 +1198,8 @@ class FinancialFilingWatcher:
             "total_equity": float(equity) if equity is not None else None,
             "operating_cash_flow": float(ocf) if ocf is not None else None,
             "shares_outstanding": float(shares) if shares is not None else None,
-            "filing_date": new_item.get("filingDate") or new_item.get("filing_date") or date.today().isoformat(),
+            # [RULE 67 CHANGE-RATIONALE: Immutable fallback to norm_period_end rather than volatile today's date]
+            "filing_date": new_item.get("filingDate") or new_item.get("filing_date") or norm_period_end,
             "broadcast_timestamp": new_item.get("broadCastDate") or new_item.get("broadcast_timestamp"),
             "exchange": new_item.get("exchange", "NSE"),
             "filing_id": new_item.get("seqNumber") or new_item.get("filing_id"),
@@ -1331,9 +1438,11 @@ class FinancialFilingWatcher:
                     headline += f" (Rev ₹{float(rev):,.1f} Cr, PAT ₹{float(pat):,.1f} Cr)"
 
                 fid = f"{sym_u}_{period_end}_{st_type}_v1"
+                # [RULE 67 CHANGE-RATIONALE: Use true filing/broadcast date or period_end rather than as_of_str]
+                true_audit_fdate = _normalize_iso_date(str(item.get("filing_date") or item.get("filingDate") or item.get("broadcast_timestamp") or "")[:10]) or period_end or as_of_str
 
                 finding_dict = {
-                    "filing_date": as_of_str,
+                    "filing_date": true_audit_fdate,
                     "discovered_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
                     "symbol": sym_u,
                     "company_name": sym_u,
@@ -1384,6 +1493,7 @@ class FinancialFilingWatcher:
         scheduler_name: str = "CRON",
         symbol: Optional[str] = None,
         force_rebuild: bool = False,
+        force_backfill: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes a complete financial filing watcher cycle:
@@ -1457,7 +1567,12 @@ class FinancialFilingWatcher:
 
             # 2b. Actively poll live exchanges (NSE/BSE) for newly published filings
             try:
-                poll_events = self.poll_exchange_filings(target_symbols=target_symbols, as_of_date=now_ist.date())
+                poll_events = self.poll_exchange_filings(
+                    target_symbols=target_symbols,
+                    as_of_date=now_ist.date(),
+                    run_ctx=run_ctx,
+                    force_backfill=force_backfill,
+                )
                 if poll_events:
                     logger.info(f"📢 [filling scanner] Exchange poll ingested {len(poll_events)} new filing disclosures.")
             except Exception as poll_err:
@@ -1638,18 +1753,20 @@ def main():
     parser.add_argument("--poll", action="store_true", help="Poll for new filings and execute cycle")
     parser.add_argument("--symbol", type=str, default=None, help="Specific symbol to check/rebuild")
     parser.add_argument("--force-rebuild", action="store_true", help="Force rebuild canonical snapshot")
+    parser.add_argument("--force-backfill", action="store_true", help="Force full historical bootstrap from 2015-01-01")
     parser.add_argument("--as-of-date", type=str, default=None, help="As-of date in YYYY-MM-DD")
     args = parser.parse_args()
 
     as_of = datetime.strptime(args.as_of_date, "%Y-%m-%d").date() if args.as_of_date else date.today()
     watcher = FinancialFilingWatcher()
 
-    if args.poll or args.force_rebuild:
+    if args.poll or args.force_rebuild or args.force_backfill:
         res = watcher.run_watcher_cycle(
             trigger_type="MANUAL",
             scheduler_name="CLI",
             symbol=args.symbol,
             force_rebuild=args.force_rebuild,
+            force_backfill=args.force_backfill,
         )
         print(f"\n[FILING_WATCHER] Cycle finished with status: {res.get('status')}")
     else:

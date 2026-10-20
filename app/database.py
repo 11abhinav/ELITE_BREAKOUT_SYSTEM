@@ -426,7 +426,7 @@ class _AdvisoryLockGuard:
     def __del__(self):
         self.release()
 
-def init_db():
+def init_db(force: bool = False):
     # [VERSION: GREENFIELD_DB_OVERHAUL_v1.0] Greenfield Database Schema Initialization
     global _DB_INITIALIZED
 
@@ -437,13 +437,34 @@ def init_db():
         if _DB_INITIALIZED:
             return
 
+        # [FAST-PATH SCHEMA CHECK]: If critical tables already exist in PostgreSQL catalog,
+        # schema is fully initialized. Skip all 2,000 lines of DDL to prevent table locks and deadlocks.
+        if not force:
+            try:
+                db_url = os.getenv("DATABASE_URL")
+                if db_url:
+                    with get_connection(timeout=3) as check_conn:
+                        with check_conn.cursor() as check_cur:
+                            check_cur.execute("""
+                                SELECT count(*) FROM information_schema.tables 
+                                WHERE table_schema = 'public' 
+                                  AND table_name IN ('scanner_execution_history', 'alerts', 'system_logs', 'scanner_candidates')
+                            """)
+                            row = check_cur.fetchone()
+                            if row and row[0] >= 3:
+                                _DB_INITIALIZED = True
+                                logger.info("✅ Database schema already initialized (verified 3+ core tables exist in catalog). Skipping DDL execution.")
+                                return
+            except Exception as _chk_err:
+                logger.debug(f"Fast-path schema check notice: {_chk_err}")
+
         _guard = _AdvisoryLockGuard()
         if not _guard.acquired:
             _DB_INITIALIZED = True
             return
 
-        with get_connection() as conn:
-            with conn.cursor() as cur:
+        try:
+            with get_connection() as conn, conn.cursor() as cur:
                 # 1. system_logs
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS system_logs (
@@ -2415,9 +2436,11 @@ def init_db():
 
                 conn.commit()
 
-        _DB_INITIALIZED = True
-        logger.info("✅ Database ready (Postgres) — greenfield schema initialized and validated")
-        logger.info("ℹ️  Data Retention Active: preserving all alerts for historical analysis.")
+            _DB_INITIALIZED = True
+            logger.info("✅ Database ready (Postgres) — greenfield schema initialized and validated")
+            logger.info("ℹ️  Data Retention Active: preserving all alerts for historical analysis.")
+        finally:
+            _guard.release()
 
 
 def validate_schema(cur):
@@ -9790,6 +9813,21 @@ def check_and_restore_stale_stock(
             f"🔄 [STALE_STOCK_RESTORED] {sym} was previously marked stale ({reasons_summary}). "
             f"Removed from suppression. Fresh data ({period_end or 'Latest'}) available. Scanners can now review."
         )
+        if notify_admin:
+            try:
+                title = f"Stale Stock Restored: {sym}"
+                msg = (
+                    f"Fresh financial data ({period_end or 'Latest'}) received. "
+                    f"Removed {sym} from stale cool-off suppression. Scanners can now review."
+                )
+                insert_notification(
+                    notif_type="admin",
+                    title=title,
+                    message=msg,
+                    symbol=sym
+                )
+            except Exception as notif_err:
+                logger.debug(f"[STALE_RESTORE] Notification dispatch error for {sym}: {notif_err}")
 
     # Invalidate raw filings audit scan time so subsequent audit reflects restored stock immediately
     global _AUDIT_RAW_FILINGS_LAST_SCAN

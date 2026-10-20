@@ -133,7 +133,18 @@ def _period_type_bse(row: dict, to_date_iso: Optional[str] = None, from_date_iso
 
 
 def _consolidation_bse(row: dict) -> ConsolidationType:
-    val = str(row.get("Consolidated") or row.get("type") or row.get("Flag") or "").lower()
+    lower_map = {str(k).lower().strip(): v for k, v in row.items()}
+    val = str(
+        row.get("Consolidated")
+        or row.get("consolidated")
+        or row.get("type")
+        or row.get("Flag")
+        or row.get("flag")
+        or lower_map.get("consolidated")
+        or lower_map.get("type")
+        or lower_map.get("flag")
+        or ""
+    ).lower()
     if "standalone" in val or val == "s" or "non-consolidated" in val:
         return ConsolidationType.STANDALONE
     return ConsolidationType.CONSOLIDATED
@@ -146,11 +157,13 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     period_end_raw = (
         row.get("PeriodEnded")
         or row.get("period_ended")
+        or row.get("periodEnded")
         or row.get("toDate")
         or row.get("ToDate")
-        or row.get("period")
         or lower_row.get("periodended")
+        or lower_row.get("period_ended")
         or lower_row.get("todate")
+        or row.get("period")
         or lower_row.get("period")
         or ""
     )
@@ -562,8 +575,14 @@ class BseCorporateProvider:
                     self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
                     self.last_error[symbol] = f"HTTP {resp.status_code} Access Denied by BSE WAF"
                     logger.debug(f"[BSE] {symbol} (scrip={scrip_code}) HTTP {resp.status_code} — will try ScraperAPI fallback")
+                else:
+                    self.http_error_count += 1
+                    self.last_status[symbol] = "BSE_HTTP_ERROR"
+                    self.last_error[symbol] = f"HTTP {resp.status_code}"
             except Exception as direct_err:
                 self.http_error_count += 1
+                self.last_status[symbol] = "BSE_HTTP_ERROR"
+                self.last_error[symbol] = str(direct_err)
             # 1b. CURL_CFFI BROWSER IMPERSONATION FALLBACK IF DIRECT GETS 403
             if not flag_rows_found:
                 try:

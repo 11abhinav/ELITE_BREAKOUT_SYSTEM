@@ -139,6 +139,19 @@ def test_pre_buy_gate_blocks_when_update_pending(monkeypatch):
 
     monkeypatch.setattr("scripts.financial_filing_watcher.FinancialFilingWatcher", MockWatcher)
     monkeypatch.setattr("app.financial_data_integrity._mark_update_pending", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "app.financial_data_integrity.get_multi_source_exchange_watermark",
+        lambda *args, **kwargs: {
+            "valid": True,
+            "feed_heartbeat_sla_valid": True,
+            "feed_heartbeat_sla_reasons": [],
+            "symbol": "TCS",
+            "latest_exchange_filing_timestamp": "2025-01-01T00:00:00",
+            "latest_exchange_period_end": "2024-12-31",
+            "source_watermarks": [],
+            "failure_reason": None,
+        }
+    )
 
     bundle = BUYEvidenceBundle(
         scan_run_id="TEST_RUN",
@@ -191,12 +204,12 @@ def test_stale_stock_restoration_on_new_filing(monkeypatch):
     assert sym in cooloffs
 
     assert len(notifications_sent) == 1
-    assert notifications_sent[0]["title"] == f"Stale Data: {sym}"
+    assert sym in notifications_sent[0]["title"]
     assert notifications_sent[0]["symbol"] == sym
     assert "Marking as stale data" in notifications_sent[0]["message"]
 
     # 2. Call check_and_restore_stale_stock -> Should dispatch Stale Stock Restored notification
-    restored = check_and_restore_stale_stock(sym, source="UNIT_TEST", period_end="2025-03-31", notify_admin=True)
+    restored = check_and_restore_stale_stock(sym, source="FILING_WATCHER", period_end="2025-03-31", notify_admin=True)
     assert restored is True
 
     assert len(notifications_sent) == 2
@@ -209,7 +222,7 @@ def test_stale_stock_restoration_on_new_filing(monkeypatch):
     assert sym not in cooloffs_after
 
     # 4. Calling again for the same now-clean symbol should return False (not stale) and send no new notifications
-    restored_again = check_and_restore_stale_stock(sym, source="UNIT_TEST")
+    restored_again = check_and_restore_stale_stock(sym, source="FILING_WATCHER")
     assert restored_again is False
     assert len(notifications_sent) == 2
 

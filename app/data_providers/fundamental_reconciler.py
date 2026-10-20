@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import List, Dict, Tuple, Optional
 try:
     from app.data_providers.fundamental_models import (
