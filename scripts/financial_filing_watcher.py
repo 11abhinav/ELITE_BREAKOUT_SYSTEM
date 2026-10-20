@@ -831,6 +831,7 @@ class FinancialFilingWatcher:
                 raw_path = self.pit_raw_dir / f"{sym_u}.json"
                 local_annual_count = 0
                 latest_local_period = None
+                annual_years = set()
                 if raw_path.exists():
                     try:
                         with open(raw_path, "r", encoding="utf-8") as _rf:
@@ -843,41 +844,86 @@ class FinancialFilingWatcher:
                                 _st = str(_r.get("statement_type") or _r.get("period") or "").upper()
                                 if "ANNUAL" in _st or _p.endswith("-03-31"):
                                     local_annual_count += 1
+                                    try:
+                                        annual_years.add(int(_p[:4]))
+                                    except Exception:
+                                        pass
                                 if not latest_local_period or _p > latest_local_period:
                                     latest_local_period = _p
                     except Exception as _r_err:
                         logger.debug(f"[filling scanner] Local file read error for {sym_u}: {_r_err}")
                         local_annual_count = 0
                         latest_local_period = None
+                        annual_years = set()
+
+                # [RULE 67 CHANGE-RATIONALE: Check continuity of annual observations across all historical years.
+                # If a stock has 2026, but 2024 or 2025 is missing, has_intermediate_gap triggers bootstrap from 2015-01-01
+                # to fetch all missing intermediate years in that single first pass.]
+                sorted_annual_years = sorted(annual_years)
+                has_intermediate_gap = False
+                intermediate_gap_reason = None
+                for i in range(len(sorted_annual_years) - 1):
+                    gap = sorted_annual_years[i + 1] - sorted_annual_years[i]
+                    if gap > 1:
+                        has_intermediate_gap = True
+                        missing_years = list(range(sorted_annual_years[i] + 1, sorted_annual_years[i + 1]))
+                        intermediate_gap_reason = f"Missing intermediate FY {missing_years} between {sorted_annual_years[i]} and {sorted_annual_years[i + 1]} in {sorted_annual_years}"
+                        break
+
+                # Check tail gap: If latest quarterly filing is in FY25 or FY26, but the annual report is missing
+                has_tail_annual_gap = False
+                tail_gap_reason = None
+                if latest_local_period and annual_years:
+                    try:
+                        p_yr = int(latest_local_period[:4])
+                        p_mo = int(latest_local_period[5:7])
+                        exp_annual_yr = p_yr if p_mo >= 4 else (p_yr - 1)
+                        if max(annual_years) < exp_annual_yr:
+                            has_tail_annual_gap = True
+                            tail_gap_reason = f"Latest annual FY {max(annual_years)} is older than completed FY {exp_annual_yr} (latest filing period={latest_local_period})"
+                    except Exception:
+                        pass
 
                 is_single_target = bool(target_symbols and len(target_symbols) == 1)
                 bootstrap_state_done = bool(self.state.get(sym_u, {}).get("bootstrap_completed"))
+                insufficient_depth = len(sorted_annual_years) < 6
+                depth_reason = f"Insufficient annual depth ({len(sorted_annual_years)} < 6 years: {sorted_annual_years})" if (insufficient_depth and not bootstrap_state_done) else None
+
                 is_fresh_or_valid = freshness in ("FRESH", "VALID")
+                snap_gap_flag = bool(snap_row.get("filing_gap_detected", False)) if snap_row is not None else False
 
                 # Incomplete if:
                 # 1. Force backfill requested or single-symbol targeted, OR
-                # 2. Local raw file missing or < 6 annual observations (insufficient for 5Y CAGR), OR
-                # 3. Missing from snapshot or not FRESH/VALID, OR
-                # 4. No latest_local_period resolved
+                # 2. Local raw file missing, OR
+                # 3. Missing intermediate fiscal years (gap anywhere in annual sequence, e.g. 2026 present but 2024/2025 missing), OR
+                # 4. Tail annual gap (quarterly filings exist up to 2025/2026, but annual report for completed FY missing), OR
+                # 5. Insufficient depth (< 6 annual observations) AND bootstrap not yet completed from 2015, OR
+                # 6. Missing from snapshot or not FRESH/VALID, OR
+                # 7. Snap row reports filing_gap_detected=True, OR
+                # 8. No latest_local_period or snap_annual resolved
                 needs_bootstrap = (
                     force_backfill
                     or is_single_target
                     or not raw_path.exists()
-                    or (local_annual_count < 6 and not bootstrap_state_done)
+                    or has_intermediate_gap
+                    or has_tail_annual_gap
+                    or (insufficient_depth and not bootstrap_state_done)
                     or snap_row is None
                     or not is_fresh_or_valid
                     or not snap_annual
                     or not latest_local_period
+                    or snap_gap_flag
                 )
 
                 if needs_bootstrap:
                     min_cutoff = "2015-01-01"
+                    reason_desc = intermediate_gap_reason or tail_gap_reason or depth_reason or ("SNAP_GAP" if snap_gap_flag else f"freshness={freshness}")
                     logger.info(
-                        f"🚀 [filling scanner] {sym_u}: BOOTSTRAP NEEDED (local_annual={local_annual_count}, "
-                        f"freshness={freshness}, snap_annual={snap_annual or 'NONE'}). Ingesting complete history from 2015-01-01."
+                        f"🚀 [filling scanner] {sym_u}: BOOTSTRAP NEEDED ({reason_desc}, "
+                        f"local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). Ingesting complete history from 2015-01-01."
                     )
                 else:
-                    # High-Water Mark: Symbol already has complete multi-year history.
+                    # High-Water Mark: Symbol has verified continuous multi-year history.
                     # Only poll filings for periods >= latest_local_period.
                     # All past years/quarters are skipped in 0ms!
                     min_cutoff = latest_local_period
@@ -1096,10 +1142,17 @@ class FinancialFilingWatcher:
                     if (curr_c % 5 == 0 or curr_c == len(symbols)) and run_ctx and getattr(run_ctx, "run_id", None):
                         try:
                             try:
-                                from database import update_scanner_run_heartbeat
+                                from database import update_scanner_run_heartbeat, upsert_scanner_health
                             except ImportError:
-                                from app.database import update_scanner_run_heartbeat
+                                from app.database import update_scanner_run_heartbeat, upsert_scanner_health
                             update_scanner_run_heartbeat(run_ctx.run_id)
+                            upsert_scanner_health(
+                                scanner_name="FILING_WATCHER",
+                                status="RUNNING",
+                                processed_count=curr_c,
+                                total_count=len(symbols),
+                                run_id=run_ctx.run_id,
+                            )
                         except Exception:
                             pass
                     if curr_c % 25 == 0 or curr_c == len(symbols):
@@ -1552,9 +1605,40 @@ class FinancialFilingWatcher:
                 )
             except Exception as run_err:
                 if "already actively running" in str(run_err).lower():
-                    logger.info("⏳ [filling scanner] Active execution already registered in DB. Skipping duplicate.")
-                    return {"status": "ALREADY_RUNNING", "message": "Already running in database"}
-                logger.warning(f"[filling scanner] Failed to insert execution run in scanner_execution_history: {run_err}")
+                    # If this is a MANUAL trigger, CLI, or force run, auto-clean stale orphan and retry
+                    if trigger_type in ("MANUAL", "CLI") or force_backfill or force_rebuild:
+                        logger.warning("🧹 [filling scanner] Auto-cleaning stale orphaned RUNNING/QUEUED run before manual trigger...")
+                        try:
+                            with get_connection() as conn:
+                                with conn.cursor() as cur:
+                                    cur.execute("""
+                                        UPDATE scanner_execution_history
+                                        SET completed_at = NOW(),
+                                            lifecycle_status = 'CANCELLED',
+                                            error_summary = 'Superseded by fresh manual trigger'
+                                        WHERE LOWER(scanner_name) = 'filing_watcher'
+                                          AND lifecycle_status IN ('RUNNING', 'QUEUED');
+                                    """)
+                                    conn.commit()
+                            run_ctx = start_scanner_execution_run(
+                                scanner_name="FILING_WATCHER",
+                                trigger_type=trigger_type,
+                                scheduler_name=scheduler_name,
+                                total_stocks=total_count,
+                            )
+                        except Exception as retry_err:
+                            logger.error(f"[filling scanner] Failed to start execution run after auto-clean: {retry_err}")
+                    else:
+                        logger.info("⏳ [filling scanner] Active execution already registered in DB. Skipping duplicate.")
+                        return {"status": "ALREADY_RUNNING", "message": "Already running in database"}
+                else:
+                    logger.warning(f"[filling scanner] Failed to insert execution run in scanner_execution_history: {run_err}")
+
+            if run_ctx and hasattr(run_ctx, "start_heartbeat_worker"):
+                try:
+                    run_ctx.start_heartbeat_worker()
+                except Exception:
+                    pass
 
             # 2. Update health to RUNNING
             upsert_scanner_health(
@@ -1741,6 +1825,11 @@ class FinancialFilingWatcher:
             }
 
         finally:
+            if run_ctx and hasattr(run_ctx, "stop_heartbeat_worker"):
+                try:
+                    run_ctx.stop_heartbeat_worker()
+                except Exception:
+                    pass
             if _WATCHER_LOCK.locked():
                 _WATCHER_LOCK.release()
 

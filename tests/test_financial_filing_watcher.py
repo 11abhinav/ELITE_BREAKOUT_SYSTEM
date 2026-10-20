@@ -261,5 +261,58 @@ def test_event_logging_date_normalization_not_truncated(temp_watcher):
         assert len(logged_event["period_end_date"]) == 10
 
 
+def test_gap_detection_heals_missing_intermediate_years(temp_watcher, monkeypatch):
+    watcher, tmpdir = temp_watcher
+    sym = "TEST_GAP"
 
+    # 1. Simulate a stock that has 2026, but 2024 and 2025 are missing
+    raw_dir = Path(tmpdir) / "pit_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    watcher.pit_raw_dir = raw_dir
 
+    stock_json = raw_dir / f"{sym}.json"
+    initial_filings = [
+        {"period_end_date": "2021-03-31", "statement_type": "ANNUAL", "revenue": 100, "net_profit": 10},
+        {"period_end_date": "2022-03-31", "statement_type": "ANNUAL", "revenue": 110, "net_profit": 12},
+        {"period_end_date": "2023-03-31", "statement_type": "ANNUAL", "revenue": 125, "net_profit": 15},
+        # 2024 and 2025 are MISSING
+        {"period_end_date": "2026-03-31", "statement_type": "ANNUAL", "revenue": 160, "net_profit": 22},
+    ]
+    with open(stock_json, "w") as f:
+        json.dump(initial_filings, f)
+
+    import pandas as pd
+    requested_cutoffs = []
+    class MockNSEProvider:
+        def fetch_raw_financials(self, symbol, min_period_end_date=None, **kwargs):
+            requested_cutoffs.append(min_period_end_date)
+            from collections import namedtuple
+            Rec = namedtuple("Rec", ["period_end_date", "period_type", "consolidation", "revenue", "net_profit", "ebit", "eps", "total_debt", "total_equity", "shares_outstanding", "availability_date", "broadcast_timestamp"])
+            return [
+                Rec("2024-03-31", "ANNUAL", "CONSOLIDATED", 135.0, 18.0, 25.0, 10.0, 50.0, 200.0, 1000000.0, "2024-05-15T00:00:00", "2024-05-15T00:00:00"),
+                Rec("2025-03-31", "ANNUAL", "CONSOLIDATED", 150.0, 20.0, 30.0, 12.0, 45.0, 220.0, 1000000.0, "2025-05-15T00:00:00", "2025-05-15T00:00:00"),
+            ]
+        def discover_filings(self, symbol):
+            return []
+
+    mock_nse = MockNSEProvider()
+    monkeypatch.setattr(watcher, "approved_symbols", [sym])
+
+    from unittest.mock import patch
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            mock_read.return_value = pd.DataFrame([{"symbol": sym, "latest_annual_period": "2026-03-31", "pit_freshness_status": "VALID", "sales_cagr_5y": 15.0}])
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=mock_nse):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
+                    watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
+
+    # 2. Verify bootstrap from 2015-01-01 was requested because 2024 and 2025 were missing!
+    assert "2015-01-01" in requested_cutoffs, f"Expected 2015-01-01 cutoff due to intermediate annual gap, got {requested_cutoffs}"
+
+    # 3. Verify missing 2024 and 2025 were healed and merged into JSON
+    with open(stock_json) as f:
+        updated_data = json.load(f)
+    periods_present = [r["period_end_date"] for r in updated_data]
+    assert "2024-03-31" in periods_present, "Missing 2024-03-31 was not healed!"
+    assert "2025-03-31" in periods_present, "Missing 2025-03-31 was not healed!"
+    assert "2026-03-31" in periods_present, "2026-03-31 was retained!"
