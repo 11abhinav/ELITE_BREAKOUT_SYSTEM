@@ -857,6 +857,10 @@ class FinancialFilingWatcher:
             return _tls.nse_provider, _tls.bse_provider
 
         completed_count = [0]
+        skipped_complete_count = [0]
+        bootstrap_ingested_count = [0]
+        error_count = [0]
+        start_poll_time = time.time()
         counter_lock = threading.Lock()
         events_lock = threading.Lock()
         discovered_events: List[Dict[str, Any]] = []
@@ -893,16 +897,28 @@ class FinancialFilingWatcher:
                                 if not _p or _p < "2015-01-01":
                                     continue
                                 _st = str(_r.get("statement_type") or _r.get("period") or "").upper()
-                                if "ANNUAL" in _st or _p.endswith("-03-31"):
+                                is_ann = ("ANNUAL" in _st or "YEAR" in _st or "FY" in _st)
+                                is_qtr = ("QUARTER" in _st or "Q1" in _st or "Q2" in _st or "Q3" in _st or "Q4" in _st)
+
+                                # Annual statements: audited full year results
+                                if is_ann or (_p.endswith("-03-31") and not is_qtr):
                                     local_annual_count += 1
                                     try:
                                         annual_years.add(int(_p[:4]))
                                     except Exception:
                                         pass
-                                    if latest_annual_rec is None or _p > str(latest_annual_rec.get("period_end_date", "")):
+                                    if is_ann:
+                                        if latest_annual_rec is None or _p > str(latest_annual_rec.get("period_end_date", "")):
+                                            latest_annual_rec = _r
+                                        elif _p == str(latest_annual_rec.get("period_end_date", "")) and (_r.get("total_debt") is not None or _r.get("total_equity") is not None):
+                                            latest_annual_rec = _r
+                                    elif latest_annual_rec is None or _p > str(latest_annual_rec.get("period_end_date", "")):
                                         latest_annual_rec = _r
-                                else:
+
+                                # Quarterly statements: Q1, Q2, Q3, and Q4 (including March 31 quarters)
+                                if is_qtr or not is_ann or _p.endswith("-03-31"):
                                     quarterly_periods.add(_p)
+
                                 if not latest_local_period or _p > latest_local_period:
                                     latest_local_period = _p
                         else:
@@ -1024,19 +1040,34 @@ class FinancialFilingWatcher:
                         or ("ZERO_ANNUAL_OBSERVATIONS" if len(sorted_annual_years) == 0 else None)
                         or ("SNAP_GAP" if snap_gap_flag else f"freshness={freshness}")
                     )
+                    with counter_lock:
+                        bootstrap_ingested_count[0] += 1
                     logger.info(
-                        f"🚀 [filling scanner] {sym_u}: BOOTSTRAP NEEDED ({reason_desc}, "
-                        f"local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). Ingesting complete history from 2015-01-01."
+                        f"🚀 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"BOOTSTRAP NEEDED ({reason_desc}, local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
+                        f"Ingesting complete history from 2015-01-01."
                     )
                 else:
                     # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
-                    # Only poll filings for periods >= latest_local_period.
-                    # All past years/quarters are skipped in 0ms!
-                    min_cutoff = latest_local_period
-                    logger.debug(
-                        f"⚡ [filling scanner] {sym_u}: HIGH-WATER MARK ACTIVE (latest_period={latest_local_period}, "
-                        f"annual_count={local_annual_count}). Skipping historical filings < {min_cutoff}."
+                    # USER MANDATE: If data is complete, DO NOT fetch those stocks over the network!
+                    with counter_lock:
+                        skipped_complete_count[0] += 1
+                    logger.info(
+                        f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"DATA COMPLETE (latest_period={latest_local_period}, annual_count={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
+                        f"Skipping exchange fetch in 0ms."
                     )
+                    with self._state_lock:
+                        if sym_u not in self.state:
+                            self.state[sym_u] = {
+                                "filings": {},
+                                "latest_filing_date": latest_local_period,
+                                "snapshot_status": freshness,
+                                "bootstrap_completed": True,
+                            }
+                        else:
+                            self.state[sym_u]["bootstrap_completed"] = True
+                    return
 
                 raw_filings_list: List[Dict[str, Any]] = []
                 nse_fetch_count = 0
@@ -1240,12 +1271,23 @@ class FinancialFilingWatcher:
                         self.state[sym_u]["bootstrap_completed"] = True
 
             except Exception as sym_err:
+                with counter_lock:
+                    error_count[0] += 1
                 logger.warning(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
             finally:
                 with counter_lock:
                     completed_count[0] += 1
                     curr_c = completed_count[0]
-                    if (curr_c % 5 == 0 or curr_c == len(symbols)) and run_ctx and getattr(run_ctx, "run_id", None):
+                    total_syms = len(symbols)
+                    pending_c = total_syms - curr_c
+                    skipped_c = skipped_complete_count[0]
+                    bootstrapped_c = bootstrap_ingested_count[0]
+                    errs_c = error_count[0]
+                    elapsed = max(0.1, time.time() - start_poll_time)
+                    rate_per_min = round((curr_c / elapsed) * 60, 1)
+
+                    # Update database execution progress & health heartbeat
+                    if (curr_c % 5 == 0 or curr_c == total_syms or pending_c <= 5) and run_ctx and getattr(run_ctx, "run_id", None):
                         try:
                             try:
                                 from database import update_scanner_run_heartbeat, upsert_scanner_health
@@ -1256,15 +1298,25 @@ class FinancialFilingWatcher:
                                 scanner_name="FILING_WATCHER",
                                 status="RUNNING",
                                 processed_count=curr_c,
-                                total_count=len(symbols),
+                                total_count=total_syms,
+                                error_msg=f"Processed {curr_c}/{total_syms} (Pending: {pending_c}) | Skipped Complete: {skipped_c} | Backfilled: {bootstrapped_c}",
                                 run_id=run_ctx.run_id,
                             )
                         except Exception:
                             pass
-                    if curr_c % 25 == 0 or curr_c == len(symbols):
+
+                    # Detailed progress log to track where we are
+                    if curr_c % 5 == 0 or curr_c == total_syms or pending_c <= 10:
+                        pct = round((curr_c / total_syms) * 100, 1)
                         with events_lock:
                             disc_len = len(discovered_events)
-                        logger.info(f"⏳ [filling scanner] Polled {curr_c}/{len(symbols)} symbols ({disc_len} new disclosures found, workers={max_workers})...")
+                        logger.info(
+                            f"📊 [filling scanner] [{curr_c}/{total_syms}] ({pct}%) | "
+                            f"Done: {curr_c} | Pending: {pending_c} | "
+                            f"Complete Skipped: {skipped_c} | Backfilled: {bootstrapped_c} | "
+                            f"Discovered: {disc_len} | Errors: {errs_c} | "
+                            f"Rate: {rate_per_min}/min | Last: {sym_u}"
+                        )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="FilingPoll") as executor:
             list(executor.map(_process_symbol, symbols))
