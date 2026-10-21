@@ -100,6 +100,24 @@ EVENTS_LOG_FILE = BASE_DIR / "data" / "filing_invalidation_events.jsonl"
 SNAPSHOT_PATH = BASE_DIR / "data" / "canonical_pit_rebuilt.parquet"
 EXCHANGE_DIR = BASE_DIR / "data" / "exchange_financials"
 
+# [RULE 67 CHANGE-RATIONALE: OPTIMAL_FILING_LOOKBACK_v1.0]
+# The maximum fundamental lookback needed by ANY scanner in the Elite Breakout System is 5 years
+# (5Y Sales CAGR, 5Y PAT CAGR, 5Y ROCE average, 5Y CFO/PAT cumulative).
+# Per user requirement (max_years + 1 = 6 years):
+# We fetch 6 years of historical filings (e.g. from (current_year - 6)-01-01 -> 2020-01-01 in 2026).
+# Ingestion from 2015 was downloading 11 years (50+ XBRL XML documents per stock), causing massive
+# network latency (2+ hours runtime) for disclosures from 2015-2019 that no scanner ever inspects.
+MAX_SCANNER_LOOKBACK_YEARS = 5
+BUFFER_YEARS = 1
+HISTORICAL_LOOKBACK_YEARS = MAX_SCANNER_LOOKBACK_YEARS + BUFFER_YEARS  # 6 years
+
+
+def get_historical_cutoff_date(reference_date: Optional[date] = None) -> str:
+    """Returns the ISO start date for historical filing ingestion (e.g. '2020-01-01')."""
+    ref_year = (reference_date or date.today()).year
+    cutoff_year = ref_year - HISTORICAL_LOOKBACK_YEARS
+    return f"{cutoff_year}-01-01"
+
 
 class FilingEventType(str, Enum):
     NEW_FILING             = "NEW_FILING"
@@ -904,7 +922,7 @@ class FinancialFilingWatcher:
                         if isinstance(_ldata, list) and len(_ldata) > 0:
                             for _r in _ldata:
                                 _p = _normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or ""))
-                                if not _p or _p < "2015-01-01":
+                                if not _p or _p < get_historical_cutoff_date(as_of_date):
                                     continue
                                 _st = str(_r.get("statement_type") or _r.get("period") or "").upper()
                                 is_ann = ("ANNUAL" in _st or "YEAR" in _st or "FY" in _st)
@@ -939,8 +957,10 @@ class FinancialFilingWatcher:
                 else:
                     has_corrupt_or_empty_raw = True
 
-                # 1. Intermediate Annual Gap Detection (y[i+1] - y[i] > 1)
-                sorted_annual_years = sorted(annual_years)
+                # 1. Intermediate Annual Gap Detection (y[i+1] - y[i] > 1) within required lookback window
+                # [RULE 67 CHANGE-RATIONALE: Filter to required lookback window so ancient gaps before 2020 do not trigger false heals]
+                min_gap_check_year = (as_of_date or date.today()).year - HISTORICAL_LOOKBACK_YEARS
+                sorted_annual_years = sorted([y for y in annual_years if y >= min_gap_check_year])
                 has_intermediate_gap = False
                 intermediate_gap_reason = None
                 for i in range(len(sorted_annual_years) - 1):
@@ -1034,7 +1054,7 @@ class FinancialFilingWatcher:
                 )
 
                 if needs_bootstrap:
-                    min_cutoff = "2015-01-01"
+                    min_cutoff = get_historical_cutoff_date(as_of_date)
                     reason_desc = (
                         intermediate_gap_reason
                         or tail_gap_reason
@@ -1051,7 +1071,7 @@ class FinancialFilingWatcher:
                     logger.info(
                         f"🚀 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
                         f"BOOTSTRAP / HEAL NEEDED ({reason_desc}, local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
-                        f"Ingesting complete history from 2015-01-01 to ensure 100% complete data."
+                        f"Ingesting complete history from {min_cutoff} to ensure 100% complete data."
                     )
                 else:
                     # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
@@ -1228,7 +1248,7 @@ class FinancialFilingWatcher:
                 for item in raw_filings_list:
                     raw_p = item.get("toDate") or item.get("period_end_date") or item.get("periodEnd") or ""
                     period_end = _normalize_iso_date(str(raw_p).strip())
-                    if period_end and _re_poll.match(r'^\d{4}-\d{2}-\d{2}$', period_end) and period_end >= "2015-01-01":
+                    if period_end and _re_poll.match(r'^\d{4}-\d{2}-\d{2}$', period_end) and period_end >= get_historical_cutoff_date(as_of_date):
                         item["period_end_date"] = period_end
                         valid_items.append(item)
 
@@ -1719,7 +1739,7 @@ class FinancialFilingWatcher:
                 # ── STRICT ISO DATE FILTER ──
                 def _is_valid_iso(r: Dict[str, Any]) -> bool:
                     p = _normalize_iso_date(str(r.get("period_end_date") or ""))
-                    return bool(p and _re.match(r'^\d{4}-\d{2}-\d{2}$', p) and p >= "2015-01-01")
+                    return bool(p and _re.match(r'^\d{4}-\d{2}-\d{2}$', p) and p >= get_historical_cutoff_date(as_of_date))
 
                 valid_filings = [r for r in filings if _is_valid_iso(r)]
                 if not valid_filings:
@@ -2221,7 +2241,7 @@ def main():
     parser.add_argument("--poll", action="store_true", help="Poll for new filings and execute cycle")
     parser.add_argument("--symbol", type=str, default=None, help="Specific symbol to check/rebuild")
     parser.add_argument("--force-rebuild", action="store_true", help="Force rebuild canonical snapshot")
-    parser.add_argument("--force-backfill", action="store_true", help="Force full historical bootstrap from 2015-01-01")
+    parser.add_argument("--force-backfill", action="store_true", help=f"Force full historical bootstrap from {get_historical_cutoff_date()} (max 5Y scanner lookback + 1Y buffer)")
     parser.add_argument("--as-of-date", type=str, default=None, help="As-of date in YYYY-MM-DD")
     args = parser.parse_args()
 

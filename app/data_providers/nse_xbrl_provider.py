@@ -777,7 +777,9 @@ class NseXbrlProvider:
                     continue
 
                 p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
-                if not p_end or p_end < "2015-01-01":
+                # [RULE 67 CHANGE-RATIONALE: HISTORICAL_LOOKBACK_6Y_v1.0]
+                # Maximum scanner lookback is 5 years + 1 buffer year = 6 years (>= 2020-01-01 in 2026).
+                if not p_end or p_end < "2020-01-01":
                     continue
                 if p_end in existing_periods_in_filings:
                     continue

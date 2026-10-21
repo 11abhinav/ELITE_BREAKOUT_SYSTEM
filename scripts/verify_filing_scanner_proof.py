@@ -34,6 +34,7 @@ from scripts.financial_filing_watcher import (
     FinancialFilingWatcher,
     FilingEventType,
     SnapshotFreshnessStatus,
+    get_historical_cutoff_date,
 )
 
 
@@ -265,8 +266,9 @@ def test_proof_pillar_4_and_5():
                     with patch.object(watcher, "invalidate_and_rebuild_snapshot", return_value=True):
                         watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
 
-        assert "2015-01-01" in cutoffs_requested, f"Expected 2015-01-01 bootstrap due to missing FY2022, got {cutoffs_requested}"
-        logger.info("  ✓ System accurately detected missing FY2022 gap and triggered 2015-01-01 bootstrap to heal it.")
+        expected_cutoff = get_historical_cutoff_date()
+        assert expected_cutoff in cutoffs_requested, f"Expected {expected_cutoff} bootstrap due to missing FY2022, got {cutoffs_requested}"
+        logger.info(f"  ✓ System accurately detected missing FY2022 gap and triggered {expected_cutoff} bootstrap to heal it.")
 
         # Verify that the missing filing was merged into local raw JSON
         with open(raw_dir / f"{sym}.json", "r") as f:

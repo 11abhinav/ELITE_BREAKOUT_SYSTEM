@@ -12956,18 +12956,22 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
                       AND status NOT IN ('PAUSED', 'STOPPED');
                 """, (_PROCESS_BOOT_TIME,))
                 
-                # Heartbeat lease model: Stale if no heartbeat in > 10 minutes OR if hard max runtime exceeded (> 2 hours)
+                # [RULE 67 CHANGE-RATIONALE: RULE_71_HEARTBEAT_LEASE_ENFORCEMENT_v1.0]
+                # Enforce Rule 71.6 and Rule 71.11B: A running scanner MUST NOT be automatically terminated
+                # merely because it has been running for a long time. Long runtime alone is NOT a failure condition.
+                # Previously, an arbitrary hardcoded 'started_at < NOW() - INTERVAL 2 hours' killed active scanners
+                # (such as FILING_WATCHER) whose heartbeat was completely fresh (pulsed seconds ago).
+                # We strictly rely on the heartbeat lease: a run is stale ONLY if its heartbeat has lapsed for >15 minutes.
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'TIMEOUT_STALE',
-                        error_summary = 'Execution timed out: missing heartbeat (>10m) or hard runtime exceeded (>2h)',
-                        error_details = 'Watchdog auto-cleaned stale RUNNING state with inactive heartbeat'
+                        error_summary = 'Execution timed out: missing heartbeat (>15m)',
+                        error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND (
-                          (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '10 minutes')
-                          OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '10 minutes')
-                          OR started_at < NOW() - INTERVAL '2 hours'
+                          (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                          OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
                       );
                 """)
                 
@@ -13513,14 +13517,16 @@ def get_scanner_execution_history(
                 _now_mono = _time_mod.monotonic()
                 if _now_mono - _ORPHAN_CLEANUP_LAST_RUN_TS >= _ORPHAN_CLEANUP_INTERVAL_S:
                     try:
+                        # [RULE 67 CHANGE-RATIONALE: RULE_71_HEARTBEAT_LEASE_ENFORCEMENT_v1.0]
+                        # Enforce Rule 71.6 and Rule 71.11B: A running scanner MUST NOT be auto-cleaned
+                        # merely because its runtime is long. It is considered orphaned ONLY when missing heartbeat (>15m).
                         cur.execute("""
                             SELECT run_id, scanner_name, started_at, heartbeat_at, lifecycle_status
                             FROM scanner_execution_history
                             WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                               AND (
-                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '10 minutes')
-                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '10 minutes')
-                                  OR started_at < NOW() - INTERVAL '2 hours'
+                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
                               );
                         """)
                         orphaned_rows = cur.fetchall()
@@ -13531,13 +13537,12 @@ def get_scanner_execution_history(
                                 UPDATE scanner_execution_history
                                 SET completed_at = NOW(),
                                     lifecycle_status = 'TIMEOUT_STALE',
-                                    error_summary = 'Execution timed out: missing heartbeat (>10m) or hard runtime exceeded (>2h)',
-                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >10 minutes'
+                                    error_summary = 'Execution timed out: missing heartbeat (>15m)',
+                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
                                 WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                                   AND (
-                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '10 minutes')
-                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '10 minutes')
-                                      OR started_at < NOW() - INTERVAL '2 hours'
+                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
                                   );
                             """)
                             orphaned_sc_names = tuple(set(orphan.get("scanner_name") for orphan in orphaned_rows if orphan.get("scanner_name")))
@@ -13545,7 +13550,7 @@ def get_scanner_execution_history(
                                 cur.execute("""
                                     UPDATE scanner_health
                                     SET status = 'DOWN',
-                                        error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >10m)'
+                                        error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >15m)'
                                     WHERE status = 'RUNNING'
                                       AND scanner_name IN %s;
                                 """, (orphaned_sc_names,))
@@ -13558,7 +13563,7 @@ def get_scanner_execution_history(
                                 hb_at = orphan.get("heartbeat_at")
                                 logger.warning(
                                     f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
-                                    f"Reason: Inactive heartbeat (>10m) or hard runtime ceiling (>2h) (started_at: {st_at}, heartbeat_at: {hb_at})"
+                                    f"Reason: Inactive heartbeat (>15m) (started_at: {st_at}, heartbeat_at: {hb_at})"
                                 )
                         _ORPHAN_CLEANUP_LAST_RUN_TS = _now_mono
                     except Exception as _e_sweep:
@@ -14826,7 +14831,7 @@ CORPORATE_FILINGS_LOG_FILE = Path(os.path.join(os.path.dirname(os.path.dirname(o
 
 
 def _db_norm_date(val: Any) -> Optional[str]:
-    """Strictly normalizes any date representation to ISO YYYY-MM-DD (>= 2015-01-01)."""
+    """Strictly normalizes any date representation to ISO YYYY-MM-DD (>= 2020-01-01)."""
     if not val:
         return None
     s = str(val).strip()
@@ -14834,13 +14839,13 @@ def _db_norm_date(val: Any) -> Optional[str]:
     if _re_db.match(r"^\d{4}-\d{2}-\d{2}$", s):
         try:
             datetime.strptime(s, "%Y-%m-%d")
-            return s if s >= "2015-01-01" else None
+            return s if s >= "2020-01-01" else None
         except ValueError:
             return None
     for fmt in ("%d-%b-%Y", "%d-%b-%y", "%d-%B-%Y", "%d-%B-%y", "%d-%m-%Y", "%d-%m-%y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
         try:
             d = datetime.strptime(s.split()[0], fmt).strftime("%Y-%m-%d")
-            if _re_db.match(r"^\d{4}-\d{2}-\d{2}$", d) and d >= "2015-01-01":
+            if _re_db.match(r"^\d{4}-\d{2}-\d{2}$", d) and d >= "2020-01-01":
                 return d
         except Exception:
             pass
@@ -15004,7 +15009,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
                     try:
                         r = json.loads(line)
                         p_end_r = str(r.get("period_end") or "").strip()
-                        if not _re_db.match(r"^\d{4}-\d{2}-\d{2}$", p_end_r) or p_end_r < "2015-01-01":
+                        if not _re_db.match(r"^\d{4}-\d{2}-\d{2}$", p_end_r) or p_end_r < "2020-01-01":
                             continue
                         r_sym = str(r.get("symbol", "")).strip().upper()
                         if r_sym:
@@ -15248,7 +15253,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
                     try:
                         r = json.loads(line)
                         p = str(r.get("period_end") or "").strip()
-                        if not _re_batch.match(r"^\d{4}-\d{2}-\d{2}$", p) or p < "2015-01-01":
+                        if not _re_batch.match(r"^\d{4}-\d{2}-\d{2}$", p) or p < "2020-01-01":
                             continue
                         k = str(r.get("symbol", "")).strip().upper()
                         if k:
@@ -15358,7 +15363,7 @@ def get_corporate_filings_by_date(
                                source_url, raw_facts, affected_metrics
                         FROM corporate_filings_log
                         WHERE period_end ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                          AND period_end >= '2015-01-01'
+                          AND period_end >= '2020-01-01'
                     """
                     params = []
                     if target_date:
@@ -15413,7 +15418,7 @@ def get_corporate_filings_by_date(
                     except Exception:
                         continue
                     p_end = str(rec.get("period_end") or "").strip()
-                    if not _re_q.match(r"^\d{4}-\d{2}-\d{2}$", p_end) or p_end < "2015-01-01":
+                    if not _re_q.match(r"^\d{4}-\d{2}-\d{2}$", p_end) or p_end < "2020-01-01":
                         continue
                     sym_k = str(rec.get("symbol", "")).strip().upper()
                     if not sym_k:

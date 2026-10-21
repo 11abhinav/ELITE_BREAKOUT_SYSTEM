@@ -22,6 +22,7 @@ from scripts.financial_filing_watcher import (
     FilingEventType,
     SnapshotFreshnessStatus,
     FilingEvent,
+    get_historical_cutoff_date,
 )
 
 
@@ -306,8 +307,8 @@ def test_gap_detection_heals_missing_intermediate_years(temp_watcher, monkeypatc
                 with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
                     watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
 
-    # 2. Verify bootstrap from 2015-01-01 was requested because 2024 and 2025 were missing!
-    assert "2015-01-01" in requested_cutoffs, f"Expected 2015-01-01 cutoff due to intermediate annual gap, got {requested_cutoffs}"
+    # 2. Verify bootstrap from historical cutoff was requested because 2024 and 2025 were missing!
+    assert get_historical_cutoff_date() in requested_cutoffs, f"Expected {get_historical_cutoff_date()} cutoff due to intermediate annual gap, got {requested_cutoffs}"
 
     # 3. Verify missing 2024 and 2025 were healed and merged into JSON
     with open(stock_json) as f:
@@ -469,7 +470,7 @@ def test_quarterly_gap_triggers_bootstrap(temp_watcher, monkeypatch):
                 with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
                     watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
 
-    assert "2015-01-01" in requested_cutoffs, f"Expected 2015-01-01 cutoff due to quarterly gap, got {requested_cutoffs}"
+    assert get_historical_cutoff_date() in requested_cutoffs, f"Expected {get_historical_cutoff_date()} cutoff due to quarterly gap, got {requested_cutoffs}"
 
 
 def test_missing_canonical_metrics_triggers_bootstrap(temp_watcher, monkeypatch):
@@ -513,7 +514,7 @@ def test_missing_canonical_metrics_triggers_bootstrap(temp_watcher, monkeypatch)
                 with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
                     watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
 
-    assert "2015-01-01" in requested_cutoffs, f"Expected 2015-01-01 cutoff due to UNCERTIFIED status, got {requested_cutoffs}"
+    assert get_historical_cutoff_date() in requested_cutoffs, f"Expected {get_historical_cutoff_date()} cutoff due to UNCERTIFIED status, got {requested_cutoffs}"
 
 
 def test_incremental_sweep_uses_latest_period_cutoff(temp_watcher):

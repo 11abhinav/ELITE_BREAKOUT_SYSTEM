@@ -429,7 +429,9 @@ class BseCorporateProvider:
                 or _parse_period_end_from_announcement_text(sub)
                 or _parse_period_end_from_announcement_text(more)
             )
-            if not p_end or p_end < "2015-01-01":
+            # [RULE 67 CHANGE-RATIONALE: HISTORICAL_LOOKBACK_6Y_v1.0]
+            # Maximum scanner lookback is 5 years + 1 buffer year = 6 years (>= 2020-01-01 in 2026).
+            if not p_end or p_end < "2020-01-01":
                 continue
 
             st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
