@@ -260,6 +260,8 @@ def get_connection(timeout: int = 20):
                     # Ensure checked out connection is clean and not in an aborted transaction state
                     try:
                         conn.rollback()
+                        with conn.cursor() as _ping_cur:
+                            _ping_cur.execute("SELECT 1")
                     except Exception:
                         try:
                             p.putconn(conn, close=True)
@@ -7422,7 +7424,7 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
     init_db()
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
 
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             with get_connection() as conn:
                 with conn.cursor() as cur:
@@ -7516,8 +7518,8 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
             return
         except Exception as e:
             err_str = str(e).lower()
-            if attempt == 0 and ("closed" in err_str or "terminated" in err_str or "connection" in err_str or "broken" in err_str):
-                logger.warning(f"⚠️ [save_df_to_table] Connection dropped for '{table_name}', retrying with fresh connection: {e}")
+            if attempt < 2 and ("closed" in err_str or "terminated" in err_str or "connection" in err_str or "broken" in err_str):
+                logger.warning(f"⚠️ [save_df_to_table] Connection dropped for '{table_name}' (attempt {attempt+1}/3), retrying with fresh connection: {e}")
                 time.sleep(1)
                 continue
             logger.error(f"❌ [save_df_to_table] Failed to save {len(df)} rows to '{table_name}': {e}")
