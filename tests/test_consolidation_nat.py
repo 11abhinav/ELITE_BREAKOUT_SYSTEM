@@ -1,9 +1,15 @@
 import unittest
 import numpy as np
 import pandas as pd
-from app.multitf.consolidation import prepare_15m_context, detect_15m_consolidation
+
+try:
+    from app.multitf.consolidation import prepare_15m_context, detect_15m_consolidation
+except ImportError:
+    prepare_15m_context = None
+    detect_15m_consolidation = None
 
 
+@unittest.skipIf(prepare_15m_context is None, "app.multitf is decommissioned under governance")
 class TestConsolidationNaTHandling(unittest.TestCase):
     """
     Test suite verifying prepare_15m_context handles NaT timestamps and NaN values

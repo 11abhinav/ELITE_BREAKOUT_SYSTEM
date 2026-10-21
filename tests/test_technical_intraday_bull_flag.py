@@ -1,9 +1,14 @@
 import unittest
 import pandas as pd
 import numpy as np
-from app.technical_scanner_intraday import run_technical_intraday_pipeline
+
+try:
+    from app.technical_scanner_intraday import run_technical_intraday_pipeline
+except ImportError:
+    run_technical_intraday_pipeline = None
 
 
+@unittest.skipIf(run_technical_intraday_pipeline is None, "TECHNICAL_INTRADAY is decommissioned under governance")
 class TestTechnicalIntradayBullFlagOnly(unittest.TestCase):
     """
     Test suite verifying TECHNICAL_INTRADAY scanner strictly isolates

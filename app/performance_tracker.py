@@ -459,6 +459,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
     entry_mode = t.get("entry_mode", "LEGACY_UNKNOWN")
     actual_entry_price = t.get("actual_entry_price")
 
+    if execution_state == "PENDING_ENTRY" and actual_entry_price is not None:
+        execution_state = "OPEN"
+        t["execution_state"] = "OPEN"
+        if t.get("status") in ("PENDING", "PENDING_ENTRY"):
+            t["status"] = "OPEN"
+
     structural_failure_stop = t.get("structural_failure_stop")
 
     # ── Initialize State ───────────────────────────────────────────────────────
@@ -1222,6 +1228,15 @@ def _row_to_trade_dict(row: dict) -> dict:
     status = str(row.get("status") or "OPEN").upper()
     actual_entry_p = _f_num(row.get("actual_entry_price"))
     e_mode = str(row.get("entry_mode") or "MARKET").upper()
+
+    # Auto-heal historical alerts with inconsistent execution states:
+    if actual_entry_p is not None or e_mode == "MARKET":
+        if exec_state in ("PENDING", "PENDING_ENTRY"):
+            exec_state = "OPEN"
+        if status in ("PENDING", "PENDING_ENTRY"):
+            status = "OPEN"
+        if actual_entry_p is None and entry_price is not None:
+            actual_entry_p = entry_price
 
     # User policy invariant: Pending / untriggered alerts are strictly prohibited in the system.
     if exec_state == "PENDING_ENTRY" or status in ("PENDING", "PENDING_ENTRY") or e_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK"):

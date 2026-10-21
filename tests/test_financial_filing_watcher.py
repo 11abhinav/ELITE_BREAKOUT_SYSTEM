@@ -516,3 +516,155 @@ def test_missing_canonical_metrics_triggers_bootstrap(temp_watcher, monkeypatch)
     assert "2015-01-01" in requested_cutoffs, f"Expected 2015-01-01 cutoff due to UNCERTIFIED status, got {requested_cutoffs}"
 
 
+def test_incremental_sweep_uses_latest_period_cutoff(temp_watcher):
+    """
+    Verifies that when a stock has complete and certified multi-year data:
+    1. The sweep uses min_period_end_date = latest_local_period (incremental sweep, not 2015-01-01).
+    2. In the next run if polled recently, it skips in 0ms without hitting exchange API.
+    """
+    from unittest.mock import patch, MagicMock
+    import pandas as pd
+    from datetime import datetime, timezone
+
+    watcher, tmpdir = temp_watcher
+    sym = "TEST_COMPLETE"
+
+    raw_dir = Path(tmpdir) / "pit_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    watcher.pit_raw_dir = raw_dir
+
+    # Full annuals 2018-2026 and quarterly filings
+    filings = []
+    for y in range(2018, 2027):
+        filings.append({
+            "period_end_date": f"{y}-03-31",
+            "statement_type": "ANNUAL",
+            "revenue": 1000 * (y - 2017),
+            "net_profit": 100 * (y - 2017),
+            "ebit": 150 * (y - 2017),
+            "total_debt": 50,
+            "total_equity": 500,
+        })
+        for q_month in ["06-30", "09-30", "12-31"]:
+            filings.append({
+                "period_end_date": f"{y}-{q_month}",
+                "statement_type": "QUARTERLY",
+                "revenue": 250,
+                "net_profit": 25,
+                "ebit": 40,
+                "total_debt": 50,
+                "total_equity": 500,
+            })
+    with open(raw_dir / f"{sym}.json", "w") as f:
+        json.dump(filings, f)
+
+    requested_cutoffs = []
+    class MockNSE:
+        def fetch_raw_financials(self, symbol, min_period_end_date=None, **kwargs):
+            requested_cutoffs.append(min_period_end_date)
+            return []
+        def discover_filings(self, symbol):
+            return []
+
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            mock_read.return_value = pd.DataFrame([{
+                "symbol": sym, "latest_annual_period": "2026-03-31", "pit_freshness_status": "VALID",
+                "sales_cagr_5y": 15.0, "current_ev_ebitda": 12.5, "debt_to_equity": 0.1, "roce_5y_avg": 22.0,
+                "provenance_status": "CERTIFIED", "is_bfsi": False, "is_structural_ineligible": False, "filing_gap_detected": False
+            }])
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=MockNSE()):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
+                    # Run 1: Not polled recently, should fetch with min_period_end_date = "2026-12-31" (latest local period)
+                    watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
+
+    assert len(requested_cutoffs) == 1
+    assert requested_cutoffs[0] == "2026-12-31", f"Expected incremental cutoff 2026-12-31, got {requested_cutoffs[0]}"
+
+    # State now has last_polled_at set
+    assert sym in watcher.state
+    assert "last_polled_at" in watcher.state[sym]
+
+    # Run 2: Polled recently within 6 hours -> MUST skip completely with 0 exchange calls
+    requested_cutoffs.clear()
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            mock_read.return_value = pd.DataFrame([{
+                "symbol": sym, "latest_annual_period": "2026-03-31", "pit_freshness_status": "VALID",
+                "sales_cagr_5y": 15.0, "current_ev_ebitda": 12.5, "debt_to_equity": 0.1, "roce_5y_avg": 22.0,
+                "provenance_status": "CERTIFIED", "is_bfsi": False, "is_structural_ineligible": False, "filing_gap_detected": False
+            }])
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=MockNSE()):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
+                    watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
+
+    assert len(requested_cutoffs) == 0, "Expected complete skip on subsequent run within 6 hours"
+
+
+def test_periodic_sync_and_progress_telemetry(temp_watcher, monkeypatch):
+    """
+    Verifies that periodic sync / batch progress saves data to DB and emits
+    progress and pending count telemetry via update_scanner_run_progress and upsert_scanner_health.
+    """
+    from unittest.mock import patch, MagicMock
+    import pandas as pd
+    from types import SimpleNamespace
+
+    watcher, tmpdir = temp_watcher
+    syms = ["SYM_A", "SYM_B"]
+
+    raw_dir = Path(tmpdir) / "pit_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    watcher.pit_raw_dir = raw_dir
+
+    for s in syms:
+        with open(raw_dir / f"{s}.json", "w") as f:
+            json.dump([], f)
+
+    progress_calls = []
+    def mock_update_progress(run_id, processed_count, total_count, summary_notes, metrics_json=None):
+        progress_calls.append({
+            "run_id": run_id,
+            "processed": processed_count,
+            "total": total_count,
+            "pending": total_count - processed_count,
+            "notes": summary_notes,
+            "metrics": metrics_json,
+        })
+
+    health_calls = []
+    def mock_upsert_health(**kwargs):
+        health_calls.append(kwargs)
+
+    run_ctx = SimpleNamespace(run_id="test_run_progress_123")
+
+    monkeypatch.setenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "0.001") # Force time sync trigger
+    monkeypatch.setenv("FILING_WATCHER_BATCH_SYNC_SIZE", "1")       # Force batch size trigger
+
+    class MockNSE:
+        def fetch_raw_financials(self, symbol, **kwargs):
+            return []
+        def discover_filings(self, symbol):
+            return []
+
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            mock_read.return_value = pd.DataFrame()
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=MockNSE()):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
+                    with patch("app.database.update_scanner_run_progress", side_effect=mock_update_progress):
+                        with patch("app.database.upsert_scanner_health", side_effect=mock_upsert_health):
+                            with patch.object(watcher, "invalidate_and_rebuild_snapshot", return_value=True):
+                                watcher.poll_exchange_filings(target_symbols=syms, max_workers=1, run_ctx=run_ctx)
+
+    assert len(progress_calls) >= 1
+    last_prog = progress_calls[-1]
+    assert last_prog["run_id"] == "test_run_progress_123"
+    assert last_prog["processed"] == 2
+    assert last_prog["total"] == 2
+    assert last_prog["pending"] == 0
+    assert last_prog["metrics"]["pending_count"] == 0
+    assert last_prog["metrics"]["processed_count"] == 2
+
+
+

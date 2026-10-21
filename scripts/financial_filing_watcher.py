@@ -457,10 +457,11 @@ class FinancialFilingWatcher:
         payload_file = sym_raw_dir / f"{filing_id}_{version_str}.payload"
         sha_file = sym_raw_dir / f"{filing_id}_{version_str}.sha256"
 
-        with open(payload_file, "wb") as f:
-            f.write(raw_payload)
-        with open(sha_file, "w") as f:
-            f.write(payload_hash)
+        if not payload_file.exists() or event_type != FilingEventType.NO_CHANGE:
+            with open(payload_file, "wb") as f:
+                f.write(raw_payload)
+            with open(sha_file, "w") as f:
+                f.write(payload_hash)
 
         event = FilingEvent(
             symbol=sym,
@@ -863,7 +864,16 @@ class FinancialFilingWatcher:
         start_poll_time = time.time()
         counter_lock = threading.Lock()
         events_lock = threading.Lock()
+        batch_sync_lock = threading.Lock()
         discovered_events: List[Dict[str, Any]] = []
+        pending_rebuild_syms: Set[str] = set()
+        synced_symbols: Set[str] = set()
+        last_synced_count = [0]
+        synced_batch_num = [0]
+        last_synced_time = [time.time()]
+        TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "300.0"))  # 5 minutes (300 seconds)
+        BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Save to DB after every 25 completed stocks
+        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "10"))  # Or whenever 10 stocks ingested fresh filings
 
         def _process_symbol(sym: str) -> None:
             sym_u = sym.strip().upper()
@@ -998,20 +1008,16 @@ class FinancialFilingWatcher:
                     elif not is_bfsi and pd.isna(snap_row.get("current_ev_ebitda")):
                         has_missing_canonical_metrics = True
                         missing_metric_reason = "Missing current EV/EBITDA in canonical snapshot"
-                    elif not is_bfsi and (pd.isna(snap_row.get("debt_to_equity")) or snap_row.get("total_debt") is None):
+                    elif not is_bfsi and pd.isna(snap_row.get("debt_to_equity")):
                         has_missing_canonical_metrics = True
-                        missing_metric_reason = "Missing Debt/Equity or Total Debt in canonical snapshot"
+                        missing_metric_reason = "Missing Debt/Equity in canonical snapshot"
                     elif pd.isna(snap_row.get("roce_5y_avg")) and len(sorted_annual_years) >= 6:
                         has_missing_canonical_metrics = True
                         missing_metric_reason = "Missing 5Y ROCE average in canonical snapshot"
 
-                # 7. Targeted or Forced Backfill
-                is_single_target = bool(target_symbols and len(target_symbols) == 1)
-
                 # ── CONSOLIDATED BOOTSTRAP DECISION ──
                 needs_bootstrap = (
                     force_backfill
-                    or is_single_target
                     or has_corrupt_or_empty_raw
                     or (len(sorted_annual_years) == 0)
                     or has_intermediate_gap
@@ -1044,30 +1050,41 @@ class FinancialFilingWatcher:
                         bootstrap_ingested_count[0] += 1
                     logger.info(
                         f"🚀 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                        f"BOOTSTRAP NEEDED ({reason_desc}, local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
-                        f"Ingesting complete history from 2015-01-01."
+                        f"BOOTSTRAP / HEAL NEEDED ({reason_desc}, local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
+                        f"Ingesting complete history from 2015-01-01 to ensure 100% complete data."
                     )
                 else:
                     # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
-                    # USER MANDATE: If data is complete, DO NOT fetch those stocks over the network!
-                    with counter_lock:
-                        skipped_complete_count[0] += 1
+                    # Check if already checked recently within the current polling cycle / today
+                    last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
+                    polled_recently = False
+                    if last_polled and not force_backfill:
+                        try:
+                            from dateutil.parser import parse as _parse_dt
+                            dt_polled = _parse_dt(last_polled)
+                            if (datetime.now(dt_polled.tzinfo) - dt_polled).total_seconds() < 21600:
+                                polled_recently = True
+                        except Exception:
+                            pass
+
+                    if polled_recently:
+                        with counter_lock:
+                            skipped_complete_count[0] += 1
+                        logger.info(
+                            f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                            f"DATA COMPLETE & CHECKED TODAY (latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                            f"Skipping exchange fetch in 0ms."
+                        )
+                        return
+
+                    # In next run, symbol has complete history: ONLY check for new filings!
+                    # min_cutoff set to latest_local_period ensures we do NOT refetch past years (2015..2025).
+                    min_cutoff = latest_local_period or "2024-01-01"
                     logger.info(
                         f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                        f"DATA COMPLETE (latest_period={latest_local_period}, annual_count={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
-                        f"Skipping exchange fetch in 0ms."
+                        f"HISTORY COMPLETE (latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                        f"Incremental check: fetching ONLY new filings (min_cutoff={min_cutoff})."
                     )
-                    with self._state_lock:
-                        if sym_u not in self.state:
-                            self.state[sym_u] = {
-                                "filings": {},
-                                "latest_filing_date": latest_local_period,
-                                "snapshot_status": freshness,
-                                "bootstrap_completed": True,
-                            }
-                        else:
-                            self.state[sym_u]["bootstrap_completed"] = True
-                    return
 
                 raw_filings_list: List[Dict[str, Any]] = []
                 nse_fetch_count = 0
@@ -1185,8 +1202,25 @@ class FinancialFilingWatcher:
                     except Exception as bse_err:
                         logger.warning(f"[filling scanner] BSE discover warning for {sym_u}: {bse_err}")
 
-                if not raw_filings_list:
+                if not raw_filings_list or not any(raw_filings_list):
                     logger.debug(f"[filling scanner] {sym_u}: 0 filings retrieved from exchanges.")
+                    with self._state_lock:
+                        from zoneinfo import ZoneInfo
+                        now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                        latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                        if sym_u not in self.state:
+                            self.state[sym_u] = {
+                                "filings": {},
+                                "latest_filing_date": latest_local_period,
+                                "latest_annual_date": latest_ann_p,
+                                "snapshot_status": freshness,
+                                "bootstrap_completed": not needs_bootstrap,
+                                "last_polled_at": now_ist_str,
+                            }
+                        else:
+                            self.state[sym_u]["last_polled_at"] = now_ist_str
+                            if not needs_bootstrap:
+                                self.state[sym_u]["bootstrap_completed"] = True
                     return
 
                 import re as _re_poll
@@ -1199,6 +1233,23 @@ class FinancialFilingWatcher:
                         valid_items.append(item)
 
                 if not valid_items:
+                    with self._state_lock:
+                        from zoneinfo import ZoneInfo
+                        now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                        latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                        if sym_u not in self.state:
+                            self.state[sym_u] = {
+                                "filings": {},
+                                "latest_filing_date": latest_local_period,
+                                "latest_annual_date": latest_ann_p,
+                                "snapshot_status": freshness,
+                                "bootstrap_completed": not needs_bootstrap,
+                                "last_polled_at": now_ist_str,
+                            }
+                        else:
+                            self.state[sym_u]["last_polled_at"] = now_ist_str
+                            if not needs_bootstrap:
+                                self.state[sym_u]["bootstrap_completed"] = True
                     return
 
                 # Deduplicate and sort items chronologically
@@ -1253,28 +1304,52 @@ class FinancialFilingWatcher:
                             discovered_events.append(event.to_dict())
 
                 if sym_new_events > 0:
+                    with events_lock:
+                        pending_rebuild_syms.add(sym_u)
                     logger.info(
                         f"✨ [filling scanner] {sym_u}: Ingested {sym_new_events} new/amended disclosures "
                         f"(NSE_records={nse_fetch_count}, NSE_discovered={nse_disc_count}, BSE={bse_count})."
                     )
+                else:
+                    if not needs_bootstrap:
+                        with counter_lock:
+                            skipped_complete_count[0] += 1
+                        logger.info(
+                            f"✨ [filling scanner] {sym_u}: Up to date (0 new filings on exchange). Existing records untouched."
+                        )
+                    elif needs_bootstrap and valid_items and (not snap_annual or snap_gap_flag or freshness != "FRESH"):
+                        with events_lock:
+                            pending_rebuild_syms.add(sym_u)
 
-                # Record bootstrap completion for the symbol
+                # Record polling completion and state for the symbol
                 with self._state_lock:
+                    from zoneinfo import ZoneInfo
+                    now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                    latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
                     if sym_u not in self.state:
                         self.state[sym_u] = {
                             "filings": {},
                             "latest_filing_date": latest_local_period,
+                            "latest_annual_date": latest_ann_p,
                             "snapshot_status": freshness,
                             "bootstrap_completed": True,
+                            "last_polled_at": now_ist_str,
                         }
                     else:
                         self.state[sym_u]["bootstrap_completed"] = True
+                        self.state[sym_u]["last_polled_at"] = now_ist_str
+                        if latest_local_period:
+                            self.state[sym_u]["latest_filing_date"] = latest_local_period
+                        if latest_ann_p:
+                            self.state[sym_u]["latest_annual_date"] = latest_ann_p
 
             except Exception as sym_err:
                 with counter_lock:
                     error_count[0] += 1
                 logger.warning(f"[filling scanner] Exchange polling error for {sym_u}: {sym_err}")
             finally:
+                should_batch_sync = False
+                sync_reason = ""
                 with counter_lock:
                     completed_count[0] += 1
                     curr_c = completed_count[0]
@@ -1285,37 +1360,140 @@ class FinancialFilingWatcher:
                     errs_c = error_count[0]
                     elapsed = max(0.1, time.time() - start_poll_time)
                     rate_per_min = round((curr_c / elapsed) * 60, 1)
+                    if curr_c > 0 and pending_c > 0:
+                        eta_seconds = (pending_c / curr_c) * elapsed
+                        if eta_seconds >= 60:
+                            eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
+                        else:
+                            eta_str = f"{int(eta_seconds)}s"
+                    else:
+                        eta_str = "0s"
 
-                    # Update database execution progress & health heartbeat
-                    if (curr_c % 5 == 0 or curr_c == total_syms or pending_c <= 5) and run_ctx and getattr(run_ctx, "run_id", None):
+                    with events_lock:
+                        pending_syms_len = len(pending_rebuild_syms)
+                        disc_len = len(discovered_events)
+
+                    elapsed_since_sync = time.time() - last_synced_time[0]
+                    time_triggered = (elapsed_since_sync >= TIME_SYNC_INTERVAL)
+                    count_triggered = (curr_c - last_synced_count[0] >= BATCH_SYNC_SIZE)
+                    fetched_triggered = (pending_syms_len >= FETCHED_SYNC_THRESHOLD)
+                    final_triggered = (curr_c == total_syms)
+
+                    if time_triggered or count_triggered or fetched_triggered or final_triggered:
+                        should_batch_sync = True
+                        if time_triggered:
+                            sync_reason = f"5-MINUTE_TIMER ({int(elapsed_since_sync)}s elapsed)"
+                        elif fetched_triggered:
+                            sync_reason = f"FETCHED_THRESHOLD ({pending_syms_len} newly fetched stocks)"
+                        elif count_triggered:
+                            sync_reason = f"BATCH_COUNT ({curr_c - last_synced_count[0]} stocks completed)"
+                        else:
+                            sync_reason = "FINAL_COMPLETION"
+
+                        last_synced_count[0] = curr_c
+                        last_synced_time[0] = time.time()
+
+                    # Detailed progress log to track where we are
+                    pct = round((curr_c / total_syms) * 100, 1)
+                    if curr_c % 5 == 0 or curr_c == total_syms or pending_c <= 10 or should_batch_sync:
+                        logger.info(
+                            f"📊 [filling scanner] [{curr_c}/{total_syms}] ({pct}%) | "
+                            f"Done: {curr_c} | Pending: {pending_c} (ETA: {eta_str}) | "
+                            f"Complete Skipped: {skipped_c} | Ingested/Healed: {bootstrapped_c} | "
+                            f"Discovered: {disc_len} | Errors: {errs_c} | "
+                            f"Rate: {rate_per_min}/min | Last: {sym_u}"
+                        )
+
+                # Batch DB synchronization outside counter_lock
+                if should_batch_sync:
+                    with batch_sync_lock:
+                        with events_lock:
+                            to_sync_syms = sorted(list(pending_rebuild_syms))
+                            pending_rebuild_syms.clear()
+
+                        synced_batch_num[0] += 1
+                        b_num = synced_batch_num[0]
+                        pct = round((curr_c / total_syms) * 100, 1)
+
+                        # 1. Atomically persist watcher state
+                        with self._state_lock:
+                            self._save_state()
+
+                        # 2. If new filings were discovered/fetched, rebuild snapshot and upload to DB
+                        if to_sync_syms:
+                            logger.info(
+                                f"💾 [filling scanner] [BATCH {b_num} DB SYNC: {sync_reason}] Rebuilding snapshot & syncing {len(to_sync_syms)} newly fetched stocks to DB: {to_sync_syms[:8]}..."
+                            )
+                            try:
+                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms, as_of_date=as_of_date)
+                                with events_lock:
+                                    synced_symbols.update(to_sync_syms)
+                            except Exception as snap_sync_err:
+                                logger.warning(f"[filling scanner] Batch {b_num} snapshot rebuild sync notice: {snap_sync_err}")
+                        else:
+                            # If no new filings to rebuild, ensure pit_raw_bundle is synced to DB
+                            try:
+                                try:
+                                    from app.database import upload_pit_raw_bundle_to_db
+                                except ImportError:
+                                    from database import upload_pit_raw_bundle_to_db
+                                upload_pit_raw_bundle_to_db()
+                            except Exception as _b_err:
+                                pass
+
+                        # 3. Update DB execution progress & health heartbeat
+                        progress_summary = (
+                            f"Processed {curr_c}/{total_syms} ({pct}%) | "
+                            f"Pending: {pending_c} (ETA: {eta_str}) | "
+                            f"Complete Skipped: {skipped_c} | Backfilled: {bootstrapped_c} | "
+                            f"Discovered: {disc_len} | Synced Batch {b_num} ({sync_reason}) to DB"
+                        )
                         try:
                             try:
-                                from database import update_scanner_run_heartbeat, upsert_scanner_health
+                                from app.database import update_scanner_run_heartbeat, upsert_scanner_health, update_scanner_run_progress
                             except ImportError:
-                                from app.database import update_scanner_run_heartbeat, upsert_scanner_health
-                            update_scanner_run_heartbeat(run_ctx.run_id)
+                                from database import update_scanner_run_heartbeat, upsert_scanner_health, update_scanner_run_progress
+
+                            if run_ctx and getattr(run_ctx, "run_id", None):
+                                update_scanner_run_heartbeat(run_ctx.run_id)
+                                update_scanner_run_progress(
+                                    run_id=run_ctx.run_id,
+                                    processed_count=curr_c,
+                                    total_count=total_syms,
+                                    summary_notes=progress_summary,
+                                    metrics_json={
+                                        "processed": curr_c,
+                                        "processed_count": curr_c,
+                                        "total": total_syms,
+                                        "total_count": total_syms,
+                                        "pending": pending_c,
+                                        "pending_count": pending_c,
+                                        "pct": pct,
+                                        "eta": eta_str,
+                                        "skipped_complete": skipped_c,
+                                        "bootstrapped": bootstrapped_c,
+                                        "discovered": disc_len,
+                                        "errors": errs_c,
+                                        "batch_num": b_num,
+                                        "sync_reason": sync_reason,
+                                    }
+                                )
+
                             upsert_scanner_health(
                                 scanner_name="FILING_WATCHER",
                                 status="RUNNING",
                                 processed_count=curr_c,
                                 total_count=total_syms,
-                                error_msg=f"Processed {curr_c}/{total_syms} (Pending: {pending_c}) | Skipped Complete: {skipped_c} | Backfilled: {bootstrapped_c}",
-                                run_id=run_ctx.run_id,
+                                error_msg=progress_summary,
+                                run_id=run_ctx.run_id if run_ctx else None,
                             )
-                        except Exception:
-                            pass
+                        except Exception as prog_err:
+                            logger.debug(f"[filling scanner] Progress update error: {prog_err}")
 
-                    # Detailed progress log to track where we are
-                    if curr_c % 5 == 0 or curr_c == total_syms or pending_c <= 10:
-                        pct = round((curr_c / total_syms) * 100, 1)
-                        with events_lock:
-                            disc_len = len(discovered_events)
                         logger.info(
-                            f"📊 [filling scanner] [{curr_c}/{total_syms}] ({pct}%) | "
-                            f"Done: {curr_c} | Pending: {pending_c} | "
-                            f"Complete Skipped: {skipped_c} | Backfilled: {bootstrapped_c} | "
-                            f"Discovered: {disc_len} | Errors: {errs_c} | "
-                            f"Rate: {rate_per_min}/min | Last: {sym_u}"
+                            f"💾 [filling scanner] [BATCH {b_num} DB SYNC COMPLETE: {sync_reason}] [{curr_c}/{total_syms}] ({pct}%) | "
+                            f"Pending: {pending_c} (ETA: {eta_str}) | Newly Ingested: {len(to_sync_syms)} | "
+                            f"Total Completed: {curr_c} | DB has all updated data till this batch."
                         )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="FilingPoll") as executor:
@@ -1325,7 +1503,13 @@ class FinancialFilingWatcher:
         with self._state_lock:
             self._save_state()
 
-        logger.info(f"✅ [filling scanner] Exchange polling complete. Discovered {len(discovered_events)} new/amended filing events across {len(symbols)} symbols.")
+        total_elapsed = time.time() - start_poll_time
+        logger.info(
+            f"🏁 [filling scanner] Polling cycle complete in {total_elapsed:.1f}s | "
+            f"Universe: {len(symbols)} | Complete Skipped: {skipped_complete_count[0]} | "
+            f"Backfilled: {bootstrap_ingested_count[0]} | Events Discovered: {len(discovered_events)} | "
+            f"Errors: {error_count[0]}"
+        )
 
         # Invariant: Always upload updated pit_raw_bundle to DB so newly discovered/healed filings survive container restarts
         try:
@@ -1337,13 +1521,20 @@ class FinancialFilingWatcher:
         except Exception as bundle_err:
             logger.debug(f"[filling scanner] Raw filings bundle upload note: {bundle_err}")
 
-        if discovered_events:
-            new_syms = sorted({str(e.get("symbol")).strip().upper() for e in discovered_events if e.get("symbol")})
-            logger.info(f"🔄 [filling scanner] Auto-rebuilding snapshot for {len(new_syms)} newly disclosed symbols: {new_syms[:10]}...")
+        # Ensure any remaining pending or discovered symbols not yet synced are rebuilt
+        with events_lock:
+            remaining_syms = sorted(list(pending_rebuild_syms))
+            pending_rebuild_syms.clear()
+
+        all_disc_syms = {str(e.get("symbol")).strip().upper() for e in discovered_events if e.get("symbol")}
+        unrebuilt = sorted(list((all_disc_syms | set(remaining_syms)) - synced_symbols))
+
+        if unrebuilt:
+            logger.info(f"🔄 [filling scanner] Rebuilding snapshot for {len(unrebuilt)} remaining symbols: {unrebuilt[:10]}...")
             try:
-                self.invalidate_and_rebuild_snapshot(symbol=new_syms, as_of_date=as_of_date)
+                self.invalidate_and_rebuild_snapshot(symbol=unrebuilt, as_of_date=as_of_date)
             except Exception as auto_rb_err:
-                logger.warning(f"[filling scanner] Auto snapshot rebuild error: {auto_rb_err}")
+                logger.warning(f"[filling scanner] Final snapshot rebuild error: {auto_rb_err}")
 
         return discovered_events
 

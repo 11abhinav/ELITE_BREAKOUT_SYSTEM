@@ -51,11 +51,16 @@ class TestMasterRCARemediation(unittest.TestCase):
 
     def test_process_lock_queue_timeout(self):
         """Verify ProcessLock queue wait timeout functionality."""
+        import threading
         lock = ProcessLock("unit_test_rca_lock")
         # Acquire lock once
         self.assertTrue(lock.acquire(blocking=False))
-        # Non-blocking second acquire should return False
-        self.assertFalse(lock.acquire(blocking=False))
+        # Non-blocking acquire from another thread must return False
+        other_result = []
+        t = threading.Thread(target=lambda: other_result.append(lock.acquire(blocking=False)))
+        t.start()
+        t.join()
+        self.assertFalse(other_result[0])
         lock.release()
 
 if __name__ == '__main__':

@@ -2380,7 +2380,12 @@ def check_pre_buy_source_freshness_fence(
                 with open(state_file, "r") as sf:
                     st_data = json.load(sf)
                 sym_st = st_data.get(sym_clean, {})
-                w_latest_date = sym_st.get("latest_filing_date")
+                is_annual_canonical = str(canonical_period_end or "").endswith("-03-31")
+                w_latest_date = sym_st.get("latest_annual_date") if is_annual_canonical else sym_st.get("latest_filing_date")
+                if not w_latest_date and is_annual_canonical:
+                    raw_w = sym_st.get("latest_filing_date")
+                    if raw_w and str(raw_w).endswith("-03-31"):
+                        w_latest_date = raw_w
                 if w_latest_date and canonical_period_end and str(w_latest_date) > str(canonical_period_end):
                     return False, f"UNPROCESSED_WATCHER_FILING: Watcher detected filing {w_latest_date} > canonical {canonical_period_end}"
             except Exception:
