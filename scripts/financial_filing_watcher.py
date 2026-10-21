@@ -234,7 +234,27 @@ class FinancialFilingWatcher:
         self._state_lock = threading.Lock()
 
     def _load_state(self) -> Dict[str, Dict[str, Any]]:
-        """Loads persistent watcher state with automated healing of legacy truncated dates."""
+        """Loads persistent watcher state with automated healing of legacy truncated dates and DB restoration."""
+        if not self.state_file.exists() or os.path.getsize(self.state_file) < 5:
+            if self.state_file == STATE_FILE:
+                try:
+                    try:
+                        from app.database import get_connection
+                    except ImportError:
+                        from database import get_connection
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT data FROM parquet_cache WHERE name = 'filing_watcher_state' ORDER BY date DESC LIMIT 1")
+                            row = cur.fetchone()
+                            if row and row[0]:
+                                raw_bytes = bytes(row[0])
+                                os.makedirs(self.state_file.parent, exist_ok=True)
+                                with open(self.state_file, "wb") as f:
+                                    f.write(raw_bytes)
+                                logger.info("✅ [WATCHER] Restored filing_watcher_state from DB parquet_cache")
+                except Exception as _e_restore:
+                    logger.debug(f"[WATCHER] Could not restore state from DB: {_e_restore}")
+
         if self.state_file.exists():
             try:
                 import re as _re_state
@@ -274,12 +294,36 @@ class FinancialFilingWatcher:
         return {}
 
     def _save_state(self) -> None:
-        """Persists watcher state atomically."""
+        """Persists watcher state atomically to disk and backs up to DB."""
         os.makedirs(self.state_file.parent, exist_ok=True)
         tmp_state = f"{self.state_file}.tmp.{os.getpid()}"
         with open(tmp_state, "w") as f:
             json.dump(self.state, f, indent=2)
         os.replace(tmp_state, self.state_file)
+
+        # Atomically backup state to PostgreSQL parquet_cache so it survives container redeployments
+        if self.state_file == STATE_FILE and len(self.state) > 0:
+            try:
+                try:
+                    from app.database import get_connection, _DB_WRITE_LOCK, init_db, IST
+                except ImportError:
+                    from database import get_connection, _DB_WRITE_LOCK, init_db, IST
+                init_db()
+                import psycopg2
+                today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                state_bytes = json.dumps(self.state).encode("utf-8")
+                with _DB_WRITE_LOCK:
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("""
+                                INSERT INTO parquet_cache (name, date, data)
+                                VALUES (%s, %s, %s)
+                                ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
+                            """, ("filing_watcher_state", today_str, psycopg2.Binary(state_bytes)))
+                            cur.execute("DELETE FROM parquet_cache WHERE name = 'filing_watcher_state' AND date < %s", (today_str,))
+                        conn.commit()
+            except Exception as _db_s_err:
+                logger.debug(f"[WATCHER] State DB backup notice: {_db_s_err}")
 
     def _log_event(self, event: FilingEvent) -> None:
         """Appends event to audit log with guaranteed normalized period_end_date."""
@@ -914,6 +958,7 @@ class FinancialFilingWatcher:
                 quarterly_periods = set()
                 latest_annual_rec = None
                 has_corrupt_or_empty_raw = False
+                has_nse_history = False
 
                 if raw_path.exists():
                     try:
@@ -921,6 +966,8 @@ class FinancialFilingWatcher:
                             _ldata = json.load(_rf)
                         if isinstance(_ldata, list) and len(_ldata) > 0:
                             for _r in _ldata:
+                                if str(_r.get("exchange") or "").upper() == "NSE" or "NSE" in str(_r.get("filing_id") or "").upper():
+                                    has_nse_history = True
                                 _p = _normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or ""))
                                 if not _p or _p < get_historical_cutoff_date(as_of_date):
                                     continue
@@ -972,10 +1019,17 @@ class FinancialFilingWatcher:
                         break
 
                 # 2. Tail Annual Gap Detection (Latest annual vs expected completed FY from calendar date)
-                # In India, FY ends March 31 and audited results are published by May 30.
-                # June 1 onwards, current year FY is completed. Prior to June, previous year FY is completed.
+                # In India, most companies end FY on March 31 (audited by May 30).
+                # Calendar-year companies (e.g. ABB, Nestle, Castrol) end FY on Dec 31 (audited by March/April).
                 now_dt = date.today()
-                expected_completed_annual_yr = now_dt.year if now_dt.month >= 6 else (now_dt.year - 1)
+                latest_ann_end = str(latest_annual_rec.get("period_end_date") or "") if latest_annual_rec else ""
+                is_calendar_yr = latest_ann_end.endswith("-12-31") or any(str(p).endswith("-12-31") for p in annual_years)
+                if is_calendar_yr:
+                    # Calendar year ends Dec 31; audited results published by March/April of following year.
+                    expected_completed_annual_yr = (now_dt.year - 1) if now_dt.month >= 4 else (now_dt.year - 2)
+                else:
+                    expected_completed_annual_yr = now_dt.year if now_dt.month >= 6 else (now_dt.year - 1)
+
                 has_tail_annual_gap = False
                 tail_gap_reason = None
                 if not annual_years or max(annual_years) < expected_completed_annual_yr:
@@ -1002,7 +1056,7 @@ class FinancialFilingWatcher:
                 insufficient_depth = len(sorted_annual_years) < 6
                 has_missing_cagr = snap_row is not None and (snap_row.get("sales_cagr_5y") is None or pd.isna(snap_row.get("sales_cagr_5y")))
                 depth_reason = None
-                if insufficient_depth and not is_struct_ineligible and has_missing_cagr:
+                if insufficient_depth and not is_struct_ineligible and not is_bfsi and has_missing_cagr:
                     depth_reason = f"Insufficient annual depth ({len(sorted_annual_years)} < 6 years: {sorted_annual_years}) with missing 5Y CAGR"
 
                 # 5. Missing Balance Sheet Facts in Latest Annual Record (total_debt or total_equity)
@@ -1022,7 +1076,7 @@ class FinancialFilingWatcher:
                     if prov_status == "UNCERTIFIED":
                         has_missing_canonical_metrics = True
                         missing_metric_reason = "Canonical snapshot row is UNCERTIFIED"
-                    elif pd.isna(snap_row.get("sales_cagr_5y")) and len(sorted_annual_years) >= 6:
+                    elif not is_bfsi and pd.isna(snap_row.get("sales_cagr_5y")) and len(sorted_annual_years) >= 6:
                         has_missing_canonical_metrics = True
                         missing_metric_reason = "Missing 5Y Sales CAGR despite 6+ annual filings"
                     elif not is_bfsi and pd.isna(snap_row.get("current_ev_ebitda")):
@@ -1031,26 +1085,31 @@ class FinancialFilingWatcher:
                     elif not is_bfsi and pd.isna(snap_row.get("debt_to_equity")):
                         has_missing_canonical_metrics = True
                         missing_metric_reason = "Missing Debt/Equity in canonical snapshot"
-                    elif pd.isna(snap_row.get("roce_5y_avg")) and len(sorted_annual_years) >= 6:
+                    elif not is_bfsi and pd.isna(snap_row.get("roce_5y_avg")) and len(sorted_annual_years) >= 6:
                         has_missing_canonical_metrics = True
                         missing_metric_reason = "Missing 5Y ROCE average in canonical snapshot"
 
                 # ── CONSOLIDATED BOOTSTRAP DECISION ──
+                # If a symbol previously attempted bootstrap and local raw data has >= 6 annual filings,
+                # do not infinitely re-attempt full backfill on every run for unresolvable exchange gaps.
+                prev_sym_state = self.state.get(sym_u, {})
+                already_bootstrapped = bool(prev_sym_state.get("bootstrap_completed", False)) and len(sorted_annual_years) >= 6
+
                 needs_bootstrap = (
                     force_backfill
                     or has_corrupt_or_empty_raw
                     or (len(sorted_annual_years) == 0)
-                    or has_intermediate_gap
-                    or has_tail_annual_gap
-                    or has_quarterly_gap
-                    or (depth_reason is not None)
-                    or has_missing_bs_facts
-                    or has_missing_canonical_metrics
+                    or (has_intermediate_gap and not already_bootstrapped)
+                    or (has_tail_annual_gap and not already_bootstrapped)
+                    or (has_quarterly_gap and not already_bootstrapped)
+                    or (depth_reason is not None and not already_bootstrapped)
+                    or (has_missing_bs_facts and not already_bootstrapped)
+                    or (has_missing_canonical_metrics and not already_bootstrapped)
                     or snap_row is None
-                    or freshness not in ("FRESH", "VALID")
+                    or (freshness not in ("FRESH", "VALID") and not already_bootstrapped)
                     or not snap_annual
                     or not latest_local_period
-                    or snap_gap_flag
+                    or (snap_gap_flag and not already_bootstrapped)
                 )
 
                 if needs_bootstrap:
@@ -1078,14 +1137,20 @@ class FinancialFilingWatcher:
                     # Check if already checked recently within the current polling cycle / today
                     last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
                     polled_recently = False
-                    if last_polled and not force_backfill:
-                        try:
-                            from dateutil.parser import parse as _parse_dt
-                            dt_polled = _parse_dt(last_polled)
-                            if (datetime.now(dt_polled.tzinfo) - dt_polled).total_seconds() < 21600:
+                    if not force_backfill:
+                        if last_polled:
+                            try:
+                                from dateutil.parser import parse as _parse_dt
+                                dt_polled = _parse_dt(last_polled)
+                                if (datetime.now(dt_polled.tzinfo) - dt_polled).total_seconds() < 21600:
+                                    polled_recently = True
+                            except Exception:
+                                pass
+                        # DB fallback: if snapshot was verified today and is fresh/valid without gaps
+                        if not polled_recently and snap_row is not None:
+                            snap_as_of = str(snap_row.get("as_of_date") or "")
+                            if snap_as_of == as_of_str and freshness in ("FRESH", "VALID") and not snap_gap_flag:
                                 polled_recently = True
-                        except Exception:
-                            pass
 
                     if polled_recently:
                         with counter_lock:
@@ -1098,7 +1163,7 @@ class FinancialFilingWatcher:
                         return
 
                     # In next run, symbol has complete history: ONLY check for new filings!
-                    # min_cutoff set to latest_local_period ensures we do NOT refetch past years (2015..2025).
+                    # min_cutoff set to latest_local_period ensures we do NOT refetch past years (2020..2025).
                     min_cutoff = latest_local_period or "2024-01-01"
                     logger.info(
                         f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
@@ -1110,7 +1175,7 @@ class FinancialFilingWatcher:
                 nse_fetch_count = 0
                 nse_disc_count = 0
 
-                # 1. Poll NSE XBRL / Corporate Results
+                # 1. Poll NSE XBRL / Corporate Results (Primary Source)
                 if nse_prov:
                     try:
                         nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_cutoff)
@@ -1138,35 +1203,36 @@ class FinancialFilingWatcher:
                                     "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
                                 })
 
-                        try:
-                            nse_rows = nse_prov.discover_filings(sym_u)
-                            if nse_rows:
-                                nse_disc_count = len(nse_rows)
-                                existing_periods = {
-                                    (_normalize_iso_date(it.get("period_end_date")), str(it.get("statement_type", "")).upper())
-                                    for it in raw_filings_list
-                                    if it.get("exchange") == "NSE"
-                                }
-                                for r in nse_rows:
-                                    if isinstance(r, dict):
-                                        r_copy = dict(r)
-                                        r_copy["exchange"] = "NSE"
-                                        p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
-                                        if p_end and p_end >= min_cutoff:
-                                            raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
-                                            st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
-                                            if (p_end, st) not in existing_periods:
+                        # Only call discover_filings as supplement if fetch_raw_financials returned 0 records
+                        if nse_fetch_count == 0:
+                            try:
+                                nse_rows = nse_prov.discover_filings(sym_u)
+                                if nse_rows:
+                                    nse_disc_count = len(nse_rows)
+                                    for r in nse_rows:
+                                        if isinstance(r, dict):
+                                            r_copy = dict(r)
+                                            r_copy["exchange"] = "NSE"
+                                            p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
+                                            if p_end and p_end >= min_cutoff:
+                                                raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
+                                                st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
                                                 r_copy["period_end_date"] = p_end
                                                 r_copy["statement_type"] = st
                                                 raw_filings_list.append(r_copy)
-                        except Exception as disc_err:
-                            logger.warning(f"[filling scanner] NSE discover_filings supplement warning for {sym_u}: {disc_err}")
+                            except Exception as disc_err:
+                                logger.warning(f"[filling scanner] NSE discover_filings supplement warning for {sym_u}: {disc_err}")
                     except Exception as nse_err:
                         logger.warning(f"[filling scanner] NSE discover/fetch warning for {sym_u}: {nse_err}")
 
-                # 2. Poll BSE: Check BSE whenever bse_prov is available to ensure both NSE and BSE coverage
+                # 2. Poll BSE: Only poll BSE as fallback if NSE returned 0 filings OR if symbol is not an NSE listing
                 bse_count = 0
-                if bse_prov:
+                is_nse_primary = has_nse_history or (nse_fetch_count > 0)
+                if needs_bootstrap:
+                    should_poll_bse = (bse_prov is not None) and (len(raw_filings_list) == 0)
+                else:
+                    should_poll_bse = (bse_prov is not None) and (not is_nse_primary) and (len(raw_filings_list) == 0)
+                if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
                         if scrip:
@@ -1389,22 +1455,26 @@ class FinancialFilingWatcher:
                     else:
                         eta_str = "0s"
 
-                    with events_lock:
-                        pending_syms_len = len(pending_rebuild_syms)
-                        disc_len = len(discovered_events)
-
                     elapsed_since_sync = time.time() - last_synced_time[0]
                     time_triggered = (elapsed_since_sync >= TIME_SYNC_INTERVAL)
                     count_triggered = (curr_c - last_synced_count[0] >= BATCH_SYNC_SIZE)
-                    fetched_triggered = (pending_syms_len >= FETCHED_SYNC_THRESHOLD)
                     final_triggered = (curr_c == total_syms)
 
-                    if time_triggered or count_triggered or fetched_triggered or final_triggered:
-                        should_batch_sync = True
-                        if time_triggered:
+                    to_sync_syms_batch: List[str] = []
+                    with events_lock:
+                        pending_syms_len = len(pending_rebuild_syms)
+                        disc_len = len(discovered_events)
+                        fetched_triggered = (pending_syms_len >= FETCHED_SYNC_THRESHOLD)
+                        if time_triggered or count_triggered or fetched_triggered or final_triggered:
+                            should_batch_sync = True
+                            to_sync_syms_batch = sorted(list(pending_rebuild_syms))
+                            pending_rebuild_syms.clear()
+
+                    if should_batch_sync:
+                        if fetched_triggered:
+                            sync_reason = f"FETCHED_THRESHOLD ({len(to_sync_syms_batch)} newly fetched stocks)"
+                        elif time_triggered:
                             sync_reason = f"5-MINUTE_TIMER ({int(elapsed_since_sync)}s elapsed)"
-                        elif fetched_triggered:
-                            sync_reason = f"FETCHED_THRESHOLD ({pending_syms_len} newly fetched stocks)"
                         elif count_triggered:
                             sync_reason = f"BATCH_COUNT ({curr_c - last_synced_count[0]} stocks completed)"
                         else:
@@ -1427,10 +1497,6 @@ class FinancialFilingWatcher:
                 # Batch DB synchronization outside counter_lock
                 if should_batch_sync:
                     with batch_sync_lock:
-                        with events_lock:
-                            to_sync_syms = sorted(list(pending_rebuild_syms))
-                            pending_rebuild_syms.clear()
-
                         synced_batch_num[0] += 1
                         b_num = synced_batch_num[0]
                         pct = round((curr_c / total_syms) * 100, 1)
@@ -1440,18 +1506,18 @@ class FinancialFilingWatcher:
                             self._save_state()
 
                         # 2. If new filings were discovered/fetched, rebuild snapshot and upload to DB
-                        if to_sync_syms:
+                        if to_sync_syms_batch:
                             logger.info(
-                                f"💾 [filling scanner] [BATCH {b_num} DB SYNC: {sync_reason}] Rebuilding snapshot & syncing {len(to_sync_syms)} newly fetched stocks to DB: {to_sync_syms[:8]}..."
+                                f"💾 [filling scanner] [BATCH {b_num} DB SYNC: {sync_reason}] Rebuilding snapshot & syncing {len(to_sync_syms_batch)} newly fetched stocks to DB: {to_sync_syms_batch[:8]}..."
                             )
                             try:
-                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms, as_of_date=as_of_date)
+                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, as_of_date=as_of_date)
                                 with events_lock:
-                                    synced_symbols.update(to_sync_syms)
+                                    synced_symbols.update(to_sync_syms_batch)
                             except Exception as snap_sync_err:
                                 logger.warning(f"[filling scanner] Batch {b_num} snapshot rebuild sync notice: {snap_sync_err}")
-                        else:
-                            # If no new filings to rebuild, ensure pit_raw_bundle is synced to DB
+
+                            # Only upload raw bundle when new filings were actually ingested
                             try:
                                 try:
                                     from app.database import upload_pit_raw_bundle_to_db
@@ -1512,7 +1578,7 @@ class FinancialFilingWatcher:
 
                         logger.info(
                             f"💾 [filling scanner] [BATCH {b_num} DB SYNC COMPLETE: {sync_reason}] [{curr_c}/{total_syms}] ({pct}%) | "
-                            f"Pending: {pending_c} (ETA: {eta_str}) | Newly Ingested: {len(to_sync_syms)} | "
+                            f"Pending: {pending_c} (ETA: {eta_str}) | Newly Ingested: {len(to_sync_syms_batch)} | "
                             f"Total Completed: {curr_c} | DB has all updated data till this batch."
                         )
 

@@ -14,8 +14,11 @@ Verifies:
 import json
 import os
 import tempfile
-import pytest
+from datetime import date
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+import pandas as pd
+import pytest
 
 from scripts.financial_filing_watcher import (
     FinancialFilingWatcher,
@@ -666,6 +669,95 @@ def test_periodic_sync_and_progress_telemetry(temp_watcher, monkeypatch):
     assert last_prog["pending"] == 0
     assert last_prog["metrics"]["pending_count"] == 0
     assert last_prog["metrics"]["processed_count"] == 2
+
+
+def test_calendar_year_tail_gap_not_flagged(temp_watcher, monkeypatch):
+    """Verify calendar-year companies (ending Dec 31) are not falsely flagged as missing completed FY."""
+    watcher, tmpdir = temp_watcher
+    sym = "ABB"
+    monkeypatch.setattr(watcher, "approved_symbols", [sym])
+
+    raw_dir = Path(tmpdir) / "pit_raw_filings"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    abb_filings = [
+        {"period_end_date": f"{y}-12-31", "statement_type": "ANNUAL", "revenue": 1000 + y, "net_profit": 100 + y, "exchange": "NSE"}
+        for y in range(2020, 2026)
+    ]
+    with open(raw_dir / f"{sym}.json", "w") as f:
+        json.dump(abb_filings, f)
+
+    watcher.state[sym] = {"bootstrap_completed": True}
+
+    mock_bse = MagicMock()
+    mock_nse = MagicMock()
+    mock_nse.fetch_raw_financials.return_value = []
+
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            mock_read.return_value = pd.DataFrame([{
+                "symbol": sym,
+                "is_bfsi": False,
+                "latest_annual_period": "2025-12-31",
+                "pit_freshness_status": "FRESH",
+                "filing_gap_detected": False,
+                "provenance_status": "CERTIFIED",
+                "sales_cagr_5y": 12.5,
+                "pat_cagr_5y": 15.0,
+                "roce_5y_avg": 18.0,
+                "debt_to_equity": 0.05,
+                "current_ev_ebitda": 25.0,
+                "is_structural_ineligible": False,
+            }])
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=mock_nse):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=mock_bse):
+                    watcher.poll_exchange_filings(target_symbols=[sym], as_of_date=date(2026, 10, 21), max_workers=1)
+
+    assert mock_bse.fetch_raw_financials.call_count == 0
+
+
+def test_skip_bse_when_nse_provides_filings(temp_watcher, monkeypatch):
+    """Verify that BSE API is NOT queried when NSE returns valid filings or stock is NSE-primary."""
+    watcher, tmpdir = temp_watcher
+    sym = "TESTSYM"
+    monkeypatch.setattr(watcher, "approved_symbols", [sym])
+
+    raw_dir = Path(tmpdir) / "pit_raw_filings"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    mock_record = MagicMock()
+    mock_record.period_end_date = "2026-06-30"
+    mock_record.period_type = "QUARTERLY"
+    mock_record.consolidation.value = "CONSOLIDATED"
+    mock_record.revenue = 100.0
+    mock_record.net_profit = 10.0
+    mock_record.ebit = 15.0
+    mock_record.eps = 2.0
+    mock_record.total_debt = 0.0
+    mock_record.total_equity = 50.0
+    mock_record.operating_cash_flow = None
+    mock_record.shares_outstanding = 1000
+    mock_record.availability_date = "2026-07-15T00:00:00"
+
+    mock_nse = MagicMock()
+    mock_nse.fetch_raw_financials.return_value = [mock_record]
+
+    mock_bse = MagicMock()
+
+    with patch.object(watcher, "pit_raw_dir", raw_dir):
+        with patch("pandas.read_parquet") as mock_read:
+            mock_read.return_value = pd.DataFrame()
+            with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=mock_nse):
+                with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=mock_bse):
+                    with patch.object(watcher, "invalidate_and_rebuild_snapshot"):
+                        with patch("app.database.upload_pit_raw_bundle_to_db"):
+                            with patch("app.database.update_scanner_run_progress"):
+                                watcher.poll_exchange_filings(target_symbols=[sym], as_of_date=date(2026, 10, 21), max_workers=1)
+
+    assert mock_bse.resolve_bse_scrip_code.call_count == 0
+    assert mock_bse.fetch_raw_financials.call_count == 0
+    assert mock_bse.discover_filings.call_count == 0
+
 
 
 
