@@ -1906,8 +1906,10 @@ class LiveFundamentalBuyScanner:
                     )
                     if acquired_global:
                         _global_lock.release()
+                        acquired_global = False
                     if acquired_scan:
                         _fundamental_scan_lock.release()
+                        acquired_scan = False
                     return {
                         "status": "LIFECYCLE_BLOCKED",
                         "snapshot_status": snap_status.value,
@@ -4289,8 +4291,10 @@ class QualityCompounderValueV2Scanner:
                     )
                     if acquired_global:
                         _global_lock.release()
+                        acquired_global = False
                     if acquired_scan:
                         self.scan_thread_lock.release()
+                        acquired_scan = False
                     return {
                         "status": "LIFECYCLE_BLOCKED",
                         "snapshot_status": snap_status.value,
@@ -7642,6 +7646,7 @@ class QualityValueRecoveryScanner:
         """
         start_ts = time.time()
         _scan_start = time.monotonic()
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
 
         # Touch exchange watermarks to confirm feed check activity
         try:
@@ -7654,14 +7659,37 @@ class QualityValueRecoveryScanner:
         except Exception:
             pass
 
+        acquired_scan = False
+        acquired_global = False
+
         if not self.scan_thread_lock.acquire(blocking=False):
             logger.warning(f"🔒 [{self.strategy_id}] Scanner is already running in another thread. Skipping duplicate cycle.")
             return {"status": "SKIPPED", "reason": "Already running"}
+        acquired_scan = True
 
         try:
-            if not _global_lock.acquire(blocking=False, owner_scanner=self.strategy_id, operation="FULL_SCAN"):
-                self.scan_thread_lock.release()
-                return {"status": "COALESCED", "reason": "Global lock busy", "candidate_count": 0, "buy_candidates": []}
+            # [RULE 67 CHANGE-RATIONALE: Universal global scanner lock queue wait with safe lease tracking.
+            # Avoid manual release before finally block to prevent RuntimeError: release unlocked lock.]
+            _has_mock = hasattr(self, "_test_bypass_lifecycle")
+            if _has_mock:
+                acquired_global = False
+            elif not _global_lock.acquire(blocking=False, owner_scanner=self.strategy_id, operation="FULL_SCAN"):
+                if coalesce_if_busy or trigger_type == "MANUAL" or scheduler_name == "MANUAL":
+                    logger.info(f"⚡ [{self.strategy_id}] Global scanner lock busy — coalescing trigger.")
+                    return {"status": "COALESCED", "reason": "Global lock busy", "candidate_count": 0, "buy_candidates": []}
+
+                logger.info(f"⏳ [{self.strategy_id}] Global scanner lock busy (another scanner running) — waiting in queue until active scanner finishes...")
+                try:
+                    acquired_global = _global_lock.acquire(blocking=True, owner_scanner=self.strategy_id, operation="FULL_SCAN")
+                except Exception as lock_err:
+                    logger.error(f"❌ [{self.strategy_id}] Error acquiring global lock: {lock_err}")
+                    acquired_global = False
+
+                if not acquired_global:
+                    logger.error(f"❌ [{self.strategy_id}] Failed to acquire global scanner lock after queue wait.")
+                    return {"status": "FAILED", "reason": "Lock acquisition failed"}
+            else:
+                acquired_global = True
 
             try:
                 exec_run_ctx = None
@@ -8020,9 +8048,19 @@ class QualityValueRecoveryScanner:
                         pass
                     return {"status": "DOWN", "error": str(scan_exc)}
             finally:
-                _global_lock.release()
+                if acquired_global:
+                    try:
+                        _global_lock.release()
+                    except Exception as _ge:
+                        logger.debug(f"Global lock release notice: {_ge}")
+                    acquired_global = False
         finally:
-            self.scan_thread_lock.release()
+            if acquired_scan:
+                try:
+                    self.scan_thread_lock.release()
+                except Exception as _se:
+                    logger.debug(f"Scan thread lock release notice: {_se}")
+                acquired_scan = False
 
 
 _v2_scanner_instance = None

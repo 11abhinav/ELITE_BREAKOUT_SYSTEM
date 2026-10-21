@@ -106,3 +106,42 @@ def test_fresh_building_snapshot_status_not_auto_healed():
         status, meta_out = get_financial_snapshot_status(data_dir=str(tmp_path))
 
         assert status == FinancialSnapshotStatus.BUILDING
+
+
+def test_quality_value_recovery_coalesce_lock_safety():
+    """
+    Verifies that QualityValueRecoveryScanner.scan_universe when coalescing
+    due to global lock busy cleanly releases scan_thread_lock exactly once
+    without raising RuntimeError: release unlocked lock.
+    """
+    import threading
+    from app.live_fundamental_scanner import QualityValueRecoveryScanner, _global_lock
+    scanner = QualityValueRecoveryScanner()
+
+    # Pre-acquire global lock in a background thread to simulate another active scanner
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_lock():
+        _global_lock.acquire(blocking=False, owner_scanner="OTHER_SCANNER", operation="FULL_SCAN")
+        lock_acquired.set()
+        release_lock.wait()
+        _global_lock.release()
+
+    t = threading.Thread(target=hold_lock, daemon=True)
+    t.start()
+    lock_acquired.wait()
+
+    try:
+        # Calling scan_universe with coalesce_if_busy=True
+        # Under the old code, this raised RuntimeError: release unlocked lock!
+        result = scanner.scan_universe(trigger_type="TEST", scheduler_name="TEST", coalesce_if_busy=True)
+        assert result.get("status") == "COALESCED"
+        # Verify scanner.scan_thread_lock is free and can be acquired cleanly
+        can_acquire = scanner.scan_thread_lock.acquire(blocking=False)
+        assert can_acquire is True
+        scanner.scan_thread_lock.release()
+    finally:
+        release_lock.set()
+        t.join(timeout=3.0)
+
