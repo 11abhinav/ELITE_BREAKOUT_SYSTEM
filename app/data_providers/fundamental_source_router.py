@@ -818,7 +818,8 @@ class FundamentalSourceRouter:
 
         for dual_met, dual_src in dual_candidates:
             if dual_met and dual_met.overall_status == FundamentalStatus.DATA_CONFLICT:
-                logger.error(f"🚨 [ROUTER] {symbol}: Unresolved DATA_CONFLICT (>25% divergence) in {dual_src}. Hard blocking recovery.")
+                # [RULE 67 CHANGE-RATIONALE: Expected domain exclusion / cooloff quarantine logged at WARNING rather than ERROR]
+                logger.warning(f"⚠️ [ROUTER] {symbol}: Unresolved DATA_CONFLICT (>25% divergence) in {dual_src}. Hard blocking recovery.")
                 try:
                     try:
                         from database import add_symbol_to_cooloff

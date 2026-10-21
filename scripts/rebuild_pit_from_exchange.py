@@ -756,6 +756,12 @@ def rebuild_canonical_pit_dataset(
             f"❌ [REBUILD] Canonical publication blocked ({publication_decision}): "
             f"{pub_result.get('gate_reasons', pub_result.get('reason', ''))}"
         )
+        # [RULE 67 CHANGE-RATIONALE: If publication is blocked or aborted (e.g. ABORTED_CONCURRENT_CHANGE),
+        # do NOT transition status to AUDITING. Immediately restore SNAPSHOT_READY_FOR_SCANNER if canonical
+        # dataset exists, so live scanners are not permanently locked in AUDITING/BUILDING.]
+        if os.path.exists(out_file):
+            set_financial_snapshot_status(FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER)
+        return df_final
 
 
     # Compute SHA256 fingerprint from the canonical file (or candidate if blocked)

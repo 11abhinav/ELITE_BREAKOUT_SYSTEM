@@ -432,8 +432,9 @@ class FundamentalPreRecoveryEngine:
                 f"recovered: {recovered} | still missing: {still_missing}"
             )
         elif status == FundamentalStatus.DATA_CONFLICT:
-            logger.error(
-                f"❌ [PRE_RECOVERY] DATA_CONFLICT {symbol} | "
+            # [RULE 67 CHANGE-RATIONALE: Data conflict exclusion / quarantine logged at WARNING rather than ERROR]
+            logger.warning(
+                f"⚠️ [PRE_RECOVERY] DATA_CONFLICT {symbol} | "
                 f"fields: {missing_fields} | blocking"
             )
         else:

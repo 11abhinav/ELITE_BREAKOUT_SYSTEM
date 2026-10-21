@@ -2806,7 +2806,12 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 if col not in portfolio_df.columns:
                     portfolio_df[col] = "UNKNOWN" if col == "hold_trend" else ""
             # Map Portfolio outputs back into wealth_df for Dashboard display (Actual position closing is handled by dedicated WEALTH_EXIT monitor)
-            port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
+            # [RULE 67 CHANGE-RATIONALE: Deduplicate by Stock before set_index to prevent ValueError: DataFrame index must be unique for orient='index']
+            clean_port_df = (
+                portfolio_df.sort_values(by=["Exit_Code"], ascending=False)
+                .drop_duplicates(subset=["Stock"], keep="first")
+            )
+            port_map = clean_port_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
             def map_port(r):
                 sym = r["Stock"]
                 if sym in port_map:
@@ -3297,7 +3302,12 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
                     for col in ["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]:
                         if col not in portfolio_df.columns:
                             portfolio_df[col] = "UNKNOWN" if col == "hold_trend" else ""
-                    port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
+                    # [RULE 67 CHANGE-RATIONALE: Deduplicate by Stock before set_index to prevent ValueError: DataFrame index must be unique for orient='index']
+                    clean_port_df = (
+                        portfolio_df.sort_values(by=["Exit_Code"], ascending=False)
+                        .drop_duplicates(subset=["Stock"], keep="first")
+                    )
+                    port_map = clean_port_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
                 for sym, info in port_map.items():
                     if sym in wealth_df["Stock"].values:
                         idx = wealth_df[wealth_df["Stock"] == sym].index

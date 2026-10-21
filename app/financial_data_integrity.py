@@ -3833,6 +3833,37 @@ def get_financial_snapshot_status(data_dir: Optional[str] = None) -> Tuple[Finan
         with open(meta_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
         status_str = meta.get("FINANCIAL_SNAPSHOT_STATUS") or meta.get("snapshot_status") or "NOT_INITIALIZED"
+
+        # [RULE 67 CHANGE-RATIONALE: Stale lease auto-recovery.
+        # If snapshot lifecycle status was left in BUILDING or AUDITING by a crashed or aborted
+        # rebuild job, check if the update timestamp is older than 15 minutes. If stale and a valid
+        # canonical parquet exists on disk, auto-heal status to SNAPSHOT_READY_FOR_SCANNER to prevent
+        # permanent blockage of all fundamental scanners.]
+        if status_str in ("BUILDING", "AUDITING"):
+            updated_at_str = meta.get("snapshot_status_updated_at") or meta.get("rebuild_started_at")
+            is_stale = False
+            if updated_at_str:
+                try:
+                    up_str = str(updated_at_str).replace("Z", "").split("+")[0]
+                    up_dt = datetime.fromisoformat(up_str)
+                    diff_sec = (datetime.now() - up_dt).total_seconds()
+                    if diff_sec > 900:  # > 15 minutes
+                        is_stale = True
+                except Exception:
+                    pass
+            parquet_path = os.path.join(base, "canonical_pit_rebuilt.parquet")
+            if is_stale and os.path.exists(parquet_path):
+                logger.warning(
+                    f"⚠️ [FINANCIAL_SNAPSHOT_STATUS] Snapshot was left in '{status_str}' (updated {updated_at_str}). "
+                    f"Heartbeat expired (>15m) and canonical parquet exists. Auto-healing to SNAPSHOT_READY_FOR_SCANNER."
+                )
+                try:
+                    set_financial_snapshot_status(FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER, data_dir=base)
+                    status_str = "SNAPSHOT_READY_FOR_SCANNER"
+                    meta["FINANCIAL_SNAPSHOT_STATUS"] = status_str
+                except Exception:
+                    pass
+
         try:
             return FinancialSnapshotStatus(status_str), meta
         except ValueError:

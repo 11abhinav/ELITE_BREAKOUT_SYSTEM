@@ -1394,7 +1394,8 @@ class NseXbrlProvider:
         for i in range(len(trailing_fy) - 1):
             if trailing_fy[i + 1] - trailing_fy[i] != 1:
                 gap_desc = f"Missing FY between {trailing_fy[i]} and {trailing_fy[i + 1]}"
-                logger.error(f"[NSE_CAGR] Continuous annual period gap detected: {gap_desc}")
+                # [RULE 67 CHANGE-RATIONALE: Validation rejection of CAGR window logged at WARNING rather than ERROR]
+                logger.warning(f"⚠️ [NSE_CAGR] Continuous annual period gap detected: {gap_desc}")
                 return False, f"PIT_FILING_GAP_IN_GROWTH_WINDOW: {gap_desc}", []
 
         window_recs = [deduped_by_fy[y] for y in trailing_fy]
