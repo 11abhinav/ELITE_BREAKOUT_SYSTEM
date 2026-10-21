@@ -11859,6 +11859,7 @@ def get_all_push_subscriptions() -> list[dict]:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions")
+                rows = cur.fetchall()
                 res = []
                 for r in rows:
                     if isinstance(r, dict):
