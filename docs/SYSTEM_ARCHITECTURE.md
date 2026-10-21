@@ -1025,8 +1025,8 @@ Forensic audit executed across the 21 incomplete symbols (`data/reports/forensic
    - Sequence: `Canonical PIT / Daily Builder` $\rightarrow$ `NSE` $\rightarrow$ `BSE` $\rightarrow$ `Upstox` $\rightarrow$ `FYERS` $\rightarrow$ Screener reference lookup.
    - Listing-Aware: BSE-only/SME securities evaluate to `NSE = NOT_APPLICABLE`, `BSE = CHECKED`.
    - FYERS Real Exhaustion: `FYERS = NOT_CHECKED` is eliminated. Returns `UNSUPPORTED_FIELD` for balance sheet metrics under REST API v3.
-3. **P0: Pre-Scan Recovery Decoupled from Scanner Decision Loop**:
-   - Recovery sweeps occur strictly in offline/pre-scan phases (`FundamentalPreRecoveryEngine`). Scheduled scanners operate in `WARM` read-only mode (`allow_live_refresh=False`) with zero network calls.
+3. **P0: Filing Ingestion & Recovery Exclusive to FILING_WATCHER**:
+   - Filing downloads (NSE XBRL, BSE Corporate) and recovery sweeps occur strictly inside `FILING_WATCHER` (Filing Scanner). All trading scanners (`QUALITY_COMPOUNDER`, `QUALITY_VALUE_RECOVERY`, `FUNDAMENTAL`, `TECHNICAL`, `WEALTH_ENGINE`) operate strictly as pure read-only consumers (`allow_live_refresh=False`) with zero network filing calls.
 4. **P1: Screener Reference-Only Fallback**:
    - Used purely as a forensic diagnostic oracle. If Screener has data but approved providers fail: `PRIMARY_PROVIDERS_UNAVAILABLE`, `REFERENCE_SOURCE_AVAILABLE` (Admin notified, canonical PIT write blocked, production BUY blocked).
 5. **P1: 7-Day Scanner Quarantine & Stock List Exclusion**:

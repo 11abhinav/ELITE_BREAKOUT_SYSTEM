@@ -262,7 +262,7 @@ class ScannerDataGateway:
         required_fields: Set[str],
         as_of: Optional[datetime] = None,
         df_row: Optional[pd.Series] = None,
-        trigger_recovery_if_missing: bool = True,
+        trigger_recovery_if_missing: bool = False,  # [RULE 67 CHANGE-RATIONALE: Defaulted to False so consumer scanners never trigger synchronous online filing recovery cascades.]
     ) -> DataBundle:
         """
         Universal data fetch method for any scanner.

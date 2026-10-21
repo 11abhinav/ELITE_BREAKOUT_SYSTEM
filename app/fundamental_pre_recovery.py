@@ -6,18 +6,18 @@ identifies symbols with genuinely missing fields (field-level granularity),
 invokes the dual-source router to recover them, and writes a staging candidate.
 
 Ownership:
-  Called EXACTLY ONCE at QUALITY_COMPOUNDER orchestration level.
-  NOT called inside _get_pit_filings() or any data-loading helper.
-  NOT called during stock-by-stock evaluation.
+  Called exclusively by FILING_WATCHER (Filing Scanner) during filing ingestion/healing cycles.
+  Decoupled from live trading scanners (QUALITY_COMPOUNDER, QUALITY_VALUE_RECOVERY, FUNDAMENTAL).
+  NOT called inside live trading scanner loops or data-loading helpers.
 
 Output:
   Staging candidate parquet → canonical_pit_publisher.publish_canonical_pit()
   The publisher enforces the 18-dimension Never-Downgrade Gate before atomic publish.
 
 Architecture:
-  QUALITY_COMPOUNDER
+  FILING_WATCHER
         ↓
-  execute_pre_scan_sweep()    ← exactly once here
+  execute_pre_scan_sweep()    ← exclusively here
         ↓
   identify_incomplete_symbols()  (field-level granularity)
         ↓
@@ -95,7 +95,7 @@ class FundamentalPreRecoveryEngine:
     def __init__(
         self,
         pit_parquet_path: Optional[str] = None,
-        scanner_name: str = "QUALITY_VALUE_RECOVERY",
+        scanner_name: str = "FILING_WATCHER",
         validated_cache: Optional[Any] = None,
         as_of_timestamp: Optional[str] = None,
     ):

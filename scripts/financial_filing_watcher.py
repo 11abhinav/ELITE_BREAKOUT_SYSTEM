@@ -2013,6 +2013,20 @@ class FinancialFilingWatcher:
             except Exception as poll_err:
                 logger.warning(f"[filling scanner] Active exchange polling encountered non-fatal error: {poll_err}")
 
+            # [RULE 67 CHANGE-RATIONALE: Execute fundamental data recovery sweep exclusively in FILING_WATCHER background cycle to isolate network filing downloads from live scanners and prevent global lock stalls.]
+            # 2c. Execute fundamental data recovery sweep for incomplete symbols (handled exclusively by FILING_WATCHER)
+            try:
+                try:
+                    from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
+                except ImportError:
+                    from fundamental_pre_recovery import FundamentalPreRecoveryEngine
+                logger.info("🔄 [filling scanner] Starting fundamental data recovery sweep for incomplete symbols...")
+                pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name="FILING_WATCHER")
+                pre_recovery_engine.execute_pre_scan_sweep()
+                logger.info("✅ [filling scanner] Fundamental data recovery sweep complete.")
+            except Exception as pre_rec_err:
+                logger.warning(f"[filling scanner] Fundamental recovery sweep notice: {pre_rec_err}")
+
             # 3. Detect pending symbols or missing snapshot
             pending_symbols = [
                 s for s, v in self.state.items()

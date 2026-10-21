@@ -1926,18 +1926,7 @@ class LiveFundamentalBuyScanner:
             except ImportError:
                 from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
 
-            # [FUNDAMENTAL PRE-RECOVERY HOOK]
-            try:
-                try:
-                    from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
-                except ImportError:
-                    from fundamental_pre_recovery import FundamentalPreRecoveryEngine
-                logger.info("🔄 [SCANNER: FUNDAMENTAL] [FETCH_DATA] Starting pre-scan fundamental data recovery sweep...")
-                pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name="FUNDAMENTAL")
-                pre_recovery_engine.execute_pre_scan_sweep()
-                logger.info("✅ [SCANNER: FUNDAMENTAL] [FETCH_DATA] Pre-scan recovery sweep complete.")
-            except Exception as e:
-                logger.error(f"❌ [SCANNER: FUNDAMENTAL] [FETCH_DATA] Pre-recovery sweep notice: {e}. Proceeding with Base PIT.")
+            # [RULE 67 CHANGE-RATIONALE: Fundamental pre-recovery sweep decoupled from live trading scanners to prevent multi-minute blocking network stalls. Handled exclusively by background FILING_WATCHER.]
 
             target_symbols = list(market_data_map.keys()) if market_data_map is not None else list(self.universe_registry.approved_symbols)
             # [RULE 67 CHANGE-RATIONALE: 7-Day Quarantine Filter for FUNDAMENTAL Scanner]
@@ -4428,18 +4417,7 @@ class QualityCompounderValueV2Scanner:
 
         logger.info(f"📡 [SCANNER: {self.strategy_id}] Starting daily scan run ({today_str}, trigger={trigger_type})...")
 
-        # [FUNDAMENTAL PRE-RECOVERY HOOK]
-        try:
-            try:
-                from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
-            except ImportError:
-                from fundamental_pre_recovery import FundamentalPreRecoveryEngine
-            logger.info(f"🔄 [SCANNER: {self.strategy_id}] [FETCH_DATA] Starting pre-scan fundamental data recovery sweep...")
-            pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name=self.strategy_id)
-            pre_recovery_engine.execute_pre_scan_sweep()
-            logger.info(f"✅ [SCANNER: {self.strategy_id}] [FETCH_DATA] Sweep complete. Loading final PIT snapshot with Layer B Overlay.")
-        except Exception as e:
-            logger.error(f"❌ [SCANNER: {self.strategy_id}] [FETCH_DATA] RECOVERY_PIPELINE_ERROR: Pre-recovery sweep notice: {e}. Proceeding with Base PIT + Layer B Validated Overlay.")
+        # [RULE 67 CHANGE-RATIONALE: Fundamental pre-recovery sweep decoupled from live trading scanners to prevent multi-minute blocking network stalls. Handled exclusively by background FILING_WATCHER.]
 
         # Load PIT fundamentals dataset
         logger.info(f"📡 [SCANNER: {self.strategy_id}] [FETCH_DATA] Loading canonical PIT dataset from data/canonical_pit_rebuilt.parquet...")
@@ -7706,18 +7684,7 @@ class QualityValueRecoveryScanner:
                 except ImportError:
                     from app.lock_utils import print_scanner_start_banner, print_scanner_end_banner
 
-                # [FUNDAMENTAL PRE-RECOVERY HOOK]
-                try:
-                    try:
-                        from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
-                    except ImportError:
-                        from fundamental_pre_recovery import FundamentalPreRecoveryEngine
-                    logger.info(f"🔄 [SCANNER: {self.strategy_id}] [FETCH_DATA] Starting pre-scan fundamental data recovery sweep...")
-                    pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name=self.strategy_id)
-                    pre_recovery_engine.execute_pre_scan_sweep()
-                    logger.info(f"✅ [SCANNER: {self.strategy_id}] [FETCH_DATA] Pre-scan recovery sweep complete.")
-                except Exception as e:
-                    logger.error(f"❌ [SCANNER: {self.strategy_id}] [FETCH_DATA] Pre-recovery sweep notice: {e}. Proceeding with Base PIT.")
+                # [RULE 67 CHANGE-RATIONALE: Fundamental pre-recovery sweep decoupled from live trading scanners to prevent multi-minute blocking network stalls. Handled exclusively by background FILING_WATCHER.]
 
                 try:
                     pit_df = self.load_pit_dataset()
