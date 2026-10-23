@@ -892,6 +892,26 @@ class FinancialFilingWatcher:
         except Exception as _snap_err:
             logger.debug(f"[filling scanner] Could not pre-load snapshot lookup: {_snap_err}")
 
+        # ── FAST MARKET-WIDE FILINGS PRE-SWEEP (1-2s for whole market) ──
+        market_sweep_filings: Dict[str, List[Dict[str, Any]]] = {}
+        market_sweep_ok = False
+        try:
+            try:
+                from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+            except ImportError:
+                from data_providers.nse_xbrl_provider import NseXbrlProvider
+            _sweep_prov = NseXbrlProvider()
+            market_sweep_filings = _sweep_prov.discover_market_filings_sweep()
+            if market_sweep_filings:
+                market_sweep_ok = True
+                total_market_disclosures = sum(len(v) for v in market_sweep_filings.values())
+                logger.info(
+                    f"⚡ [filling scanner] Market-wide announcement sweep complete in ~2s: "
+                    f"Found {total_market_disclosures} disclosures across {len(market_sweep_filings)} market symbols."
+                )
+        except Exception as _sweep_err:
+            logger.warning(f"⚠️ [filling scanner] Market sweep notice: {_sweep_err}")
+
         _tls = threading.local()
 
         def _get_thread_providers():
@@ -902,6 +922,8 @@ class FinancialFilingWatcher:
                     except ImportError:
                         from data_providers.nse_xbrl_provider import NseXbrlProvider
                     _tls.nse_provider = NseXbrlProvider()
+                    if market_sweep_ok and market_sweep_filings:
+                        _tls.nse_provider._discovered_cache = dict(market_sweep_filings)
                 except Exception as e:
                     logger.warning(f"[filling scanner] Could not initialize NseXbrlProvider in worker thread: {e}")
                     _tls.nse_provider = None
@@ -1093,23 +1115,28 @@ class FinancialFilingWatcher:
                 # If a symbol previously attempted bootstrap and local raw data has >= 6 annual filings,
                 # do not infinitely re-attempt full backfill on every run for unresolvable exchange gaps.
                 prev_sym_state = self.state.get(sym_u, {})
-                already_bootstrapped = bool(prev_sym_state.get("bootstrap_completed", False)) and len(sorted_annual_years) >= 6
+                already_bootstrapped = (
+                    bool(prev_sym_state.get("bootstrap_completed", False))
+                    or (local_annual_count >= 6 and len(sorted_annual_years) >= 6)
+                )
 
                 needs_bootstrap = (
                     force_backfill
                     or has_corrupt_or_empty_raw
                     or (len(sorted_annual_years) == 0)
-                    or (has_intermediate_gap and not already_bootstrapped)
-                    or (has_tail_annual_gap and not already_bootstrapped)
-                    or (has_quarterly_gap and not already_bootstrapped)
-                    or (depth_reason is not None and not already_bootstrapped)
-                    or (has_missing_bs_facts and not already_bootstrapped)
-                    or (has_missing_canonical_metrics and not already_bootstrapped)
-                    or snap_row is None
-                    or (freshness not in ("FRESH", "VALID") and not already_bootstrapped)
-                    or not snap_annual
-                    or not latest_local_period
-                    or (snap_gap_flag and not already_bootstrapped)
+                    or (not already_bootstrapped and (
+                        has_intermediate_gap
+                        or has_tail_annual_gap
+                        or has_quarterly_gap
+                        or (depth_reason is not None)
+                        or has_missing_bs_facts
+                        or has_missing_canonical_metrics
+                        or snap_row is None
+                        or (freshness not in ("FRESH", "VALID"))
+                        or not snap_annual
+                        or not latest_local_period
+                        or snap_gap_flag
+                    ))
                 )
 
                 if needs_bootstrap:
@@ -1134,7 +1161,47 @@ class FinancialFilingWatcher:
                     )
                 else:
                     # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
-                    # Check if already checked recently within the current polling cycle / today
+                    # ── FAST 0ms MARKET-SWEEP EVALUATION ──
+                    # If market sweep succeeded and found no new filings for sym_u, skip in 0ms!
+                    if market_sweep_ok and not force_backfill:
+                        sym_sweep_items = market_sweep_filings.get(sym_u, [])
+                        has_newer_sweep_filing = False
+                        for it in sym_sweep_items:
+                            p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
+                            if p_end and latest_local_period and p_end > latest_local_period:
+                                has_newer_sweep_filing = True
+                                break
+                            elif p_end and not latest_local_period:
+                                has_newer_sweep_filing = True
+                                break
+
+                        if not has_newer_sweep_filing:
+                            with self._state_lock:
+                                from zoneinfo import ZoneInfo
+                                now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                                latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                                if sym_u not in self.state:
+                                    self.state[sym_u] = {
+                                        "filings": {},
+                                        "latest_filing_date": latest_local_period,
+                                        "latest_annual_date": latest_ann_p,
+                                        "snapshot_status": freshness,
+                                        "bootstrap_completed": True,
+                                        "last_polled_at": now_ist_str,
+                                    }
+                                else:
+                                    self.state[sym_u]["bootstrap_completed"] = True
+                                    self.state[sym_u]["last_polled_at"] = now_ist_str
+                            with counter_lock:
+                                skipped_complete_count[0] += 1
+                            logger.info(
+                                f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                                f"UP TO DATE (market sweep verified, latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                                f"Skipping exchange fetch in 0ms."
+                            )
+                            return
+
+                    # Fallback check: if already checked recently within 24h or today
                     last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
                     polled_recently = False
                     if not force_backfill:
@@ -1142,15 +1209,22 @@ class FinancialFilingWatcher:
                             try:
                                 from dateutil.parser import parse as _parse_dt
                                 dt_polled = _parse_dt(last_polled)
-                                if (datetime.now(dt_polled.tzinfo) - dt_polled).total_seconds() < 21600:
+                                now_ist_dt = datetime.now(dt_polled.tzinfo)
+                                if (now_ist_dt.date() == dt_polled.date()) or ((now_ist_dt - dt_polled).total_seconds() < 86400):
                                     polled_recently = True
                             except Exception:
                                 pass
-                        # DB fallback: if snapshot was verified today and is fresh/valid without gaps
-                        if not polled_recently and snap_row is not None:
+                        # Snapshot fallback: if snapshot exists, has 6+ annual filings, and is fresh/valid
+                        if not polled_recently and snap_row is not None and local_annual_count >= 6 and not snap_gap_flag:
                             snap_as_of = str(snap_row.get("as_of_date") or "")
-                            if snap_as_of == as_of_str and freshness in ("FRESH", "VALID") and not snap_gap_flag:
-                                polled_recently = True
+                            try:
+                                from datetime import date as _dt_date
+                                snap_date = _dt_date.fromisoformat(snap_as_of[:10])
+                                now_date = date.today()
+                                if (now_date - snap_date).days <= 3 and freshness in ("FRESH", "VALID"):
+                                    polled_recently = True
+                            except Exception:
+                                pass
 
                     if polled_recently:
                         with counter_lock:
@@ -1227,11 +1301,14 @@ class FinancialFilingWatcher:
 
                 # 2. Poll BSE: Only poll BSE as fallback if NSE returned 0 filings OR if symbol is not an NSE listing
                 bse_count = 0
-                is_nse_primary = has_nse_history or (nse_fetch_count > 0)
+                is_bse_only = sym_u.endswith(".BO") or str(sym_u).isdigit()
+                is_nse_primary = (not is_bse_only)
                 if needs_bootstrap:
                     should_poll_bse = (bse_prov is not None) and (len(raw_filings_list) == 0)
                 else:
-                    should_poll_bse = (bse_prov is not None) and (not is_nse_primary) and (len(raw_filings_list) == 0)
+                    # On incremental runs, NEVER poll BSE for NSE stocks just because there are no new filings today!
+                    # Only poll BSE if the symbol is specifically a BSE-only stock and has no new filings.
+                    should_poll_bse = (bse_prov is not None) and is_bse_only and (len(raw_filings_list) == 0)
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)

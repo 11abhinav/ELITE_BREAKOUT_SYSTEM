@@ -809,6 +809,106 @@ class NseXbrlProvider:
         self._discovered_cache[symbol] = all_filings
         return all_filings
 
+    def discover_market_filings_sweep(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Discovers all recently published corporate financial results and announcements
+        across the entire market in 3 fast requests (Quarterly, Annual, Corporate Announcements).
+        Returns a dict of symbol -> list of filing dictionaries.
+        Also warms self._discovered_cache for discovered symbols.
+        """
+        if not hasattr(self, "_discovered_cache"):
+            self._discovered_cache = {}
+
+        market_filings: Dict[str, List[Dict[str, Any]]] = {}
+
+        # 1. Fetch market-wide quarterly results
+        try:
+            q_url = f"{_BASE_URL}?index=equities&period=Quarterly"
+            raw_q = self._get(q_url, "MARKET_QUARTERLY")
+            if raw_q:
+                rows = raw_q if isinstance(raw_q, list) else (raw_q.get("data", []) if isinstance(raw_q, dict) else [])
+                for r in rows:
+                    if isinstance(r, dict):
+                        sym = str(r.get("symbol") or "").strip().upper()
+                        if sym:
+                            r_copy = dict(r)
+                            r_copy["exchange"] = "NSE"
+                            market_filings.setdefault(sym, []).append(r_copy)
+        except Exception as _e_q:
+            logger.debug(f"[NSE] Market sweep quarterly error: {_e_q}")
+
+        # 2. Fetch market-wide annual results
+        try:
+            a_url = f"{_BASE_URL}?index=equities&period=Annual"
+            raw_a = self._get(a_url, "MARKET_ANNUAL")
+            if raw_a:
+                rows = raw_a if isinstance(raw_a, list) else (raw_a.get("data", []) if isinstance(raw_a, dict) else [])
+                for r in rows:
+                    if isinstance(r, dict):
+                        sym = str(r.get("symbol") or "").strip().upper()
+                        if sym:
+                            r_copy = dict(r)
+                            r_copy["exchange"] = "NSE"
+                            market_filings.setdefault(sym, []).append(r_copy)
+        except Exception as _e_a:
+            logger.debug(f"[NSE] Market sweep annual error: {_e_a}")
+
+        # 3. Fetch market-wide corporate announcements (real-time same-day filings)
+        try:
+            ann_url = f"{_ANN_URL}?index=equities"
+            raw_ann = self._get(ann_url, "MARKET_ANNOUNCEMENTS")
+            if raw_ann:
+                ann_rows = raw_ann if isinstance(raw_ann, list) else (raw_ann.get("data", []) if isinstance(raw_ann, dict) else [])
+                for item in ann_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    sym = str(item.get("symbol") or "").strip().upper()
+                    if not sym:
+                        continue
+                    desc = str(item.get("desc") or "")
+                    txt = str(item.get("attchmntText") or "")
+                    has_xbrl = bool(item.get("hasXbrl"))
+                    combined = f"{desc} {txt}".lower()
+                    is_fin_ann = (
+                        has_xbrl
+                        or any(k in combined for k in (
+                            "financial result", "financial results", "outcome of board meeting",
+                            "un-audited financial", "unaudited financial", "audited financial",
+                            "quarterly result", "half year", "period ended"
+                        ))
+                    )
+                    if not is_fin_ann:
+                        continue
+                    p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
+                    if not p_end or p_end < "2020-01-01":
+                        continue
+                    st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
+                    basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
+                    market_filings.setdefault(sym, []).append({
+                        "symbol": sym,
+                        "toDate": p_end,
+                        "period_end_date": p_end,
+                        "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
+                        "statement_type": st_type,
+                        "consolidated": basis,
+                        "seqNumber": str(item.get("seq_id") or ""),
+                        "broadCastDate": str(item.get("an_dt") or item.get("exchdisstime") or item.get("sort_date") or ""),
+                        "filingDate": str(item.get("an_dt") or "")[:11],
+                        "xbrl": item.get("xbrl") or "",
+                        "attchmntFile": item.get("attchmntFile") or "",
+                        "desc": desc,
+                        "attchmntText": txt,
+                        "exchange": "NSE",
+                    })
+        except Exception as _e_ann:
+            logger.debug(f"[NSE] Market sweep announcements error: {_e_ann}")
+
+        for s, flist in market_filings.items():
+            self._discovered_cache[s] = flist
+            self.filing_records_discovered += len(flist)
+
+        return market_filings
+
     def deduplicate_and_filter_filings(self, filings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Filters filings for active IndAS XBRL document URLs (.xml) and selects the latest
