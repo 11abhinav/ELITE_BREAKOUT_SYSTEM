@@ -1134,27 +1134,24 @@ class FinancialFilingWatcher:
                 # If a symbol previously attempted bootstrap and local raw data has >= 6 annual filings,
                 # do not infinitely re-attempt full backfill on every run for unresolvable exchange gaps.
                 prev_sym_state = self.state.get(sym_u, {})
-                already_bootstrapped = (
-                    bool(prev_sym_state.get("bootstrap_completed", False))
-                    or (local_annual_count >= 6 and len(sorted_annual_years) >= 6)
-                )
+                already_bootstrapped = bool(prev_sym_state.get("bootstrap_completed", False))
 
                 needs_bootstrap = (
                     force_backfill
                     or has_corrupt_or_empty_raw
                     or (len(sorted_annual_years) == 0)
+                    or has_intermediate_gap
+                    or has_tail_annual_gap
+                    or (freshness not in ("FRESH", "VALID"))
+                    or snap_gap_flag
+                    or not snap_annual
+                    or not latest_local_period
                     or (not already_bootstrapped and (
-                        has_intermediate_gap
-                        or has_tail_annual_gap
-                        or has_quarterly_gap
+                        has_quarterly_gap
                         or (depth_reason is not None)
                         or has_missing_bs_facts
                         or has_missing_canonical_metrics
                         or snap_row is None
-                        or (freshness not in ("FRESH", "VALID"))
-                        or not snap_annual
-                        or not latest_local_period
-                        or snap_gap_flag
                     ))
                 )
 
