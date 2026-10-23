@@ -30,15 +30,6 @@ from datetime import timedelta
 import uuid
 import database
 
-# Ensure tzcache writable location before importing yfinance (robust import to support different cwd)
-try:
-    import yf_bootstrap
-except Exception:
-    pass
-import yfinance as yf
-from yf_rate_limiter import CircuitOpenError, acquire as yf_acquire, release as yf_release
-from data_fetch_status import mark_success, mark_failure
-
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 from trading_calendar import sanitize_market_session_timestamp
@@ -1238,6 +1229,10 @@ def serve_cached_html(file_path: str, extra_headers: dict = None):
 @app.route("/")
 def index():
     """Serve the dashboard HTML if logged in; if not logged in, serve login page directly with 200 OK for healthchecks."""
+    ua = request.headers.get("User-Agent", "").lower()
+    if any(h in ua for h in ("curl", "wget", "go-http-client", "docker", "coolify", "healthcheck", "uptime", "probe")):
+        return jsonify({"status": "ok", "service": "elite-breakout-dashboard", "time_ist": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")}), 200
+
     if 'user_id' not in session:
         login_path = get_html_path("login.html")
         cached_login = serve_cached_html(login_path)
@@ -7146,7 +7141,17 @@ def _start_port_forwarder(src_port, dst_port):
                 client_sock, _ = server.accept()
                 try:
                     target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    target_sock.connect(("127.0.0.1", dst_port))
+                    connected = False
+                    for _ in range(30):
+                        try:
+                            target_sock.connect(("127.0.0.1", dst_port))
+                            connected = True
+                            break
+                        except Exception:
+                            time.sleep(0.1)
+                    if not connected:
+                        client_sock.close()
+                        continue
                     threading.Thread(target=_forward, args=(client_sock, target_sock), daemon=True).start()
                     threading.Thread(target=_forward, args=(target_sock, client_sock), daemon=True).start()
                 except Exception:

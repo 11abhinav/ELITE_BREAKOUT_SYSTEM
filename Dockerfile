@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 # Force glibc to limit memory arenas to reduce native memory fragmentation (RSS bloat)
 ENV MALLOC_ARENA_MAX=2
+ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH="/app:/app/app"
 WORKDIR /app
 
@@ -21,7 +22,7 @@ RUN cp -r /app/data /app/data_seed 2>/dev/null || true
 EXPOSE 8000
 EXPOSE 8080
 
-HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
-  CMD curl -sf http://127.0.0.1:8000/health || wget -qO- http://127.0.0.1:8000/health >/dev/null || exit 1
+HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=10 \
+  CMD curl -sf http://127.0.0.1:8000/ || curl -sf http://127.0.0.1:8000/health || wget -qO- http://127.0.0.1:8000/ >/dev/null || exit 1
 
 CMD ["bash", "start.sh"]

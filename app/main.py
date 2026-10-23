@@ -8,10 +8,35 @@
 import sys
 import os
 os.environ["OMP_NUM_THREADS"] = "1"  # Prevent pyarrow/OpenMP deadlocks in background threads
+os.environ["PYTHONUNBUFFERED"] = "1"
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(APP_DIR, ".."))
+for p in (APP_DIR, ROOT_DIR):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S", stream=sys.stdout)
+
+# 0. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
+# Must start before any database connections, network requests, or heavy module imports
+if "--worker" not in sys.argv:
+    try:
+        from dashboard_server import start_dashboard_server_async
+        start_dashboard_server_async()
+        logging.getLogger(__name__).info("🌐 [BOOT] Dashboard server started asynchronously — ports 8000/8080/80 open instantly for healthchecks!")
+    except Exception as _d_err:
+        logging.getLogger(__name__).error(f"❌ Could not start dashboard server: {_d_err}")
+
 import time
 import json
 import threading
-import logging
 import traceback
 import signal
 import socket
@@ -20,11 +45,6 @@ from zoneinfo import ZoneInfo
 import random
 from typing import Optional, Dict, Any, List
 import pandas as pd
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(APP_DIR, ".."))
-for p in (APP_DIR, ROOT_DIR):
-    if p not in sys.path:
-        sys.path.insert(0, p)
 
 from memory_profiler import MemoryProfiler
 from forensics import forensics
@@ -38,21 +58,9 @@ def ist_converter(*args):
     return datetime.fromtimestamp(timestamp, IST).timetuple()
 
 logging.Formatter.converter = ist_converter
-# [VERSION: LOGGING_STDOUT_FIX_v1.0] Route logs to stdout to prevent Railway interpreting all INFO as ERROR
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S", stream=sys.stdout)
 
 from db_logger import install_db_logger
 install_db_logger()
-
-# 0. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
-# Must start before any database connections, network requests, or heavy module imports
-if "--worker" not in sys.argv:
-    try:
-        from dashboard_server import start_dashboard_server_async
-        start_dashboard_server_async()
-        logging.getLogger(__name__).info("🌐 [BOOT] Dashboard server started asynchronously — ports 8000/8080/80 open instantly for healthchecks!")
-    except Exception as _d_err:
-        logging.getLogger(__name__).error(f"❌ Could not start dashboard server: {_d_err}")
 
 # [VERSION: PERF_PROFILER_v1.0] Capture process startup timestamp for boot latency telemetry.
 # This lets us log how long the full boot sequence takes (imports, DB init, diagnostics).
