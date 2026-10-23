@@ -1158,6 +1158,7 @@ class FinancialFilingWatcher:
                     ))
                 )
 
+                has_newer_sweep_filing = False
                 if needs_bootstrap:
                     min_cutoff = get_historical_cutoff_date(as_of_date)
                     reason_desc = (
@@ -1181,7 +1182,6 @@ class FinancialFilingWatcher:
                 else:
                     # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
                     # ── FAST 0ms MARKET-SWEEP EVALUATION ──
-                    has_newer_sweep_filing = False
                     if market_sweep_ok and not force_backfill:
                         sym_sweep_items = market_sweep_filings.get(sym_u, [])
                         for it in sym_sweep_items:
