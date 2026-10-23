@@ -909,6 +909,25 @@ class FinancialFilingWatcher:
                     f"⚡ [filling scanner] Market-wide announcement sweep complete in ~2s: "
                     f"Found {total_market_disclosures} disclosures across {len(market_sweep_filings)} market symbols."
                 )
+                try:
+                    try:
+                        from app.financial_data_integrity import record_exchange_watermark
+                    except ImportError:
+                        from financial_data_integrity import record_exchange_watermark
+                    _now_iso = datetime.now().isoformat()
+                    max_sweep_bcast = None
+                    for s_items in market_sweep_filings.values():
+                        for it in s_items:
+                            b_ts = it.get("broadCastDate") or it.get("filingDate") or it.get("broadcast_timestamp")
+                            if b_ts:
+                                b_str = str(b_ts)
+                                if not max_sweep_bcast or b_str > max_sweep_bcast:
+                                    max_sweep_bcast = b_str
+                    record_exchange_watermark(source_name="NSE", last_successful_check_at=_now_iso, latest_filing_timestamp=max_sweep_bcast)
+                    record_exchange_watermark(source_name="BSE", last_successful_check_at=_now_iso)
+                    logger.info(f"🛡️ [WATERMARK] Recorded fresh exchange watermarks (NSE latest={max_sweep_bcast}, checked={_now_iso}).")
+                except Exception as _wm_err:
+                    logger.debug(f"[filling scanner] Watermark update note: {_wm_err}")
         except Exception as _sweep_err:
             logger.warning(f"⚠️ [filling scanner] Market sweep notice: {_sweep_err}")
 
@@ -1162,10 +1181,9 @@ class FinancialFilingWatcher:
                 else:
                     # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
                     # ── FAST 0ms MARKET-SWEEP EVALUATION ──
-                    # If market sweep succeeded and found no new filings for sym_u, skip in 0ms!
+                    has_newer_sweep_filing = False
                     if market_sweep_ok and not force_backfill:
                         sym_sweep_items = market_sweep_filings.get(sym_u, [])
-                        has_newer_sweep_filing = False
                         for it in sym_sweep_items:
                             p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
                             if p_end and latest_local_period and p_end > latest_local_period:
@@ -1200,11 +1218,16 @@ class FinancialFilingWatcher:
                                 f"Skipping exchange fetch in 0ms."
                             )
                             return
+                        else:
+                            logger.info(
+                                f"📢 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                                f"NEW FILING DISCOVERED IN MARKET SWEEP! (latest_local={latest_local_period}). Ingesting new disclosure..."
+                            )
 
-                    # Fallback check: if already checked recently within 24h or today
-                    last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
-                    polled_recently = False
-                    if not force_backfill:
+                    # Fallback check: ONLY when market_sweep failed to contact exchange AND no newer sweep filing exists
+                    if not market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
+                        last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
+                        polled_recently = False
                         if last_polled:
                             try:
                                 from dateutil.parser import parse as _parse_dt
@@ -1226,15 +1249,15 @@ class FinancialFilingWatcher:
                             except Exception:
                                 pass
 
-                    if polled_recently:
-                        with counter_lock:
-                            skipped_complete_count[0] += 1
-                        logger.info(
-                            f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                            f"DATA COMPLETE & CHECKED TODAY (latest_period={latest_local_period}, annual_count={local_annual_count}). "
-                            f"Skipping exchange fetch in 0ms."
-                        )
-                        return
+                        if polled_recently:
+                            with counter_lock:
+                                skipped_complete_count[0] += 1
+                            logger.info(
+                                f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                                f"DATA COMPLETE & CHECKED TODAY (latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                                f"Skipping exchange fetch in 0ms."
+                            )
+                            return
 
                     # In next run, symbol has complete history: ONLY check for new filings!
                     # min_cutoff set to latest_local_period ensures we do NOT refetch past years (2020..2025).
@@ -1248,6 +1271,18 @@ class FinancialFilingWatcher:
                 raw_filings_list: List[Dict[str, Any]] = []
                 nse_fetch_count = 0
                 nse_disc_count = 0
+
+                # Pre-populate raw_filings_list directly with any newer disclosures discovered in market sweep!
+                if market_sweep_ok and has_newer_sweep_filing:
+                    for it in market_sweep_filings.get(sym_u, []):
+                        p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
+                        if p_end and p_end >= min_cutoff:
+                            r_copy = dict(it)
+                            r_copy["exchange"] = "NSE"
+                            r_copy["period_end_date"] = p_end
+                            raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
+                            r_copy["statement_type"] = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
+                            raw_filings_list.append(r_copy)
 
                 # 1. Poll NSE XBRL / Corporate Results (Primary Source)
                 if nse_prov:
@@ -1469,6 +1504,16 @@ class FinancialFilingWatcher:
                 if sym_new_events > 0:
                     with events_lock:
                         pending_rebuild_syms.add(sym_u)
+                    try:
+                        try:
+                            from app.financial_data_integrity import record_exchange_watermark
+                        except ImportError:
+                            from financial_data_integrity import record_exchange_watermark
+                        _now_iso_sym = datetime.now().isoformat()
+                        _latest_bcast = max([str(it.get("broadCastDate") or it.get("filingDate") or it.get("period_end_date") or "") for it in by_statement.values()] or [""])
+                        record_exchange_watermark(source_name="NSE", last_successful_check_at=_now_iso_sym, latest_filing_timestamp=_latest_bcast or None, symbol=sym_u)
+                    except Exception as _sym_wm_err:
+                        logger.debug(f"[filling scanner] Symbol watermark note for {sym_u}: {_sym_wm_err}")
                     logger.info(
                         f"✨ [filling scanner] {sym_u}: Ingested {sym_new_events} new/amended disclosures "
                         f"(NSE_records={nse_fetch_count}, NSE_discovered={nse_disc_count}, BSE={bse_count})."
@@ -1698,6 +1743,19 @@ class FinancialFilingWatcher:
                 self.invalidate_and_rebuild_snapshot(symbol=unrebuilt, as_of_date=as_of_date)
             except Exception as auto_rb_err:
                 logger.warning(f"[filling scanner] Final snapshot rebuild error: {auto_rb_err}")
+
+        # Update final exchange watermarks for both NSE and BSE to guarantee FEED_HEARTBEAT_SLA freshness
+        try:
+            try:
+                from app.financial_data_integrity import record_exchange_watermark
+            except ImportError:
+                from financial_data_integrity import record_exchange_watermark
+            _now_iso_final = datetime.now().isoformat()
+            record_exchange_watermark(source_name="NSE", last_successful_check_at=_now_iso_final)
+            record_exchange_watermark(source_name="BSE", last_successful_check_at=_now_iso_final)
+            logger.info("🛡️ [WATERMARK] Final multi-source exchange watermarks recorded successfully.")
+        except Exception as _wm_f_err:
+            logger.debug(f"[filling scanner] Final exchange watermark update note: {_wm_f_err}")
 
         return discovered_events
 
