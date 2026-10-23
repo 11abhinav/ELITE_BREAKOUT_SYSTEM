@@ -10245,6 +10245,90 @@ def clear_unified_stock_data_health_cache() -> None:
         _UNIFIED_AUDIT_CACHE_TS = 0.0
 
 
+def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]], reason: str) -> bool:
+    """
+    Evaluates whether a symbol currently recorded in cool-off has been restored via data recovery
+    or possesses a structural exemption, allowing it to be immediately purged and certified FRESH.
+    """
+    if not snap_item:
+        return False
+
+    import pandas as pd
+    r_low = str(reason or "").lower()
+    sym_u = str(sym or "").strip().upper()
+
+    # 1. Structural base year net loss exemptions (mathematically undefined 5Y PAT CAGR)
+    if sym_u in ("MARSONS", "SANGHVIMOV", "SPARC") or "base year net loss" in r_low or bool(snap_item.get("pat_base_year_loss", False)):
+        return True
+
+    l_age = float(snap_item.get("listing_age_years") or 99.0)
+    ann_c = int(snap_item.get("annual_filing_count") or snap_item.get("annual_count") or snap_item.get("filings_count") or 99)
+
+    # 2. Share Dilution 3Y (listing age < 3.0Y, < 4 annual filings, or metric present)
+    if "share_dilution_3y" in r_low or "dilution" in r_low:
+        if l_age < 3.0 or ann_c < 4:
+            return True
+        sd_val = snap_item.get("share_dilution_3y")
+        sd_pct = snap_item.get("share_dilution_3y_pct")
+        if (sd_val is not None and not pd.isna(sd_val)) or (sd_pct is not None and not pd.isna(sd_pct)):
+            return True
+
+    # 3. 5Y Sales / PAT CAGR (listing age < 5.0Y, < 6 annual filings, or metrics present)
+    if ("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and "share_dilution_3y" not in r_low:
+        if l_age < 5.0 or ann_c < 6:
+            return True
+        s_cagr = snap_item.get("sales_cagr_5y")
+        p_cagr = snap_item.get("pat_cagr_5y")
+        if s_cagr is not None and not pd.isna(s_cagr) and p_cagr is not None and not pd.isna(p_cagr):
+            return True
+
+    # Helper to check numeric validity
+    def _is_num_valid(v):
+        if v is None or pd.isna(v):
+            return False
+        try:
+            fv = float(v)
+            return fv > -900.0 and fv != 9999.0
+        except Exception:
+            return False
+
+    has_ev_ebitda = _is_num_valid(snap_item.get("current_ev_ebitda")) or _is_num_valid(snap_item.get("ev_ebitda"))
+    has_pe = _is_num_valid(snap_item.get("current_pe")) or _is_num_valid(snap_item.get("pe"))
+    has_roce = _is_num_valid(snap_item.get("roce_5y_avg")) or _is_num_valid(snap_item.get("roce"))
+    has_de = _is_num_valid(snap_item.get("debt_to_equity")) or _is_num_valid(snap_item.get("d_e"))
+    has_cfo_pat = _is_num_valid(snap_item.get("cfo_pat_5y_ratio")) or _is_num_valid(snap_item.get("cfo_pat"))
+
+    # 4. Valuation restoration (EV/EBITDA or PE)
+    if ("current_ev_ebitda" in r_low or "ev_ebitda" in r_low) and has_ev_ebitda:
+        return True
+
+    if ("current_pe" in r_low or "pe_missing" in r_low or ":pe" in r_low) and has_pe:
+        return True
+
+    # 5. ROCE restoration
+    if "roce" in r_low and has_roce:
+        return True
+
+    # 6. Quality Value Recovery data insufficiency (restored or falsely marked by transient price history)
+    if "recovery_data_insufficient" in r_low:
+        # If the stock has valid ROCE, Debt/Equity, and at least one valuation metric, its data is complete
+        if has_roce and has_de and (has_ev_ebitda or has_pe):
+            return True
+
+    # 7. Price history / price data insufficiency
+    if ("price_history" in r_low or "price_data" in r_low or "stale_price" in r_low) and _is_num_valid(snap_item.get("cmp")):
+        if has_roce and has_de:
+            return True
+
+    # 8. Debt / CFO-PAT restoration
+    if ("debt" in r_low or "d_e" in r_low) and has_de:
+        return True
+    if "cfo_pat" in r_low and has_cfo_pat:
+        return True
+
+    return False
+
+
 def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = False) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Unified high-performance single-pass audit of the tracked universe:
@@ -10317,25 +10401,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
 
                         # Check structural exemptions or restored status
                         snap_item = snap_lookup.get(sym)
-                        if snap_item:
-                            l_age = float(snap_item.get("listing_age_years") or 99.0)
-                            ann_c = int(snap_item.get("annual_filing_count") or snap_item.get("annual_count") or snap_item.get("filings_count") or 99)
-                            r_low = reason.lower()
-                            if "share_dilution_3y" in r_low and (l_age < 3.0 or ann_c < 4):
-                                to_purge_symbols.append(sym)
-                                continue
-                            if ("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and (l_age < 5.0 or ann_c < 6) and "share_dilution_3y" not in r_low:
-                                to_purge_symbols.append(sym)
-                                continue
-                            if "base year net loss" in r_low or bool(snap_item.get("pat_base_year_loss", False)):
-                                to_purge_symbols.append(sym)
-                                continue
-                            if "share_dilution_3y" in r_low and snap_item.get("share_dilution_3y") is not None and not pd.isna(snap_item.get("share_dilution_3y")):
-                                to_purge_symbols.append(sym)
-                                continue
-                            if "roce" in r_low and snap_item.get("roce_5y_avg") is not None and not pd.isna(snap_item.get("roce_5y_avg")):
-                                to_purge_symbols.append(sym)
-                                continue
+                        if _is_symbol_restored_or_exempt(sym, snap_item, reason):
+                            to_purge_symbols.append(sym)
+                            continue
 
                         days_left = round((until_dt - now_dt).total_seconds() / 86400.0, 1) if until_dt else 7.0
                         sm_info = sec_master.get(sym, {})
@@ -10365,6 +10433,11 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                             conn.commit()
                         except Exception:
                             pass
+                        with _LOCAL_COOLOFF_LOCK:
+                            for p_sym in unique_purges:
+                                to_del_keys = [k for k in _LOCAL_COOLOFF_CACHE if k[0] == p_sym]
+                                for k in to_del_keys:
+                                    _LOCAL_COOLOFF_CACHE.pop(k, None)
     except Exception as e:
         logger.debug(f"[UNIFIED_HEALTH_AUDIT] DB cooloff query note: {e}")
 
@@ -10376,12 +10449,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             if until and until > now_dt:
                 snap_item = snap_lookup.get(sym)
                 reason = rec.get("reason", "DATA_STALE")
-                if snap_item:
-                    l_age = float(snap_item.get("listing_age_years") or 99.0)
-                    r_low = reason.lower()
-                    if ("share_dilution_3y" in r_low and l_age < 3.0) or (("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and l_age < 5.0 and "share_dilution_3y" not in r_low):
-                        local_keys_to_del.append((sym, scan))
-                        continue
+                if _is_symbol_restored_or_exempt(sym, snap_item, reason):
+                    local_keys_to_del.append((sym, scan))
+                    continue
                 if sym not in stale_map:
                     pf = rec.get("provider_failures")
                     days_left = round((until - now_dt).total_seconds() / 86400.0, 1)

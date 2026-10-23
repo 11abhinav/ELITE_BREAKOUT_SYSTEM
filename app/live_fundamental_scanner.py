@@ -7914,11 +7914,12 @@ class QualityValueRecoveryScanner:
                             if 'STALE_PRICE_DATA' in rejection_reasons:
                                 stale_data_count += 1
 
-                            data_reasons = [
+                            # Only enroll into 7-day cooloff if actual fundamental metrics are missing
+                            fund_data_reasons = [
                                 r for r in rejection_reasons
-                                if r in ('QUALITY_DATA_INSUFFICIENT', 'VALUATION_DATA_INSUFFICIENT', 'PRICE_DATA_INSUFFICIENT', 'PRICE_HISTORY_MISSING', 'STALE_PRICE_DATA')
+                                if r in ('QUALITY_DATA_INSUFFICIENT', 'VALUATION_DATA_INSUFFICIENT')
                             ]
-                            if data_reasons and not bool(row.get("is_structural_ineligible", False)):
+                            if fund_data_reasons and not bool(row.get("is_structural_ineligible", False)):
                                 try:
                                     try:
                                         from database import add_symbol_to_cooloff
@@ -7926,7 +7927,7 @@ class QualityValueRecoveryScanner:
                                         from app.database import add_symbol_to_cooloff
                                     add_symbol_to_cooloff(
                                         symbol=sym,
-                                        reason=f"RECOVERY_DATA_INSUFFICIENT:{','.join(data_reasons)}",
+                                        reason=f"RECOVERY_DATA_INSUFFICIENT:{','.join(fund_data_reasons)}",
                                         scanner=self.strategy_id,
                                         duration_days=7
                                     )
