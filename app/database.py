@@ -9893,16 +9893,18 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
         if _AUDIT_RAW_FILINGS_CACHE and (curr_dir_mtime == _AUDIT_RAW_DIR_MTIME or (now - _AUDIT_RAW_FILINGS_LAST_SCAN < max_age_sec)):
             return _AUDIT_RAW_FILINGS_CACHE
 
-        # 2. Fast disk manifest hit: load in ~3ms
+        # 2. Fast disk manifest hit: load in ~3ms if schema version is current
         if not _AUDIT_RAW_FILINGS_CACHE and manifest_p.exists():
             try:
                 with open(manifest_p, "r", encoding="utf-8") as _mf:
                     _m_data = json.load(_mf)
                 if isinstance(_m_data, dict) and len(_m_data) > 0:
-                    _AUDIT_RAW_FILINGS_CACHE = _m_data
-                    _AUDIT_RAW_DIR_MTIME = curr_dir_mtime
-                    _AUDIT_RAW_FILINGS_LAST_SCAN = now
-                    return _AUDIT_RAW_FILINGS_CACHE
+                    sample_entry = next(iter(_m_data.values())) if _m_data else None
+                    if sample_entry and "null_filings" in sample_entry:
+                        _AUDIT_RAW_FILINGS_CACHE = _m_data
+                        _AUDIT_RAW_DIR_MTIME = curr_dir_mtime
+                        _AUDIT_RAW_FILINGS_LAST_SCAN = now
+                        return _AUDIT_RAW_FILINGS_CACHE
             except Exception:
                 pass
 
@@ -9914,7 +9916,7 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
             try:
                 mtime = p.stat().st_mtime
                 cached = _AUDIT_RAW_FILINGS_CACHE.get(sym)
-                if not cached or cached.get("mtime") != mtime:
+                if not cached or cached.get("mtime") != mtime or "null_filings" not in cached:
                     to_parse.append((p, sym, mtime))
             except Exception:
                 to_parse.append((p, sym, 0))
@@ -9938,16 +9940,61 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                             stt = str(stmt.get("statement_type") or "A")[:1]
                             if pend:
                                 recent.append(f"{pend} ({stt})")
+
+                        null_filings = []
+                        annual_years = []
+                        has_missing_bs = False
+                        latest_annual = None
+
+                        for stmt in data:
+                            p_end = str(stmt.get("period_end_date") or "")[:10]
+                            stt = str(stmt.get("statement_type") or stmt.get("period") or "").upper()
+                            is_ann = ("ANNUAL" in stt or "YEAR" in stt or "FY" in stt or (p_end.endswith("-03-31") and "QUARTER" not in stt and "Q" not in stt))
+                            if is_ann and len(p_end) >= 4:
+                                try:
+                                    yr = int(p_end[:4])
+                                    if yr not in annual_years:
+                                        annual_years.append(yr)
+                                except Exception:
+                                    pass
+                                if latest_annual is None or p_end > str(latest_annual.get("period_end_date", "")):
+                                    latest_annual = stmt
+
+                            # Check if facts are null in recent statements (e.g. within last 3 years)
+                            if p_end >= "2024-01-01":
+                                rev = stmt.get("revenue")
+                                np = stmt.get("net_profit")
+                                if (rev is None or pd.isna(rev)) and (np is None or pd.isna(np)):
+                                    fid = stmt.get("filing_id") or ""
+                                    null_filings.append(f"{p_end}:{fid}" if fid else p_end)
+
+                        if latest_annual:
+                            d = latest_annual.get("total_debt") if latest_annual.get("total_debt") is not None else latest_annual.get("debt")
+                            e = latest_annual.get("total_equity") if latest_annual.get("total_equity") is not None else latest_annual.get("equity")
+                            if (d is None or pd.isna(d)) and (e is None or pd.isna(e)):
+                                has_missing_bs = True
+
+                        annual_years.sort()
+                        recent_annual_years = [y for y in annual_years if y >= 2020]
+                        gaps = []
+                        for i in range(len(recent_annual_years) - 1):
+                            if recent_annual_years[i + 1] - recent_annual_years[i] > 1:
+                                gaps.extend(range(recent_annual_years[i] + 1, recent_annual_years[i + 1]))
+
                         return sym, {
                             "count": len(data),
                             "latest": latest,
                             "mtime": mtime,
-                            "recent": recent
+                            "recent": recent,
+                            "null_filings": null_filings,
+                            "annual_years": annual_years,
+                            "gaps": gaps,
+                            "has_missing_bs": has_missing_bs,
                         }
                     else:
-                        return sym, {"count": 0, "latest": "Empty", "mtime": mtime, "recent": []}
+                        return sym, {"count": 0, "latest": "Empty", "mtime": mtime, "recent": [], "null_filings": [], "annual_years": [], "gaps": [], "has_missing_bs": False}
                 except Exception:
-                    return sym, {"count": 0, "latest": "Error", "mtime": 0, "recent": []}
+                    return sym, {"count": 0, "latest": "Error", "mtime": 0, "recent": [], "null_filings": [], "annual_years": [], "gaps": [], "has_missing_bs": False}
 
             workers = min(16, max(4, (os.cpu_count() or 4) * 2))
             with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -10184,21 +10231,72 @@ def _classify_reason_category(reason: str, failures: Any = None) -> str:
     return "OTHER"
 
 
-def _format_missing_data(reason: str, failures: Any, symbol: str = "") -> str:
+def _format_missing_data(
+    reason: str,
+    failures: Any,
+    symbol: str = "",
+    raw_info: Optional[Dict[str, Any]] = None,
+    snap_item: Optional[Dict[str, Any]] = None,
+) -> str:
     r_upper = str(reason or "").upper()
     pf_str = str(failures or "")
     sym_u = str(symbol or "").strip().upper()
 
-    if sym_u in ("SANGHVIMOV", "SPARC", "MARSONS"):
+    # 1. Structural base year net loss exemptions (mathematically undefined 5Y PAT CAGR)
+    if sym_u in ("SANGHVIMOV", "SPARC", "MARSONS") or "BASE YEAR NET LOSS" in r_upper or (snap_item and bool(snap_item.get("pat_base_year_loss"))):
         return "Base year net loss: 5Y PAT CAGR is mathematically undefined from negative base (not missing exchange history)."
-    elif sym_u in ("GABRIEL", "STYRENIX"):
-        return "Local raw cache backfill pending: Full FY20–FY26 filings exist on exchange; local cache has 3–4 annual periods."
-    elif sym_u in ("HARIOMPIPE", "QPOWER"):
-        return "Listing age < 5 years (listed 2022/2025): 5Y exchange annual series incomplete."
-    elif "INSUFFICIENT_HISTORICAL_DEPTH" in pf_str or "INSUFFICIENT_HISTORICAL_DEPTH" in r_upper:
+
+    # 2. Listing age < 5 years (exchange series incomplete)
+    l_age = float(snap_item.get("listing_age_years") or 99.0) if snap_item else 99.0
+    if sym_u in ("HARIOMPIPE", "QPOWER") or (l_age < 5.0 and ("CAGR" in r_upper or "DEPTH" in r_upper)):
+        return f"Listing age < 5 years ({l_age:.1f}Y): 5Y exchange annual series incomplete."
+
+    # 3. Specific raw cache inspections if available
+    if raw_info and isinstance(raw_info, dict):
+        null_filings = raw_info.get("null_filings", [])
+        gaps = raw_info.get("gaps", [])
+        has_missing_bs = raw_info.get("has_missing_bs", False)
+        ann_years = raw_info.get("annual_years", [])
+
+        # A. Exchange announcement exists on disk, but machine-readable facts are null/unparsed (e.g. MOIL)
+        if null_filings and (len(ann_years) < 6 or "STALE" in r_upper or "LOCAL_CACHE" in r_upper):
+            last_null = null_filings[-1]
+            p_end = last_null.split(":", 1)[0]
+            fid = last_null.split(":", 1)[1] if ":" in last_null else ""
+            fid_desc = f" (Filing ID: {fid})" if fid else ""
+            return f"Exchange filing announced for {p_end}{fid_desc}, but machine-readable XBRL facts are unparsed or null (pending XBRL parse)."
+
+        # B. Intermediate annual gap detected (e.g. GUJGASLTD)
+        if gaps:
+            min_y = min(gaps) - 1
+            max_y = max(gaps) + 1
+            return f"Historical filing gap: Missing intermediate FY {gaps} annual filing on disk between FY{min_y} and FY{max_y}."
+
+        # C. Missing balance sheet facts in disclosures (e.g. MANYAVAR, RAILTEL)
+        if has_missing_bs and ("RECOVERY_DATA_INSUFFICIENT" in r_upper or "DEBT" in r_upper or "EQUITY" in r_upper or "QUALITY" in r_upper):
+            return "Income statement present, but Balance Sheet Debt/Equity facts missing from latest exchange disclosure."
+
+        # D. Incomplete annual depth (e.g. BFUTILITIE, CERA, VSSL, GULPOLY, HATSUN, JYOTHYLAB)
+        if ann_years and max(ann_years) < 2026 and ("STALE" in r_upper or "LOCAL_CACHE" in r_upper or "DEPTH" in r_upper):
+            return f"Local disk files end at FY{max(ann_years)} ({len(ann_years)} annual periods on disk); pending FY26 annual audited exchange backfill."
+
+    # 4. Valuation missing
+    if "CURRENT_EV_EBITDA_MISSING" in r_upper or "DATA_INSUFFICIENT_VALUATION" in r_upper:
+        return "Valuation missing: EV/EBITDA or PE unpopulated from Upstox key ratios."
+
+    # 5. Price history
+    if "PRICE_HISTORY" in r_upper or "INSUFFICIENT_LOOKBACK" in r_upper:
+        return "1D OHLCV market price history missing or insufficient lookback (<50 bars)."
+
+    # 6. Quality Value Recovery data insufficiency
+    if "RECOVERY_DATA_INSUFFICIENT" in r_upper:
+        return "Quality Value Recovery metrics missing (drawdown, valuation compression, or debt/equity)."
+
+    # 7. Other general rules
+    if "INSUFFICIENT_HISTORICAL_DEPTH" in pf_str or "INSUFFICIENT_HISTORICAL_DEPTH" in r_upper:
         return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files need historical backfill."
     elif "QUARTERLY" in r_upper or "QUARTERLY" in pf_str:
-        return "Local raw cache backfill pending: Latest annual filing present on disk; pending recent quarterly results (Q1 FY27 ended 2026-06-30)."
+        return "Local raw cache backfill pending: Latest annual filing present on disk; pending recent quarterly results."
     elif "PIT_STALENESS" in r_upper or "PIT_DATA_STALE" in r_upper:
         import re
         m = re.search(r"PIT_STALENESS_([0-9\.]+)Y", r_upper)
@@ -10209,12 +10307,6 @@ def _format_missing_data(reason: str, failures: Any, symbol: str = "") -> str:
             else:
                 return f"Local raw cache backfill pending: Latest annual filing on disk is {y:.1f}Y old; pending recent SEBI LODR 33 quarterly results."
         return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files require backfill."
-    elif "PRICE_HISTORY" in r_upper or "INSUFFICIENT_LOOKBACK" in r_upper:
-        return "1D OHLCV market price history missing or insufficient lookback (<50 bars)."
-    elif "APPROVED_PROVIDERS_EXHAUSTED" in r_upper or "FUNDAMENTAL_DATA_INSUFFICIENT" in r_upper or "PIT_DATA_MISSING" in r_upper:
-        return "Core fundamental metrics (ROCE, Sales/PAT CAGR, OCF) missing from verified exchange XBRL."
-    elif "RECOVERY_DATA_INSUFFICIENT" in r_upper:
-        return "Quality Value Recovery metrics missing (drawdown, valuation compression, or debt/equity)."
     elif "STALE_PRICE_DATA" in r_upper:
         return "CMP quote is stale or missing live market session closing bar."
     elif "FILING_GAP" in r_upper:
@@ -10410,13 +10502,14 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                         comp_name = sm_info.get("company_name", sym)
                         isin_val = sm_info.get("isin", "")
 
+                        raw_info = raw_cache.get(sym)
                         stale_map[sym] = {
                             "symbol": sym,
                             "company_name": comp_name,
                             "isin": isin_val,
                             "scanner": scan,
                             "reason": reason,
-                            "missing_data_summary": _format_missing_data(reason, pf, sym),
+                            "missing_data_summary": _format_missing_data(reason, pf, sym, raw_info=raw_info, snap_item=snap_item),
                             "provider_failures": pf,
                             "cooloff_start_at": start_at.isoformat() if hasattr(start_at, "isoformat") else str(start_at),
                             "cooloff_until": until_dt.isoformat() if hasattr(until_dt, "isoformat") else str(until_dt),
@@ -10458,13 +10551,14 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     sm_info = sec_master.get(sym, {})
                     comp_name = sm_info.get("company_name", sym)
                     isin_val = sm_info.get("isin", "")
+                    raw_info = raw_cache.get(sym)
                     stale_map[sym] = {
                         "symbol": sym,
                         "company_name": comp_name,
                         "isin": isin_val,
                         "scanner": scan,
                         "reason": reason,
-                        "missing_data_summary": _format_missing_data(reason, pf, sym),
+                        "missing_data_summary": _format_missing_data(reason, pf, sym, raw_info=raw_info, snap_item=snap_item),
                         "provider_failures": pf,
                         "cooloff_start_at": rec.get("cooloff_start_at", now_dt).isoformat() if hasattr(rec.get("cooloff_start_at"), "isoformat") else str(rec.get("cooloff_start_at")),
                         "cooloff_until": until.isoformat() if hasattr(until, "isoformat") else str(until),
@@ -10557,7 +10651,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     "company_name": comp_name,
                     "scanner": "FUNDAMENTAL",
                     "reason": reason,
-                    "missing_data_summary": _format_missing_data(reason, row.get("filing_gaps"), sym),
+                    "missing_data_summary": _format_missing_data(reason, row.get("filing_gaps"), sym, raw_info=raw_info, snap_item=row),
                     "provider_failures": str(row.get("filing_gaps") or ""),
                     "cooloff_start_at": str(row.get("as_of_date") or now_dt.strftime("%Y-%m-%d")),
                     "cooloff_until": (now_dt + timedelta(days=7)).isoformat(),
@@ -10618,8 +10712,10 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     status_code = "STALE_RAW_DATA"
                 else:
                     reason = f"LOCAL_CACHE_BACKFILL_PENDING ({raw_period} < {sym_mand_period})"
-                    missing_summary = f"Local raw cache backfill pending ({sym_label}). Exchange requires {sym_mand_period} (Due {sym_deadline}), but local files end at {raw_period}."
                     status_code = "STALE_LOCAL_CACHE"
+                    missing_summary = _format_missing_data(reason, "", sym, raw_info=raw_info, snap_item=row)
+                    if not missing_summary or missing_summary == reason or "not met" in missing_summary.lower():
+                        missing_summary = f"Local raw cache backfill pending ({sym_label}). Exchange requires {sym_mand_period} (Due {sym_deadline}), but local files end at {raw_period}."
 
                 stale_map[sym] = {
                     "symbol": sym,
