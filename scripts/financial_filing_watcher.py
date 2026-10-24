@@ -598,15 +598,15 @@ class FinancialFilingWatcher:
                     true_filing_date = None
                     if broadcast_time and str(broadcast_time).strip():
                         b_str = str(broadcast_time).strip()
-                        b_norm = _normalize_iso_date(b_str[:10])
+                        b_norm = _normalize_iso_date(b_str)
                         if b_norm:
                             true_filing_date = b_norm
                     if not true_filing_date and facts.get("availability_date"):
-                        true_filing_date = _normalize_iso_date(str(facts.get("availability_date"))[:10])
+                        true_filing_date = _normalize_iso_date(facts.get("availability_date"))
                     if not true_filing_date and facts.get("filingDate"):
-                        true_filing_date = _normalize_iso_date(str(facts.get("filingDate"))[:10])
+                        true_filing_date = _normalize_iso_date(facts.get("filingDate"))
                     if not true_filing_date and facts.get("filing_date"):
-                        true_filing_date = _normalize_iso_date(str(facts.get("filing_date"))[:10])
+                        true_filing_date = _normalize_iso_date(facts.get("filing_date"))
                     if not true_filing_date:
                         true_filing_date = period_end or today_ist
 
@@ -941,8 +941,6 @@ class FinancialFilingWatcher:
                     except ImportError:
                         from data_providers.nse_xbrl_provider import NseXbrlProvider
                     _tls.nse_provider = NseXbrlProvider()
-                    if market_sweep_ok and market_sweep_filings:
-                        _tls.nse_provider._discovered_cache = dict(market_sweep_filings)
                 except Exception as e:
                     logger.warning(f"[filling scanner] Could not initialize NseXbrlProvider in worker thread: {e}")
                     _tls.nse_provider = None
@@ -1284,6 +1282,8 @@ class FinancialFilingWatcher:
                 # 1. Poll NSE XBRL / Corporate Results (Primary Source)
                 if nse_prov:
                     try:
+                        if hasattr(nse_prov, "_discovered_cache") and needs_bootstrap:
+                            nse_prov._discovered_cache.pop(sym_u, None)
                         nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_cutoff)
                         if nse_records:
                             nse_fetch_count = len(nse_records)
@@ -1502,7 +1502,7 @@ class FinancialFilingWatcher:
                                 "total_equity": r.total_equity,
                                 "operating_cash_flow": getattr(r, "operating_cash_flow", None),
                                 "shares_outstanding": r.shares_outstanding,
-                                "filing_date": r.availability_date or f"{norm_p}T00:00:00",
+                                "filing_date": _normalize_iso_date(r.availability_date) or r.availability_date or f"{norm_p}T00:00:00",
                                 "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
                             })
                             logger.info(
@@ -1936,7 +1936,7 @@ class FinancialFilingWatcher:
             "operating_cash_flow": float(ocf) if ocf is not None else None,
             "shares_outstanding": float(shares) if shares is not None else None,
             # [RULE 67 CHANGE-RATIONALE: Immutable fallback to norm_period_end rather than volatile today's date]
-            "filing_date": new_item.get("filingDate") or new_item.get("filing_date") or norm_period_end,
+            "filing_date": _normalize_iso_date(new_item.get("filingDate") or new_item.get("filing_date")) or norm_period_end,
             "broadcast_timestamp": new_item.get("broadCastDate") or new_item.get("broadcast_timestamp"),
             "exchange": new_item.get("exchange", "NSE"),
             "filing_id": new_item.get("seqNumber") or new_item.get("filing_id"),
@@ -2176,7 +2176,7 @@ class FinancialFilingWatcher:
 
                 fid = f"{sym_u}_{period_end}_{st_type}_v1"
                 # [RULE 67 CHANGE-RATIONALE: Use true filing/broadcast date or period_end rather than as_of_str]
-                true_audit_fdate = _normalize_iso_date(str(item.get("filing_date") or item.get("filingDate") or item.get("broadcast_timestamp") or "")[:10]) or period_end or as_of_str
+                true_audit_fdate = _normalize_iso_date(str(item.get("filing_date") or item.get("filingDate") or item.get("broadcast_timestamp") or "")) or period_end or as_of_str
 
                 finding_dict = {
                     "filing_date": true_audit_fdate,

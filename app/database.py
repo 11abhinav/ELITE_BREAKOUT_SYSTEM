@@ -11002,7 +11002,12 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
             if isinstance(r_data, list) and len(r_data) > 0:
                 checks["has_raw_filings"] = True
                 checks["raw_filings_count"] = len(r_data)
-                latest_period = r_data[-1].get("period_end_date")
+                periods = [
+                    str(r.get("period_end_date") or "")
+                    for r in r_data
+                    if r.get("period_end_date")
+                ]
+                latest_period = max(periods) if periods else None
                 checks["latest_raw_period"] = latest_period
         except Exception:
             pass

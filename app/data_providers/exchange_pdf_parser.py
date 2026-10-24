@@ -40,13 +40,15 @@ except ImportError:
     )
 
 try:
-    from app.data_providers.nse_xbrl_provider import validate_semantic_record
+    from app.data_providers.nse_xbrl_provider import validate_semantic_record, _parse_date_to_iso
 except ImportError:
     try:
-        from data_providers.nse_xbrl_provider import validate_semantic_record
+        from data_providers.nse_xbrl_provider import validate_semantic_record, _parse_date_to_iso
     except ImportError:
         def validate_semantic_record(rec):
             return True, None
+        def _parse_date_to_iso(val):
+            return str(val)[:10] if val else None
 
 def _get_scraperapi_fetcher():
     try:
@@ -76,9 +78,12 @@ def _clean_token_number(token: str) -> Optional[float]:
     if not token:
         return None
     token = token.strip()
+    # Filter out tokens containing alphabetical letters or bracket equations like [5-6]
+    if re.search(r"[a-zA-Z]", token) or "[" in token or "]" in token:
+        return None
     is_neg = (token.startswith("(") and token.endswith(")")) or token.startswith("-")
     cleaned = re.sub(r"[^\d\.]", "", token)
-    if not cleaned:
+    if not cleaned or cleaned == ".":
         return None
     try:
         val = float(cleaned)
@@ -207,7 +212,7 @@ class ExchangePdfParser:
             # 2. Determine Unit and Multiplier to Crores
             mult = 1.0
             unit = "crore"
-            if re.search(r"in\s*lakhs|rs\.?\s*in\s*lakhs|lacs|\(in\s*lakhs\)|\(\s*in\s*lacs\s*\)|\(\s*\{in\s*lakhs\)", text, re.I):
+            if re.search(r"in\s*lakhs|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|(?:\([zt\?]?\s*in\s*lnkhs\))", text, re.I):
                 mult = 0.01  # 1 Lakh = 0.01 Crore
                 unit = "lakh"
             elif re.search(r"in\s*crores|rs\.?\s*in\s*crores|\(in\s*crores\)", text, re.I):
@@ -217,19 +222,21 @@ class ExchangePdfParser:
             # 3. Determine Period End Date
             period_end = None
             if ann_meta.get("toDate"):
-                period_end = str(ann_meta.get("toDate"))[:10]
+                period_end = _parse_date_to_iso(ann_meta.get("toDate"))
             elif ann_meta.get("period_end_date"):
-                period_end = str(ann_meta.get("period_end_date"))[:10]
+                period_end = _parse_date_to_iso(ann_meta.get("period_end_date"))
 
             if not period_end or len(period_end) != 10:
                 dm = re.search(
-                    r"(?:quarter|half\s*year|year)\s*ended\s*(?:on\s*)?(\d{1,2}(?:st|nd|rd|th)?\s+[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
+                    r"(?:quarter|half\s*year|year)\s*ended\s*(?:on\s*)?(\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
                     text,
                     re.I,
                 )
                 if dm:
                     raw_d = dm.group(1).strip()
                     clean_d = re.sub(r"(?i)(st|nd|rd|th)", "", raw_d).strip()
+                    clean_d = re.sub(r"(\d+)([a-zA-Z]+)", r"\1 \2", clean_d)
+                    clean_d = re.sub(r",", ", ", clean_d)
                     clean_d = re.sub(r"\s+", " ", clean_d)
                     for fmt in ["%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"]:
                         try:
@@ -246,7 +253,9 @@ class ExchangePdfParser:
             for line in first_lines:
                 line_low = line.lower()
                 if "statement of" in line_low:
-                    if any(k in line_low for k in ["year ended", "audited annual", "annual financial", "full year"]):
+                    if "quarter" in line_low or "half year" in line_low or "half-year" in line_low or "halfyear" in line_low:
+                        st_type = "QUARTERLY"
+                    elif any(k in line_low for k in ["year ended", "audited annual", "annual financial", "full year"]):
                         st_type = "ANNUAL"
                     break
 
@@ -261,6 +270,26 @@ class ExchangePdfParser:
             equity_cap: Optional[float] = None
             total_equity: Optional[float] = None
 
+            # Detect column headers for multi-column tables
+            col_idx = 0
+            num_cols = 1
+            target_dmy = f"{period_end[8:10]}.{period_end[5:7]}.{period_end[:4]}" if period_end else ""
+            for line in text.split("\n"):
+                dm = re.findall(r"(\d{2}[\./-]\d{2}[\./-]202\d)", line)
+                if dm and len(dm) >= 2:
+                    num_cols = len(dm)
+                    matched_col = None
+                    for idx, d_str in enumerate(dm):
+                        clean_d = d_str.replace("/", ".").replace("-", ".")
+                        if clean_d == target_dmy:
+                            matched_col = idx
+                            break
+                    if matched_col is not None:
+                        col_idx = matched_col
+                        break
+            if col_idx is None:
+                col_idx = 0
+
             # Strategy A: Line-by-line inspection (Standard inline tables where numbers are adjacent to row label)
             for line in text.split("\n"):
                 line_str = line.strip()
@@ -269,9 +298,24 @@ class ExchangePdfParser:
                 if not tokens:
                     continue
 
-                last_val = _clean_token_number(tokens[-1])
-                if last_val is None:
+                nums = []
+                for t in tokens:
+                    cl_val = _clean_token_number(t)
+                    if cl_val is not None:
+                        nums.append(cl_val)
+
+                if not nums:
                     continue
+
+                # Multi-column table: The table data columns are the LAST num_cols on the line
+                # (preceding numbers on the line are item numbering like '1', '7', notes like [5-6])
+                if len(nums) >= num_cols:
+                    last_val = nums[-num_cols + col_idx]
+                elif num_cols >= 2:
+                    # In a multi-column table, a line with fewer numbers than columns is an item label/note, not data
+                    continue
+                else:
+                    last_val = nums[-1]
 
                 if rev is None and any(k in line_lower for k in [
                     "revenue from operations", "net sales", "income from operations"
@@ -280,13 +324,15 @@ class ExchangePdfParser:
 
                 elif pat is None and any(k in line_lower for k in [
                     "profit for the period", "profit / (loss) for the period", "profit/(loss) for the period",
-                    "profit i (loss) for the period", "net profit for the period", "profit after tax",
-                    "net profit / (loss) for the period"
-                ]) and not any(k in line_lower for k in ["other comprehensive", "total comprehensive"]):
+                    "profit/ (loss) for the period", "profit/ (loss)", "profit/(loss)", "profit/ {loss)",
+                    "profit/{loss)", "profit (loss)", "net profit for the period", "profit after tax",
+                    "net profit / (loss)", "net profit/(loss)", "net profit/ (loss)", "net profit"
+                ]) and not any(k in line_lower for k in ["other comprehensive", "total comprehensive", "before", "operating"]):
                     pat = last_val * mult
 
                 elif pbt is None and any(k in line_lower for k in [
                     "profit before tax", "profit / (loss) before tax", "profit/(loss) before tax",
+                    "profit/ (loss) before tax", "profit/ (loss) before exceptional", "profit before exceptional",
                     "profit i (loss) before tax"
                 ]):
                     pbt = last_val * mult
@@ -298,9 +344,10 @@ class ExchangePdfParser:
                     finance_costs = last_val * mult
 
                 elif eps is None and any(k in line_lower for k in [
-                    "basic & diluted", "basic (in rupees)", "basic ( ~)", "basic eps", "(1) basic"
-                ]):
-                    eps = last_val
+                    "basic & diluted", "basic (in rupees)", "basic ( ~)", "basic eps", "(1) basic", "basic (", "basic(", "basic "
+                ]) and not any(k in line_lower for k in ["diluted", "share capital", "other equity"]):
+                    if 0.0 < last_val < 1000.0:
+                        eps = last_val
 
                 elif equity_cap is None and any(k in line_lower for k in [
                     "paid-up equity share capital", "equity share capital", "paid up equity"
@@ -315,7 +362,7 @@ class ExchangePdfParser:
             # Strategy B: Column Block inspection (Tables where text labels appear in one block and column values appear in another block)
             if rev is None or pat is None:
                 col_m = re.search(
-                    r"(\d{2}\.\d{2}\.202\d)\s*\n\s*\(unaudited\)\s*\n([0-9\.\n\s\-\(\)]+)",
+                    r"(\d{2}\.\d{2}\.202\d)\s*\n\s*\(?unaudited\)?\s*\n([0-9\.\n\s\-\(\)]+)",
                     text,
                     re.I,
                 )
@@ -373,7 +420,7 @@ class ExchangePdfParser:
                 shares_out = round((equity_cap * 10_000_000) / 10.0, 0)
 
             bcast_ts = str(ann_meta.get("broadCastDate") or ann_meta.get("an_dt") or f"{period_end}T12:00:00")
-            avail_dt = str(ann_meta.get("filingDate") or ann_meta.get("an_dt") or f"{period_end}")[:10]
+            avail_dt = _parse_date_to_iso(ann_meta.get("filingDate") or ann_meta.get("an_dt")) or str(period_end)
             seq_id = str(ann_meta.get("seqNumber") or ann_meta.get("seq_id") or "1")
 
             record = RawFinancialRecord(
@@ -454,7 +501,7 @@ class ExchangePdfParser:
                 continue
 
             # Period end
-            p_end = str(ann.get("period_end_date") or ann.get("toDate") or "")[:10]
+            p_end = _parse_date_to_iso(ann.get("period_end_date") or ann.get("toDate"))
             if not p_end or len(p_end) != 10:
                 desc = str(ann.get("desc") or "")
                 txt = str(ann.get("attchmntText") or "")

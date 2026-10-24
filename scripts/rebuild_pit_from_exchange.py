@@ -156,7 +156,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                         for it in f_list:
                             if not isinstance(it, dict):
                                 continue
-                            p_end = str(it.get("period_end_date") or it.get("toDate") or "")[:10]
+                            p_end_dt = _parse_date_fast(it.get("period_end_date") or it.get("toDate"))
+                            p_end = p_end_dt.isoformat() if p_end_dt else ""
                             st_type = str(it.get("statement_type") or it.get("period_type") or it.get("period") or "").upper()
                             src = str(it.get("source") or "").upper()
                             is_ann = (
@@ -180,7 +181,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     annual_map = {}
     for f in filings:
         if str(f.get("statement_type", "")).upper() == "ANNUAL":
-            p_end = str(f.get("period_end_date") or "")[:10]
+            p_end_dt = _parse_date_fast(f.get("period_end_date"))
+            p_end = p_end_dt.isoformat() if p_end_dt else ""
             if not p_end:
                 continue
             bs = str(f.get("basis") or "CONSOLIDATED").upper()
@@ -202,8 +204,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     # Filter by as-of-date PIT causality (C14)
     pit_eligible_annual = []
     for f in annual_filings:
-        pit_date_str = str(f.get("pit_eligible_from") or f.get("filing_date") or f.get("period_end_date") or "")[:10]
-        if pit_date_str and pit_date_str <= as_of_str:
+        pit_dt = _parse_date_fast(f.get("pit_eligible_from") or f.get("filing_date") or f.get("period_end_date"))
+        if pit_dt and pit_dt <= as_of:
             pit_eligible_annual.append(f)
 
     pit_eligible_annual.sort(key=lambda x: str(x.get("period_end_date", "")))
@@ -211,7 +213,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     quarterly_map = {}
     for f in filings:
         if str(f.get("statement_type", "")).upper() == "QUARTERLY":
-            p_end = str(f.get("period_end_date") or "")[:10]
+            p_end_dt = _parse_date_fast(f.get("period_end_date"))
+            p_end = p_end_dt.isoformat() if p_end_dt else ""
             if not p_end:
                 continue
             bs = str(f.get("basis") or "CONSOLIDATED").upper()
@@ -231,11 +234,11 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     quarterly_filings = sorted(list(quarterly_map.values()), key=lambda x: str(x.get("period_end_date", "")))
     pit_eligible_quarterly = []
     for f in quarterly_filings:
-        pit_date_str = str(f.get("pit_eligible_from") or f.get("filing_date") or f.get("period_end_date") or "")[:10]
-        if pit_date_str and pit_date_str <= as_of_str:
+        pit_dt = _parse_date_fast(f.get("pit_eligible_from") or f.get("filing_date") or f.get("period_end_date"))
+        if pit_dt and pit_dt <= as_of:
             pit_eligible_quarterly.append(f)
     pit_eligible_quarterly.sort(key=lambda x: str(x.get("period_end_date", "")))
-    latest_quarterly = pit_eligible_quarterly[-1].get("period_end_date") if pit_eligible_quarterly else None
+    latest_quarterly = _parse_date_fast(pit_eligible_quarterly[-1].get("period_end_date")).isoformat() if (pit_eligible_quarterly and _parse_date_fast(pit_eligible_quarterly[-1].get("period_end_date"))) else None
 
     # Structural Listing-Age Gate (< 5 years trading history on exchange)
     p_path = os.path.join(BASE_DIR, "data", "history", "1d", f"{sym_u}.parquet")
@@ -380,6 +383,31 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     # Debt to Equity (C16)
     total_debt = latest_f.get("total_debt")
     total_equity = latest_f.get("total_equity")
+    if total_debt is None:
+        for f in reversed(fact_eligible):
+            if f.get("total_debt") is not None:
+                total_debt = f.get("total_debt")
+                break
+    if total_debt is None:
+        for f in reversed(pit_eligible_quarterly):
+            if f.get("total_debt") is not None:
+                total_debt = f.get("total_debt")
+                break
+
+    if total_equity is None:
+        for f in reversed(fact_eligible):
+            if f.get("total_equity") is not None:
+                total_equity = f.get("total_equity")
+                break
+    if total_equity is None:
+        for f in reversed(pit_eligible_quarterly):
+            if f.get("total_equity") is not None:
+                total_equity = f.get("total_equity")
+                break
+
+    if total_debt is None and total_equity is not None:
+        total_debt = 0.0
+
     de_ratio = None
     if total_equity is not None and float(total_equity) > 0:
         de_ratio = round(float(total_debt or 0.0) / float(total_equity), 2)

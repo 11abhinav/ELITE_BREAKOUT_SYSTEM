@@ -1,7 +1,7 @@
 # 886-Stock Financial Data Completeness Matrix
 
 **Universe**: 886 Approved Equities  
-**Generated At**: 2026-10-24T09:00:54.998216  
+**Generated At**: 2026-10-24T18:35:17.799304  
 
 ## Field-by-Field Completeness Table
 
@@ -32,4 +32,4 @@
 | **3Y EV/EBITDA Median** | **879/886** | **7** | **99.2%** |
 | **Current P/E** | 886/886 | 0 | 100.0% |
 | **3Y P/E Median** | 885/886 | 1 | 99.9% |
-| **Overall Certified Stocks** | **638/886** | **248** | **72.0%** |
+| **Overall Certified Stocks** | **639/886** | **247** | **72.1%** |

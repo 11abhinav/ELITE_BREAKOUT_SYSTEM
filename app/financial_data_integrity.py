@@ -185,7 +185,7 @@ def convert_to_inr_crores(
 def _parse_date_fast(val: Any) -> Optional[date]:
     """
     High-performance ISO date parser bypassing pd.to_datetime overhead.
-    Handles None, date, datetime, and ISO 'YYYY-MM-DD' strings.
+    Handles None, date, datetime, ISO 'YYYY-MM-DD' strings, and non-ISO exchange strings.
     """
     if val is None or val == "" or pd.isna(val):
         return None
@@ -193,8 +193,8 @@ def _parse_date_fast(val: Any) -> Optional[date]:
         return val
     if isinstance(val, datetime):
         return val.date()
-    val_str = str(val).strip()[:10]
-    if len(val_str) == 10 and val_str[4] == '-' and val_str[7] == '-':
+    val_str = str(val).strip()
+    if len(val_str) >= 10 and val_str[4] == '-' and val_str[7] == '-':
         try:
             return date(int(val_str[0:4]), int(val_str[5:7]), int(val_str[8:10]))
         except ValueError:
@@ -203,6 +203,7 @@ def _parse_date_fast(val: Any) -> Optional[date]:
         return pd.to_datetime(val_str).date()
     except Exception:
         return None
+
 
 
 class DerivationMethod(str, Enum):
