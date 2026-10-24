@@ -365,10 +365,17 @@ def _period_type(row: dict, to_date_iso: Optional[str] = None, from_date_iso: Op
         or ""
     )
     p = str(period).upper()
-    if any(x in p for x in ("ANNUAL", "YEARLY", "FY", "12 MONTH")):
-        return "ANNUAL"
+    try:
+        from app.financial_data_integrity import classify_statement_type
+        c_type = classify_statement_type(p, period_end_date=to_date_iso or "", from_date=from_date_iso or "", to_date=to_date_iso or "")
+        return "HALF_YEAR" if c_type == "HALF_YEARLY" else c_type
+    except Exception:
+        pass
+
     if any(x in p for x in ("HALF-YEAR", "HALF YEAR", "H1", "H2", "6 MONTH")):
         return "HALF_YEAR"
+    if any(x in p for x in ("ANNUAL", "YEARLY", "FY", "12 MONTH")):
+        return "ANNUAL"
     if any(x in p for x in ("QUARTER", "QTR", "Q1", "Q2", "Q3", "Q4", "3 MONTH")):
         return "QUARTERLY"
     return "UNKNOWN"

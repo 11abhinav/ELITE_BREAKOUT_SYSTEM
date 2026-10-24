@@ -55,6 +55,7 @@ try:
         get_financial_snapshot_status,
         reconcile_nse_bse_fact,
         set_financial_snapshot_status,
+        classify_statement_type,
     )
     from app.live_fundamental_scanner import (
         ApprovedUniverseRegistry,
@@ -77,6 +78,7 @@ except ImportError:
         get_financial_snapshot_status,
         reconcile_nse_bse_fact,
         set_financial_snapshot_status,
+        classify_statement_type,
     )
     from live_fundamental_scanner import (
         ApprovedUniverseRegistry,
@@ -160,11 +162,11 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                             p_end = p_end_dt.isoformat() if p_end_dt else ""
                             st_type = str(it.get("statement_type") or it.get("period_type") or it.get("period") or "").upper()
                             src = str(it.get("source") or "").upper()
-                            is_ann = (
-                                "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type or "AUDITED" in src or "ANNUAL" in src
-                                or (p_end.endswith("-03-31") and (it.get("revenue") is not None or it.get("net_profit") is not None))
-                            )
-                            st = "ANNUAL" if is_ann else "QUARTERLY"
+                            st = classify_statement_type(st_type, period_end_date=p_end)
+                            if st != "ANNUAL" and ("AUDITED" in src or "ANNUAL" in src) and not any(k in st_type for k in ("HALF", "H1", "H2", "6M", "Q1", "Q2", "Q3", "QUARTER")):
+                                st = "ANNUAL"
+                            elif st != "ANNUAL" and p_end.endswith("-03-31") and not any(k in st_type for k in ("HALF", "H1", "H2", "6M", "Q1", "Q2", "Q3", "QUARTER")) and (it.get("revenue") is not None or it.get("net_profit") is not None):
+                                st = "ANNUAL"
                             it["statement_type"] = st
                             bs = "STANDALONE" if ("STANDALONE" in str(it.get("basis") or it.get("consolidated") or "").upper() or "STANDALONE" in src) else "CONSOLIDATED"
                             it["basis"] = bs
@@ -528,7 +530,8 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     # Strict Certification Governance: Shares MUST be filed exchange data (direct or scaled), NEVER derived from EPS
     is_filed_shares = shares_res.ok and shares_source in ("FILED_EXCHANGE_DATA", "FILED_UNIT_SCALED")
 
-    is_bfsi = sym_u in QualityCompounderValueV2Scanner.KNOWN_FINANCIAL_SYMBOLS
+    ind_str = str(latest_f.get("industry") or latest_f.get("sector") or val_meta.get("industry") or val_meta.get("sector") or "")
+    is_bfsi = QualityCompounderValueV2Scanner.is_financial_sector(ind_str, sym_u)
     if is_bfsi:
         is_certified = (
             freshness.ok
@@ -577,6 +580,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
         "roe": roe_val,
         "sales_cagr_5y": sales_cagr_res.cagr if sales_cagr_res.ok else (-999.0 if (sales_cagr_res.reason and "CAGR_BASE_NON_POSITIVE" in sales_cagr_res.reason) else None),
         "pat_cagr_5y": pat_cagr_res.cagr if pat_cagr_res.ok else (-999.0 if (pat_cagr_res.reason and "CAGR_BASE_NON_POSITIVE" in pat_cagr_res.reason) else None),
+        "pat_base_year_loss": bool(pat_cagr_res.reason and "CAGR_BASE_NON_POSITIVE" in str(pat_cagr_res.reason)),
         "cfo_pat_5y_ratio": round(cfo_pat_5y, 2) if cfo_pat_5y is not None else None,
         "debt_to_equity": de_ratio,
         "share_dilution_3y": dilution_val,

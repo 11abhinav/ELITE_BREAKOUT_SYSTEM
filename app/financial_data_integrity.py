@@ -205,6 +205,71 @@ def _parse_date_fast(val: Any) -> Optional[date]:
         return None
 
 
+def classify_statement_type(
+    raw_statement_type: str = "",
+    period_end_date: str = "",
+    from_date: str = "",
+    to_date: str = "",
+) -> str:
+    """
+    Deterministically classifies a financial statement period as:
+    - 'ANNUAL' (Full financial year ~12 months / 365 days)
+    - 'HALF_YEARLY' (Half year / 6 months ~180 days)
+    - 'QUARTERLY' (Quarter / 3 months ~90 days)
+    - 'NINE_MONTHS' (9 months ~270 days)
+
+    Strictly guarantees that 'HALF_YEAR' or 'HALF-YEARLY' is NEVER misclassified
+    as 'ANNUAL' due to substring matching on 'YEAR'.
+    """
+    raw_st = str(raw_statement_type or "").strip().upper()
+
+    # 1. First check date delta if both from_date and to_date (or period_end_date) are present
+    p_from = from_date
+    p_to = to_date or period_end_date
+    if p_from and p_to:
+        try:
+            d_from = _parse_date_fast(p_from)
+            d_to = _parse_date_fast(p_to)
+            if d_from and d_to:
+                days = abs((d_to - d_from).days)
+                if days >= 300:
+                    return "ANNUAL"
+                elif 140 <= days <= 240:
+                    return "HALF_YEARLY"
+                elif 240 < days < 300:
+                    return "NINE_MONTHS"
+                elif 60 <= days < 140:
+                    return "QUARTERLY"
+        except Exception:
+            pass
+
+    # 2. Check for explicit Half-Year keywords (MUST check before Annual/Year!)
+    half_keywords = ("HALF", "H1", "H2", "HALF_YEAR", "HALF-YEAR", "HALFYEAR", "6M", "6 MONTH", "SIX MONTH")
+    if any(k in raw_st for k in half_keywords):
+        return "HALF_YEARLY"
+
+    # 3. Check for Nine-Months keywords
+    nine_keywords = ("9M", "9 MONTH", "NINE MONTH", "NINEMONTH")
+    if any(k in raw_st for k in nine_keywords):
+        return "NINE_MONTHS"
+
+    # 4. Check for explicit Quarterly keywords
+    quarterly_keywords = ("QUARTER", "Q1", "Q2", "Q3", "Q4", "3M", "3 MONTH", "THREE MONTH", "QTR")
+    if any(k in raw_st for k in quarterly_keywords):
+        return "QUARTERLY"
+
+    # 5. Check for Annual / Full Year keywords (NOW SAFE from 'HALF_YEAR' substring!)
+    annual_keywords = ("ANNUAL", "FULL YEAR", "FULL-YEAR", "AUDITED", "FY", "12 MONTH")
+    if any(k in raw_st for k in annual_keywords) or (raw_st in ("YEAR", "YEARLY")) or ("_YEAR" in raw_st) or ("YEARLY" in raw_st):
+        return "ANNUAL"
+
+    # 6. Fallback based on period_end_date if available:
+    p_end = str(period_end_date or "").strip()
+    if p_end.endswith("-03-31"):
+        return "ANNUAL"
+
+    return "QUARTERLY"
+
 
 class DerivationMethod(str, Enum):
     FILED_DIRECTLY           = "FILED_DIRECTLY"

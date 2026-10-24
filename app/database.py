@@ -9949,7 +9949,11 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                         for stmt in data:
                             p_end = str(stmt.get("period_end_date") or "")[:10]
                             stt = str(stmt.get("statement_type") or stmt.get("period") or "").upper()
-                            is_ann = ("ANNUAL" in stt or "YEAR" in stt or "FY" in stt or (p_end.endswith("-03-31") and "QUARTER" not in stt and "Q" not in stt))
+                            try:
+                                from app.financial_data_integrity import classify_statement_type
+                                is_ann = (classify_statement_type(stt, period_end_date=p_end) == "ANNUAL")
+                            except Exception:
+                                is_ann = (("ANNUAL" in stt or "FY" in stt or (p_end.endswith("-03-31") and "QUARTER" not in stt and "Q" not in stt)) and not any(k in stt for k in ("HALF", "H1", "H2", "6M")))
                             if is_ann and len(p_end) >= 4:
                                 try:
                                     yr = int(p_end[:4])
@@ -10243,13 +10247,20 @@ def _format_missing_data(
     sym_u = str(symbol or "").strip().upper()
 
     # 1. Structural base year net loss exemptions (mathematically undefined 5Y PAT CAGR)
-    if sym_u in ("SANGHVIMOV", "SPARC", "MARSONS") or "BASE YEAR NET LOSS" in r_upper or (snap_item and bool(snap_item.get("pat_base_year_loss"))):
+    is_base_year_loss = (
+        bool(snap_item and snap_item.get("pat_base_year_loss"))
+        or (snap_item and snap_item.get("pat_cagr_5y") == -999.0)
+        or "BASE YEAR NET LOSS" in r_upper
+        or "CAGR_BASE_NON_POSITIVE" in r_upper
+    )
+    if is_base_year_loss:
         return "Base year net loss: 5Y PAT CAGR is mathematically undefined from negative base (not missing exchange history)."
 
     # 2. Listing age < 5 years (exchange series incomplete)
     l_age = float(snap_item.get("listing_age_years") or 99.0) if snap_item else 99.0
-    if sym_u in ("HARIOMPIPE", "QPOWER") or (l_age < 5.0 and ("CAGR" in r_upper or "DEPTH" in r_upper)):
-        return f"Listing age < 5 years ({l_age:.1f}Y): 5Y exchange annual series incomplete."
+    ann_c = int(snap_item.get("annual_filing_count") or snap_item.get("annual_count") or snap_item.get("filings_count") or 99) if snap_item else 99
+    if (l_age < 5.0 or ann_c < 6) and ("CAGR" in r_upper or "DEPTH" in r_upper):
+        return f"Listing age < 5 years ({l_age:.1f}Y, {ann_c} annual filings): 5Y exchange annual series incomplete."
 
     # 3. Specific raw cache inspections if available
     if raw_info and isinstance(raw_info, dict):
@@ -10350,7 +10361,36 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     sym_u = str(sym or "").strip().upper()
 
     # 1. Structural base year net loss exemptions (mathematically undefined 5Y PAT CAGR)
-    if sym_u in ("MARSONS", "SANGHVIMOV", "SPARC") or "base year net loss" in r_low or bool(snap_item.get("pat_base_year_loss", False)):
+    is_base_year_loss = (
+        bool(snap_item.get("pat_base_year_loss", False))
+        or snap_item.get("pat_cagr_5y") == -999.0
+        or "base year net loss" in r_low
+        or "cagr_base_non_positive" in r_low
+    )
+    if not is_base_year_loss and ("pat_cagr" in r_low or "cagr" in r_low):
+        # Dynamically inspect raw filings for base year net loss if available
+        base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        p_f = os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json")
+        if os.path.exists(p_f):
+            try:
+                with open(p_f, "r", encoding="utf-8") as _rf:
+                    _rf_data = json.load(_rf)
+                if isinstance(_rf_data, list):
+                    from app.financial_data_integrity import classify_statement_type
+                    raw_info_ann = [
+                        f for f in _rf_data
+                        if classify_statement_type(f.get("statement_type", ""), period_end_date=f.get("period_end_date", "")) == "ANNUAL"
+                        and (f.get("revenue") is not None or f.get("net_profit") is not None)
+                    ]
+                    if len(raw_info_ann) >= 6:
+                        base_f = raw_info_ann[-6]
+                        np_base = base_f.get("net_profit")
+                        if np_base is not None and float(np_base) <= 0:
+                            is_base_year_loss = True
+            except Exception:
+                pass
+
+    if is_base_year_loss:
         return True
 
     l_age = float(snap_item.get("listing_age_years") or 99.0)
@@ -11062,9 +11102,12 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
                 is_young_3y = (listing_age_val < 3.0) or (ann_count_val < 4.0)
                 try:
                     from app.live_fundamental_scanner import QualityCompounderValueV2Scanner
-                    is_bfsi = sym_u in QualityCompounderValueV2Scanner.KNOWN_FINANCIAL_SYMBOLS
+                    is_bfsi = QualityCompounderValueV2Scanner.is_financial_sector(
+                        str(row.get("industry") or row.get("macro_sector") or row.get("sector") or ""),
+                        sym_u
+                    )
                 except Exception:
-                    is_bfsi = sym_u in ("HDBFS", "ICICIPRULI", "INDIASHLTR", "SBICARD", "CHOICEIN")
+                    is_bfsi = False
 
                 if pd.isna(row.get("roce_5y_avg")) and pd.isna(row.get("roce")):
                     if not is_bfsi:

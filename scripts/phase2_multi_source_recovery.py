@@ -431,8 +431,8 @@ def recover_symbol_phase2(sym: str, sess: requests.Session, multibagger_cache: D
     final_records = None
     reason = "UNRESOLVED"
 
-    # Is the company known to be legally standalone-only?
-    is_standalone_only = sym_u in STANDALONE_ONLY_SYMBOLS
+    # Is the company known to be legally standalone-only (or has zero consolidated filings and 5+ standalone filings)?
+    is_standalone_only = sym_u in STANDALONE_ONLY_SYMBOLS or (len(cons_annual) == 0 and len(std_annual) >= 5)
 
     # Case A: Standalone-Only Proven
     if is_standalone_only:

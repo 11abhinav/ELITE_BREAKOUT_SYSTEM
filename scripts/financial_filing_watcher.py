@@ -67,6 +67,7 @@ try:
         derive_and_validate_shares,
         validate_share_count,
         reconcile_nse_bse_fact,
+        classify_statement_type,
     )
 except ImportError:
     from financial_data_integrity import (
@@ -79,6 +80,7 @@ except ImportError:
         derive_and_validate_shares,
         validate_share_count,
         reconcile_nse_bse_fact,
+        classify_statement_type,
     )
 
 try:
@@ -362,11 +364,7 @@ class FinancialFilingWatcher:
         filing_id = str(incoming_filing.get("filing_id", "UNKNOWN_FILING"))
         raw_period = str(incoming_filing.get("period_end_date") or incoming_filing.get("toDate") or incoming_filing.get("periodEnd") or "")
         period_end = _normalize_iso_date(raw_period)
-        st_type = str(incoming_filing.get("statement_type", "QUARTERLY")).upper()
-        if "ANNUAL" in st_type or "YEAR" in st_type or "FY" in st_type:
-            st_type = "ANNUAL"
-        else:
-            st_type = "QUARTERLY"
+        st_type = classify_statement_type(incoming_filing.get("statement_type", "QUARTERLY"), period_end_date=period_end)
         basis = str(incoming_filing.get("basis", StatementBasis.CONSOLIDATED)).upper()
         broadcast_time = str(incoming_filing.get("broadcast_timestamp") or incoming_filing.get("filing_date") or datetime.now().isoformat())
         payload_hash = hashlib.sha256(raw_payload).hexdigest()
@@ -1011,8 +1009,9 @@ class FinancialFilingWatcher:
                                 if not _p or _p < get_historical_cutoff_date(as_of_date):
                                     continue
                                 _st = str(_r.get("statement_type") or _r.get("period") or "").upper()
-                                is_ann = ("ANNUAL" in _st or "YEAR" in _st or "FY" in _st)
-                                is_qtr = ("QUARTER" in _st or "Q1" in _st or "Q2" in _st or "Q3" in _st or "Q4" in _st)
+                                _st_class = classify_statement_type(_st, period_end_date=_p)
+                                is_ann = (_st_class == "ANNUAL")
+                                is_qtr = (_st_class in ("QUARTERLY", "HALF_YEARLY", "NINE_MONTHS"))
 
                                 # Annual statements: audited full year results
                                 if is_ann or (_p.endswith("-03-31") and not is_qtr):
@@ -1276,7 +1275,7 @@ class FinancialFilingWatcher:
                             r_copy["exchange"] = "NSE"
                             r_copy["period_end_date"] = p_end
                             raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
-                            r_copy["statement_type"] = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
+                            r_copy["statement_type"] = classify_statement_type(raw_period, period_end_date=p_end)
                             raw_filings_list.append(r_copy)
 
                 # 1. Poll NSE XBRL / Corporate Results (Primary Source)
@@ -1322,7 +1321,7 @@ class FinancialFilingWatcher:
                                             p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
                                             if p_end and p_end >= min_cutoff:
                                                 raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
-                                                st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
+                                                st = classify_statement_type(raw_period, period_end_date=p_end)
                                                 r_copy["period_end_date"] = p_end
                                                 r_copy["statement_type"] = st
                                                 raw_filings_list.append(r_copy)
@@ -1331,16 +1330,26 @@ class FinancialFilingWatcher:
                     except Exception as nse_err:
                         logger.warning(f"[filling scanner] NSE discover/fetch warning for {sym_u}: {nse_err}")
 
-                # 2. Poll BSE: Only poll BSE as fallback if NSE returned 0 filings OR if symbol is not an NSE listing
+                # 2. Poll BSE: Poll BSE if NSE returned 0 filings OR if symbol has an unresolved annual gap/depth need
                 bse_count = 0
                 is_bse_only = sym_u.endswith(".BO") or str(sym_u).isdigit()
                 is_nse_primary = (not is_bse_only)
+                has_annual_need = (
+                    has_intermediate_gap
+                    or has_tail_annual_gap
+                    or has_quarterly_gap
+                    or (insufficient_depth and has_missing_cagr)
+                    or local_annual_count < 6
+                )
                 if needs_bootstrap:
-                    should_poll_bse = (bse_prov is not None) and (len(raw_filings_list) == 0)
+                    should_poll_bse = (bse_prov is not None) and (len(raw_filings_list) == 0 or has_annual_need)
                 else:
-                    # On incremental runs, NEVER poll BSE for NSE stocks just because there are no new filings today!
-                    # Only poll BSE if the symbol is specifically a BSE-only stock and has no new filings.
-                    should_poll_bse = (bse_prov is not None) and is_bse_only and (len(raw_filings_list) == 0)
+                    # On incremental runs, poll BSE if BSE-only stock has no new filings,
+                    # OR if the stock has an unresolved annual gap/depth need that requires BSE backfill.
+                    should_poll_bse = (bse_prov is not None) and (
+                        (is_bse_only and len(raw_filings_list) == 0)
+                        or (has_annual_need and not is_struct_ineligible)
+                    )
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
@@ -1387,7 +1396,7 @@ class FinancialFilingWatcher:
                                             p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
                                             if p_end and p_end >= min_cutoff:
                                                 raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
-                                                st = "ANNUAL" if ("ANNUAL" in raw_period or "YEAR" in raw_period or "FY" in raw_period) else "QUARTERLY"
+                                                st = classify_statement_type(raw_period, period_end_date=p_end)
                                                 if (p_end, st) not in existing_periods:
                                                     r_copy["period_end_date"] = p_end
                                                     r_copy["statement_type"] = st
@@ -1571,7 +1580,7 @@ class FinancialFilingWatcher:
                 for it in valid_items:
                     p_date = it["period_end_date"]
                     raw_st = str(it.get("period") or it.get("statement_type") or "QUARTERLY").upper()
-                    st = "ANNUAL" if ("ANNUAL" in raw_st or "YEAR" in raw_st or "FY" in raw_st) else "QUARTERLY"
+                    st = classify_statement_type(raw_st, period_end_date=p_date)
                     c_val = str(it.get("consolidated", it.get("basis", ""))).lower()
                     bs = "STANDALONE" if ("standalone" in c_val or "non-consolidated" in c_val) else "CONSOLIDATED"
                     k = (p_date, st, bs)

@@ -64,10 +64,17 @@ def _consolidation(raw: str) -> ConsolidationType:
 
 
 def _period_type(period_str: str) -> str:
-    """Infer ANNUAL / QUARTERLY from period label returned by Upstox."""
+    """Infer ANNUAL / QUARTERLY / HALF_YEARLY from period label returned by Upstox."""
     if not period_str:
         return "UNKNOWN"
+    try:
+        from app.financial_data_integrity import classify_statement_type
+        return classify_statement_type(period_str)
+    except Exception:
+        pass
     p = period_str.upper()
+    if any(x in p for x in ("HALF-YEAR", "HALF YEAR", "H1", "H2", "6 MONTH", "HALF")):
+        return "HALF_YEARLY"
     if any(x in p for x in ("FY", "ANNUAL", "YEARLY", "YEAR")):
         return "ANNUAL"
     if any(x in p for x in ("Q1", "Q2", "Q3", "Q4", "QTR", "QUARTER")):
@@ -211,7 +218,11 @@ class UpstoxFundamentalsProvider:
             type_str = data.get("type", "consolidated")
             consolidation = _consolidation(type_str)
             time_period = str(data.get("time_period", "yearly")).lower()
-            period_type = "ANNUAL" if any(x in time_period for x in ("year", "fy", "annual")) else ("QUARTERLY" if "quarter" in time_period else "UNKNOWN")
+            try:
+                from app.financial_data_integrity import classify_statement_type
+                period_type = classify_statement_type(time_period)
+            except Exception:
+                period_type = "HALF_YEARLY" if any(x in time_period for x in ("half", "h1", "h2")) else ("ANNUAL" if any(x in time_period for x in ("year", "fy", "annual")) else ("QUARTERLY" if "quarter" in time_period else "UNKNOWN"))
             unit_str = str(data.get("units_in", "crore"))
 
             period_map: Dict[str, dict] = {}
