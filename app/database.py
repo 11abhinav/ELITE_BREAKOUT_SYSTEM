@@ -9699,8 +9699,8 @@ def check_and_restore_stale_stock(
     from datetime import datetime
     now_dt = datetime.now(IST)
 
-    # Fresh exchange filings or recovery promotion directly satisfy the data requirement and override cool-off
-    if source in ("CORPORATE_FILING_WATCHER", "BATCH_FILINGS_INGESTION", "FILING_WATCHER", "EXCHANGE_INGESTION", "PRE_RECOVERY_PROMOTED", "EXCHANGE_VERIFIED"):
+    src_u = str(source or "").upper()
+    if source in ("CORPORATE_FILING_WATCHER", "BATCH_FILINGS_INGESTION", "FILING_WATCHER", "EXCHANGE_INGESTION", "PRE_RECOVERY_PROMOTED", "EXCHANGE_VERIFIED", "EXCHANGE_FILING_WATCHER", "REBUILD_PUBLISH", "CANONICAL_PUBLISHER") or "FILING" in src_u or "EXCHANGE" in src_u or "REBUILD" in src_u or "PUBLISH" in src_u or "CANONICAL" in src_u:
         force = True
 
     # STRICT 7-DAY INVARIANT: Do not delete active cool-off unless expired (cooloff_until <= now_dt) or force=True
@@ -9889,11 +9889,11 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
 
         manifest_p = raw_dir.parent / "pit_raw_filings_manifest.json"
 
-        # 1. Ultra-fast in-memory hit: cache populated and directory unchanged
-        if _AUDIT_RAW_FILINGS_CACHE and (curr_dir_mtime == _AUDIT_RAW_DIR_MTIME or (now - _AUDIT_RAW_FILINGS_LAST_SCAN < max_age_sec)):
+        # 1. Ultra-fast in-memory hit: cache populated and age < max_age_sec
+        if _AUDIT_RAW_FILINGS_CACHE and (now - _AUDIT_RAW_FILINGS_LAST_SCAN < max_age_sec):
             return _AUDIT_RAW_FILINGS_CACHE
 
-        # 2. Fast disk manifest hit: load in ~3ms if schema version is current
+        # 2. Fast disk manifest hit: seed in-memory cache if empty
         if not _AUDIT_RAW_FILINGS_CACHE and manifest_p.exists():
             try:
                 with open(manifest_p, "r", encoding="utf-8") as _mf:
@@ -9902,13 +9902,13 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                     sample_entry = next(iter(_m_data.values())) if _m_data else None
                     if sample_entry and "null_filings" in sample_entry:
                         _AUDIT_RAW_FILINGS_CACHE = _m_data
-                        _AUDIT_RAW_DIR_MTIME = curr_dir_mtime
-                        _AUDIT_RAW_FILINGS_LAST_SCAN = now
-                        return _AUDIT_RAW_FILINGS_CACHE
             except Exception:
                 pass
 
-        # 3. Incremental scan if directory changed or manifest missing
+        if _AUDIT_RAW_FILINGS_CACHE is None:
+            _AUDIT_RAW_FILINGS_CACHE = {}
+
+        # 3. Incremental scan: check if any file's mtime differs from cached mtime
         files = list(raw_dir.glob("*.json"))
         to_parse = []
         for p in files:
