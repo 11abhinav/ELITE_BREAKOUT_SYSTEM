@@ -1397,6 +1397,121 @@ class FinancialFilingWatcher:
                     except Exception as bse_err:
                         logger.warning(f"[filling scanner] BSE discover warning for {sym_u}: {bse_err}")
 
+                # 3. Tier-3 Fallback: Official Exchange Announcement PDF Statements (SEBI LODR Reg 33)
+                # STRICT GOVERNANCE INVARIANT:
+                # Activated ONLY IF BOTH NSE and BSE failed to provide structured XML for a given period.
+                # If valid XML exists for a period on NSE or BSE, the PDF is NEVER touched.
+                try:
+                    xml_covered_periods: Set[str] = set()
+                    for it in raw_filings_list:
+                        src = str(it.get("source") or it.get("source_provider") or it.get("exchange") or "").upper()
+                        if (it.get("revenue") is not None or it.get("net_profit") is not None) and "PDF" not in src:
+                            p_e = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
+                            if p_e:
+                                xml_covered_periods.add(p_e)
+
+                    # Gather candidate exchange announcements with PDF attachments
+                    candidate_anns = []
+                    if nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
+                        candidate_anns.extend(nse_prov._discovered_cache[sym_u])
+                    elif nse_prov:
+                        try:
+                            nse_disc = nse_prov.discover_filings(sym_u)
+                            if nse_disc:
+                                candidate_anns.extend(nse_disc)
+                        except Exception:
+                            pass
+
+                    if bse_prov:
+                        try:
+                            # Pre-PDF Invariant Gate: Ensure BSE XML is checked for periods where NSE lacked XML
+                            scrip = bse_prov.resolve_bse_scrip_code(sym_u)
+                            if scrip:
+                                bse_rows = bse_prov.fetch_raw_financials(sym_u)
+                                if bse_rows:
+                                    for r in bse_rows:
+                                        norm_p = _normalize_iso_date(r.period_end_date)
+                                        if not norm_p or norm_p < min_cutoff:
+                                            continue
+                                        if norm_p not in xml_covered_periods:
+                                            raw_filings_list.append({
+                                                "exchange": "BSE",
+                                                "source": "BSE_XBRL_XML",
+                                                "filing_id": getattr(r, "filing_id", None) or f"BSE_{sym_u}_{norm_p}",
+                                                "period_end_date": norm_p,
+                                                "statement_type": r.period_type,
+                                                "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                                                "revenue": r.revenue,
+                                                "net_profit": r.net_profit,
+                                                "operating_profit": r.ebit,
+                                                "eps": r.eps,
+                                                "total_debt": r.total_debt,
+                                                "total_equity": r.total_equity,
+                                                "operating_cash_flow": getattr(r, "operating_cash_flow", None),
+                                                "shares_outstanding": r.shares_outstanding,
+                                                "filing_date": r.availability_date or f"{norm_p}T00:00:00",
+                                                "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
+                                            })
+                                            xml_covered_periods.add(norm_p)
+                                            logger.info(f"✅ [BSE:XBRL] Ingested BSE XML filing for {sym_u} {norm_p} ({r.period_type})")
+                        except Exception as bse_check_err:
+                            logger.debug(f"[filling scanner] BSE XBRL check notice for {sym_u}: {bse_check_err}")
+
+                        try:
+                            bse_disc = bse_prov.discover_filings(sym_u)
+                            if bse_disc:
+                                candidate_anns.extend(bse_disc)
+                        except Exception:
+                            pass
+
+                    uncovered_pdf_anns = [
+                        ann for ann in candidate_anns
+                        if isinstance(ann, dict) and str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower().endswith(".pdf")
+                        and _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate")) not in xml_covered_periods
+                    ]
+
+                    if uncovered_pdf_anns:
+                        try:
+                            from app.data_providers.exchange_pdf_parser import ExchangePdfParser
+                        except ImportError:
+                            from data_providers.exchange_pdf_parser import ExchangePdfParser
+
+                        pdf_parser = ExchangePdfParser()
+                        pdf_recs = pdf_parser.fetch_pdf_fallback_records(
+                            symbol=sym_u,
+                            announcements=uncovered_pdf_anns,
+                            existing_xml_periods=set(xml_covered_periods),
+                            min_cutoff=min_cutoff,
+                        )
+                        for r in pdf_recs:
+                            norm_p = _normalize_iso_date(r.period_end_date)
+                            if not norm_p or norm_p < min_cutoff:
+                                continue
+                            raw_filings_list.append({
+                                "exchange": "NSE",
+                                "source": "NSE_ANNOUNCEMENT_PDF",
+                                "filing_id": getattr(r, "filing_id", None) or f"NSE_PDF_{sym_u}_{norm_p}",
+                                "period_end_date": norm_p,
+                                "statement_type": r.period_type,
+                                "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                                "revenue": r.revenue,
+                                "net_profit": r.net_profit,
+                                "operating_profit": r.ebit,
+                                "eps": r.eps,
+                                "total_debt": r.total_debt,
+                                "total_equity": r.total_equity,
+                                "operating_cash_flow": getattr(r, "operating_cash_flow", None),
+                                "shares_outstanding": r.shares_outstanding,
+                                "filing_date": r.availability_date or f"{norm_p}T00:00:00",
+                                "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
+                            })
+                            logger.info(
+                                f"📑 [filling scanner] {sym_u}: Ingested SEBI Reg 33 PDF statement for {norm_p} ({r.period_type}): "
+                                f"Revenue = {r.revenue} Cr, PAT = {r.net_profit} Cr (source=NSE_ANNOUNCEMENT_PDF)"
+                            )
+                except Exception as pdf_fallback_err:
+                    logger.warning(f"[filling scanner] Tier-3 PDF fallback notice for {sym_u}: {pdf_fallback_err}")
+
                 if not raw_filings_list or not any(raw_filings_list):
                     logger.debug(f"[filling scanner] {sym_u}: 0 filings retrieved from exchanges.")
                     with self._state_lock:

@@ -208,11 +208,27 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     pit_eligible_annual.sort(key=lambda x: str(x.get("period_end_date", "")))
 
-    quarterly_filings = [
-        f for f in filings
-        if str(f.get("statement_type", "")).upper() == "QUARTERLY"
-        and str(f.get("basis") or "CONSOLIDATED").upper() in (StatementBasis.CONSOLIDATED, "NONE", "")
-    ]
+    quarterly_map = {}
+    for f in filings:
+        if str(f.get("statement_type", "")).upper() == "QUARTERLY":
+            p_end = str(f.get("period_end_date") or "")[:10]
+            if not p_end:
+                continue
+            bs = str(f.get("basis") or "CONSOLIDATED").upper()
+            is_cons = bs in (StatementBasis.CONSOLIDATED, "NONE", "")
+            curr_has_facts = (f.get("revenue") is not None or f.get("net_profit") is not None)
+            prev = quarterly_map.get(p_end)
+            prev_has_facts = (prev is not None and (prev.get("revenue") is not None or prev.get("net_profit") is not None))
+            # Prefer CONSOLIDATED if available for this specific period; fallback to STANDALONE
+            # Never overwrite a record that has numeric facts with a placeholder that has None
+            if p_end not in quarterly_map:
+                quarterly_map[p_end] = f
+            elif not prev_has_facts and curr_has_facts:
+                quarterly_map[p_end] = f
+            elif is_cons and prev.get("basis") == "STANDALONE":
+                if curr_has_facts or not prev_has_facts:
+                    quarterly_map[p_end] = f
+    quarterly_filings = sorted(list(quarterly_map.values()), key=lambda x: str(x.get("period_end_date", "")))
     pit_eligible_quarterly = []
     for f in quarterly_filings:
         pit_date_str = str(f.get("pit_eligible_from") or f.get("filing_date") or f.get("period_end_date") or "")[:10]

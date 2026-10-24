@@ -303,14 +303,20 @@ def _parse_period_end_from_announcement_text(text: Optional[str]) -> Optional[st
     """Extracts ISO YYYY-MM-DD period end date from announcement headlines or attachment descriptions."""
     if not text:
         return None
-    # Pattern 1: (ended|ending|for the period ended) Month DD, YYYY
-    m1 = re.search(r"(?:ended|ended on|ending|period ended)\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})", text, re.IGNORECASE)
+    # Pattern 1: Month DD, YYYY or DD Month YYYY (supporting full and short month names like Jun/June)
+    m1 = re.search(r"(?:ended|ended on|ending|period ended)\s+([A-Za-z0-9\s,]+?\d{4})", text, re.IGNORECASE)
     if m1:
-        try:
-            cleaned = re.sub(r"\s+", " ", m1.group(1).strip())
-            return datetime.strptime(cleaned, "%B %d, %Y").strftime("%Y-%m-%d")
-        except Exception:
-            pass
+        raw = m1.group(1).strip()
+        clean = re.sub(r"(?i)(st|nd|rd|th)", "", raw).strip()
+        clean = re.sub(r"\s+", " ", clean)
+        for fmt in [
+            "%B %d, %Y", "%b %d, %Y", "%B %d %Y", "%b %d %Y",
+            "%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y"
+        ]:
+            try:
+                return datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
     # Pattern 2: DD-Mon-YYYY
     m2 = re.search(r"(?:ended|ended on|ending|period ended)\s+(\d{1,2}-[A-Za-z]{3}-\d{4})", text, re.IGNORECASE)
     if m2:
@@ -754,11 +760,7 @@ class NseXbrlProvider:
         ann_raw = self._get(ann_url, symbol)
         if ann_raw:
             ann_rows = ann_raw if isinstance(ann_raw, list) else (ann_raw.get("data", []) if isinstance(ann_raw, dict) else [])
-            existing_periods_in_filings = {
-                str(f.get("toDate") or f.get("period_end_date") or "")
-                for f in all_filings
-                if f.get("toDate") or f.get("period_end_date")
-            }
+            existing_ann_keys = set()
             for item in ann_rows:
                 desc = str(item.get("desc") or "")
                 txt = str(item.get("attchmntText") or "")
@@ -781,9 +783,11 @@ class NseXbrlProvider:
                 # Maximum scanner lookback is 5 years + 1 buffer year = 6 years (>= 2020-01-01 in 2026).
                 if not p_end or p_end < "2020-01-01":
                     continue
-                if p_end in existing_periods_in_filings:
+                att_file = str(item.get("attchmntFile") or "")
+                ann_key = (p_end, att_file)
+                if ann_key in existing_ann_keys:
                     continue
-                existing_periods_in_filings.add(p_end)
+                existing_ann_keys.add(ann_key)
 
                 st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
                 basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
