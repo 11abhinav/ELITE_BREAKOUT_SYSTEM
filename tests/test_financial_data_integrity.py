@@ -605,7 +605,7 @@ class TestShareCountValidation:
             symbol="IMPLAUSIBLE",
             net_profit_cr=None,
             eps=None,
-            shares_outstanding_raw=MAX_SHARES_M * 10000,  # way too large
+            shares_outstanding_raw=MAX_SHARES_M * 10_000_000,  # way too large even after ÷1M scaling
         )
         assert result.status == DataStatus.DATA_INVALID
         assert result.derivation_method == DerivationMethod.IMPLAUSIBLE

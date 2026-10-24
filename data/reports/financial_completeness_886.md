@@ -1,7 +1,7 @@
 # 886-Stock Financial Data Completeness Matrix
 
 **Universe**: 886 Approved Equities  
-**Generated At**: 2026-10-24T08:29:51.534219  
+**Generated At**: 2026-10-24T09:00:54.998216  
 
 ## Field-by-Field Completeness Table
 
@@ -23,7 +23,7 @@
 | **Operating Cash Flow (OCF)** | 883/886 | 3 | 99.7% |
 | **5Y Sales CAGR** | 779/886 | 107 | 87.9% |
 | **5Y PAT CAGR** | 832/886 | 54 | 93.9% |
-| **5Y Average ROCE** | 810/886 | 76 | 91.4% |
+| **5Y Average ROCE** | 811/886 | 75 | 91.5% |
 | **5Y CFO/PAT Ratio** | 864/886 | 22 | 97.5% |
 | **Debt to Equity** | 881/886 | 5 | 99.4% |
 | **Current Market Cap** | 886/886 | 0 | 100.0% |

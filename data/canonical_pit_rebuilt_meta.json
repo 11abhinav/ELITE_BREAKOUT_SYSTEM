@@ -5,15 +5,15 @@
   "total_symbols": 886,
   "certified_symbols": 638,
   "structural_ineligible_symbols": 248,
-  "fresh_symbols": 876,
-  "stale_symbols": 7,
+  "fresh_symbols": 880,
+  "stale_symbols": 3,
   "cash_complete": 836,
   "shares_complete": 886,
   "current_ev_ebitda_complete": 825,
   "ev_ebitda_3y_median_complete": 879,
   "gaps_detected": 0,
-  "sha256": "3ba2098b3ffc2a27c66631774d0a86decb034d0765a635d51e03dd3a6713eaa6",
-  "built_at": "2026-10-24T08:29:51.542364",
+  "sha256": "36e6f2646cec69ade95aadda66ecd4dd84f8c0da21adce200fa9a0019b468a32",
+  "built_at": "2026-10-24T09:00:55.007153",
   "audit_summary": {},
-  "snapshot_status_updated_at": "2026-10-24T08:29:51.544060"
+  "snapshot_status_updated_at": "2026-10-24T09:00:55.009258"
 }

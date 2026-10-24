@@ -2256,7 +2256,7 @@ class FinancialFilingWatcher:
             return {"status": "ALREADY_RUNNING", "message": "Already actively running"}
 
         run_ctx = None
-        target_symbols = [symbol.strip().upper()] if symbol else list(self.approved_symbols)
+        target_symbols = [s.strip().upper() for s in symbol.split(",") if s.strip()] if symbol else list(self.approved_symbols)
         total_count = len(target_symbols)
 
         # Lazy import database telemetry utilities
