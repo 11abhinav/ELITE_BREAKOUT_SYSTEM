@@ -10458,6 +10458,45 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     if "cfo_pat" in r_low and has_cfo_pat:
         return True
 
+    # 9. Historical filings depth, gaps, and unparsed XBRL restoration
+    if any(k in r_low for k in ("stale", "gap", "backfill", "local_cache", "xbrl", "depth", "lodr", "sebi")):
+        base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        p_f = os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json")
+        if os.path.exists(p_f):
+            try:
+                with open(p_f, "r", encoding="utf-8") as _rf:
+                    _rf_data = json.load(_rf)
+                if isinstance(_rf_data, list) and len(_rf_data) > 0:
+                    ann_years = set()
+                    null_filings_count = 0
+                    for _stmt in _rf_data:
+                        _pend = str(_stmt.get("period_end_date") or "")[:10]
+                        _stt = str(_stmt.get("statement_type") or "").upper()
+                        if "ANNUAL" in _stt and len(_pend) >= 4:
+                            try:
+                                ann_years.add(int(_pend[:4]))
+                            except Exception:
+                                pass
+                        if _pend >= "2024-01-01":
+                            _rev = _stmt.get("revenue")
+                            _np = _stmt.get("net_profit")
+                            if (_rev is None or pd.isna(_rev)) and (_np is None or pd.isna(_np)):
+                                null_filings_count += 1
+
+                    sorted_ann = sorted(list(ann_years))
+                    recent_ann = [y for y in sorted_ann if y >= 2020]
+                    has_gap = False
+                    for i in range(len(recent_ann) - 1):
+                        if recent_ann[i + 1] - recent_ann[i] > 1:
+                            has_gap = True
+                            break
+
+                    has_depth = len(sorted_ann) >= 6 or (sorted_ann and max(sorted_ann) >= 2026)
+                    if not has_gap and null_filings_count == 0 and has_depth:
+                        return True
+            except Exception:
+                pass
+
     return False
 
 

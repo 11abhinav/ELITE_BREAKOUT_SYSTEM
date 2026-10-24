@@ -239,6 +239,23 @@
   },
   {
     "symbol": "GLOBUSSPR",
+    "period_end_date": "2022-03-31",
+    "statement_type": "ANNUAL",
+    "basis": "CONSOLIDATED",
+    "revenue": 1585.8,
+    "net_profit": 187.27,
+    "operating_profit": 245.1,
+    "eps": 65.04,
+    "shares_outstanding": 28790000.0,
+    "total_equity": 786.12,
+    "total_debt": 156.4,
+    "operating_cash_flow": 212.5,
+    "filing_date": "2022-05-25",
+    "exchange": "NSE",
+    "filing_id": "GLOBUSSPR_20220331_A_v1"
+  },
+  {
+    "symbol": "GLOBUSSPR",
     "source": "UPSTOX_API",
     "period_end_date": "2023-03-31",
     "period_type": "ANNUAL",

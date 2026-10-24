@@ -946,14 +946,25 @@ class NseXbrlProvider:
             else:
                 existing = by_period_basis[key]
 
-                # Revision handling: compare seqNumber, broadCastDate, exchdisstime, reInd
+                # Revision handling: compare machine-readable XBRL presence, seqNumber, broadCastDate, reInd
+                ex_has_xbrl = bool(str(existing.get("xbrl") or "").strip())
+                cur_has_xbrl = bool(str(f.get("xbrl") or "").strip())
+
                 ex_seq = int(existing.get("seqNumber") or 0)
                 cur_seq = int(f.get("seqNumber") or 0)
                 ex_bcast = str(existing.get("broadCastDate") or existing.get("filingDate") or "")
                 cur_bcast = str(f.get("broadCastDate") or f.get("filingDate") or "")
                 cur_re_ind = str(f.get("reInd") or "").upper()
 
-                if cur_seq == ex_seq and cur_bcast == ex_bcast:
+                if ex_has_xbrl and not cur_has_xbrl:
+                    # Existing has valid machine-readable XBRL while current is PDF/announcement-only without XBRL.
+                    # Retain the XBRL-rich existing filing!
+                    self.duplicate_filings += 1
+                elif cur_has_xbrl and not ex_has_xbrl:
+                    # Current has valid XBRL while existing did not. Promote current!
+                    self.revised_filings += 1
+                    by_period_basis[key] = f
+                elif cur_seq == ex_seq and cur_bcast == ex_bcast:
                     self.duplicate_filings += 1
                 elif cur_seq > ex_seq or (cur_seq == ex_seq and cur_bcast > ex_bcast) or cur_re_ind == "Y":
                     self.revised_filings += 1

@@ -1961,6 +1961,13 @@ class FinancialFilingWatcher:
             merged["period_end_date"] = norm_period_end
             existing_list[matched_idx] = merged
         else:
+            # Strictly do not create a new period entry if all financial metrics are None (e.g. unparsed announcements)
+            has_financial_facts = any(
+                v is not None for v in (rev, pat, op_prof, eps, debt, equity, ocf, shares)
+            )
+            if not has_financial_facts:
+                logger.debug(f"[WATCHER] Skipping announcement with zero financial facts for {sym_u} ({norm_period_end})")
+                return
             existing_list.append(record_entry)
 
         # Sort chronologically

@@ -483,5 +483,36 @@
     "mapped_revenue": 542.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "a6d5113d7e76dbc3ec8f7cdf2fa5b003ce414ee1aaf992bb57f270cbbdc52aae"
+  },
+  {
+    "symbol": "GULPOLY",
+    "period_end_date": "2026-03-31",
+    "statement_type": "ANNUAL",
+    "basis": "CONSOLIDATED",
+    "revenue": 2312.42,
+    "net_profit": 107.15,
+    "operating_profit": 182.3,
+    "eps": 17.18,
+    "shares_outstanding": 62360000.0,
+    "total_equity": 682.15,
+    "total_debt": 388.4,
+    "operating_cash_flow": 112.5,
+    "filing_date": "2026-05-26",
+    "exchange": "NSE",
+    "filing_id": "GULPOLY_20260331_A_v1"
+  },
+  {
+    "symbol": "GULPOLY",
+    "period_end_date": "2026-06-30",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 645.54,
+    "net_profit": 53.51,
+    "operating_profit": 72.1,
+    "eps": 8.58,
+    "shares_outstanding": 62360000.0,
+    "filing_date": "2026-08-06",
+    "exchange": "NSE",
+    "filing_id": "GULPOLY_20260630_Q_v1"
   }
 ]

@@ -332,6 +332,26 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
     net_profit_val = latest_f.get("net_profit")
     eps_val = latest_f.get("eps")
     shares_raw = latest_f.get("shares_outstanding")
+
+    # If latest filing lacks shares and cannot derive from net_profit/eps, check prior valid filings point-in-time
+    if (shares_raw is None or pd.isna(shares_raw)) and (net_profit_val is None or eps_val is None or eps_val == 0):
+        for prev_f in reversed(pit_eligible_annual or filings_to_use):
+            prev_sh = prev_f.get("shares_outstanding")
+            if prev_sh is not None and not pd.isna(prev_sh) and float(prev_sh) > 0:
+                shares_raw = prev_sh
+                break
+            prev_np = prev_f.get("net_profit")
+            prev_eps = prev_f.get("eps")
+            if (
+                prev_np is not None and not pd.isna(prev_np) and float(prev_np) > 0
+                and prev_eps is not None and not pd.isna(prev_eps) and float(prev_eps) > 0
+            ):
+                from app.financial_data_integrity import MIN_SHARES_M, MAX_SHARES_M
+                derived_sh = (float(prev_np) * 10.0) / float(prev_eps)
+                if MIN_SHARES_M <= derived_sh <= MAX_SHARES_M:
+                    shares_raw = derived_sh
+                    break
+
     shares_raw_f = float(shares_raw) if (shares_raw is not None and not pd.isna(shares_raw)) else None
     if shares_raw_f is not None and shares_raw_f > 10_000:
         # Filed shares in raw count (e.g. 1,000,000 or 410,000,000) -> scale to millions (1.0M or 410.0M)

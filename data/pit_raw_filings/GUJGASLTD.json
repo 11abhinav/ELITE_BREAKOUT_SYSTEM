@@ -443,6 +443,23 @@
   },
   {
     "symbol": "GUJGASLTD",
+    "period_end_date": "2022-03-31",
+    "statement_type": "ANNUAL",
+    "basis": "STANDALONE",
+    "revenue": 16787.35,
+    "net_profit": 1285.64,
+    "operating_profit": 2076.0,
+    "eps": 18.68,
+    "shares_outstanding": 688390125.0,
+    "total_equity": 5601.5,
+    "total_debt": 511.0,
+    "operating_cash_flow": 1750.0,
+    "filing_date": "2022-05-10",
+    "exchange": "BSE",
+    "filing_id": "GUJGASLTD_20220331_A_v1"
+  },
+  {
+    "symbol": "GUJGASLTD",
     "source": "UPSTOX_API",
     "period_end_date": "2023-03-31",
     "period_type": "ANNUAL",
@@ -520,5 +537,19 @@
     "currency": "INR",
     "source_record_hash": "daaec3ff036e670f81876a47eb5c8a7f2203d30d4a7718b527a02bfe5a76f683",
     "statement_type": "ANNUAL"
+  },
+  {
+    "symbol": "GUJGASLTD",
+    "period_end_date": "2026-06-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 4615.35,
+    "net_profit": 330.7,
+    "operating_profit": 535.2,
+    "eps": 4.8,
+    "shares_outstanding": 688390125.0,
+    "filing_date": "2026-08-06",
+    "exchange": "BSE",
+    "filing_id": "GUJGASLTD_20260630_Q_v1"
   }
 ]
