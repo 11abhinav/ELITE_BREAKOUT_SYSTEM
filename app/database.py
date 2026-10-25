@@ -701,6 +701,12 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_closed_at ON alerts(closed_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_sym_status_time ON alerts(symbol, status, alert_time DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_scanner_closed ON alerts(scanner, status, closed_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_open_confluence ON alerts(alert_time DESC) WHERE status NOT IN ('WIN', 'LOSS', 'CLOSED', 'REJECTED', 'EXPIRED', 'NEUTRAL', 'CANCELLED', 'PENDING', 'PENDING_ENTRY') AND (is_rejected = FALSE OR is_rejected IS NULL)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_today_active ON alerts(alert_date DESC, status, alert_time DESC) WHERE COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_date ON alerts(status, alert_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_execution_state ON alerts(execution_state)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_exec ON alerts(status, execution_state)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_active_trades ON alerts(symbol, scanner) WHERE status IN ('OPEN', 'PARTIAL_EXIT', 'ACTIVE', 'PENDING')")
                 try:
                     cur.execute("""
                         UPDATE alerts 
@@ -1620,6 +1626,8 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner ON alert_outcomes(scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_regime ON alert_outcomes(regime)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner_regime ON alert_outcomes(scanner, regime)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_exit_time ON alert_outcomes(exit_timestamp DESC) WHERE exit_timestamp IS NOT NULL")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_alert_exit ON alert_outcomes(alert_id, exit_timestamp)")
 
                 # [INSTITUTIONAL ALERT QUALITY & EXCURSION TELEMETRY] Safe column migrations
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS r1_hit_before_sl BOOLEAN DEFAULT FALSE")
@@ -1752,6 +1760,9 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_is_online ON user_sessions(is_online)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(session_token)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_token ON user_sessions(user_id, session_token)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_ping ON user_sessions(user_id, ip_address, is_online, login_time DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_online_login ON user_sessions(is_online, login_time DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_offline_logoff ON user_sessions(is_online, logoff_time DESC)")
 
                 # 35. user_messages
                 cur.execute("""
@@ -1929,6 +1940,8 @@ def init_db(force: bool = False):
                     CREATE INDEX IF NOT EXISTS idx_seh_perf_composite ON scanner_execution_history(lifecycle_status, quality_status, started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_scanner_life ON scanner_execution_history(scanner_name, lifecycle_status, started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_running_heartbeat ON scanner_execution_history(scanner_name, heartbeat_at, started_at) WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
+                    CREATE INDEX IF NOT EXISTS idx_seh_scanner_completed_started ON scanner_execution_history(scanner_name, completed_at DESC, started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_distinct_scanners ON scanner_execution_history(scanner_name) WHERE scanner_name IS NOT NULL AND scanner_name != '';
 
                     ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_insufficient_count INT DEFAULT 0;
                     ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_missing_count INT DEFAULT 0;
@@ -4325,6 +4338,10 @@ def invalidate_open_alerts_summary_cache():
     with _open_alerts_summary_lock:
         _open_alerts_summary_cache["ts"] = 0.0
         _open_alerts_summary_cache["data"] = None
+    try:
+        invalidate_distinct_scanners_cache()
+    except Exception:
+        pass
 
 def get_all_open_alerts_summary(force_refresh: bool = False) -> dict[str, list[dict]]:
     """Return all currently open alerts grouped by normalized symbol with 15s micro-cache.
@@ -13706,14 +13723,31 @@ CANONICAL_SCANNERS = [
     "WEALTH"
 ]
 
-def get_all_distinct_scanners() -> list:
+_DISTINCT_SCANNERS_CACHE = {"ts": 0.0, "data": []}
+_DISTINCT_SCANNERS_LOCK = threading.Lock()
+
+def invalidate_distinct_scanners_cache():
+    """Invalidate distinct scanners cache on new runs or alert insertions."""
+    global _DISTINCT_SCANNERS_CACHE
+    with _DISTINCT_SCANNERS_LOCK:
+        _DISTINCT_SCANNERS_CACHE["ts"] = 0.0
+        _DISTINCT_SCANNERS_CACHE["data"] = []
+
+def get_all_distinct_scanners(force_refresh: bool = False) -> list:
     """
     Returns dynamically discovered unique scanner identifiers across:
     1. scanner_execution_history (scanner_name)
     2. scanner_health (scanner_name)
     3. alerts (scanner)
-    Union-ed with canonical scanners so newly added scanners or pending scanners appear immediately.
+    Cached for 300 seconds to eliminate expensive multi-table distinct scans on page loads.
     """
+    global _DISTINCT_SCANNERS_CACHE
+    now_t = time.time()
+    if not force_refresh:
+        with _DISTINCT_SCANNERS_LOCK:
+            if _DISTINCT_SCANNERS_CACHE["data"] and (now_t - _DISTINCT_SCANNERS_CACHE["ts"]) < 300.0:
+                return _DISTINCT_SCANNERS_CACHE["data"]
+
     discovered = set(CANONICAL_SCANNERS)
     try:
         with get_connection() as conn:
@@ -13739,7 +13773,11 @@ def get_all_distinct_scanners() -> list:
     except Exception as exc:
         logger.debug(f"get_all_distinct_scanners DB query warning: {exc}")
 
-    return sorted(list(discovered))
+    result = sorted(list(discovered))
+    with _DISTINCT_SCANNERS_LOCK:
+        _DISTINCT_SCANNERS_CACHE["data"] = result
+        _DISTINCT_SCANNERS_CACHE["ts"] = now_t
+    return result
 
 _SEH_FILTERS_CACHE = {"ts": 0.0, "versions": ["v1"], "commits": [], "scanners": []}
 

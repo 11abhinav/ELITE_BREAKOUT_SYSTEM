@@ -674,7 +674,7 @@ from database import (
     normalize_scanner_name
 )
 
-_viewers_cache = {"timestamp": 0, "payload": None}
+_viewers_cache = {"timestamp": 0.0, "payload": None, "etag": None, "gzip": None}
 _last_session_cleanup_ts = 0.0
 
 @app.route("/api/viewers", methods=["POST", "GET"])
@@ -688,19 +688,22 @@ def api_viewers():
         user_id = session.get("user_id")
         if user_id:
             ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
-            # [RULE 67 CHANGE-RATIONALE]:
-            # Pings user session in DB while still leveraging 3s cache for the heavy online list & message count lookup.
             ping_user_session(user_id, ip)
 
-    if _viewers_cache["payload"] is not None and (now_ts - _viewers_cache["timestamp"]) < 3.0:
-        return Response(_viewers_cache["payload"], mimetype="application/json")
+    with _dashboard_cache_lock:
+        if _viewers_cache["payload"] is not None and (now_ts - _viewers_cache["timestamp"]) < 3.0:
+            return _make_json_response(
+                _viewers_cache["payload"],
+                etag=_viewers_cache.get("etag"),
+                max_age=3,
+                precompressed_gzip=_viewers_cache.get("gzip")
+            )
 
     if (now_ts - _last_session_cleanup_ts) > 60.0:
         cleanup_stale_sessions()
         _last_session_cleanup_ts = now_ts
 
     stats = get_online_users_and_history()
-
     unread = get_unread_message_counts()
     
     res = {
@@ -711,9 +714,12 @@ def api_viewers():
         "unread_messages": unread
     }
     payload = json.dumps(serialize_datetimes(res), default=str)
-    _viewers_cache["timestamp"] = now_ts
-    _viewers_cache["payload"] = payload
-    return Response(payload, mimetype="application/json")
+    import hashlib
+    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+    with _dashboard_cache_lock:
+        _viewers_cache = {"timestamp": now_ts, "payload": payload, "etag": etag, "gzip": gz}
+    return _make_json_response(payload, etag=etag, max_age=3, precompressed_gzip=gz)
 
 @app.route("/api/messages", methods=["GET", "POST"])
 @login_required
@@ -1022,6 +1028,22 @@ def invalidate_all_dashboard_caches():
             _BREAKOUT_WATCHLIST_CACHE["etag"] = None
     except Exception:
         pass
+    try:
+        if "_DISTINCT_SCANNERS_API_CACHE" in globals() and isinstance(_DISTINCT_SCANNERS_API_CACHE, dict):
+            _DISTINCT_SCANNERS_API_CACHE["ts"] = 0.0
+            _DISTINCT_SCANNERS_API_CACHE["payload"] = None
+            _DISTINCT_SCANNERS_API_CACHE["gzip"] = None
+            _DISTINCT_SCANNERS_API_CACHE["etag"] = None
+    except Exception:
+        pass
+    try:
+        if "_STOCK_DATA_HEALTH_CACHE" in globals() and isinstance(_STOCK_DATA_HEALTH_CACHE, dict):
+            _STOCK_DATA_HEALTH_CACHE["timestamp"] = 0.0
+            _STOCK_DATA_HEALTH_CACHE["payload"] = None
+            _STOCK_DATA_HEALTH_CACHE["gzip"] = None
+            _STOCK_DATA_HEALTH_CACHE["etag"] = None
+    except Exception:
+        pass
 
 @app.route('/api/notifications', methods=['GET'])
 @login_required
@@ -1209,9 +1231,7 @@ def serve_cached_html(file_path: str, extra_headers: dict = None):
 
     headers = {
         "ETag": cached["etag"],
-        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-        "Expires": "0",
+        "Cache-Control": "public, max-age=0, must-revalidate",
         "Content-Type": "text/html; charset=utf-8"
     }
     if extra_headers:
@@ -2246,7 +2266,7 @@ def get_v2_scanner_health():
         return jsonify([])
 
 
-_UNIVERSE_HEALTH_CACHE = {"ts": 0, "payload": None}
+_UNIVERSE_HEALTH_CACHE = {"ts": 0.0, "payload": None, "etag": None, "gzip": None}
 _UNIVERSE_HEALTH_BG_REFRESHING = False
 
 def _compute_universe_health_payload_sync():
@@ -2391,42 +2411,56 @@ def _compute_universe_health_payload_sync():
 @login_required
 def get_v2_universe_health():
     """
-    [VERSION: UNIVERSE_HEALTH_CACHE_v3.0 - INSTANT SWR]
+    [VERSION: UNIVERSE_HEALTH_CACHE_v4.0 - INSTANT SWR & ETAG 304]
     Dynamically counts daily watchlist admissions (ELITE, NEAR_QUALIFIED) and excluded stocks.
-    Uses 120s TTL response cache with non-blocking Stale-While-Revalidate (SWR) to serve <1ms.
+    Uses 120s TTL response cache with non-blocking SWR and precompressed gzip.
     """
     global _UNIVERSE_HEALTH_CACHE, _UNIVERSE_HEALTH_BG_REFRESHING
     now_ts = time.time()
     force_refresh = request.args.get("force", "").lower() == "true"
 
-    if not force_refresh and _UNIVERSE_HEALTH_CACHE["payload"] is not None:
+    with _dashboard_cache_lock:
+        cached_p = _UNIVERSE_HEALTH_CACHE.get("payload")
+        cached_etag = _UNIVERSE_HEALTH_CACHE.get("etag")
+        cached_gz = _UNIVERSE_HEALTH_CACHE.get("gzip")
+        cached_ts = _UNIVERSE_HEALTH_CACHE.get("ts", 0.0)
+
+    if not force_refresh and cached_p is not None:
         # Check if background SWR refresh is needed
-        if (now_ts - _UNIVERSE_HEALTH_CACHE["ts"]) >= 120.0 and not _UNIVERSE_HEALTH_BG_REFRESHING:
+        if (now_ts - cached_ts) >= 120.0 and not _UNIVERSE_HEALTH_BG_REFRESHING:
             def _bg_swr_universe():
                 global _UNIVERSE_HEALTH_CACHE, _UNIVERSE_HEALTH_BG_REFRESHING
                 try:
                     _UNIVERSE_HEALTH_BG_REFRESHING = True
                     payload = _compute_universe_health_payload_sync()
                     if payload:
-                        _UNIVERSE_HEALTH_CACHE["payload"] = payload
-                        _UNIVERSE_HEALTH_CACHE["ts"] = time.time()
+                        import hashlib
+                        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+                        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                        with _dashboard_cache_lock:
+                            _UNIVERSE_HEALTH_CACHE["payload"] = payload
+                            _UNIVERSE_HEALTH_CACHE["etag"] = etag
+                            _UNIVERSE_HEALTH_CACHE["gzip"] = gz
+                            _UNIVERSE_HEALTH_CACHE["ts"] = time.time()
                 except Exception as bg_e:
                     logger.debug(f"Background universe health refresh notice: {bg_e}")
                 finally:
                     _UNIVERSE_HEALTH_BG_REFRESHING = False
-            threading.Thread(target=_bg_swr_universe, daemon=True).start()
+            threading.Thread(target=_bg_swr_universe, daemon=True, name="UniverseHealthSWR").start()
 
-        resp = Response(_UNIVERSE_HEALTH_CACHE["payload"], mimetype="application/json")
-        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        return resp
+        return _make_json_response(cached_p, etag=cached_etag, max_age=30, precompressed_gzip=cached_gz)
 
     # Cold start or forced refresh
     payload = _compute_universe_health_payload_sync()
-    _UNIVERSE_HEALTH_CACHE["payload"] = payload
-    _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
-    resp = Response(payload, mimetype="application/json")
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    return resp
+    import hashlib
+    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+    with _dashboard_cache_lock:
+        _UNIVERSE_HEALTH_CACHE["payload"] = payload
+        _UNIVERSE_HEALTH_CACHE["etag"] = etag
+        _UNIVERSE_HEALTH_CACHE["gzip"] = gz
+        _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
+    return _make_json_response(payload, etag=etag, max_age=30, precompressed_gzip=gz)
 
 
 _UNIVERSE_DATA_CACHE = {}
@@ -3115,6 +3149,7 @@ def _background_refresh_stock_data_health():
 
 @app.route("/api/admin/stock_data_health", methods=["GET"])
 @app.route("/api/stock_data_health", methods=["GET"])
+@app.route("/api/stock-data-health", methods=["GET"])
 @login_required
 def api_admin_stock_data_health():
     """
@@ -4262,22 +4297,32 @@ def api_deposit_funds():
         return jsonify({"error": str(e)}), 500
 
 
-_CAPITAL_INFO_CACHE: dict = {"ts": 0.0, "payload": None}
+_CAPITAL_INFO_CACHE: dict = {"ts": 0.0, "payload": None, "etag": None, "gzip": None}
 
 @app.route("/api/capital_info", methods=["GET"])
 @login_required
 def api_capital_info():
-    """Get capital breakdown: base_capital, total_deposited, total_capital. 60s in-memory cache."""
+    """Get capital breakdown: base_capital, total_deposited, total_capital. 60s in-memory cache with ETag."""
     global _CAPITAL_INFO_CACHE
     now_ts = time.time()
-    if _CAPITAL_INFO_CACHE["payload"] is not None and (now_ts - _CAPITAL_INFO_CACHE["ts"]) < 60.0:
-        return Response(_CAPITAL_INFO_CACHE["payload"], mimetype="application/json")
+    with _dashboard_cache_lock:
+        if _CAPITAL_INFO_CACHE["payload"] is not None and (now_ts - _CAPITAL_INFO_CACHE["ts"]) < 60.0:
+            return _make_json_response(
+                _CAPITAL_INFO_CACHE["payload"],
+                etag=_CAPITAL_INFO_CACHE.get("etag"),
+                max_age=30,
+                precompressed_gzip=_CAPITAL_INFO_CACHE.get("gzip")
+            )
     try:
         from database import get_capital_info
         info = get_capital_info()
         payload = json.dumps(info, default=str)
-        _CAPITAL_INFO_CACHE = {"ts": now_ts, "payload": payload}
-        return Response(payload, mimetype="application/json")
+        import hashlib
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        with _dashboard_cache_lock:
+            _CAPITAL_INFO_CACHE = {"ts": now_ts, "payload": payload, "etag": etag, "gzip": gz}
+        return _make_json_response(payload, etag=etag, max_age=30, precompressed_gzip=gz)
     except Exception:
         logger.exception("❌ /api/capital_info failed")
         return jsonify({"base_capital": 0, "total_deposited": 0, "total_capital": 0})
@@ -4321,27 +4366,57 @@ def api_expectancy_matrix():
     except Exception as e:
         logger.exception("❌ /api/analytics/expectancy_matrix failed")
         return jsonify({"matrix": [], "ambiguous_collision_pct": 0.0, "ambiguous_warning_triggered": False})
-_ADVANCED_OUTCOMES_CACHE: dict = {"ts": 0.0, "payload": None}
+_ADVANCED_OUTCOMES_CACHE: dict = {"ts": 0.0, "payload": None, "etag": None, "gzip": None}
+_ADVANCED_OUTCOMES_BG_REFRESHING = False
 
 @app.route("/api/v1/analytics/outcomes/advanced", methods=["GET"])
 @login_required
 def api_advanced_outcome_analytics():
     """
     Feature F-13: Advanced Outcome Analytics & Feature Attribution API.
-    Returns telemetry coverage, dual confidence levels, feature attributions, score bands, capture efficiency, and rolling performance.
-    In-memory 30s TTL cache prevents heavy join queries and CPU-bound statistics on UI poll.
+    Cached for 300s with non-blocking SWR background refresh, ETag 304, and precompressed gzip.
     """
-    global _ADVANCED_OUTCOMES_CACHE
+    global _ADVANCED_OUTCOMES_CACHE, _ADVANCED_OUTCOMES_BG_REFRESHING
     now_ts = time.time()
-    if _ADVANCED_OUTCOMES_CACHE["payload"] is not None and (now_ts - _ADVANCED_OUTCOMES_CACHE["ts"]) < 30.0:
-        return Response(_ADVANCED_OUTCOMES_CACHE["payload"], mimetype="application/json")
+    force = request.args.get("force", "").lower() == "true"
+    with _dashboard_cache_lock:
+        cached_p = _ADVANCED_OUTCOMES_CACHE.get("payload")
+        cached_etag = _ADVANCED_OUTCOMES_CACHE.get("etag")
+        cached_gz = _ADVANCED_OUTCOMES_CACHE.get("gzip")
+        cached_ts = _ADVANCED_OUTCOMES_CACHE.get("ts", 0.0)
+
+    if not force and cached_p is not None:
+        if (now_ts - cached_ts) >= 300.0 and not _ADVANCED_OUTCOMES_BG_REFRESHING:
+            def _bg_swr_outcomes():
+                global _ADVANCED_OUTCOMES_CACHE, _ADVANCED_OUTCOMES_BG_REFRESHING
+                try:
+                    _ADVANCED_OUTCOMES_BG_REFRESHING = True
+                    from outcome_tracker import compute_advanced_outcome_analytics
+                    data = compute_advanced_outcome_analytics()
+                    payload = json.dumps(data, default=str)
+                    import hashlib
+                    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+                    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                    with _dashboard_cache_lock:
+                        _ADVANCED_OUTCOMES_CACHE = {"ts": time.time(), "payload": payload, "etag": etag, "gzip": gz}
+                except Exception as bg_e:
+                    logger.debug(f"Background outcomes refresh notice: {bg_e}")
+                finally:
+                    _ADVANCED_OUTCOMES_BG_REFRESHING = False
+            threading.Thread(target=_bg_swr_outcomes, daemon=True, name="OutcomesSWR").start()
+
+        return _make_json_response(cached_p, etag=cached_etag, max_age=60, precompressed_gzip=cached_gz)
 
     try:
         from outcome_tracker import compute_advanced_outcome_analytics
         data = compute_advanced_outcome_analytics()
         payload = json.dumps(data, default=str)
-        _ADVANCED_OUTCOMES_CACHE = {"ts": now_ts, "payload": payload}
-        return Response(payload, mimetype="application/json")
+        import hashlib
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        with _dashboard_cache_lock:
+            _ADVANCED_OUTCOMES_CACHE = {"ts": now_ts, "payload": payload, "etag": etag, "gzip": gz}
+        return _make_json_response(payload, etag=etag, max_age=60, precompressed_gzip=gz)
     except Exception as e:
         logger.exception("❌ /api/v1/analytics/outcomes/advanced failed")
         return jsonify({"error": str(e), "is_preview_mode": True, "overall_confidence": "LOW"}), 500
@@ -5629,10 +5704,22 @@ def api_scanner_execution_history():
         logger.exception("❌ Failed in /api/scanner_execution_history")
         return jsonify({"records": [], "total_records": 0, "page": 1, "per_page": 25, "total_pages": 1, "summary_stats": {}}), 200
 
+_DISTINCT_SCANNERS_API_CACHE: dict = {"ts": 0.0, "payload": None, "etag": None, "gzip": None}
+
 @app.route("/api/admin/scanners_distinct", methods=["GET"])
 @app.route("/api/scanners_distinct", methods=["GET"])
 def api_distinct_scanners():
-    """Returns dynamic list of all distinct scanners discovered across DB tables (execution history, health, alerts)."""
+    """Returns dynamic list of all distinct scanners discovered across DB tables with 300s cache and ETag 304."""
+    global _DISTINCT_SCANNERS_API_CACHE
+    now_ts = time.time()
+    with _dashboard_cache_lock:
+        if _DISTINCT_SCANNERS_API_CACHE["payload"] is not None and (now_ts - _DISTINCT_SCANNERS_API_CACHE["ts"]) < 300.0:
+            return _make_json_response(
+                _DISTINCT_SCANNERS_API_CACHE["payload"],
+                etag=_DISTINCT_SCANNERS_API_CACHE.get("etag"),
+                max_age=120,
+                precompressed_gzip=_DISTINCT_SCANNERS_API_CACHE.get("gzip")
+            )
     try:
         from database import get_all_distinct_scanners
         scanners = get_all_distinct_scanners()
@@ -5643,11 +5730,17 @@ def api_distinct_scanners():
             "QUALITY_VALUE_RECOVERY", "FILING_WATCHER", "PERFORMANCE_TRACKER",
             "WEALTH_EXIT_V1", "WEALTH_EXIT_V2", "DAILY_BUILDER", "REVERSAL", "PULLBACK", "MULTIBAGGER"
         ]
-    return jsonify({
+    res_payload = json.dumps({
         "success": True,
         "scanners": scanners,
         "count": len(scanners)
     })
+    import hashlib
+    etag = f'"{hashlib.md5(res_payload.encode("utf-8")).hexdigest()}"'
+    gz = _gzip.compress(res_payload.encode("utf-8"), compresslevel=1)
+    with _dashboard_cache_lock:
+        _DISTINCT_SCANNERS_API_CACHE = {"ts": now_ts, "payload": res_payload, "etag": etag, "gzip": gz}
+    return _make_json_response(res_payload, etag=etag, max_age=120, precompressed_gzip=gz)
 
 # ── Endpoints for Market Ticker & Catalyst News ────────────────────────────────────
 
@@ -6017,18 +6110,26 @@ def api_notices(symbol):
     return jsonify(notices)
 
 _ALL_TICKERS_CACHE = None
-_ALL_TICKERS_JSON_BYTES = None
-_ALL_TICKERS_TS = 0
+_ALL_TICKERS_JSON_STR = None
+_ALL_TICKERS_ETAG = None
+_ALL_TICKERS_GZIP = None
+_ALL_TICKERS_TS = 0.0
 
 @app.route('/api/all_tickers', methods=['GET'])
 @login_required
 def api_all_tickers():
-    """Returns a list of all active NSE symbols for frontend autocomplete."""
-    global _ALL_TICKERS_CACHE, _ALL_TICKERS_JSON_BYTES, _ALL_TICKERS_TS
-    import time, json, os, csv
+    """Returns a list of all active NSE symbols for frontend autocomplete with 3600s cache and ETag 304."""
+    global _ALL_TICKERS_CACHE, _ALL_TICKERS_JSON_STR, _ALL_TICKERS_ETAG, _ALL_TICKERS_GZIP, _ALL_TICKERS_TS
+    import time, json, os, csv, hashlib
     now_sec = time.time()
-    if _ALL_TICKERS_JSON_BYTES is not None and (now_sec - _ALL_TICKERS_TS) < 300:
-        return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
+    with _dashboard_cache_lock:
+        if _ALL_TICKERS_JSON_STR is not None and (now_sec - _ALL_TICKERS_TS) < 3600.0:
+            return _make_json_response(
+                _ALL_TICKERS_JSON_STR,
+                etag=_ALL_TICKERS_ETAG,
+                max_age=3600,
+                precompressed_gzip=_ALL_TICKERS_GZIP
+            )
 
     try:
         # [RULE 67 CHANGE-RATIONALE]:
@@ -6069,10 +6170,16 @@ def api_all_tickers():
                         logger.warning(f"Error reading {f} for tickers cache: {e}")
             result = sorted(list(tickers)) if tickers else []
 
-        _ALL_TICKERS_CACHE = result
-        _ALL_TICKERS_JSON_BYTES = json.dumps(result).encode('utf-8')
-        _ALL_TICKERS_TS = now_sec
-        return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
+        payload = json.dumps(result)
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=6)
+        with _dashboard_cache_lock:
+            _ALL_TICKERS_CACHE = result
+            _ALL_TICKERS_JSON_STR = payload
+            _ALL_TICKERS_ETAG = etag
+            _ALL_TICKERS_GZIP = gz
+            _ALL_TICKERS_TS = now_sec
+        return _make_json_response(payload, etag=etag, max_age=3600, precompressed_gzip=gz)
     except Exception as e:
         logger.exception(f"Failed to fetch tickers: {e}")
         return jsonify([])

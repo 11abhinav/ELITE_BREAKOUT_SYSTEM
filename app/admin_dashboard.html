@@ -5002,12 +5002,8 @@ function changeAdminPage(type, delta) {
 
     async function loadData(forceRebuild = false, bust = false) {
       try {
-        // Always bust browser cache on auto-refresh polls to prevent stale JSON being returned
-        const cacheBust = forceRebuild || bust ? `&_t=${Date.now()}` : '';
-        const url = forceRebuild
-          ? `/data/performance_data.json?rebuild=true${cacheBust}`
-          : `/data/performance_data.json?${cacheBust}`;
-        const cacheMode = (forceRebuild || bust) ? 'no-store' : 'default';
+        const url = forceRebuild ? `/data/performance_data.json?rebuild=true&t=${Date.now()}` : '/data/performance_data.json';
+        const cacheMode = forceRebuild ? 'reload' : 'default';
         const r = await fetch(url, { cache: cacheMode });
         if (r.ok) return await r.json();
       } catch (e) {
@@ -5207,7 +5203,7 @@ function changeAdminPage(type, delta) {
     async function loadScannerStatus() {
       let stats = null;
       try {
-        const r = await fetch('/api/scanner_status', { cache: 'no-store' });
+        const r = await fetch('/api/scanner_status');
         if (r.ok) stats = await r.json();
       } catch { }
       return stats || {};
