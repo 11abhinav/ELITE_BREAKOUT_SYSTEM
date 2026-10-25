@@ -27,8 +27,8 @@ sync_seed_data() {
         cp -rn /app/data_seed/* /app/data/ 2>/dev/null || cp -r /app/data_seed/* /app/data/ 2>/dev/null || true
         echo "✅ Data seed sync complete."
     fi
-}
-sync_seed_data &
+# Synchronously sync critical certified seed data before main.py boots
+sync_seed_data
 
 while true; do
     echo "▶️ Launching app/main.py..."

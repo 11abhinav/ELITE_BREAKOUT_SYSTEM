@@ -1363,15 +1363,12 @@ class FinancialFilingWatcher:
                     or (insufficient_depth and has_missing_cagr)
                     or local_annual_count < 6
                 )
-                if needs_bootstrap:
-                    should_poll_bse = (bse_prov is not None) and (len(raw_filings_list) == 0 or has_annual_need)
-                else:
-                    # On incremental runs, poll BSE if BSE-only stock has no new filings,
-                    # OR if the stock has an unresolved annual gap/depth need that requires BSE backfill.
-                    should_poll_bse = (bse_prov is not None) and (
-                        (is_bse_only and len(raw_filings_list) == 0)
-                        or (has_annual_need and not is_struct_ineligible)
-                    )
+                # [RULE 67 CHANGE-RATIONALE: Prevent redundant 20s BSE ScraperAPI calls for dual-listed NSE stocks]
+                # Poll BSE ONLY if:
+                # 1. The stock is BSE-only (e.g. 507526, XYZ.BO), OR
+                # 2. NSE returned 0 filings (fallback when NSE has no disclosures for the stock).
+                # If NSE already returned filings, BSE queries are 100% redundant under SEBI LODR Reg 33.
+                should_poll_bse = (bse_prov is not None) and (is_bse_only or len(raw_filings_list) == 0)
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
