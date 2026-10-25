@@ -191,10 +191,20 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("NetSales")
         or row.get("TotalIncome")
         or row.get("Revenue")
+        or row.get("RevenueFromOperations")
+        or row.get("RevenueFromOperation")
+        or row.get("Sales")
+        or row.get("Turnover")
+        or row.get("GrossSales")
+        or row.get("IncomeFromOperations")
         or lower_row.get("totincome")
         or lower_row.get("netsales")
         or lower_row.get("totalincome")
         or lower_row.get("revenue")
+        or lower_row.get("revenuefromoperations")
+        or lower_row.get("incomefromoperations")
+        or lower_row.get("sales")
+        or lower_row.get("grosssales")
     )
 
     # Net Profit (PAT)
@@ -202,9 +212,19 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         row.get("NetProfit")
         or row.get("ProfitAfterTax")
         or row.get("PAT")
+        or row.get("ProfitLoss")
+        or row.get("NetProfitLoss")
+        or row.get("ProfitForPeriod")
+        or row.get("ProfitLossForPeriod")
+        or row.get("NetProfitLossAfterTax")
+        or row.get("ProfitLossBeforeTax")
         or lower_row.get("netprofit")
         or lower_row.get("profitaftertax")
         or lower_row.get("pat")
+        or lower_row.get("profitloss")
+        or lower_row.get("netprofitloss")
+        or lower_row.get("profitforperiod")
+        or lower_row.get("netprofitlossaftertax")
     )
 
     # Operating Profit / EBIT
@@ -213,17 +233,24 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
         or row.get("OperatingProfit")
         or row.get("EBIT")
         or row.get("PBDT")
+        or row.get("ProfitBeforeTaxAndFinanceCosts")
+        or row.get("SegmentProfitLossBeforeTaxAndFinanceCosts")
+        or row.get("ProfitBeforeExceptionalItemsAndTax")
         or lower_row.get("pbit")
         or lower_row.get("operatingprofit")
         or lower_row.get("ebit")
+        or lower_row.get("pbdt")
     )
 
     # Operating Cash Flow (strictly annual)
     operating_cash_flow = _safe_float(
         row.get("CFO")
         or row.get("CashFlowOps")
+        or row.get("CashFlowFromOperatingActivities")
+        or row.get("CashFlowsFromOperations")
         or lower_row.get("cfo")
         or lower_row.get("cashflowops")
+        or lower_row.get("cashflowfromoperatingactivities")
     )
     if p_type != "ANNUAL":
         operating_cash_flow = None
@@ -232,15 +259,29 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     total_debt = _safe_float(
         row.get("TotalDebt")
         or row.get("Borrowings")
+        or row.get("TotalBorrowings")
+        or row.get("DebtSecurities")
+        or row.get("LongTermDebt")
+        or row.get("ShortTermDebt")
+        or row.get("CurrentBorrowings")
+        or row.get("NonCurrentBorrowings")
         or lower_row.get("totaldebt")
         or lower_row.get("borrowings")
+        or lower_row.get("totalborrowings")
+        or lower_row.get("debtsecurities")
+        or lower_row.get("longtermdebt")
+        or lower_row.get("shorttermdebt")
     )
     total_equity = _safe_float(
         row.get("TotalEquity")
         or row.get("NetWorth")
         or row.get("EquityShareCapital")
+        or row.get("Equity")
+        or row.get("EquityAttributableToOwnersOfParent")
         or lower_row.get("totalequity")
         or lower_row.get("networth")
+        or lower_row.get("equitysharecapital")
+        or lower_row.get("equity")
     )
 
     capital_employed = None
@@ -249,14 +290,17 @@ def _parse_bse_row(symbol: str, row: dict) -> Optional[RawFinancialRecord]:
     elif total_equity is not None:
         capital_employed = total_equity
 
-    eps = _safe_float(row.get("EPS") or row.get("BasicEPS") or lower_row.get("eps"))
+    eps = _safe_float(row.get("EPS") or row.get("BasicEPS") or lower_row.get("eps") or lower_row.get("basiceps"))
 
     shares_outstanding = _safe_float(
         row.get("SharesOutstanding")
         or row.get("NumberOfShares")
         or row.get("shares_outstanding")
+        or row.get("PaidUpEquityShareCapital")
+        or row.get("EquitySharesNumber")
         or lower_row.get("sharesoutstanding")
         or lower_row.get("numberofshares")
+        or lower_row.get("paidupequitysharecapital")
     )
     if shares_outstanding is None and net_profit is not None and eps is not None and eps != 0:
         try:

@@ -98,6 +98,12 @@ _CONSECUTIVE_TIMEOUTS = 0
 _MAX_CONSECUTIVE_TIMEOUTS = 4
 _COOLDOWN_PERIOD = 45.0  # seconds cooldown if NSE WAF drops multiple connections
 
+# Known symbol mappings where company was renamed/restructured on NSE
+_NSE_SYMBOL_ALIASES: Dict[str, str] = {
+    "GUJGASLTD": "GUJENERGY",
+    "GUJRATGAS": "GUJENERGY",
+}
+
 
 _HEADERS = {
     "User-Agent": (
@@ -139,6 +145,11 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
             "totalIncome",
             "revenue",
             "income",
+            "SaleOfProducts",
+            "GrossSales",
+            "SalesRevenueNet",
+            "IncomeFromOperations",
+            "Sales",
         ],
         context_type="PERIOD",
         unit_type="INR",
@@ -156,6 +167,11 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
             "netProfitLossForPeriod",
             "profitBeforeTax",
             "netProfit",
+            "ProfitLossBeforeTax",
+            "NetProfitLossAfterTax",
+            "ProfitAfterTax",
+            "NetProfitForPeriod",
+            "PAT",
         ],
         context_type="PERIOD",
         unit_type="INR",
@@ -204,6 +220,8 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
             "EquityAndLiabilities",
             "totalEquity",
             "equity",
+            "NetWorth",
+            "EquityShareCapital",
         ],
         context_type="INSTANT",
         unit_type="INR",
@@ -223,6 +241,10 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
             "CurrentBorrowings",
             "totalDebt",
             "debt",
+            "TotalBorrowings",
+            "DebtSecurities",
+            "LongTermDebt",
+            "ShortTermDebt",
         ],
         context_type="INSTANT",
         unit_type="INR",

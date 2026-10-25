@@ -32,9 +32,11 @@ from typing import Any, Dict, List, Optional, Set
 BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
     BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
-for _sp in [BASE_DIR, os.path.join(BASE_DIR, "app")]:
-    if _sp not in sys.path:
-        sys.path.insert(0, _sp)
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+_app_dir = os.path.join(BASE_DIR, "app")
+if _app_dir not in sys.path:
+    sys.path.append(_app_dir)
 
 import numpy as np
 import pandas as pd
@@ -460,17 +462,19 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                     pass
 
     # Cash & Equivalents for EV (C3)
-    cash_val = latest_f.get("cash_and_equivalents")
+    cash_val = latest_f.get("cash_and_equivalents") or latest_f.get("cash")
     cash_f = float(cash_val) if cash_val is not None and not pd.isna(cash_val) else None
     
     # Operating Profit, D&A, and EBITDA (C7)
-    op_raw = latest_f.get("operating_profit")
-    da_raw = latest_f.get("depreciation_amortization")
+    op_raw = latest_f.get("operating_profit") or latest_f.get("ebit")
+    da_raw = latest_f.get("depreciation_amortization") or latest_f.get("depreciation")
     op_f = float(op_raw) if op_raw is not None and not pd.isna(op_raw) else None
     da_f = float(da_raw) if da_raw is not None and not pd.isna(da_raw) else None
     
     ebitda_f = None
-    if op_f is not None and da_f is not None:
+    if latest_f.get("ebitda") is not None and not pd.isna(latest_f.get("ebitda")):
+        ebitda_f = float(latest_f.get("ebitda"))
+    elif op_f is not None and da_f is not None:
         ebitda_f = op_f + da_f
     elif op_f is not None:
         ebitda_f = op_f
@@ -661,7 +665,7 @@ def rebuild_canonical_pit_dataset(
 
     # Determine symbols to compute
     if target_symbols:
-        symbols_to_process = [s.strip().upper() for s in target_symbols if (s.strip().upper() in approved_set or len(target_symbols) <= 5)]
+        symbols_to_process = [s.strip().upper() for s in target_symbols]
         is_delta = os.path.exists(out_file) and len(symbols_to_process) < len(approved_set)
     else:
         symbols_to_process = sorted(list(approved_set))

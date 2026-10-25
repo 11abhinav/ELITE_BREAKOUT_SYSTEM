@@ -10377,6 +10377,52 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     r_low = str(reason or "").lower()
     sym_u = str(sym or "").strip().upper()
 
+    # Helper to check numeric validity (> -900 and not NaN)
+    def _is_num_valid(v):
+        if v is None or pd.isna(v):
+            return False
+        try:
+            fv = float(v)
+            return fv > -900.0 and fv != 9999.0
+        except Exception:
+            return False
+
+    has_ev_ebitda = _is_num_valid(snap_item.get("current_ev_ebitda")) or _is_num_valid(snap_item.get("ev_ebitda"))
+    has_pe = _is_num_valid(snap_item.get("current_pe")) or _is_num_valid(snap_item.get("pe"))
+    has_roce = _is_num_valid(snap_item.get("roce_5y_avg")) or _is_num_valid(snap_item.get("roce"))
+    has_de = _is_num_valid(snap_item.get("debt_to_equity")) or _is_num_valid(snap_item.get("d_e")) or (snap_item.get("debt_to_equity") == 0.0)
+    has_valuation = has_ev_ebitda or has_pe
+
+    # -------------------------------------------------------------------------
+    # 0. UNIVERSAL CANONICAL PIT INTEGRITY & FRESHNESS INVARIANT (NON-STOCK-SPECIFIC)
+    # -------------------------------------------------------------------------
+    # If the master Point-in-Time rebuilt dataset proves the stock has:
+    #   1. Valid freshness status ('VALID' or 'FRESH')
+    #   2. Zero historical filing gaps (filing_gap_detected is False)
+    #   3. Recent annual filing present (pit_staleness_years <= 1.5 or latest_annual_period >= '2025-03-31')
+    # Then the stock is verified clean and fresh on the authoritative data layer.
+    # Any historical cool-off lock for filing gaps, staleness, unparsed statements, depth,
+    # or general data insufficiency MUST be automatically and immediately evicted!
+    is_pit_valid = str(snap_item.get("pit_freshness_status") or "").upper() in ("VALID", "FRESH")
+    no_filing_gap = not bool(snap_item.get("filing_gap_detected", False))
+    stale_yrs = float(snap_item.get("pit_staleness_years") or 99.0)
+    has_recent_annual = (stale_yrs <= 1.5) or (str(snap_item.get("latest_annual_period") or "") >= "2025-03-31")
+
+    is_filing_or_staleness_issue = any(k in r_low for k in (
+        "stale", "gap", "backfill", "local_cache", "xbrl", "depth", "lodr", "sebi",
+        "pending", "unparsed", "missing intermediate", "local disk files end at", "data_stale", "pit_staleness"
+    ))
+    if is_pit_valid and no_filing_gap and has_recent_annual and is_filing_or_staleness_issue:
+        return True
+
+    # If the failure reason was valuation (EV/EBITDA or PE) and valuation is now present:
+    if any(k in r_low for k in ("ev_ebitda", "current_pe", "pe_missing", "valuation")) and has_valuation:
+        return True
+
+    # If the failure reason was quality recovery data insufficiency and core metrics are present:
+    if "recovery_data_insufficient" in r_low and has_roce and (has_de or snap_item.get("debt_to_equity") is None) and has_valuation:
+        return True
+
     # 1. Structural base year net loss exemptions (mathematically undefined 5Y PAT CAGR)
     is_base_year_loss = (
         bool(snap_item.get("pat_base_year_loss", False))

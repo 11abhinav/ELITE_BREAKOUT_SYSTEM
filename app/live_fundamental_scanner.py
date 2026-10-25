@@ -107,9 +107,11 @@ except ImportError:
 BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
     BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
-for _sp in [BASE_DIR, os.path.join(BASE_DIR, "app")]:
-    if _sp not in sys.path:
-        sys.path.insert(0, _sp)
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+_app_dir = os.path.join(BASE_DIR, "app")
+if _app_dir not in sys.path:
+    sys.path.append(_app_dir)
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CLEAN_UNIVERSE_JSON = os.path.join(DATA_DIR, "certified_clean_universe_886.json")
 QUARANTINE_JSON = os.path.join(DATA_DIR, "quarantined_anomaly_symbols_41.json")
@@ -4117,8 +4119,8 @@ class QualityCompounderValueV2Scanner:
                 except Exception as _qe:
                     logger.debug(f"[UPSTREAM_RECOVERY] {clean_sym}: Quote fetch notice: {_qe}")
 
-            _d_raw = row.get("total_debt")
-            _c_raw = row.get("cash_and_equivalents")
+            _d_raw = row.get("total_debt") if row.get("total_debt") is not None else row.get("borrowings")
+            _c_raw = row.get("cash_and_equivalents") if row.get("cash_and_equivalents") is not None else row.get("cash")
             _d = float(_d_raw) if (_d_raw is not None and pd.notna(_d_raw)) else None
             _c = float(_c_raw) if (_c_raw is not None and pd.notna(_c_raw)) else None
 
@@ -4141,8 +4143,8 @@ class QualityCompounderValueV2Scanner:
             else:
                 _sh_f = None
 
-            _op = row.get("operating_profit")
-            _da = row.get("depreciation_amortization")
+            _op = row.get("operating_profit") if row.get("operating_profit") is not None else row.get("ebit")
+            _da = row.get("depreciation_amortization") if row.get("depreciation_amortization") is not None else row.get("depreciation")
             _eb = None
             if _op is not None and _da is not None:
                 _eb = float(_op) + float(_da)
