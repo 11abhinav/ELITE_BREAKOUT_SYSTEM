@@ -1152,7 +1152,104 @@ class FinancialFilingWatcher:
                     ))
                 )
 
+                # [RULE 67 CHANGE-RATIONALE: Universal Recent Poll & Market Sweep Integrity Check]
+                # Check whether this symbol was polled/checked within the last 24 hours
+                last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
+                polled_recently = False
+                if last_polled:
+                    try:
+                        from dateutil.parser import parse as _parse_dt
+                        dt_polled = _parse_dt(last_polled)
+                        now_ist_dt = datetime.now(dt_polled.tzinfo)
+                        if (now_ist_dt.date() == dt_polled.date()) or ((now_ist_dt - dt_polled).total_seconds() < 86400):
+                            polled_recently = True
+                    except Exception:
+                        pass
+
+                # Check if market sweep found a newer filing than latest local period
                 has_newer_sweep_filing = False
+                if market_sweep_ok:
+                    sym_sweep_items = market_sweep_filings.get(sym_u, [])
+                    for it in sym_sweep_items:
+                        p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
+                        if p_end and latest_local_period and p_end > latest_local_period:
+                            has_newer_sweep_filing = True
+                            break
+                        elif p_end and not latest_local_period:
+                            has_newer_sweep_filing = True
+                            break
+
+                # ── RULE 67 / RESOURCE CONSERVATION INVARIANT: ZERO REDUNDANT SCRAPING ──
+                # 1. If history is complete (not needs_bootstrap) and market sweep verified no new filing:
+                #    SKIP in 0ms!
+                if not needs_bootstrap and market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
+                    with self._state_lock:
+                        from zoneinfo import ZoneInfo
+                        now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                        latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                        if sym_u not in self.state:
+                            self.state[sym_u] = {
+                                "filings": {},
+                                "latest_filing_date": latest_local_period,
+                                "latest_annual_date": latest_ann_p,
+                                "snapshot_status": freshness,
+                                "bootstrap_completed": True,
+                                "last_polled_at": now_ist_str,
+                            }
+                        else:
+                            self.state[sym_u]["bootstrap_completed"] = True
+                            self.state[sym_u]["last_polled_at"] = now_ist_str
+                    with counter_lock:
+                        skipped_complete_count[0] += 1
+                    logger.info(
+                        f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"UP TO DATE (market sweep verified, latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                        f"Skipping exchange fetch in 0ms."
+                    )
+                    return
+
+                # 2. If needs_bootstrap (e.g. historical annual gap or tail annual lag), BUT symbol was already polled
+                #    within the last 24h AND market sweep confirms zero new filings on NSE/BSE today:
+                #    DO NOT hammer ScraperAPI in a tight loop! Wait for the 24h window or a new market sweep disclosure.
+                if needs_bootstrap and polled_recently and not has_newer_sweep_filing and not force_backfill:
+                    with counter_lock:
+                        skipped_complete_count[0] += 1
+                    logger.info(
+                        f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"BOOTSTRAP DEFERRED (polled within 24h on {last_polled[:19]}, 0 new disclosures in market sweep). "
+                        f"Skipping redundant exchange scrape in 0ms."
+                    )
+                    return
+
+                # 3. Fallback when market sweep was unavailable, but local data was checked today:
+                if not market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
+                    if not polled_recently and snap_row is not None and local_annual_count >= 6 and not snap_gap_flag:
+                        snap_as_of = str(snap_row.get("as_of_date") or "")
+                        try:
+                            from datetime import date as _dt_date
+                            snap_date = _dt_date.fromisoformat(snap_as_of[:10])
+                            now_date = date.today()
+                            if (now_date - snap_date).days <= 3 and freshness in ("FRESH", "VALID"):
+                                polled_recently = True
+                        except Exception:
+                            pass
+
+                    if polled_recently:
+                        with counter_lock:
+                            skipped_complete_count[0] += 1
+                        logger.info(
+                            f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                            f"DATA CHECKED TODAY (latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                            f"Skipping exchange fetch in 0ms."
+                        )
+                        return
+
+                if has_newer_sweep_filing:
+                    logger.info(
+                        f"📢 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"NEW FILING DISCOVERED IN MARKET SWEEP! (latest_local={latest_local_period}). Ingesting new disclosure..."
+                    )
+
                 if needs_bootstrap:
                     min_cutoff = get_historical_cutoff_date(as_of_date)
                     reason_desc = (
@@ -1174,87 +1271,7 @@ class FinancialFilingWatcher:
                         f"Ingesting complete history from {min_cutoff} to ensure 100% complete data."
                     )
                 else:
-                    # High-Water Mark: Symbol has verified continuous multi-year history and complete metrics.
-                    # ── FAST 0ms MARKET-SWEEP EVALUATION ──
-                    if market_sweep_ok and not force_backfill:
-                        sym_sweep_items = market_sweep_filings.get(sym_u, [])
-                        for it in sym_sweep_items:
-                            p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
-                            if p_end and latest_local_period and p_end > latest_local_period:
-                                has_newer_sweep_filing = True
-                                break
-                            elif p_end and not latest_local_period:
-                                has_newer_sweep_filing = True
-                                break
-
-                        if not has_newer_sweep_filing:
-                            with self._state_lock:
-                                from zoneinfo import ZoneInfo
-                                now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                                latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
-                                if sym_u not in self.state:
-                                    self.state[sym_u] = {
-                                        "filings": {},
-                                        "latest_filing_date": latest_local_period,
-                                        "latest_annual_date": latest_ann_p,
-                                        "snapshot_status": freshness,
-                                        "bootstrap_completed": True,
-                                        "last_polled_at": now_ist_str,
-                                    }
-                                else:
-                                    self.state[sym_u]["bootstrap_completed"] = True
-                                    self.state[sym_u]["last_polled_at"] = now_ist_str
-                            with counter_lock:
-                                skipped_complete_count[0] += 1
-                            logger.info(
-                                f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                                f"UP TO DATE (market sweep verified, latest_period={latest_local_period}, annual_count={local_annual_count}). "
-                                f"Skipping exchange fetch in 0ms."
-                            )
-                            return
-                        else:
-                            logger.info(
-                                f"📢 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                                f"NEW FILING DISCOVERED IN MARKET SWEEP! (latest_local={latest_local_period}). Ingesting new disclosure..."
-                            )
-
-                    # Fallback check: ONLY when market_sweep failed to contact exchange AND no newer sweep filing exists
-                    if not market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
-                        last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
-                        polled_recently = False
-                        if last_polled:
-                            try:
-                                from dateutil.parser import parse as _parse_dt
-                                dt_polled = _parse_dt(last_polled)
-                                now_ist_dt = datetime.now(dt_polled.tzinfo)
-                                if (now_ist_dt.date() == dt_polled.date()) or ((now_ist_dt - dt_polled).total_seconds() < 86400):
-                                    polled_recently = True
-                            except Exception:
-                                pass
-                        # Snapshot fallback: if snapshot exists, has 6+ annual filings, and is fresh/valid
-                        if not polled_recently and snap_row is not None and local_annual_count >= 6 and not snap_gap_flag:
-                            snap_as_of = str(snap_row.get("as_of_date") or "")
-                            try:
-                                from datetime import date as _dt_date
-                                snap_date = _dt_date.fromisoformat(snap_as_of[:10])
-                                now_date = date.today()
-                                if (now_date - snap_date).days <= 3 and freshness in ("FRESH", "VALID"):
-                                    polled_recently = True
-                            except Exception:
-                                pass
-
-                        if polled_recently:
-                            with counter_lock:
-                                skipped_complete_count[0] += 1
-                            logger.info(
-                                f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                                f"DATA COMPLETE & CHECKED TODAY (latest_period={latest_local_period}, annual_count={local_annual_count}). "
-                                f"Skipping exchange fetch in 0ms."
-                            )
-                            return
-
-                    # In next run, symbol has complete history: ONLY check for new filings!
-                    # min_cutoff set to latest_local_period ensures we do NOT refetch past years (2020..2025).
+                    # In incremental run with new filing: ONLY check for new filings!
                     min_cutoff = latest_local_period or "2024-01-01"
                     logger.info(
                         f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
@@ -1431,7 +1448,8 @@ class FinancialFilingWatcher:
                         except Exception:
                             pass
 
-                    if bse_prov:
+                    # [RULE 67 CHANGE-RATIONALE: Prevent duplicate BSE fetch if already polled in Step 2]
+                    if bse_prov and not should_poll_bse:
                         try:
                             # Pre-PDF Invariant Gate: Ensure BSE XML is checked for periods where NSE lacked XML
                             scrip = bse_prov.resolve_bse_scrip_code(sym_u)
