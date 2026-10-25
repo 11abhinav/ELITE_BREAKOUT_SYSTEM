@@ -179,30 +179,55 @@ class FilingEvent:
 
 
 def _normalize_iso_date(val: Any) -> Optional[str]:
-    """Normalizes any exchange date string (e.g. '31-Mar-2020', '31-03-2020') into standard ISO YYYY-MM-DD."""
+    """Normalizes any exchange date string (e.g. '31-Mar-2020', '31-03-2020') into standard ISO YYYY-MM-DD.
+    [RULE 67 CHANGE-RATIONALE: Enforces strict calendar sanity (1990 <= year <= current_year + 1). Auto-heals
+    clerical century keyboard slips (e.g. 3025 -> 2025 where clerk hit key 3 adjacent to 2). Prevents future date corruptions.]
+    """
     if not val:
         return None
     s = str(val).strip()
     import re
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+    from zoneinfo import ZoneInfo
+    now_year = datetime.now(ZoneInfo("Asia/Kolkata")).year
+    max_year = now_year + 1
+
+    def _sanitize_iso(iso_cand: str) -> Optional[str]:
+        if not iso_cand or not re.match(r"^\d{4}-\d{2}-\d{2}$", iso_cand):
+            return None
         try:
-            datetime.strptime(s, "%Y-%m-%d")
-            return s
+            dt = datetime.strptime(iso_cand, "%Y-%m-%d")
+            y, m, d = dt.year, dt.month, dt.day
+            if 3000 <= y <= 3099:
+                y = 2000 + (y - 3000)
+                iso_cand = f"{y:04d}-{m:02d}-{d:02d}"
+            if 1990 <= y <= max_year:
+                return iso_cand
+            return None
         except ValueError:
             return None
+
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
+        san = _sanitize_iso(s)
+        if san:
+            return san
+
     try:
         from app.data_providers.nse_xbrl_provider import _parse_date_to_iso
         res = _parse_date_to_iso(s)
-        if res and re.match(r"^\d{4}-\d{2}-\d{2}$", res):
-            return res
+        if res:
+            san = _sanitize_iso(res)
+            if san:
+                return san
     except Exception:
         pass
+
     for fmt in ("%d-%b-%Y", "%d-%b-%y", "%d-%B-%Y", "%d-%B-%y", "%d-%m-%Y", "%d-%m-%y", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S", "%Y%m%d"):
         try:
             clean_token = s.split()[0]
             d = datetime.strptime(clean_token, fmt).strftime("%Y-%m-%d")
-            if re.match(r"^\d{4}-\d{2}-\d{2}$", d):
-                return d
+            san = _sanitize_iso(d)
+            if san:
+                return san
         except Exception:
             pass
     return None
@@ -1018,8 +1043,8 @@ class FinancialFilingWatcher:
                                 is_ann = (_st_class == "ANNUAL")
                                 is_qtr = (_st_class in ("QUARTERLY", "HALF_YEARLY", "NINE_MONTHS"))
 
-                                # Annual statements: audited full year results
-                                if is_ann or (_p.endswith("-03-31") and not is_qtr):
+                                # Annual statements: audited full year results or completed March 31 fiscal periods
+                                if is_ann or _p.endswith("-03-31"):
                                     local_annual_count += 1
                                     try:
                                         annual_years.add(int(_p[:4]))
@@ -1142,14 +1167,14 @@ class FinancialFilingWatcher:
                     force_backfill
                     or has_corrupt_or_empty_raw
                     or (len(sorted_annual_years) == 0)
-                    or has_intermediate_gap
-                    or has_tail_annual_gap
                     or (freshness not in ("FRESH", "VALID"))
                     or snap_gap_flag
                     or not snap_annual
                     or not latest_local_period
                     or (not already_bootstrapped and (
-                        has_quarterly_gap
+                        has_intermediate_gap
+                        or has_tail_annual_gap
+                        or has_quarterly_gap
                         or (depth_reason is not None)
                         or has_missing_bs_facts
                         or has_missing_canonical_metrics
@@ -1456,12 +1481,20 @@ class FinancialFilingWatcher:
                     # If should_poll_bse was True, BSE financials and announcements were already queried.
                     # If should_poll_bse was False, the stock is 100% complete and healthy with contiguous
                     # NSE XML filings and has zero missing periods.
-                    # Eliminating the redundant BSE query here removes thousands of unnecessary external API calls.
+                    # Check existing local raw filings so previously fetched PDF or XML statements are NEVER re-downloaded
+                    existing_local_covered: Set[str] = set()
+                    if isinstance(_ldata, list):
+                        for _loc in _ldata:
+                            if _loc.get("revenue") is not None or _loc.get("net_profit") is not None:
+                                _lp = _normalize_iso_date(_loc.get("period_end_date") or _loc.get("toDate") or _loc.get("date"))
+                                if _lp:
+                                    existing_local_covered.add(_lp)
 
                     uncovered_pdf_anns = [
                         ann for ann in candidate_anns
                         if isinstance(ann, dict) and str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower().endswith(".pdf")
                         and _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate")) not in xml_covered_periods
+                        and _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate")) not in existing_local_covered
                     ]
 
                     if uncovered_pdf_anns:
@@ -1818,6 +1851,15 @@ class FinancialFilingWatcher:
             self._save_state()
 
         total_elapsed = time.time() - start_poll_time
+        # [RULE 67 CHANGE-RATIONALE: Expose exact execution metrics for dashboard telemetry and auditability]
+        self.last_poll_stats = {
+            "total_scanned": len(symbols),
+            "already_up_to_date": skipped_complete_count[0],
+            "fetch_attempted": max(0, len(symbols) - skipped_complete_count[0]),
+            "fetch_success": len(discovered_events),
+            "fetch_failed": error_count[0],
+            "duration_seconds": round(total_elapsed, 2),
+        }
         logger.info(
             f"🏁 [filling scanner] Polling cycle complete in {total_elapsed:.1f}s | "
             f"Universe: {len(symbols)} | Complete Skipped: {skipped_complete_count[0]} | "
@@ -2442,16 +2484,29 @@ class FinancialFilingWatcher:
             except Exception as _sync_db_err:
                 logger.warning(f"[filling scanner] End-of-cycle DB sync notice: {_sync_db_err}")
 
-            # 6. Complete scanner_execution_history
+            # 6. Complete scanner_execution_history with detailed telemetry breakdown
+            poll_stats = getattr(self, "last_poll_stats", {})
+            tot_scanned = poll_stats.get("total_scanned", processed)
+            up_to_date = poll_stats.get("already_up_to_date", max(0, tot_scanned - filings_found_count))
+            attempted = poll_stats.get("fetch_attempted", max(0, tot_scanned - up_to_date))
+            success = poll_stats.get("fetch_success", filings_found_count)
+            failed = poll_stats.get("fetch_failed", 0)
+
             if run_ctx:
                 complete_scanner_execution_run(
                     run_ctx,
                     lifecycle_status="COMPLETED",
                     quality_status="NORMAL",
-                    total_stocks=processed,
-                    fresh_data_count=processed,
-                    summary_notes=f"Processed {processed} equities in {duration}s. Filings audited: {filings_found_count}. Rebuild: {rebuild_needed}.",
+                    total_stocks=tot_scanned,
+                    fresh_data_count=up_to_date,
+                    data_insufficient_count=failed,
+                    summary_notes=f"Audited {tot_scanned} stocks in {duration}s. Up to date: {up_to_date}, Attempted: {attempted}, Ingested: {success}, Failed: {failed}.",
                     metrics_json={
+                        "total_scanned": tot_scanned,
+                        "already_up_to_date": up_to_date,
+                        "fetch_attempted": attempted,
+                        "fetch_success": success,
+                        "fetch_failed": failed,
                         "rebuild_needed": rebuild_needed,
                         "pending_symbols_resolved": len(pending_symbols),
                         "duration_seconds": duration,

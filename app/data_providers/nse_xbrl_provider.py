@@ -303,19 +303,44 @@ def _consolidation(row: dict) -> ConsolidationType:
 
 
 def _parse_date_to_iso(val: Any) -> Optional[str]:
-    """Parse various exchange date representations to strict ISO YYYY-MM-DD."""
+    """Parse various exchange date representations to strict ISO YYYY-MM-DD.
+    [RULE 67 CHANGE-RATIONALE: Enforces strict calendar sanity (1990 <= year <= current_year + 1). Auto-heals
+    clerical century keyboard slips (e.g. 3025 -> 2025 where clerk typed 3 instead of 2). Prevents future date corruptions.]
+    """
     if not val:
         return None
     s = str(val).strip()
+    from zoneinfo import ZoneInfo
+    now_year = datetime.now(ZoneInfo("Asia/Kolkata")).year
+    max_year = now_year + 1
+
+    def _sanitize(iso_val: str) -> Optional[str]:
+        if not iso_val or len(iso_val) != 10 or iso_val[4] != "-" or iso_val[7] != "-":
+            return None
+        try:
+            parts = iso_val.split("-")
+            y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+            if 3000 <= y <= 3099:
+                y = 2000 + (y - 3000)
+                iso_val = f"{y:04d}-{m:02d}-{d:02d}"
+            if 1990 <= y <= max_year:
+                return iso_val
+            return None
+        except Exception:
+            return None
+
     if len(s) == 10 and s[4] == "-" and s[7] == "-":
-        return s
+        return _sanitize(s)
     for fmt in (
         "%Y-%m-%d", "%d-%b-%Y", "%d-%B-%Y", "%d/%m/%Y", "%d-%m-%Y",
         "%d-%b-%y", "%b-%Y", "%B-%Y", "%Y%m%d", "%Y-%m-%dT%H:%M:%S",
         "%d-%b-%Y %H:%M:%S", "%d-%b-%Y %H:%M"
     ):
         try:
-            return datetime.strptime(s.split("T")[0] if "T" in s else s, fmt).date().isoformat()
+            cand = datetime.strptime(s.split("T")[0] if "T" in s else s, fmt).date().isoformat()
+            san = _sanitize(cand)
+            if san:
+                return san
         except Exception:
             pass
     return None
@@ -336,27 +361,30 @@ def _parse_period_end_from_announcement_text(text: Optional[str]) -> Optional[st
             "%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y"
         ]:
             try:
-                return datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
+                cand = datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
+                return _parse_date_to_iso(cand)
             except ValueError:
                 pass
     # Pattern 2: DD-Mon-YYYY
     m2 = re.search(r"(?:ended|ended on|ending|period ended)\s+(\d{1,2}-[A-Za-z]{3}-\d{4})", text, re.IGNORECASE)
     if m2:
         try:
-            return datetime.strptime(m2.group(1).strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
+            cand = datetime.strptime(m2.group(1).strip(), "%d-%b-%Y").strftime("%Y-%m-%d")
+            return _parse_date_to_iso(cand)
         except Exception:
             pass
     # Pattern 3: DD/MM/YYYY
     m3 = re.search(r"(?:ended|ended on|ending|period ended)\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.IGNORECASE)
     if m3:
         try:
-            return datetime.strptime(m3.group(1).strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
+            cand = datetime.strptime(m3.group(1).strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
+            return _parse_date_to_iso(cand)
         except Exception:
             pass
-    # Pattern 4: direct ISO date YYYY-MM-DD
-    m4 = re.search(r"\b(20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b", text)
+    # Pattern 4: direct ISO date YYYY-MM-DD (including 30xx clerical slips)
+    m4 = re.search(r"\b((?:19|20|30)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b", text)
     if m4:
-        return m4.group(1)
+        return _parse_date_to_iso(m4.group(1))
     return None
 
 

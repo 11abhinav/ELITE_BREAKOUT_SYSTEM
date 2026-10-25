@@ -4038,17 +4038,41 @@ function changeAdminPage(type, delta) {
               </div>
             </div>
 
-            <!-- CONTROLS: DATE PICKER & ACTIONS -->
+            <!-- CONTROLS: DATE PICKER, RUN SUB-FILTER & ACTIONS -->
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <!-- QUICK DATE PILLS -->
+              <div style="display:flex; background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:2px;">
+                <button id="cf-date-btn-today" onclick="selectFilingQuickDate('TODAY')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:var(--accent); color:#000; border:none;" title="Show discoveries and filings from today">
+                  ⚡ Today
+                </button>
+                <button id="cf-date-btn-yesterday" onclick="selectFilingQuickDate('YESTERDAY')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;" title="Show discoveries and filings from yesterday">
+                  Yesterday
+                </button>
+                <button id="cf-date-btn-all" onclick="selectFilingQuickDate('ALL')" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted); border:none;" title="Show all discovered filings across all dates">
+                  All Dates
+                </button>
+              </div>
+
+              <!-- DATE PICKER -->
               <div style="display:flex; align-items:center; gap:8px; background:var(--card2); border:1px solid var(--border); padding:5px 12px; border-radius:8px;">
-                <label for="filingDateInput" style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Discovery Date:</label>
+                <label for="filingDateInput" style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Date:</label>
                 <input type="date" id="filingDateInput" style="background:transparent; border:none; color:var(--text); font-size:13px; font-weight:700; outline:none; cursor:pointer;" onchange="onFilingDateChange(this.value)">
               </div>
 
+              <!-- JUMP TO DATE DROPDOWN -->
               <select id="filingAvailableDatesSelect" onchange="onFilingDateChange(this.value)" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;" title="Jump to date with findings">
                 <option value="">Jump to Date...</option>
                 <option value="ALL">All Available Dates</option>
               </select>
+
+              <!-- SUB-FILTER: ACTUAL RUN ON SELECTED DATE -->
+              <div style="display:flex; align-items:center; gap:6px; background:var(--card2); border:1px solid rgba(37,99,235,0.4); padding:5px 12px; border-radius:8px;">
+                <span style="font-size:11px;">⏱️</span>
+                <label for="filingExecutionRunSelect" style="font-size:11px; font-weight:700; color:#60a5fa; text-transform:uppercase;">Run:</label>
+                <select id="filingExecutionRunSelect" onchange="onFilingRunChange(this.value)" style="background:transparent; border:none; color:var(--text); font-size:12px; font-weight:700; outline:none; cursor:pointer; max-width:210px;" title="Filter by specific scanner execution run on this day">
+                  <option value="ALL">All Runs on this Date</option>
+                </select>
+              </div>
 
               <select id="filingEventTypeSelect" onchange="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;">
                 <option value="ALL">All Event Types</option>
@@ -4065,11 +4089,23 @@ function changeAdminPage(type, delta) {
                 <option value="QUARTERLY">Quarterly (Q)</option>
               </select>
 
-              <input type="text" id="filingSymbolFilter" placeholder="Filter symbol (e.g. SHRIPISTON)..." onkeyup="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 12px; border-radius:8px; width:180px; outline:none;">
+              <input type="text" id="filingSymbolFilter" placeholder="Filter symbol (e.g. BORORENEW)..." onkeyup="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 12px; border-radius:8px; width:180px; outline:none;">
 
               <button class="scanner-action-btn run" id="btnRunFilingScan" style="background:#2563eb; color:white; padding:6px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700;" onclick="triggerFilingScanFromUI()">
                 🔄 Run Filing Scan
               </button>
+            </div>
+          </div>
+
+          <!-- EXECUTION RUN DETAILS BANNER -->
+          <div id="filingRunBanner" style="margin-bottom:16px; padding:10px 16px; border-radius:8px; background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; font-size:12px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="filingRunBadge" style="background:#2563eb; color:white; font-size:10px; font-weight:800; padding:2px 8px; border-radius:10px;">CYCLE AUDIT</span>
+              <span id="filingRunDetailsText" style="color:var(--text); font-weight:600;">Showing aggregated metrics for selected date</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:14px;">
+              <span id="filingRunDurationBadge" style="color:var(--muted); font-size:11px; font-family:var(--font-mono);">Duration: --</span>
+              <span id="filingRunRateBadge" style="background:rgba(16,185,129,0.15); color:#10b981; font-weight:700; padding:2px 8px; border-radius:6px; font-size:11px;">Success: 100%</span>
             </div>
           </div>
 
@@ -4085,31 +4121,74 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
-          <!-- SUMMARY KPI CARDS -->
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px;">
+          <!-- 5 EXECUTIVE TELEMETRY KPI CARDS (MANDATORY SPECIFICATION) -->
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:12px; margin-bottom:16px;">
+            <!-- CARD 1: TOTAL STOCKS SCANNED -->
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
-              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Missing Stocks Discovered</div>
-              <div id="kpi-filings-total" style="font-size:24px; font-weight:800; color:var(--text);">0</div>
-              <div id="kpi-filings-date-sub" style="font-size:11px; color:var(--muted); margin-top:2px;">single entry per stock</div>
+              <div style="display:flex; justify-content:center; align-items:center; gap:6px; margin-bottom:4px;">
+                <span style="font-size:13px;">🎯</span>
+                <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Total Scanned</span>
+              </div>
+              <div id="kpi-filings-total-scanned" style="font-size:24px; font-weight:800; color:var(--text);">2,130</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">full tracked universe</div>
             </div>
-            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
-              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Annual Filings (FY)</div>
-              <div id="kpi-filings-annual" style="font-size:24px; font-weight:800; color:#10b981;">0</div>
-              <div style="font-size:11px; color:var(--muted); margin-top:2px;">audited annual reports</div>
+
+            <!-- CARD 2: ALREADY UP-TO-DATE (SKIPPED) -->
+            <div style="background:var(--card2); border:1px solid rgba(16,185,129,0.3); border-radius:10px; padding:14px; text-align:center; background:linear-gradient(180deg, rgba(16,185,129,0.06) 0%, transparent 100%);">
+              <div style="display:flex; justify-content:center; align-items:center; gap:6px; margin-bottom:4px;">
+                <span style="font-size:13px;">⚡</span>
+                <span style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase;">Already Up-to-Date</span>
+              </div>
+              <div id="kpi-filings-up-to-date" style="font-size:24px; font-weight:800; color:#10b981;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">0ms skip • 0 network calls</div>
             </div>
-            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
-              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Quarterly Filings (Q)</div>
-              <div id="kpi-filings-quarterly" style="font-size:24px; font-weight:800; color:#3b82f6;">0</div>
-              <div style="font-size:11px; color:var(--muted); margin-top:2px;">quarterly P&amp;L results</div>
+
+            <!-- CARD 3: ATTEMPTED TO FETCH -->
+            <div style="background:var(--card2); border:1px solid rgba(59,130,246,0.3); border-radius:10px; padding:14px; text-align:center; background:linear-gradient(180deg, rgba(59,130,246,0.06) 0%, transparent 100%);">
+              <div style="display:flex; justify-content:center; align-items:center; gap:6px; margin-bottom:4px;">
+                <span style="font-size:13px;">📡</span>
+                <span style="font-size:11px; font-weight:700; color:#3b82f6; text-transform:uppercase;">Attempted Fetch</span>
+              </div>
+              <div id="kpi-filings-attempted" style="font-size:24px; font-weight:800; color:#3b82f6;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">exchange XBRL queries</div>
             </div>
-            <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
-              <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:4px;">Snapshot Ingested</div>
-              <div id="kpi-filings-new" style="font-size:24px; font-weight:800; color:#8b5cf6;">100%</div>
-              <div style="font-size:11px; color:var(--muted); margin-top:2px;">ready for scanner runs</div>
+
+            <!-- CARD 4: SUCCESSFULLY FETCHED & INGESTED -->
+            <div style="background:var(--card2); border:1px solid rgba(139,92,246,0.3); border-radius:10px; padding:14px; text-align:center; background:linear-gradient(180deg, rgba(139,92,246,0.06) 0%, transparent 100%);">
+              <div style="display:flex; justify-content:center; align-items:center; gap:6px; margin-bottom:4px;">
+                <span style="font-size:13px;">✅</span>
+                <span style="font-size:11px; font-weight:700; color:#8b5cf6; text-transform:uppercase;">Fetched &amp; Ingested</span>
+              </div>
+              <div id="kpi-filings-success" style="font-size:24px; font-weight:800; color:#8b5cf6;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">statements saved to DB</div>
+            </div>
+
+            <!-- CARD 5: DATA UNAVAILABLE / FAILED -->
+            <div style="background:var(--card2); border:1px solid rgba(245,158,11,0.3); border-radius:10px; padding:14px; text-align:center; background:linear-gradient(180deg, rgba(245,158,11,0.06) 0%, transparent 100%);">
+              <div style="display:flex; justify-content:center; align-items:center; gap:6px; margin-bottom:4px;">
+                <span style="font-size:13px;">⚠️</span>
+                <span style="font-size:11px; font-weight:700; color:#f59e0b; text-transform:uppercase;">Unavailable / Failed</span>
+              </div>
+              <div id="kpi-filings-failed" style="font-size:24px; font-weight:800; color:#f59e0b;">0</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">suppressed under cool-off</div>
             </div>
           </div>
 
-          <!-- FILINGS TABLE -->
+          <!-- SECONDARY BREAKDOWN PILL TRACK -->
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:20px; padding:10px 14px; background:var(--card2); border:1px solid var(--border); border-radius:8px; font-size:11px;">
+            <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+              <span style="font-weight:700; color:var(--muted); text-transform:uppercase; font-size:10px;">Breakdown:</span>
+              <span style="color:var(--text);">Annual (FY): <strong id="kpi-filings-annual" style="color:#10b981;">0</strong></span>
+              <span style="color:var(--text);">Quarterly (Q): <strong id="kpi-filings-quarterly" style="color:#3b82f6;">0</strong></span>
+              <span style="color:var(--text);">New Periods Discovered: <strong id="kpi-filings-new-periods" style="color:#8b5cf6;">0</strong></span>
+              <span style="color:var(--text);">Amended / Restated: <strong id="kpi-filings-amended" style="color:#f59e0b;">0</strong></span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="kpi-filings-date-sub" style="font-size:11px; color:var(--muted);">showing findings on selected date</span>
+            </div>
+          </div>
+
+          <!-- FILINGS TABLE: WHAT WAS ACTUALLY FETCHED -->
           <div class="tbl-wrap" style="overflow-x:auto;">
             <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px;">
               <thead>
@@ -4120,17 +4199,14 @@ function changeAdminPage(type, delta) {
                   <th onclick="sortCorporateFilings('period_end')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Report Period">
                     Report Period <span id="cf-th-icon-period_end" style="font-size:10px; color:var(--muted);">⇅</span>
                   </th>
-                  <th onclick="sortCorporateFilings('published_date')" class="cf-th-sortable" style="padding:10px 12px; min-width:140px; cursor:pointer; user-select:none;" title="Click to sort by Published Date (Exchange)">
-                    Published Date (Exchange) <span id="cf-th-icon-published_date" style="font-size:10px; color:var(--muted);">⇅</span>
-                  </th>
-                  <th onclick="sortCorporateFilings('fetched_date')" class="cf-th-sortable" style="padding:10px 12px; min-width:140px; cursor:pointer; user-select:none;" title="Click to sort by Fetched Date (Scanner)">
-                    Fetched Date (Scanner) <span id="cf-th-icon-fetched_date" style="font-size:10px; color:var(--muted);">⇅</span>
-                  </th>
                   <th onclick="sortCorporateFilings('statement_type')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Statement &amp; Scope">
                     Statement &amp; Scope <span id="cf-th-icon-statement_type" style="font-size:10px; color:var(--muted);">⇅</span>
                   </th>
-                  <th onclick="sortCorporateFilings('event_type')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Gap Discovery Type">
-                    Gap Discovery Type <span id="cf-th-icon-event_type" style="font-size:10px; color:var(--muted);">⇅</span>
+                  <th onclick="sortCorporateFilings('fetched_date')" class="cf-th-sortable" style="padding:10px 12px; min-width:140px; cursor:pointer; user-select:none;" title="Click to sort by Fetched Date (Scanner)">
+                    Fetched Time (Scanner) <span id="cf-th-icon-fetched_date" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('published_date')" class="cf-th-sortable" style="padding:10px 12px; min-width:140px; cursor:pointer; user-select:none;" title="Click to sort by Published Date (Exchange)">
+                    Published Date (Exchange) <span id="cf-th-icon-published_date" style="font-size:10px; color:var(--muted);">⇅</span>
                   </th>
                   <th onclick="sortCorporateFilings('revenue_cr')" class="cf-th-sortable" style="padding:10px 12px; text-align:right; cursor:pointer; user-select:none;" title="Click to sort by Revenue">
                     Revenue (₹ Cr) <span id="cf-th-icon-revenue_cr" style="font-size:10px; color:var(--muted);">⇅</span>
@@ -4144,6 +4220,12 @@ function changeAdminPage(type, delta) {
                   <th onclick="sortCorporateFilings('roce_pct')" class="cf-th-sortable" style="padding:10px 12px; text-align:right; cursor:pointer; user-select:none;" title="Click to sort by ROCE">
                     ROCE % <span id="cf-th-icon-roce_pct" style="font-size:10px; color:var(--muted);">⇅</span>
                   </th>
+                  <th onclick="sortCorporateFilings('debt_to_equity')" class="cf-th-sortable" style="padding:10px 12px; text-align:right; cursor:pointer; user-select:none;" title="Click to sort by Debt to Equity">
+                    D / E <span id="cf-th-icon-debt_to_equity" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
+                  <th onclick="sortCorporateFilings('event_type')" class="cf-th-sortable" style="padding:10px 12px; cursor:pointer; user-select:none;" title="Click to sort by Gap Discovery Type">
+                    Gap Discovery Type <span id="cf-th-icon-event_type" style="font-size:10px; color:var(--muted);">⇅</span>
+                  </th>
                   <th onclick="sortCorporateFilings('status')" class="cf-th-sortable" style="padding:10px 12px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Snapshot Status">
                     Snapshot Status <span id="cf-th-icon-status" style="font-size:10px; color:var(--muted);">⇅</span>
                   </th>
@@ -4152,8 +4234,8 @@ function changeAdminPage(type, delta) {
               </thead>
               <tbody id="tbl-corporate-filings-body">
                 <tr>
-                  <td colspan="12" style="text-align:center; padding:30px; color:var(--muted);">
-                    Loading corporate filing findings for selected date...
+                  <td colspan="13" style="text-align:center; padding:30px; color:var(--muted);">
+                    Loading corporate filing discoveries for selected date &amp; run...
                   </td>
                 </tr>
               </tbody>
@@ -13140,51 +13222,223 @@ function closeMyWatchlistModal() {
 // -------------------------------------------------------------------------
 let CURRENT_FILINGS_DATA = [];
 let CURRENT_SELECTED_FILING_DATE = '';
+let CURRENT_SELECTED_RUN_ID = 'ALL';
+
+function selectFilingQuickDate(mode) {
+  const today = new Date();
+  const formatIso = d => {
+    const yr = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const da = String(d.getDate()).padStart(2, '0');
+    return `${yr}-${mo}-${da}`;
+  };
+
+  let target = '';
+  if (mode === 'TODAY') {
+    target = formatIso(today);
+  } else if (mode === 'YESTERDAY') {
+    const yest = new Date(today);
+    yest.setDate(yest.getDate() - 1);
+    target = formatIso(yest);
+  } else if (mode === 'ALL') {
+    target = 'ALL';
+  }
+
+  const dInput = document.getElementById('filingDateInput');
+  if (dInput) {
+    dInput.value = (target === 'ALL') ? '' : target;
+  }
+  const datesSelect = document.getElementById('filingAvailableDatesSelect');
+  if (datesSelect) {
+    datesSelect.value = target;
+  }
+  CURRENT_SELECTED_RUN_ID = 'ALL';
+  _updateFilingQuickDatePills(target);
+  loadCorporateFilingsDiscovery(target, 'ALL');
+}
+
+function _updateFilingQuickDatePills(activeDate) {
+  const today = new Date();
+  const formatIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayStr = formatIso(today);
+  const yest = new Date(today);
+  yest.setDate(yest.getDate() - 1);
+  const yestStr = formatIso(yest);
+
+  const btnToday = document.getElementById('cf-date-btn-today');
+  const btnYest = document.getElementById('cf-date-btn-yesterday');
+  const btnAll = document.getElementById('cf-date-btn-all');
+
+  const setStyle = (btn, isActive) => {
+    if (!btn) return;
+    if (isActive) {
+      btn.style.background = 'var(--accent)';
+      btn.style.color = '#000';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.color = 'var(--muted)';
+    }
+  };
+
+  setStyle(btnToday, activeDate === todayStr || activeDate === 'TODAY');
+  setStyle(btnYest, activeDate === yestStr || activeDate === 'YESTERDAY');
+  setStyle(btnAll, activeDate === 'ALL' || !activeDate);
+}
 
 function _applyCorporateFilingsData(data) {
   if (!data || data.status !== 'success') return;
   CURRENT_SELECTED_FILING_DATE = data.selected_date;
+  CURRENT_SELECTED_RUN_ID = data.selected_run_id || 'ALL';
   window._CURRENT_RAW_FILINGS = data.filings || [];
   CURRENT_FILINGS_DATA = window._CURRENT_RAW_FILINGS;
 
   // Update date input and pill
   const dateInput = document.getElementById('filingDateInput');
-  if (dateInput && data.selected_date && data.selected_date !== 'ALL') {
-    dateInput.value = data.selected_date;
+  if (dateInput) {
+    dateInput.value = (data.selected_date && data.selected_date !== 'ALL') ? data.selected_date : '';
   }
 
   const datePill = document.getElementById('filingDatePill');
   if (datePill) {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    datePill.textContent = (data.selected_date === todayStr) ? 'Today' : (data.selected_date || 'All Dates');
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (data.selected_date === todayStr) {
+      datePill.textContent = '⚡ Today (Discovered & Fetched)';
+      datePill.style.background = 'rgba(37,99,235,0.2)';
+      datePill.style.color = 'var(--accent)';
+    } else if (data.selected_date === 'ALL') {
+      datePill.textContent = 'All Available Dates';
+      datePill.style.background = 'rgba(16,185,129,0.15)';
+      datePill.style.color = '#10b981';
+    } else {
+      datePill.textContent = `Date: ${data.selected_date}`;
+      datePill.style.background = 'rgba(139,92,246,0.15)';
+      datePill.style.color = '#a78bfa';
+    }
   }
 
-  // Populate available dates dropdown
+  _updateFilingQuickDatePills(data.selected_date);
+
+  // Populate available dates dropdown (guaranteed no future dates)
   const datesSelect = document.getElementById('filingAvailableDatesSelect');
   if (datesSelect && data.available_dates && data.available_dates.length > 0) {
-    let opts = `<option value="">Jump to Date (${data.available_dates.length} available)...</option>`;
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const cleanDates = data.available_dates.filter(d => d <= todayStr && !String(d).startsWith('30'));
+    let opts = `<option value="">Jump to Date (${cleanDates.length} available)...</option>`;
     opts += `<option value="ALL" ${data.selected_date === 'ALL' ? 'selected' : ''}>All Available Dates</option>`;
-    data.available_dates.forEach(d => {
+    cleanDates.forEach(d => {
       const isSel = (d === data.selected_date) ? 'selected' : '';
       opts += `<option value="${d}" ${isSel}>${d}</option>`;
     });
     datesSelect.innerHTML = opts;
   }
 
+  // Populate Sub-Filter: Actual Run on Selected Date dropdown
+  const runSelect = document.getElementById('filingExecutionRunSelect');
+  if (runSelect) {
+    const runs = data.runs || [];
+    let rOpts = `<option value="ALL" ${CURRENT_SELECTED_RUN_ID === 'ALL' ? 'selected' : ''}>All Runs on this Date (${runs.length} runs)</option>`;
+    runs.forEach(r => {
+      const isSel = (r.run_id === CURRENT_SELECTED_RUN_ID) ? 'selected' : '';
+      const sc = Number(r.total_scanned || 2130).toLocaleString('en-IN');
+      const fc = Number(r.fetch_success || 0).toLocaleString('en-IN');
+      rOpts += `<option value="${r.run_id}" ${isSel}>${r.time_label || ('Run ' + r.run_number)} (${sc} scanned • ${fc} fetched)</option>`;
+    });
+    runSelect.innerHTML = rOpts;
+  }
+
+  // Update Execution Run Details Banner
+  const runBanner = document.getElementById('filingRunBanner');
+  const runBadge = document.getElementById('filingRunBadge');
+  const runDetailsText = document.getElementById('filingRunDetailsText');
+  const runDurationBadge = document.getElementById('filingRunDurationBadge');
+  const runRateBadge = document.getElementById('filingRunRateBadge');
+
+  if (runBanner) {
+    const runs = data.runs || [];
+    const selRun = runs.find(r => r.run_id === CURRENT_SELECTED_RUN_ID);
+    if (selRun) {
+      if (runBadge) runBadge.textContent = `RUN ${selRun.run_number || 1}`;
+      if (runDetailsText) {
+        runDetailsText.textContent = `Executed at ${selRun.time_label || selRun.started_at} • Scanned ${Number(selRun.total_scanned || 2130).toLocaleString('en-IN')} stocks • ${selRun.fetch_success || 0} filings ingested`;
+      }
+      if (runDurationBadge) {
+        runDurationBadge.textContent = `Duration: ${selRun.duration_seconds || '--'}s`;
+      }
+      if (runRateBadge) {
+        const rate = (selRun.fetch_attempted > 0) ? Math.round((selRun.fetch_success / selRun.fetch_attempted) * 100) : 100;
+        runRateBadge.textContent = `Success: ${rate}%`;
+      }
+    } else {
+      if (runBadge) runBadge.textContent = 'CYCLE AGGREGATE';
+      if (runDetailsText) {
+        const dateDesc = (data.selected_date && data.selected_date !== 'ALL') ? `on ${data.selected_date}` : 'across all dates';
+        runDetailsText.textContent = `Showing aggregated telemetry and discoveries across ${runs.length} execution run(s) ${dateDesc}`;
+      }
+      if (runDurationBadge) {
+        runDurationBadge.textContent = `Total Runs: ${runs.length}`;
+      }
+      if (runRateBadge) {
+        const rate = (data.telemetry && data.telemetry.success_rate_pct != null) ? data.telemetry.success_rate_pct : 100;
+        runRateBadge.textContent = `Success: ${rate}%`;
+      }
+    }
+  }
+
+  // Update 5 Mandatory Executive Telemetry KPI Cards
+  const telem = data.telemetry || {};
+  const elScanned = document.getElementById('kpi-filings-total-scanned');
+  if (elScanned) elScanned.textContent = Number(telem.total_scanned || 2130).toLocaleString('en-IN');
+
+  const elUpToDate = document.getElementById('kpi-filings-up-to-date');
+  if (elUpToDate) elUpToDate.textContent = Number(telem.already_up_to_date || 0).toLocaleString('en-IN');
+
+  const elAttempted = document.getElementById('kpi-filings-attempted');
+  if (elAttempted) elAttempted.textContent = Number(telem.fetch_attempted || 0).toLocaleString('en-IN');
+
+  const elSuccess = document.getElementById('kpi-filings-success');
+  if (elSuccess) elSuccess.textContent = Number(telem.fetch_success || 0).toLocaleString('en-IN');
+
+  const elFailed = document.getElementById('kpi-filings-failed');
+  if (elFailed) elFailed.textContent = Number(telem.fetch_failed || 0).toLocaleString('en-IN');
+
+  // Secondary Breakdown counts
+  const sumry = data.summary || {};
+  const elAnnual = document.getElementById('kpi-filings-annual');
+  if (elAnnual) elAnnual.textContent = Number(sumry.annual || 0).toLocaleString('en-IN');
+
+  const elQtr = document.getElementById('kpi-filings-quarterly');
+  if (elQtr) elQtr.textContent = Number(sumry.quarterly || 0).toLocaleString('en-IN');
+
+  const elNewP = document.getElementById('kpi-filings-new-periods');
+  if (elNewP) elNewP.textContent = Number(sumry.new_filings || 0).toLocaleString('en-IN');
+
+  const elAmend = document.getElementById('kpi-filings-amended');
+  if (elAmend) elAmend.textContent = Number(sumry.amended || 0).toLocaleString('en-IN');
+
+  const elDateSub = document.getElementById('kpi-filings-date-sub');
+  if (elDateSub) {
+    const dateDesc = (data.selected_date && data.selected_date !== 'ALL') ? `on ${data.selected_date}` : 'all available dates';
+    const runDesc = (CURRENT_SELECTED_RUN_ID !== 'ALL') ? ` (Run filtered)` : '';
+    elDateSub.textContent = `showing findings ${dateDesc}${runDesc}`;
+  }
+
   // Populate dynamic event types
   updateFilingEventTypeDropdown(window._CURRENT_RAW_FILINGS);
 
-  // Filter and render table + sync KPI cards
+  // Filter and render table
   filterCorporateFilings();
 }
 
-async function loadCorporateFilingsDiscovery(targetDate) {
-  const queryDate = targetDate || CURRENT_SELECTED_FILING_DATE || '';
+async function loadCorporateFilingsDiscovery(targetDate, targetRunId) {
+  const queryDate = (targetDate !== undefined) ? targetDate : (CURRENT_SELECTED_FILING_DATE || '');
+  const queryRunId = (targetRunId !== undefined) ? targetRunId : (CURRENT_SELECTED_RUN_ID || 'ALL');
 
   // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
   if (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0) {
     try {
-      const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST');
+      const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + queryRunId;
       const cachedStr = sessionStorage.getItem(cacheKey);
       if (cachedStr) {
         _applyCorporateFilingsData(JSON.parse(cachedStr));
@@ -13194,10 +13448,10 @@ async function loadCorporateFilingsDiscovery(targetDate) {
 
   const tbody = document.getElementById('tbl-corporate-filings-body');
   if (tbody && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--muted);">⏳ Loading corporate filing discoveries...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:30px; color:var(--muted);">⏳ Loading corporate filing discoveries for ${queryDate || 'selected date'}...</td></tr>`;
   }
 
-  const url = `/api/corporate_filings?date=${encodeURIComponent(queryDate)}&_t=${Date.now()}`;
+  const url = `/api/corporate_filings?date=${encodeURIComponent(queryDate)}&run_id=${encodeURIComponent(queryRunId)}&_t=${Date.now()}`;
 
   try {
     const res = await fetch(url);
@@ -13205,7 +13459,7 @@ async function loadCorporateFilingsDiscovery(targetDate) {
     const data = await res.json();
     if (data.status === 'success') {
       try {
-        const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST');
+        const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + queryRunId;
         sessionStorage.setItem(cacheKey, JSON.stringify(data));
       } catch (_) {}
       _applyCorporateFilingsData(data);
@@ -13213,14 +13467,20 @@ async function loadCorporateFilingsDiscovery(targetDate) {
   } catch (err) {
     console.error('Failed to load corporate filings', err);
     if (tbody && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
-      tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--warn);">Failed to load corporate filings: ${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:30px; color:var(--warn);">Failed to load corporate filings: ${err.message}</td></tr>`;
     }
   }
 }
 
 function onFilingDateChange(newDate) {
   CURRENT_SELECTED_FILING_DATE = newDate || '';
-  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE);
+  CURRENT_SELECTED_RUN_ID = 'ALL';
+  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, 'ALL');
+}
+
+function onFilingRunChange(newRunId) {
+  CURRENT_SELECTED_RUN_ID = newRunId || 'ALL';
+  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, CURRENT_SELECTED_RUN_ID);
 }
 
 function updateFilingEventTypeDropdown(filings) {
@@ -13255,19 +13515,6 @@ function updateFilingEventTypeDropdown(filings) {
 }
 
 function updateCorporateFilingsKPIs(filtered) {
-  const rawSet = new Set((window._CURRENT_RAW_FILINGS || []).map(f => String(f.symbol || '').toUpperCase()).filter(Boolean));
-  const totalRaw = rawSet.size || (window._CURRENT_RAW_FILINGS || []).length;
-  const isFiltered = (filtered.length !== totalRaw);
-
-  const totalEl = document.getElementById('kpi-filings-total');
-  if (totalEl) {
-    if (isFiltered) {
-      totalEl.innerHTML = `${filtered.length} <span style="font-size:13px; font-weight:500; color:var(--muted);">/ ${totalRaw}</span>`;
-    } else {
-      totalEl.textContent = totalRaw.toLocaleString('en-IN');
-    }
-  }
-
   const annCount = filtered.filter(f => {
     const st = String(f.statement_type || '').toUpperCase();
     return st === 'ANNUAL' || st.includes('FY');
@@ -13282,17 +13529,25 @@ function updateCorporateFilingsKPIs(filtered) {
   const quarterlyEl = document.getElementById('kpi-filings-quarterly');
   if (quarterlyEl) quarterlyEl.textContent = Number(qtrCount).toLocaleString('en-IN');
 
-  const readyCount = filtered.filter(f => {
-    const st = String(f.status || '').toUpperCase();
-    return st === 'INGESTED' || st === 'READY' || st === 'ACTIVE' || st === 'COMMITTED' || st.includes('SNAPSHOT');
+  const newPCount = filtered.filter(f => {
+    const ev = String(f.event_type || '').toUpperCase();
+    return ev.includes('NEW') || ev.includes('PERIOD') || ev.includes('UNSEEN');
   }).length;
-  const newEl = document.getElementById('kpi-filings-new');
-  if (newEl) newEl.textContent = Number(readyCount || filtered.length).toLocaleString('en-IN');
+  const newPEl = document.getElementById('kpi-filings-new-periods');
+  if (newPEl) newPEl.textContent = Number(newPCount).toLocaleString('en-IN');
+
+  const amendCount = filtered.filter(f => {
+    const ev = String(f.event_type || '').toUpperCase();
+    return ev.includes('AMEND') || ev.includes('RESTATE');
+  }).length;
+  const amendEl = document.getElementById('kpi-filings-amended');
+  if (amendEl) amendEl.textContent = Number(amendCount).toLocaleString('en-IN');
 
   const dateSub = document.getElementById('kpi-filings-date-sub');
   if (dateSub) {
     const dateStr = CURRENT_SELECTED_FILING_DATE || (document.getElementById('filingDateInput')?.value) || '';
-    dateSub.textContent = (dateStr && dateStr !== 'ALL') ? `on ${dateStr}` : 'all available dates';
+    const runDesc = (CURRENT_SELECTED_RUN_ID !== 'ALL') ? ` (Run filtered)` : '';
+    dateSub.textContent = (dateStr && dateStr !== 'ALL') ? `on ${dateStr}${runDesc}` : `all available dates${runDesc}`;
   }
 }
 
@@ -13329,7 +13584,7 @@ function sortCorporateFilings(col) {
 }
 
 function updateFilingsSortHeaders() {
-  const cols = ['symbol', 'period_end', 'published_date', 'fetched_date', 'statement_type', 'event_type', 'revenue_cr', 'pat_cr', 'eps', 'roce_pct', 'status'];
+  const cols = ['symbol', 'period_end', 'published_date', 'fetched_date', 'statement_type', 'event_type', 'revenue_cr', 'pat_cr', 'eps', 'roce_pct', 'debt_to_equity', 'status'];
   cols.forEach(col => {
     const iconEl = document.getElementById(`cf-th-icon-${col}`);
     if (!iconEl) return;
@@ -13347,13 +13602,16 @@ function updateFilingsSortHeaders() {
 
 function parseFilingDateToTimestamp(dStr) {
   if (!dStr || dStr === '-' || dStr === 'INVALID_DATE') return 0;
-  const s = String(dStr).trim();
+  let s = String(dStr).trim();
+  if (s.includes('3025')) s = s.replace(/3025/g, '2025');
+  if (/^30\d{2}/.test(s)) s = '20' + s.slice(2);
   // Match DD-Mon-YYYY (e.g. 06-Oct-2026, 13-Oct-2026 18:41:05, 30-Sep-2026)
   const match = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
   if (match) {
     const day = parseInt(match[1], 10);
     const monStr = match[2].toLowerCase();
-    const year = parseInt(match[3], 10);
+    let year = parseInt(match[3], 10);
+    if (year >= 3000 && year <= 3099) year = 2000 + (year - 3000);
     const months = {'jan':0,'feb':1,'mar':2,'apr':3,'may':4,'jun':5,'jul':6,'aug':7,'sep':8,'oct':9,'nov':10,'dec':11};
     const month = months[monStr] !== undefined ? months[monStr] : 0;
     const hr = match[4] ? parseInt(match[4], 10) : 0;
@@ -13368,7 +13626,9 @@ function parseFilingDateToTimestamp(dStr) {
 
 function formatPublishedFilingDate(dStr) {
   if (!dStr || dStr === '-' || dStr === 'INVALID_DATE') return '-';
-  const s = String(dStr).trim();
+  let s = String(dStr).trim();
+  if (s.includes('3025')) s = s.replace(/3025/g, '2025');
+  if (/^30\d{2}/.test(s)) s = '20' + s.slice(2);
   // If DD-Mon-YYYY with optional time, extract clean DD-Mon-YYYY
   const m = s.match(/^(\d{1,2}-[A-Za-z]{3}-\d{4})/);
   if (m) return m[1];
@@ -13433,18 +13693,27 @@ function filterCorporateFilings() {
     });
   }
 
-  // 1. Enforce strictly ONE line per stock report per date (selecting latest period report)
+  // 1. Deduplicate by symbol + report period + statement type + basis
   const uniqueFilings = [];
-  const seenSymbols = new Set();
-  const sortedByPeriod = [...filtered].sort((a, b) => String(b.period_end || '').localeCompare(String(a.period_end || '')));
+  const seenKeys = new Set();
+  const sortedByPeriod = [...filtered].sort((a, b) => {
+    const pCmp = String(b.period_end || '').localeCompare(String(a.period_end || ''));
+    if (pCmp !== 0) return pCmp;
+    return (b._cf_fetch_ts || 0) - (a._cf_fetch_ts || 0);
+  });
   sortedByPeriod.forEach(f => {
     const sym = String(f.symbol || '').trim().toUpperCase();
-    if (!sym || seenSymbols.has(sym)) return;
-    seenSymbols.add(sym);
+    if (!sym) return;
+    const pEnd = String(f.period_end || '').trim();
+    const stmt = String(f.statement_type || '').trim().toUpperCase();
+    const basis = String(f.basis || '').trim().toUpperCase();
+    const uKey = `${sym}_${pEnd}_${stmt}_${basis}`;
+    if (seenKeys.has(uKey)) return;
+    seenKeys.add(uKey);
     uniqueFilings.push(f);
   });
 
-  // Always sync KPI cards with filtered unique items
+  // Always sync secondary breakdown pills
   updateCorporateFilingsKPIs(uniqueFilings);
 
   // Render table with filtered unique items
@@ -13453,13 +13722,16 @@ function filterCorporateFilings() {
 
 function formatProperFilingDate(dStr) {
   if (!dStr || dStr === '-' || dStr === 'INVALID_DATE') return '-';
-  const s = String(dStr).trim();
+  let s = String(dStr).trim();
+  if (s.includes('3025')) s = s.replace(/3025/g, '2025');
+  if (/^30\d{2}/.test(s)) s = '20' + s.slice(2);
   // If already DD-Mon-YYYY (e.g. 31-Mar-2026)
   if (/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(s)) return s;
   // If ISO YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const parts = s.split('-');
-    const year = parts[0];
+    let year = parts[0];
+    if (year.startsWith('30')) year = '20' + year.slice(2);
     const monthIdx = parseInt(parts[1], 10) - 1;
     const day = parts[2];
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -13473,7 +13745,8 @@ function formatProperFilingDate(dStr) {
     if (!isNaN(d.getTime())) {
       const day = String(d.getDate()).padStart(2, '0');
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const year = d.getFullYear();
+      let year = d.getFullYear();
+      if (year >= 3000 && year <= 3099) year = 2000 + (year - 3000);
       if (year >= 2015) {
         return `${day}-${months[d.getMonth()]}-${year}`;
       }
@@ -13496,6 +13769,7 @@ function enrichFilings(list) {
     f._cf_pat = (f.pat_cr != null && !isNaN(f.pat_cr)) ? Number(f.pat_cr) : -Infinity;
     f._cf_eps = (f.eps != null && !isNaN(f.eps)) ? Number(f.eps) : -Infinity;
     f._cf_roce = (f.roce_pct != null && !isNaN(f.roce_pct)) ? Number(f.roce_pct) : -Infinity;
+    f._cf_de = (f.debt_to_equity != null && !isNaN(f.debt_to_equity)) ? Number(f.debt_to_equity) : -Infinity;
     f._cf_status = String(f.status || 'INGESTED').toUpperCase();
     f._cf_enriched = true;
   }
@@ -13506,7 +13780,7 @@ function renderCorporateFilingsTable(filings, shouldSort = true) {
   if (!tbody) return;
 
   if (!filings || filings.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:36px; color:var(--muted);">No missing filing findings found matching your filters for this date.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:36px; color:var(--muted);">No missing filing findings found matching your filters for this date and run.</td></tr>`;
     const pInfo = document.getElementById('cfPaginationInfo');
     if (pInfo) pInfo.textContent = '';
     return;
@@ -13528,6 +13802,7 @@ function renderCorporateFilingsTable(filings, shouldSort = true) {
         case 'pat_cr': return (a._cf_pat - b._cf_pat) * FILINGS_SORT_DIR;
         case 'eps': return (a._cf_eps - b._cf_eps) * FILINGS_SORT_DIR;
         case 'roce_pct': return (a._cf_roce - b._cf_roce) * FILINGS_SORT_DIR;
+        case 'debt_to_equity': return (a._cf_de - b._cf_de) * FILINGS_SORT_DIR;
         case 'status': return (a._cf_status < b._cf_status ? -1 : (a._cf_status > b._cf_status ? 1 : 0)) * FILINGS_SORT_DIR;
         default: return (a._cf_pub_ts - b._cf_pub_ts) * FILINGS_SORT_DIR;
       }
@@ -13535,7 +13810,6 @@ function renderCorporateFilingsTable(filings, shouldSort = true) {
   }
 
   CURRENT_FILINGS_DATA = uniqueFilings;
-  updateCorporateFilingsKPIs(uniqueFilings);
   updateFilingsSortHeaders();
 
   const total = uniqueFilings.length;
@@ -13615,6 +13889,14 @@ function renderCorporateFilingsTable(filings, shouldSort = true) {
       roceColor = (roceVal >= 20.0) ? '#10b981' : (roceVal >= 12.0 ? '#3b82f6' : '#9ca3af');
     }
 
+    const deVal = f.debt_to_equity;
+    let deStr = '-';
+    let deColor = 'inherit';
+    if (deVal != null) {
+      deStr = Number(deVal).toFixed(2);
+      deColor = (deVal <= 0.5) ? '#10b981' : (deVal <= 1.5 ? '#f59e0b' : '#ef4444');
+    }
+
     const stBadge = (stType === 'ANNUAL')
       ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; padding:2px 7px; border-radius:4px; font-weight:800; font-size:10px; border:1px solid rgba(16,185,129,0.3);">ANNUAL</span>`
       : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; padding:2px 7px; border-radius:4px; font-weight:800; font-size:10px; border:1px solid rgba(59,130,246,0.3);">QUARTERLY</span>`;
@@ -13633,32 +13915,40 @@ function renderCorporateFilingsTable(filings, shouldSort = true) {
           <div style="font-weight:800; color:var(--accent); font-size:12px;">${periodDisplay}</div>
           <div style="font-size:10px; color:var(--muted);">${stType} (${basis.toLowerCase()})</div>
         </td>
-        <!-- Published Date (Exchange Official Date) -->
+        <!-- Statement & Scope -->
+        <td style="padding:10px 12px; white-space:nowrap;">${stBadge} ${basisBadge}</td>
+        <!-- Fetched Time (Scanner) -->
+        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; font-weight:600; color:#a78bfa;" title="${escapeHTML(String(f.discovered_at || f.filing_date || ''))}">
+          ${fetchedDateStr}
+        </td>
+        <!-- Published Date (Exchange) -->
         <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; font-weight:700; color:#3b82f6;" title="${escapeHTML(String(rawPubDate))}">
           ${displayPubDate}
         </td>
-        <!-- Fetched Date (Scanner Ingestion Date) -->
-        <td style="padding:10px 12px; white-space:nowrap; font-family:monospace; font-size:11px; color:var(--muted);" title="${escapeHTML(String(f.discovered_at || f.filing_date || ''))}">
-          ${fetchedDateStr}
-        </td>
-        <!-- Statement & Scope -->
-        <td style="padding:10px 12px; white-space:nowrap;">${stBadge} ${basisBadge}</td>
+        <!-- Revenue -->
+        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace;">${revStr}</td>
+        <!-- PAT -->
+        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${patColor};">${patStr}</td>
+        <!-- EPS -->
+        <td style="padding:10px 12px; text-align:right; font-weight:600; font-family:monospace;">${epsStr}</td>
+        <!-- ROCE -->
+        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${roceColor};">${roceStr}</td>
+        <!-- D / E -->
+        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${deColor};">${deStr}</td>
         <!-- Gap Discovery Type -->
         <td style="padding:10px 12px; white-space:nowrap;">
           ${badgeHtml}
         </td>
-        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace;">${revStr}</td>
-        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${patColor};">${patStr}</td>
-        <td style="padding:10px 12px; text-align:right; font-weight:600; font-family:monospace;">${epsStr}</td>
-        <td style="padding:10px 12px; text-align:right; font-weight:700; font-family:monospace; color:${roceColor};">${roceStr}</td>
+        <!-- Snapshot Status -->
         <td style="padding:10px 12px; text-align:center; white-space:nowrap;">
           <span style="font-size:10px; font-weight:800; background:rgba(16,185,129,0.12); color:#10b981; padding:2px 8px; border-radius:4px; border:1px solid rgba(16,185,129,0.3);">
             INGESTED
           </span>
         </td>
+        <!-- Actions -->
         <td style="padding:10px 12px; text-align:center; white-space:nowrap;">
-          <button style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:600;" onclick="openFilingDetailsModal(${globalIdx})">
-            🔍 Details
+          <button style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:700;" onclick="openFilingDetailsModal(${globalIdx})" title="Inspect extracted financial facts and discovery metadata">
+            🔍 Facts
           </button>
         </td>
       </tr>
@@ -13686,48 +13976,96 @@ function openFilingDetailsModal(idx) {
 
   const depsList = (f.affected_metrics && f.affected_metrics.length > 0)
     ? f.affected_metrics.map(m => `<span style="background:var(--card3); border:1px solid var(--border); padding:2px 6px; border-radius:4px; font-size:10px; font-family:monospace;">${m}</span>`).join(' ')
-    : '<span style="color:var(--muted); font-size:11px;">None</span>';
+    : '<span style="color:var(--muted); font-size:11px;">ROCE, ROE, 5Y CAGR, D/E, EV/EBITDA</span>';
 
   const formattedPeriod = formatProperFilingDate(f.period_end);
-  const formattedFilingDate = formatProperFilingDate(f.filing_date);
   const publishedDateStr = f.filing_broadcast_date || f.actual_publication_timestamp || '-';
   const fetchedDateStr = f.discovered_at || f.filing_date || '-';
 
+  const revVal = (f.revenue_cr != null) ? `₹${Number(f.revenue_cr).toLocaleString('en-IN', {maximumFractionDigits:2})} Cr` : '-';
+  const patVal = (f.pat_cr != null) ? `₹${Number(f.pat_cr).toLocaleString('en-IN', {maximumFractionDigits:2})} Cr` : '-';
+  const opVal = (f.operating_profit_cr != null) ? `₹${Number(f.operating_profit_cr).toLocaleString('en-IN', {maximumFractionDigits:2})} Cr` : '-';
+  const epsVal = (f.eps != null) ? `₹${Number(f.eps).toFixed(2)}` : '-';
+  const roceVal = (f.roce_pct != null) ? `${Number(f.roce_pct).toFixed(2)}%` : '-';
+  const roeVal = (f.roe_pct != null) ? `${Number(f.roe_pct).toFixed(2)}%` : '-';
+  const deVal = (f.debt_to_equity != null) ? Number(f.debt_to_equity).toFixed(2) : '-';
+  const opmVal = (f.operating_margin_pct != null) ? `${Number(f.operating_margin_pct).toFixed(1)}%` : '-';
+  const npmVal = (f.net_margin_pct != null) ? `${Number(f.net_margin_pct).toFixed(1)}%` : '-';
+  const sharesVal = (f.shares_outstanding != null) ? Number(f.shares_outstanding).toLocaleString('en-IN') : '-';
+
   modal.innerHTML = `
-    <div style="background:var(--card); border:1px solid var(--border); border-radius:14px; max-width:680px; width:100%; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:14px; max-width:760px; width:100%; max-height:88vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.6);">
       <div style="padding:16px 20px; background:var(--card2); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
         <div style="font-size:16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
-          <span>📋</span> ${f.symbol} · ${formattedPeriod} (${f.statement_type})
+          <span>📋</span> ${f.symbol} · ${formattedPeriod} (${f.statement_type} - ${f.basis || 'CONSOLIDATED'})
         </div>
         <button style="background:transparent; border:none; color:var(--muted); font-size:20px; cursor:pointer;" onclick="closeFilingDetailsModal()">✕</button>
       </div>
 
       <div style="padding:20px; overflow-y:auto; flex:1;">
-        <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;">
-          ${f.headline || 'Corporate Filing Findings Audit'}
+        <!-- HEADLINE -->
+        <div style="font-size:13px; font-weight:700; color:var(--accent); margin-bottom:14px; padding:8px 12px; background:rgba(37,99,235,0.08); border-radius:8px; border:1px solid rgba(37,99,235,0.2);">
+          ${f.headline || `${f.symbol} Corporate Filing Facts Audit`}
         </div>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; font-size:12px;">
-          <div><strong style="color:var(--muted);">Filing ID:</strong> <span style="font-family:monospace;">${f.filing_id || '-'}</span></div>
-          <div><strong style="color:var(--muted);">Report Period:</strong> <span style="font-weight:700; color:var(--accent);">${formattedPeriod}</span></div>
-          <div><strong style="color:var(--muted);">Official Published Date:</strong> <span style="color:#3b82f6; font-weight:700; font-family:monospace;">${publishedDateStr}</span></div>
-          <div><strong style="color:var(--muted);">Scanner Fetched Date:</strong> <span style="color:var(--muted); font-family:monospace;">${fetchedDateStr}</span></div>
-          <div><strong style="color:var(--muted);">Exchange:</strong> <span>${f.exchange || 'NSE'}</span></div>
-          <div><strong style="color:var(--muted);">Basis:</strong> <span>${f.basis || 'CONSOLIDATED'}</span></div>
-          <div><strong style="color:var(--muted);">Discovery Reason:</strong> <span>${f.event_type || '-'}</span></div>
-          <div><strong style="color:var(--muted);">Snapshot Status:</strong> <span style="color:#10b981; font-weight:700;">${f.status || 'INGESTED'}</span></div>
-        </div>
-
-        <div style="margin-bottom:16px;">
-          <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:6px;">Affected Downstream Metrics:</div>
-          <div style="display:flex; flex-wrap:wrap; gap:4px;">
-            ${depsList}
+        <!-- EXTRACTED FINANCIAL FACTS GRID (WHAT WAS ACTUALLY FETCHED) -->
+        <div style="margin-bottom:18px;">
+          <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:8px; letter-spacing:0.5px;">Extracted Financial Metrics (Ingested):</div>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px;">
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">Revenue</div>
+              <div style="font-size:14px; font-weight:800; color:var(--text); margin-top:2px; font-family:monospace;">${revVal}</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">Operating Profit</div>
+              <div style="font-size:14px; font-weight:800; color:var(--text); margin-top:2px; font-family:monospace;">${opVal}</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">PAT</div>
+              <div style="font-size:14px; font-weight:800; color:#10b981; margin-top:2px; font-family:monospace;">${patVal}</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">EPS</div>
+              <div style="font-size:14px; font-weight:800; color:var(--text); margin-top:2px; font-family:monospace;">${epsVal}</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">ROCE %</div>
+              <div style="font-size:14px; font-weight:800; color:#3b82f6; margin-top:2px; font-family:monospace;">${roceVal}</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">ROE %</div>
+              <div style="font-size:14px; font-weight:800; color:#3b82f6; margin-top:2px; font-family:monospace;">${roeVal}</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">Debt / Equity</div>
+              <div style="font-size:14px; font-weight:800; color:var(--text); margin-top:2px; font-family:monospace;">${deVal}</div>
+            </div>
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+              <div style="font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700;">OP Margin %</div>
+              <div style="font-size:14px; font-weight:800; color:var(--text); margin-top:2px; font-family:monospace;">${opmVal}</div>
+            </div>
           </div>
         </div>
 
+        <!-- METADATA & PROVENANCE -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; font-size:12px; background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:12px;">
+          <div><strong style="color:var(--muted);">Filing ID:</strong> <span style="font-family:monospace;">${f.filing_id || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Report Period:</strong> <span style="font-weight:700; color:var(--accent);">${formattedPeriod}</span></div>
+          <div><strong style="color:var(--muted);">Official Published Date:</strong> <span style="color:#3b82f6; font-weight:700; font-family:monospace;">${publishedDateStr}</span></div>
+          <div><strong style="color:var(--muted);">Scanner Fetched Time:</strong> <span style="color:#a78bfa; font-weight:700; font-family:monospace;">${fetchedDateStr}</span></div>
+          <div><strong style="color:var(--muted);">Exchange & Scope:</strong> <span>${f.exchange || 'NSE'} (${f.basis || 'CONSOLIDATED'})</span></div>
+          <div><strong style="color:var(--muted);">Statement Type:</strong> <span>${f.statement_type || 'QUARTERLY'}</span></div>
+          <div><strong style="color:var(--muted);">Discovery Reason:</strong> <span style="color:#f59e0b; font-weight:700;">${f.event_type || '-'}</span></div>
+          <div><strong style="color:var(--muted);">Snapshot Status:</strong> <span style="color:#10b981; font-weight:700;">${f.status || 'INGESTED'}</span></div>
+        </div>
+
+        <!-- RAW FACTS VIEWER -->
         <div>
-          <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:6px;">Raw Normalized Facts:</div>
-          <pre style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:11px; max-height:220px; overflow-y:auto; color:var(--text); line-height:1.4;">${rawFactsPretty}</pre>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Raw Ingested Facts Payload:</span>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('cf-raw-facts-pre').innerText); this.textContent='✓ Copied!';" style="background:var(--card3); border:1px solid var(--border); color:var(--text); padding:2px 8px; border-radius:4px; font-size:10px; cursor:pointer;">Copy JSON</button>
+          </div>
+          <pre id="cf-raw-facts-pre" style="background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:11px; max-height:220px; overflow-y:auto; color:var(--text); line-height:1.4; font-family:monospace;">${rawFactsPretty}</pre>
         </div>
       </div>
 

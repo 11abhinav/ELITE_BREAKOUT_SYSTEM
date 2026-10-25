@@ -249,14 +249,16 @@ class ExchangePdfParser:
                 continue
 
             # 4. Determine Statement Type (QUARTERLY vs ANNUAL)
-            st_type = "QUARTERLY"
+            # In India, March 31 filings represent the completed financial year audited results under Reg 33.
+            st_type = "ANNUAL" if period_end.endswith("-03-31") and ("year ended" in text_lower or "audited" in text_lower) else "QUARTERLY"
             for line in first_lines:
                 line_low = line.lower()
                 if "statement of" in line_low:
-                    if "quarter" in line_low or "half year" in line_low or "half-year" in line_low or "halfyear" in line_low:
-                        st_type = "QUARTERLY"
-                    elif any(k in line_low for k in ["year ended", "audited annual", "annual financial", "full year"]):
+                    if any(k in line_low for k in ["year ended", "audited annual", "annual financial", "full year"]) and "quarter" not in line_low:
                         st_type = "ANNUAL"
+                    elif "quarter" in line_low or "half year" in line_low or "half-year" in line_low or "halfyear" in line_low:
+                        if not (period_end.endswith("-03-31") and "year ended" in text_lower):
+                            st_type = "QUARTERLY"
                     break
 
             # 5. Extract Financial Metrics

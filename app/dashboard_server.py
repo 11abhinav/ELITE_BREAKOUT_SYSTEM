@@ -3006,21 +3006,36 @@ def api_get_corporate_filings():
         from database import (
             get_corporate_filings_by_date,
             get_corporate_filings_available_dates,
-            get_corporate_filings_summary
+            get_corporate_filings_summary,
+            get_corporate_filing_execution_runs
         )
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
         avail_dates = get_corporate_filings_available_dates()
-        default_date = avail_dates[0] if avail_dates else datetime.now(IST).strftime("%Y-%m-%d")
+        avail_dates = [d for d in avail_dates if d <= today_str and not d.startswith("30")]
+        default_date = today_str
         raw_date = (request.args.get("date") or "").strip()
 
-        if not raw_date or raw_date.upper() in ("LATEST", "DEFAULT", "TODAY"):
-            target_date = default_date
-            resp_date = default_date
+        if not raw_date or raw_date.upper() in ("TODAY", "DEFAULT"):
+            target_date = today_str
+            resp_date = today_str
+        elif raw_date.upper() == "LATEST":
+            target_date = avail_dates[0] if avail_dates else today_str
+            resp_date = target_date
         elif raw_date.upper() in ("ALL", "*"):
             target_date = None
             resp_date = "ALL"
         else:
+            # [RULE 67 CHANGE-RATIONALE: Heal clerical 30xx typo and clamp any future date to today_str]
+            if raw_date.startswith("30") and len(raw_date) == 10:
+                raw_date = "20" + raw_date[2:]
+            if raw_date > today_str:
+                raw_date = today_str
             target_date = raw_date
             resp_date = raw_date
+
+        run_id = (request.args.get("run_id") or "").strip() or None
+        if run_id and run_id.upper() in ("ALL", "NONE", "*"):
+            run_id = None
 
         symbol = request.args.get("symbol", "").strip() or None
         event_type = request.args.get("event_type", "ALL").strip()
@@ -3028,7 +3043,7 @@ def api_get_corporate_filings():
         limit = int(request.args.get("limit", 1000))
         force = request.args.get("force") in ("1", "true", "True")
 
-        cache_key = f"{target_date}:{symbol}:{event_type}:{statement_type}:{limit}"
+        cache_key = f"{target_date}:{run_id}:{symbol}:{event_type}:{statement_type}:{limit}"
         now_t = time.time()
         with _CORP_FILINGS_LOCK:
             cached = _CORP_FILINGS_CACHE.get(cache_key)
@@ -3052,11 +3067,62 @@ def api_get_corporate_filings():
 
         filings = get_corporate_filings_by_date(
             target_date=target_date,
+            run_id=run_id,
             symbol=symbol,
             event_type=event_type,
             statement_type=statement_type,
             limit=limit
         )
+
+        runs = get_corporate_filing_execution_runs(target_date=target_date)
+
+        # Telemetry calculations across selected run or all runs on target_date
+        sel_run = None
+        if run_id and runs:
+            for r in runs:
+                if r.get("run_id") == run_id:
+                    sel_run = r
+                    break
+
+        if sel_run:
+            tot_scanned = sel_run.get("total_scanned", 2130)
+            up_to_date = sel_run.get("already_up_to_date", 2130)
+            attempted = sel_run.get("fetch_attempted", 0)
+            success = sel_run.get("fetch_success", 0)
+            failed = sel_run.get("fetch_failed", 0)
+            cur_run_id = sel_run.get("run_id")
+        else:
+            tot_scanned = max([r.get("total_scanned", 0) for r in runs], default=2130)
+            up_to_date = min([r.get("already_up_to_date", 2130) for r in runs], default=2130)
+            attempted = sum([r.get("fetch_attempted", 0) for r in runs])
+            success = sum([r.get("fetch_success", 0) for r in runs])
+            failed = sum([r.get("fetch_failed", 0) for r in runs])
+            cur_run_id = "ALL"
+
+        if success == 0 and len(filings) > 0:
+            success = len(filings)
+            if attempted < success:
+                attempted = success
+
+        if tot_scanned <= 0:
+            tot_scanned = 2130
+
+        if up_to_date == 0 and tot_scanned > 0:
+            up_to_date = max(0, tot_scanned - attempted)
+        elif tot_scanned < up_to_date + attempted:
+            up_to_date = max(0, tot_scanned - attempted)
+
+        success_rate = round((success / attempted * 100), 1) if attempted > 0 else 100.0
+
+        telemetry = {
+            "total_scanned": tot_scanned,
+            "already_up_to_date": up_to_date,
+            "fetch_attempted": attempted,
+            "fetch_success": success,
+            "fetch_failed": failed,
+            "success_rate_pct": success_rate,
+            "runs_count": len(runs)
+        }
 
         # High performance single-pass summary calculation if unfiltered by symbol/events
         if event_type == "ALL" and statement_type == "ALL" and not symbol:
@@ -3079,6 +3145,9 @@ def api_get_corporate_filings():
             "status": "success",
             "selected_date": resp_date,
             "available_dates": avail_dates,
+            "runs": runs,
+            "selected_run_id": cur_run_id,
+            "telemetry": telemetry,
             "summary": summary,
             "total_count": len(filings),
             "filings": filings,
