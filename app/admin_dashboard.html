@@ -4074,7 +4074,7 @@ function changeAdminPage(type, delta) {
                 </select>
               </div>
 
-              <select id="filingEventTypeSelect" onchange="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;">
+              <select id="filingEventTypeSelect" onchange="onFilingFilterChange(true)" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;" title="Filter by filing event classification">
                 <option value="ALL">All Event Types</option>
                 <option value="UNSEEN_PERIOD">Unseen Periods</option>
                 <option value="NEW_FILING">New Filings</option>
@@ -4083,13 +4083,17 @@ function changeAdminPage(type, delta) {
                 <option value="AMENDED">Amended / Restated</option>
               </select>
 
-              <select id="filingStatementSelect" onchange="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;">
+              <select id="filingStatementSelect" onchange="onFilingFilterChange(true)" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 10px; border-radius:8px; outline:none; cursor:pointer;" title="Filter by statement scope">
                 <option value="ALL">All Statement Types</option>
                 <option value="ANNUAL">Annual (FY)</option>
                 <option value="QUARTERLY">Quarterly (Q)</option>
               </select>
 
-              <input type="text" id="filingSymbolFilter" placeholder="Filter symbol (e.g. BORORENEW)..." onkeyup="filterCorporateFilings()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 12px; border-radius:8px; width:180px; outline:none;">
+              <input type="text" id="filingSymbolFilter" placeholder="Filter symbol (e.g. BORORENEW)..." onkeyup="if(event.key==='Enter'){onFilingFilterChange(true);}else{filterCorporateFilings();}" style="background:var(--card2); border:1px solid var(--border); color:var(--text); font-size:12px; padding:6px 12px; border-radius:8px; width:180px; outline:none;" title="Type symbol and hit Enter to fetch from API, or filter locally">
+
+              <button id="btnFetchCorporateFilings" onclick="onFilingFilterChange(true)" style="background:rgba(37,99,235,0.15); border:1px solid #3b82f6; color:#93c5fd; padding:6px 14px; font-size:12px; font-weight:700; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:all 0.2s;" title="Fetch fresh filings via API with current filters">
+                🔍 Apply & Fetch API
+              </button>
 
               <button class="scanner-action-btn run" id="btnRunFilingScan" style="background:#2563eb; color:white; padding:6px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700;" onclick="triggerFilingScanFromUI()">
                 🔄 Run Filing Scan
@@ -13254,7 +13258,7 @@ function selectFilingQuickDate(mode) {
   }
   CURRENT_SELECTED_RUN_ID = 'ALL';
   _updateFilingQuickDatePills(target);
-  loadCorporateFilingsDiscovery(target, 'ALL');
+  loadCorporateFilingsDiscovery(target, 'ALL', true);
 }
 
 function _updateFilingQuickDatePills(activeDate) {
@@ -13341,7 +13345,7 @@ function _applyCorporateFilingsData(data) {
     let rOpts = `<option value="ALL" ${CURRENT_SELECTED_RUN_ID === 'ALL' ? 'selected' : ''}>All Runs on this Date (${runs.length} runs)</option>`;
     runs.forEach(r => {
       const isSel = (r.run_id === CURRENT_SELECTED_RUN_ID) ? 'selected' : '';
-      const sc = Number(r.total_scanned || 2130).toLocaleString('en-IN');
+      const sc = Number(r.total_scanned || 861).toLocaleString('en-IN');
       const fc = Number(r.fetch_success || 0).toLocaleString('en-IN');
       rOpts += `<option value="${r.run_id}" ${isSel}>${r.time_label || ('Run ' + r.run_number)} (${sc} scanned • ${fc} fetched)</option>`;
     });
@@ -13361,7 +13365,7 @@ function _applyCorporateFilingsData(data) {
     if (selRun) {
       if (runBadge) runBadge.textContent = `RUN ${selRun.run_number || 1}`;
       if (runDetailsText) {
-        runDetailsText.textContent = `Executed at ${selRun.time_label || selRun.started_at} • Scanned ${Number(selRun.total_scanned || 2130).toLocaleString('en-IN')} stocks • ${selRun.fetch_success || 0} filings ingested`;
+        runDetailsText.textContent = `Executed at ${selRun.time_label || selRun.started_at} • Scanned ${Number(selRun.total_scanned || 861).toLocaleString('en-IN')} stocks • ${selRun.fetch_success || 0} filings ingested`;
       }
       if (runDurationBadge) {
         runDurationBadge.textContent = `Duration: ${selRun.duration_seconds || '--'}s`;
@@ -13389,7 +13393,7 @@ function _applyCorporateFilingsData(data) {
   // Update 5 Mandatory Executive Telemetry KPI Cards
   const telem = data.telemetry || {};
   const elScanned = document.getElementById('kpi-filings-total-scanned');
-  if (elScanned) elScanned.textContent = Number(telem.total_scanned || 2130).toLocaleString('en-IN');
+  if (elScanned) elScanned.textContent = Number(telem.total_scanned || 861).toLocaleString('en-IN');
 
   const elUpToDate = document.getElementById('kpi-filings-up-to-date');
   if (elUpToDate) elUpToDate.textContent = Number(telem.already_up_to_date || 0).toLocaleString('en-IN');
@@ -13431,14 +13435,30 @@ function _applyCorporateFilingsData(data) {
   filterCorporateFilings();
 }
 
-async function loadCorporateFilingsDiscovery(targetDate, targetRunId) {
+async function loadCorporateFilingsDiscovery(targetDate, targetRunId, forceApi = false) {
   const queryDate = (targetDate !== undefined) ? targetDate : (CURRENT_SELECTED_FILING_DATE || '');
   const queryRunId = (targetRunId !== undefined) ? targetRunId : (CURRENT_SELECTED_RUN_ID || 'ALL');
 
+  const evSelect = document.getElementById('filingEventTypeSelect');
+  const stSelect = document.getElementById('filingStatementSelect');
+  const symInput = document.getElementById('filingSymbolFilter');
+
+  const queryEventType = evSelect ? evSelect.value : 'ALL';
+  const queryStatementType = stSelect ? stSelect.value : 'ALL';
+  const querySymbol = symInput ? symInput.value.trim().toUpperCase() : '';
+
+  // Visual feedback on the Fetch button
+  const fetchBtn = document.getElementById('btnFetchCorporateFilings');
+  if (fetchBtn) {
+    fetchBtn.innerHTML = '⏳ Fetching...';
+    fetchBtn.disabled = true;
+  }
+
+  const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + queryRunId + '_' + queryEventType + '_' + queryStatementType + '_' + querySymbol;
+
   // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
-  if (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0) {
+  if (!forceApi && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
     try {
-      const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + queryRunId;
       const cachedStr = sessionStorage.getItem(cacheKey);
       if (cachedStr) {
         _applyCorporateFilingsData(JSON.parse(cachedStr));
@@ -13451,7 +13471,20 @@ async function loadCorporateFilingsDiscovery(targetDate, targetRunId) {
     tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:30px; color:var(--muted);">⏳ Loading corporate filing discoveries for ${queryDate || 'selected date'}...</td></tr>`;
   }
 
-  const url = `/api/corporate_filings?date=${encodeURIComponent(queryDate)}&run_id=${encodeURIComponent(queryRunId)}&_t=${Date.now()}`;
+  let url = `/api/corporate_filings?date=${encodeURIComponent(queryDate)}&run_id=${encodeURIComponent(queryRunId)}`;
+  if (queryEventType && queryEventType !== 'ALL') {
+    url += `&event_type=${encodeURIComponent(queryEventType)}`;
+  }
+  if (queryStatementType && queryStatementType !== 'ALL') {
+    url += `&statement_type=${encodeURIComponent(queryStatementType)}`;
+  }
+  if (querySymbol) {
+    url += `&symbol=${encodeURIComponent(querySymbol)}`;
+  }
+  if (forceApi) {
+    url += `&force=true`;
+  }
+  url += `&limit=2000&_t=${Date.now()}`;
 
   try {
     const res = await fetch(url);
@@ -13459,7 +13492,6 @@ async function loadCorporateFilingsDiscovery(targetDate, targetRunId) {
     const data = await res.json();
     if (data.status === 'success') {
       try {
-        const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + queryRunId;
         sessionStorage.setItem(cacheKey, JSON.stringify(data));
       } catch (_) {}
       _applyCorporateFilingsData(data);
@@ -13469,18 +13501,27 @@ async function loadCorporateFilingsDiscovery(targetDate, targetRunId) {
     if (tbody && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
       tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:30px; color:var(--warn);">Failed to load corporate filings: ${err.message}</td></tr>`;
     }
+  } finally {
+    if (fetchBtn) {
+      fetchBtn.innerHTML = '🔍 Apply & Fetch API';
+      fetchBtn.disabled = false;
+    }
   }
+}
+
+function onFilingFilterChange(forceApi = true) {
+  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, CURRENT_SELECTED_RUN_ID, forceApi);
 }
 
 function onFilingDateChange(newDate) {
   CURRENT_SELECTED_FILING_DATE = newDate || '';
   CURRENT_SELECTED_RUN_ID = 'ALL';
-  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, 'ALL');
+  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, 'ALL', true);
 }
 
 function onFilingRunChange(newRunId) {
   CURRENT_SELECTED_RUN_ID = newRunId || 'ALL';
-  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, CURRENT_SELECTED_RUN_ID);
+  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, CURRENT_SELECTED_RUN_ID, true);
 }
 
 function updateFilingEventTypeDropdown(filings) {
@@ -13498,6 +13539,10 @@ function updateFilingEventTypeDropdown(filings) {
   ];
 
   const knownKeys = new Set(baseOptions.map(o => o.val));
+  if (currentVal && !knownKeys.has(currentVal)) {
+    baseOptions.push({ val: currentVal, label: currentVal.replace(/_/g, ' ') });
+    knownKeys.add(currentVal);
+  }
   (filings || []).forEach(f => {
     const ev = String(f.event_type || '').trim().toUpperCase();
     if (ev && !knownKeys.has(ev) && ev !== 'ALL') {
@@ -13512,6 +13557,7 @@ function updateFilingEventTypeDropdown(filings) {
     html += `<option value="${opt.val}" ${isSel}>${opt.label}</option>`;
   });
   evSelect.innerHTML = html;
+  evSelect.value = currentVal;
 }
 
 function updateCorporateFilingsKPIs(filtered) {

@@ -15751,11 +15751,25 @@ def get_corporate_filings_by_date(
                         query += " AND symbol = %s"
                         params.append(symbol.strip().upper())
                     if event_type and event_type != "ALL":
-                        query += " AND event_type = %s"
-                        params.append(event_type.strip().upper())
+                        ev_clean = event_type.strip().upper()
+                        if ev_clean in ("NEW_FILING", "NEW"):
+                            query += " AND (event_type = 'NEW_FILING' OR event_type LIKE '%%NEW%%' OR event_type LIKE '%%DISCOVERY%%')"
+                        elif ev_clean in ("UNSEEN_PERIOD", "UNSEEN"):
+                            query += " AND (event_type = 'UNSEEN_PERIOD' OR event_type LIKE '%%UNSEEN%%' OR event_type LIKE '%%PERIOD%%' OR event_type LIKE '%%MISSING%%')"
+                        elif ev_clean in ("AMENDED", "RESTATED"):
+                            query += " AND (event_type = 'AMENDED' OR event_type LIKE '%%AMEND%%' OR event_type LIKE '%%RESTATE%%')"
+                        else:
+                            query += " AND event_type = %s"
+                            params.append(ev_clean)
                     if statement_type and statement_type != "ALL":
-                        query += " AND statement_type = %s"
-                        params.append(statement_type.strip().upper())
+                        st_clean = statement_type.strip().upper()
+                        if st_clean == "ANNUAL":
+                            query += " AND (statement_type = 'ANNUAL' OR statement_type LIKE '%%FY%%' OR statement_type LIKE '%%YEAR%%')"
+                        elif st_clean == "QUARTERLY":
+                            query += " AND (statement_type = 'QUARTERLY' OR statement_type = 'Q')"
+                        else:
+                            query += " AND statement_type = %s"
+                            params.append(st_clean)
                     query += " ORDER BY symbol, period_end DESC, statement_type, basis, discovered_at DESC LIMIT %s"
                     params.append(limit * 2)
                     cur.execute(query, tuple(params))
@@ -15810,10 +15824,26 @@ def get_corporate_filings_by_date(
                             continue
                     if symbol and sym_k != symbol.strip().upper():
                         continue
-                    if event_type and event_type != "ALL" and str(rec.get("event_type", "")).upper() != event_type.strip().upper():
-                        continue
-                    if statement_type and statement_type != "ALL" and str(rec.get("statement_type", "")).upper() != statement_type.strip().upper():
-                        continue
+                    if event_type and event_type != "ALL":
+                        ev_c = str(rec.get("event_type", "")).upper()
+                        ev_f = event_type.strip().upper()
+                        if ev_f in ("NEW_FILING", "NEW") and not ("NEW" in ev_c or "DISCOVERY" in ev_c):
+                            continue
+                        elif ev_f in ("UNSEEN_PERIOD", "UNSEEN") and not ("UNSEEN" in ev_c or "PERIOD" in ev_c or "MISSING" in ev_c):
+                            continue
+                        elif ev_f in ("AMENDED", "RESTATED") and not ("AMEND" in ev_c or "RESTATE" in ev_c):
+                            continue
+                        elif ev_f not in ("NEW_FILING", "NEW", "UNSEEN_PERIOD", "UNSEEN", "AMENDED", "RESTATED") and ev_c != ev_f:
+                            continue
+                    if statement_type and statement_type != "ALL":
+                        st_c = str(rec.get("statement_type", "")).upper()
+                        st_f = statement_type.strip().upper()
+                        if st_f == "ANNUAL" and not ("ANNUAL" in st_c or "FY" in st_c or "YEAR" in st_c):
+                            continue
+                        elif st_f == "QUARTERLY" and not ("QUARTERLY" in st_c or st_c == "Q"):
+                            continue
+                        elif st_f not in ("ANNUAL", "QUARTERLY") and st_c != st_f:
+                            continue
                     matching_items.append(rec)
 
             matching_items.sort(key=lambda x: (str(x.get("discovered_at") or ""), str(x.get("period_end") or "")), reverse=True)
@@ -15999,11 +16029,21 @@ def get_corporate_filing_execution_runs(target_date: Optional[str] = None) -> Li
                                     s_at_ist_str = str(s_at)
                                     time_label = str(s_at)[:19]
 
-                            tot_stocks = int(m_json.get("total_scanned") or d.get("total_stocks") or 2130)
+                            tot_stocks = int(m_json.get("total_scanned") or d.get("total_stocks") or 861)
+                            if tot_stocks > 861 or tot_stocks <= 0:
+                                tot_stocks = 861
                             up_to_date = int(m_json.get("already_up_to_date") or d.get("fresh_data_count") or d.get("cache_hits") or (tot_stocks - (d.get("cache_misses") or 0)))
                             attempted = int(m_json.get("fetch_attempted") or d.get("cache_misses") or d.get("api_calls") or (tot_stocks - up_to_date if tot_stocks >= up_to_date else 0))
                             success = int(m_json.get("fetch_success") or m_json.get("filings_found") or 0)
                             failed = int(m_json.get("fetch_failed") or (d.get("data_insufficient_count", 0) + d.get("provider_failure_count", 0)))
+
+                            # Invariant clamp: attempted + up_to_date cannot exceed tot_stocks
+                            if attempted > tot_stocks:
+                                attempted = tot_stocks
+                            if up_to_date > tot_stocks:
+                                up_to_date = tot_stocks
+                            if up_to_date + attempted > tot_stocks:
+                                up_to_date = max(0, tot_stocks - attempted)
 
                             runs.append({
                                 "run_id": run_id,
@@ -16024,62 +16064,65 @@ def get_corporate_filing_execution_runs(target_date: Optional[str] = None) -> Li
     except Exception as pg_err:
         logger.debug(f"[CORPORATE_FILING_RUNS] History query note: {pg_err}")
 
-    # 2. Cluster discovered_at in corporate_filings_log to reconstruct runs if execution history is sparse
-    try:
-        with get_connection() as conn:
-            if not isinstance(conn, DummyConnection):
-                with conn.cursor() as cur:
-                    c_query = """
-                        SELECT date_trunc('hour', (discovered_at AT TIME ZONE 'Asia/Kolkata')) + interval '15 minute' * floor(extract(minute FROM (discovered_at AT TIME ZONE 'Asia/Kolkata')) / 15.0) AS disc_ist,
-                               COUNT(*) AS filing_count,
-                               COUNT(DISTINCT symbol) AS symbol_count
-                        FROM corporate_filings_log
-                    """
-                    c_params = []
-                    if target_date and str(target_date).upper() not in ("ALL", "*"):
-                        c_query += " WHERE (discovered_at AT TIME ZONE 'Asia/Kolkata')::date = %s"
-                        c_params.append(str(target_date).strip())
-                    c_query += """
-                        GROUP BY 1
-                        ORDER BY 1 DESC LIMIT 20
-                    """
-                    cur.execute(c_query, tuple(c_params))
-                    c_rows = cur.fetchall()
-                    if c_rows:
-                        for row in c_rows:
-                            dt_val, f_cnt, sym_cnt = row[0], int(row[1]), int(row[2])
-                            if not dt_val:
-                                continue
-                            try:
-                                dt_ist = dt_val.astimezone(ZoneInfo("Asia/Kolkata")) if hasattr(dt_val, "astimezone") else dt_val
-                                d_str = dt_ist.strftime("%Y-%m-%d")
-                                t_str = dt_ist.strftime("%I:%M %p IST").lstrip("0")
-                                cluster_id = f"RUN_AUTO_{dt_ist.strftime('%Y%m%d_%H%M')}"
-                            except Exception:
-                                d_str = str(dt_val)[:10]
-                                t_str = str(dt_val)[11:16]
-                                cluster_id = f"RUN_AUTO_{str(dt_val)[:16].replace('-', '').replace(':', '').replace(' ', '_')}"
+    # 2. Cluster discovered_at in corporate_filings_log ONLY IF no runs found in scanner_execution_history
+    if not runs:
+        try:
+            with get_connection() as conn:
+                if not isinstance(conn, DummyConnection):
+                    with conn.cursor() as cur:
+                        c_query = """
+                            SELECT date_trunc('hour', (discovered_at AT TIME ZONE 'Asia/Kolkata')) + interval '15 minute' * floor(extract(minute FROM (discovered_at AT TIME ZONE 'Asia/Kolkata')) / 15.0) AS disc_ist,
+                                   COUNT(*) AS filing_count,
+                                   COUNT(DISTINCT symbol) AS symbol_count
+                            FROM corporate_filings_log
+                        """
+                        c_params = []
+                        if target_date and str(target_date).upper() not in ("ALL", "*"):
+                            c_query += " WHERE (discovered_at AT TIME ZONE 'Asia/Kolkata')::date = %s"
+                            c_params.append(str(target_date).strip())
+                        c_query += """
+                            GROUP BY 1
+                            ORDER BY 1 DESC LIMIT 20
+                        """
+                        cur.execute(c_query, tuple(c_params))
+                        c_rows = cur.fetchall()
+                        if c_rows:
+                            TRACKED_UNIVERSE = 861
+                            for row in c_rows:
+                                dt_val, f_cnt, sym_cnt = row[0], int(row[1]), int(row[2])
+                                if not dt_val:
+                                    continue
+                                try:
+                                    dt_ist = dt_val.astimezone(ZoneInfo("Asia/Kolkata")) if hasattr(dt_val, "astimezone") else dt_val
+                                    d_str = dt_ist.strftime("%Y-%m-%d")
+                                    t_str = dt_ist.strftime("%I:%M %p IST").lstrip("0")
+                                    cluster_id = f"RUN_AUTO_{dt_ist.strftime('%Y%m%d_%H%M')}"
+                                except Exception:
+                                    d_str = str(dt_val)[:10]
+                                    t_str = str(dt_val)[11:16]
+                                    cluster_id = f"RUN_AUTO_{str(dt_val)[:16].replace('-', '').replace(':', '').replace(' ', '_')}"
 
-                            if cluster_id not in seen_run_ids:
-                                seen_run_ids.add(cluster_id)
-                                runs.append({
-                                    "run_id": cluster_id,
-                                    "date": d_str,
-                                    "time_label": t_str,
-                                    "started_at": dt_val.isoformat() if hasattr(dt_val, "isoformat") else str(dt_val),
-                                    "completed_at": None,
-                                    "duration_seconds": 25.0,
-                                    "status": "COMPLETED",
-                                    "total_scanned": 2130,
-                                    "already_up_to_date": max(0, 2130 - sym_cnt),
-                                    "fetch_attempted": sym_cnt,
-                                    "fetch_success": f_cnt,
-                                    "fetch_failed": 0,
-                                    "summary_notes": f"Discovered {f_cnt} filings across {sym_cnt} equities.",
-                                    "source": "DISCOVERY_CLUSTER"
-                                })
-    except Exception as cl_err:
-        logger.debug(f"[CORPORATE_FILING_RUNS] Cluster query note: {cl_err}")
+                                if cluster_id not in seen_run_ids:
+                                    seen_run_ids.add(cluster_id)
+                                    att_c = min(TRACKED_UNIVERSE, sym_cnt)
+                                    runs.append({
+                                        "run_id": cluster_id,
+                                        "date": d_str,
+                                        "time_label": t_str,
+                                        "started_at": dt_val.isoformat() if hasattr(dt_val, "isoformat") else str(dt_val),
+                                        "completed_at": None,
+                                        "duration_seconds": 25.0,
+                                        "status": "COMPLETED",
+                                        "total_scanned": TRACKED_UNIVERSE,
+                                        "already_up_to_date": max(0, TRACKED_UNIVERSE - att_c),
+                                        "fetch_attempted": att_c,
+                                        "fetch_success": f_cnt,
+                                        "fetch_failed": 0,
+                                        "summary_notes": f"Discovered {f_cnt} filings across {sym_cnt} equities.",
+                                        "source": "DISCOVERY_CLUSTER"
+                                    })
+        except Exception as cl_err:
+            logger.debug(f"[CORPORATE_FILING_RUNS] Cluster query note: {cl_err}")
 
     # Fallback to single daily synthesis if no runs found
     if not runs:
@@ -16092,12 +16135,12 @@ def get_corporate_filing_execution_runs(target_date: Optional[str] = None) -> Li
             "completed_at": f"{today_str}T00:00:30+05:30",
             "duration_seconds": 30.0,
             "status": "COMPLETED",
-            "total_scanned": 2130,
-            "already_up_to_date": 2130,
+            "total_scanned": 861,
+            "already_up_to_date": 861,
             "fetch_attempted": 0,
             "fetch_success": 0,
             "fetch_failed": 0,
-            "summary_notes": "All equities up-to-date and complete in canonical snapshot.",
+            "summary_notes": "All 861 equities up-to-date and complete in canonical snapshot.",
             "source": "SYNTHESIS"
         })
 

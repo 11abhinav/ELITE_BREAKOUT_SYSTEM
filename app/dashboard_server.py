@@ -3084,33 +3084,42 @@ def api_get_corporate_filings():
                     sel_run = r
                     break
 
+        TRACKED_UNIVERSE = 861
+
         if sel_run:
-            tot_scanned = sel_run.get("total_scanned", 2130)
-            up_to_date = sel_run.get("already_up_to_date", 2130)
-            attempted = sel_run.get("fetch_attempted", 0)
-            success = sel_run.get("fetch_success", 0)
-            failed = sel_run.get("fetch_failed", 0)
+            tot_scanned = min(TRACKED_UNIVERSE, int(sel_run.get("total_scanned") or TRACKED_UNIVERSE))
+            up_to_date = min(tot_scanned, int(sel_run.get("already_up_to_date", tot_scanned)))
+            attempted = min(tot_scanned, int(sel_run.get("fetch_attempted", 0)))
+            success = int(sel_run.get("fetch_success", 0))
+            failed = int(sel_run.get("fetch_failed", 0))
             cur_run_id = sel_run.get("run_id")
         else:
-            tot_scanned = max([r.get("total_scanned", 0) for r in runs], default=2130)
-            up_to_date = min([r.get("already_up_to_date", 2130) for r in runs], default=2130)
-            attempted = sum([r.get("fetch_attempted", 0) for r in runs])
-            success = sum([r.get("fetch_success", 0) for r in runs])
-            failed = sum([r.get("fetch_failed", 0) for r in runs])
+            tot_scanned = TRACKED_UNIVERSE
+            unique_syms_with_filings = len(set(str(f.get("symbol", "")).upper() for f in filings if f.get("symbol")))
+            if runs:
+                latest_run = runs[0]
+                up_to_date = min(tot_scanned, int(latest_run.get("already_up_to_date", tot_scanned)))
+                attempted = min(tot_scanned, int(latest_run.get("fetch_attempted", max(0, tot_scanned - up_to_date))))
+                success = unique_syms_with_filings if unique_syms_with_filings > 0 else int(latest_run.get("fetch_success", 0))
+                failed = int(latest_run.get("fetch_failed", 0))
+            else:
+                success = unique_syms_with_filings
+                attempted = unique_syms_with_filings
+                up_to_date = max(0, tot_scanned - attempted)
+                failed = 0
             cur_run_id = "ALL"
 
-        if success == 0 and len(filings) > 0:
-            success = len(filings)
-            if attempted < success:
-                attempted = success
+        if tot_scanned <= 0 or tot_scanned > TRACKED_UNIVERSE:
+            tot_scanned = TRACKED_UNIVERSE
 
-        if tot_scanned <= 0:
-            tot_scanned = 2130
-
-        if up_to_date == 0 and tot_scanned > 0:
+        if attempted > tot_scanned:
+            attempted = tot_scanned
+        if up_to_date > tot_scanned:
+            up_to_date = tot_scanned
+        if up_to_date + attempted > tot_scanned:
             up_to_date = max(0, tot_scanned - attempted)
-        elif tot_scanned < up_to_date + attempted:
-            up_to_date = max(0, tot_scanned - attempted)
+        elif up_to_date == 0 and tot_scanned > attempted:
+            up_to_date = tot_scanned - attempted
 
         success_rate = round((success / attempted * 100), 1) if attempted > 0 else 100.0
 
