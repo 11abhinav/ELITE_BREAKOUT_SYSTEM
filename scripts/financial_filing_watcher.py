@@ -939,6 +939,11 @@ class FinancialFilingWatcher:
                     except ImportError:
                         from data_providers.nse_xbrl_provider import NseXbrlProvider
                     _tls.nse_provider = NseXbrlProvider()
+                    # [RULE 67 CHANGE-RATIONALE: THREAD_SWEEP_CACHE_SHARING_v1.0]
+                    # Share market sweep announcements with worker threads to prevent worker threads
+                    # from executing redundant per-symbol network discovery calls.
+                    if market_sweep_ok and market_sweep_filings is not None:
+                        _tls.nse_provider._discovered_cache = dict(market_sweep_filings)
                 except Exception as e:
                     logger.warning(f"[filling scanner] Could not initialize NseXbrlProvider in worker thread: {e}")
                     _tls.nse_provider = None
@@ -1440,7 +1445,8 @@ class FinancialFilingWatcher:
                     candidate_anns = []
                     if nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
                         candidate_anns.extend(nse_prov._discovered_cache[sym_u])
-                    elif nse_prov:
+                    elif nse_prov and not market_sweep_ok:
+                        # Only query network if market sweep failed to execute
                         try:
                             nse_disc = nse_prov.discover_filings(sym_u)
                             if nse_disc:
@@ -1448,48 +1454,12 @@ class FinancialFilingWatcher:
                         except Exception:
                             pass
 
-                    # [RULE 67 CHANGE-RATIONALE: Prevent duplicate BSE fetch if already polled in Step 2]
-                    if bse_prov and not should_poll_bse:
-                        try:
-                            # Pre-PDF Invariant Gate: Ensure BSE XML is checked for periods where NSE lacked XML
-                            scrip = bse_prov.resolve_bse_scrip_code(sym_u)
-                            if scrip:
-                                bse_rows = bse_prov.fetch_raw_financials(sym_u)
-                                if bse_rows:
-                                    for r in bse_rows:
-                                        norm_p = _normalize_iso_date(r.period_end_date)
-                                        if not norm_p or norm_p < min_cutoff:
-                                            continue
-                                        if norm_p not in xml_covered_periods:
-                                            raw_filings_list.append({
-                                                "exchange": "BSE",
-                                                "source": "BSE_XBRL_XML",
-                                                "filing_id": getattr(r, "filing_id", None) or f"BSE_{sym_u}_{norm_p}",
-                                                "period_end_date": norm_p,
-                                                "statement_type": r.period_type,
-                                                "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
-                                                "revenue": r.revenue,
-                                                "net_profit": r.net_profit,
-                                                "operating_profit": r.ebit,
-                                                "eps": r.eps,
-                                                "total_debt": r.total_debt,
-                                                "total_equity": r.total_equity,
-                                                "operating_cash_flow": getattr(r, "operating_cash_flow", None),
-                                                "shares_outstanding": r.shares_outstanding,
-                                                "filing_date": r.availability_date or f"{norm_p}T00:00:00",
-                                                "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
-                                            })
-                                            xml_covered_periods.add(norm_p)
-                                            logger.info(f"✅ [BSE:XBRL] Ingested BSE XML filing for {sym_u} {norm_p} ({r.period_type})")
-                        except Exception as bse_check_err:
-                            logger.debug(f"[filling scanner] BSE XBRL check notice for {sym_u}: {bse_check_err}")
-
-                        try:
-                            bse_disc = bse_prov.discover_filings(sym_u)
-                            if bse_disc:
-                                candidate_anns.extend(bse_disc)
-                        except Exception:
-                            pass
+                    # [RULE 67 CHANGE-RATIONALE: ELIMINATE_DUPLICATE_BSE_SCRAPE_v1.0]
+                    # Step 2 is the authoritative BSE polling gate (lines 1350-1425).
+                    # If should_poll_bse was True, BSE financials and announcements were already queried.
+                    # If should_poll_bse was False, the stock is 100% complete and healthy with contiguous
+                    # NSE XML filings and has zero missing periods.
+                    # Eliminating the redundant BSE query here removes thousands of unnecessary external API calls.
 
                     uncovered_pdf_anns = [
                         ann for ann in candidate_anns

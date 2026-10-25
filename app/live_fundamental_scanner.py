@@ -5168,13 +5168,17 @@ class QualityCompounderValueV2Scanner:
             financial_periods_used = row.get('financial_periods_used')
             roce_periods_used = row.get('roce_periods_used')
 
+            # [RULE 67 CHANGE-RATIONALE: UNIFIED_EV_EBITDA_FIELD_ALIASES_v1.0]
+            # Standardize debt, cash, and EBITDA fallbacks across QualityCompounderValueV2Scanner
+            # and QualityValueRecoveryScanner (total_debt/borrowings, cash_and_equivalents/cash, ebitda/operating_profit/ebit).
+            _eb = row.get('ebitda') or row.get('operating_profit') or row.get('ebit')
+            _d_raw = row.get('total_debt') if row.get('total_debt') is not None else row.get('borrowings')
+            _c_raw = row.get('cash_and_equivalents') if row.get('cash_and_equivalents') is not None else row.get('cash')
+            _d = float(_d_raw) if (_d_raw is not None and pd.notna(_d_raw)) else None
+            _c = float(_c_raw) if (_c_raw is not None and pd.notna(_c_raw)) else None
+
             # Dynamic real-time calculation from CMP + statement filings if multiples were not pre-calculated
             if (ev_ebitda_curr is None or pd.isna(ev_ebitda_curr)) and cmp_price > 0 and not ev_ebitda_curr_loss:
-                _eb = row.get('ebitda')
-                _d_raw = row.get('total_debt')
-                _c_raw = row.get('cash_and_equivalents')
-                _d = float(_d_raw) if (_d_raw is not None and pd.notna(_d_raw)) else None
-                _c = float(_c_raw) if (_c_raw is not None and pd.notna(_c_raw)) else None
                 if _sh is not None and not pd.isna(_sh) and float(_sh) > 0 and _eb is not None and not pd.isna(_eb) and float(_eb) > 0:
                     # P0: Both debt and cash must be genuinely known (no synthetic 0 defaults)
                     if _d is not None and _c is not None:
@@ -5191,9 +5195,9 @@ class QualityCompounderValueV2Scanner:
 
             # ── PER-SYMBOL EV FORENSIC TRACE ─────────────────────────────────────────
             _f_sh   = float(_sh)  if (_sh is not None and not pd.isna(_sh)) else None
-            _f_eb   = float(row.get('ebitda')) if (row.get('ebitda') is not None and not pd.isna(row.get('ebitda'))) else None
-            _f_d    = float(row.get('total_debt')) if (row.get('total_debt') is not None and not pd.isna(row.get('total_debt'))) else None
-            _f_c    = float(row.get('cash_and_equivalents')) if (row.get('cash_and_equivalents') is not None and not pd.isna(row.get('cash_and_equivalents'))) else None
+            _f_eb   = float(_eb) if (_eb is not None and pd.notna(_eb)) else None
+            _f_d    = _d
+            _f_c    = _c
             _f_mc   = round((_f_sh * cmp_price) / 1e7, 2) if (_f_sh and cmp_price > 0) else None
             _f_ev   = round(_f_mc + _f_d - _f_c, 2) if (_f_mc is not None and _f_d is not None and _f_c is not None) else None
             _f_ev_m = "OPERATING_LOSS" if ev_ebitda_curr_loss else (round(ev_ebitda_curr, 2) if (ev_ebitda_curr is not None and not pd.isna(ev_ebitda_curr)) else None)

@@ -18,6 +18,22 @@ from database import get_connection
 #     unrelated scanner threads are not blocked while macro calculations execute.
 MACRO_CACHE_TTL_SECONDS = 900  # 15 minutes
 
+def _get_effective_macro_ttl() -> float:
+    """
+    [RULE 67 CHANGE-RATIONALE: MARKET_AWARE_MACRO_TTL_v1.0]
+    During active trading hours (09:15-15:30 IST Mon-Fri), macro indices update dynamically,
+    so TTL is 900s (15m).
+    Outside market hours (weekends, nights, holidays), Nifty index bars are completely static.
+    Extended TTL (14400s / 4 hours) eliminates repeated Upstox calls outside market hours.
+    """
+    try:
+        from app.market_utils import is_market_open
+        if is_market_open():
+            return MACRO_CACHE_TTL_SECONDS
+        return 14400.0  # 4 hours off-market TTL
+    except Exception:
+        return MACRO_CACHE_TTL_SECONDS
+
 class MacroCache:
     def __init__(self):
         self.lock = Lock()
@@ -32,15 +48,19 @@ class MacroCache:
 _cache = MacroCache()
 
 def _get_daily_nifty() -> pd.DataFrame:
-    """Fetch 1-year daily NIFTY data with single-flight session-aware 15-minute caching."""
+    """Fetch 1-year daily NIFTY data with single-flight session-aware caching."""
     now_mono = time.monotonic()
     today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+    ttl = _get_effective_macro_ttl()
 
     # 1. Fast Cache Check under Lock
     with _cache.lock:
         entry = _cache.daily_entry
         if entry is not None:
-            if entry.get("session_date") == today_ist and (now_mono - entry.get("computed_at", 0)) < MACRO_CACHE_TTL_SECONDS:
+            age = now_mono - entry.get("computed_at", 0)
+            # Allow off-market reuse across weekend boundary if age < ttl
+            same_day = (entry.get("session_date") == today_ist)
+            if (same_day or ttl > MACRO_CACHE_TTL_SECONDS) and age < ttl:
                 return entry.get("data")
             
         # Avoid duplicate parallel fetches
@@ -74,15 +94,18 @@ def _get_daily_nifty() -> pd.DataFrame:
         return _cache.daily_entry.get("data") if _cache.daily_entry else None
 
 def _get_intraday_nifty() -> pd.DataFrame:
-    """Fetch 5-day 15-minute NIFTY data with single-flight session-aware 15-minute caching."""
+    """Fetch 5-day 15-minute NIFTY data with single-flight session-aware caching."""
     now_mono = time.monotonic()
     today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+    ttl = _get_effective_macro_ttl()
 
     # 1. Fast Cache Check under Lock
     with _cache.lock:
         entry = _cache.intraday_entry
         if entry is not None:
-            if entry.get("session_date") == today_ist and (now_mono - entry.get("computed_at", 0)) < MACRO_CACHE_TTL_SECONDS:
+            age = now_mono - entry.get("computed_at", 0)
+            same_day = (entry.get("session_date") == today_ist)
+            if (same_day or ttl > MACRO_CACHE_TTL_SECONDS) and age < ttl:
                 return entry.get("data")
                 
         if _cache.intraday_in_flight and entry is not None:

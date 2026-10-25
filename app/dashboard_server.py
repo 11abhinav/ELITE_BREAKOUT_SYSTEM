@@ -2978,6 +2978,21 @@ _CORP_FILINGS_LOCK = threading.Lock()
 _STOCK_DATA_HEALTH_CACHE: Dict[str, Any] = {"payload": None, "ts": 0.0}
 _STOCK_DATA_HEALTH_LOCK = threading.Lock()
 
+def _invalidate_all_stock_data_health_caches():
+    """
+    [RULE 67 CHANGE-RATIONALE: ATOMIC_AUDIT_CACHE_INVALIDATION_v1.0]
+    Atomically clears both dashboard_server in-memory Flask memo cache and database.py
+    _UNIFIED_AUDIT_CACHE to prevent stale data health lists after validation or unblocking.
+    """
+    with _STOCK_DATA_HEALTH_LOCK:
+        _STOCK_DATA_HEALTH_CACHE.clear()
+    try:
+        from database import clear_unified_stock_data_health_cache
+        clear_unified_stock_data_health_cache()
+    except Exception:
+        pass
+
+
 
 @app.route("/api/corporate_filings", methods=["GET"])
 @app.route("/api/admin/corporate_filings", methods=["GET"])
@@ -3243,8 +3258,7 @@ def api_admin_validate_stock():
             missing_str = "; ".join(result.get("missing_metrics") or ["Validation criteria failed"])
             logger.warning(f"⚠️ [API_VALIDATE_STOCK] {symbol}: STALE / INCOMPLETE | Reasons: {missing_str}")
 
-        with _STOCK_DATA_HEALTH_LOCK:
-            _STOCK_DATA_HEALTH_CACHE.clear()
+        _invalidate_all_stock_data_health_caches()
 
         return jsonify({
             "status": "success",
@@ -3393,8 +3407,7 @@ def api_admin_batch_validate_stocks():
         perfect_cnt = sum(1 for r in res_list if r.get("is_data_perfect") and not r.get("restored"))
         failed_cnt = max(0, len(unique_symbols) - clean_cnt)
 
-        with _STOCK_DATA_HEALTH_LOCK:
-            _STOCK_DATA_HEALTH_CACHE.clear()
+        _invalidate_all_stock_data_health_caches()
 
         return jsonify({
             "status": "success",
@@ -3438,6 +3451,7 @@ def api_admin_remove_stale_stock():
         user_name = session.get("username", "Admin")
         res = remove_stale_stock_from_cooloff(symbol, admin_user=user_name)
         if res.get("ok"):
+            _invalidate_all_stock_data_health_caches()
             return jsonify({
                 "status": "success",
                 "message": res.get("message", f"{symbol} removed from stale table."),
@@ -5864,7 +5878,21 @@ def api_indices():
         cached_etag = _INDICES_MEMO.get("etag") or _DEFAULT_INDICES_ETAG
         cached_gzip = _INDICES_MEMO.get("gzip") or _DEFAULT_INDICES_GZ
         cache_age = now_ts - _INDICES_MEMO.get("ts", 0.0)
-        if cache_age >= 30.0 and not _indices_is_fetching:
+
+        # [RULE 67 CHANGE-RATIONALE: MARKET_AWARE_INDICES_CACHE_v1.0]
+        # Check market open status. When market is closed (weekends, nights, holidays),
+        # index closing values cannot change. Use 3600s (1h) TTL when closed, and only
+        # trigger fetch if no valid payload exists in memory yet. Eliminates 2,800+
+        # redundant Upstox API quote calls per non-trading day.
+        try:
+            from app.market_utils import is_market_open
+            market_open = is_market_open()
+        except Exception:
+            market_open = False
+        effective_ttl = 30.0 if market_open else 3600.0
+        has_payload = bool(_INDICES_MEMO.get("payload"))
+
+        if (cache_age >= effective_ttl or not has_payload) and not _indices_is_fetching:
             _indices_is_fetching = True
             should_spawn = True
 

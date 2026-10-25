@@ -15,9 +15,26 @@ _DEAD_TTL = 30 * 60  # 30 minutes
 _MAX_DEAD_CACHE_SIZE = 1000
 
 _recent_quotes_cache = {}
-_RECENT_TTL = 60  # 60 seconds shared TTL across all scanners & dashboard endpoints
+_RECENT_TTL = 60  # 60 seconds shared TTL during market hours
 import threading
 _live_prices_lock = threading.Lock()
+
+def _get_effective_quote_ttl() -> float:
+    """
+    [RULE 67 CHANGE-RATIONALE: MARKET_AWARE_QUOTE_TTL_v1.0]
+    During active trading sessions (09:15-15:30 IST Mon-Fri), market prices change continuously,
+    so TTL is 60 seconds.
+    Outside market hours (weekends, nights, holidays), official session close prices are static
+    and cannot change. Extended TTL (3600s / 1 hour) prevents thousands of redundant broker API
+    calls for static off-market closing prices.
+    """
+    try:
+        from app.market_utils import is_market_open
+        if is_market_open():
+            return _RECENT_TTL
+        return 3600.0  # 1 hour off-market TTL
+    except Exception:
+        return _RECENT_TTL
 
 def _get_dead_symbols() -> dict:
     from session_context import get_session_cache_or_fallback
@@ -61,12 +78,13 @@ def bulk_warmup_live_prices(symbols: List[str]) -> Dict[str, float]:
 def get_cached_live_price(symbol: str) -> Optional[float]:
     """
     [RAM-ONLY CMP LOOKUP]
-    Checks _recent_quotes_cache for a fresh CMP quote (< 60s) without making network requests.
+    Checks _recent_quotes_cache for a fresh CMP quote without making network requests.
     Returns float price if found, otherwise None.
     """
     if not symbol:
         return None
     now = time.time()
+    ttl = _get_effective_quote_ttl()
     clean_s = str(symbol).replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
     with _live_prices_lock:
         cached_entry = (
@@ -75,7 +93,7 @@ def get_cached_live_price(symbol: str) -> Optional[float]:
             _recent_quotes_cache.get(f"{clean_s}.NS") or 
             _recent_quotes_cache.get(f"NSE:{clean_s}")
         )
-        if cached_entry and (now - cached_entry["ts"]) < _RECENT_TTL:
+        if cached_entry and (now - cached_entry["ts"]) < ttl:
             return cached_entry["price"]
     return None
 
@@ -145,6 +163,7 @@ def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[st
             _quote_access_metrics["single_symbol_external_allowed"] += 1
 
     now = time.time()
+    ttl = _get_effective_quote_ttl()
     cache = _get_dead_symbols()
     valid_symbols = []
     prices = {}
@@ -158,7 +177,7 @@ def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[st
             if not clean_s or clean_s in ('?', 'NONE', 'NAN', 'NULL', 'UNKNOWN') or not any(c.isalnum() for c in clean_s):
                 continue
             cached_entry = _recent_quotes_cache.get(s) or _recent_quotes_cache.get(clean_s) or _recent_quotes_cache.get(f"{clean_s}.NS") or _recent_quotes_cache.get(f"NSE:{clean_s}")
-            if cached_entry and (now - cached_entry["ts"]) < _RECENT_TTL:
+            if cached_entry and (now - cached_entry["ts"]) < ttl:
                 prices[s] = cached_entry["price"]
             else:
                 if s not in cache or (now - cache.get(s, 0)) >= _DEAD_TTL:
@@ -185,7 +204,7 @@ def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[st
             _store_symbol_aliases_in_cache(sym, val, now)
             
         # Clean up stale entries to prevent memory leak
-        stale_keys = [k for k, v in _recent_quotes_cache.items() if (now - v["ts"]) > _RECENT_TTL * 2]
+        stale_keys = [k for k, v in _recent_quotes_cache.items() if (now - v["ts"]) > ttl * 2]
         for k in stale_keys:
             del _recent_quotes_cache[k]
                 
@@ -231,5 +250,8 @@ def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[st
 
         if val is not None and float(val) > 0:
             output_prices[s] = float(val)
+            # Store in RAM cache to avoid disk parquet re-reads and redundant network calls
+            with _live_prices_lock:
+                _store_symbol_aliases_in_cache(s, float(val), now)
 
     return output_prices

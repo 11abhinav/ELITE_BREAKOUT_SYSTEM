@@ -454,63 +454,68 @@ class MarketDataSession:
     def _stage_load_delivery(ist_date: date
                               ) -> tuple[dict[str, float], Optional[date], str]:
         """
-        Load Bhavcopy delivery data.
+        Load Bhavcopy delivery data for the latest completed trading session.
 
         Strategy:
-          1. Exact date check for today from DB (1 query, <10ms)
-          2. If today not in DB, try ScraperAPI live fetch
-          3. On failure: single-query bulk fallback — get most recent DB-cached entry
-             (uses get_latest_bhavcopy_cache_with_date(), no N+1 loop)
-          4. Mark delivery_status = "STALE" if using non-today data
+          1. Resolve target trading session date:
+             - On weekends, holidays, or before 18:00 IST on trading days, NSE Bhavcopy
+               is from the previous completed trading session (e.g. Friday).
+             - After 18:00 IST on a trading day, today's Bhavcopy is expected.
+          2. Check DB for target_date (<10ms).
+          3. If target_date is not in DB, fetch for target_date (which is guaranteed to be a completed trading day).
+          4. Single-query fallback to latest available DB Bhavcopy if needed.
 
-        Returns: (delivery_map, resolved_date, status)
-          status: "FRESH" | "STALE" | "UNAVAILABLE"
-
-        [VERSION: MARKET_DATA_SESSION_v1.0] N+1 fix: replaced per-date loop
-        with single get_latest_bhavcopy_cache_with_date() bulk query.
+        [VERSION: MARKET_DATA_SESSION_v2.0]
+        [RULE 67 CHANGE-RATIONALE: NON_TRADING_DAY_SCRAPER_PREVENTION_v1.0]
+        Guarantees that target_date is always a valid completed trading day (e.g. Friday),
+        completely eliminating failed weekend requests for non-existent Saturday/Sunday Bhavcopies.
         """
         try:
             from database import get_bhavcopy_cache, get_latest_bhavcopy_cache_with_date
+            from app.market_utils import get_expected_latest_closed_daily_bar, is_market_open
+            from datetime import datetime as _dt, time as dt_time
+            from zoneinfo import ZoneInfo
+            IST_ZONE = ZoneInfo("Asia/Kolkata")
+            now_ist = _dt.now(IST_ZONE)
 
-            # ── Path 1: Exact date DB hit (fast, 1 query) ──────────────────
-            today_data = get_bhavcopy_cache(ist_date)
-            if today_data:
+            # Determine expected Bhavcopy date based on exchange publication schedule (18:00 IST)
+            if ist_date.weekday() < 5 and now_ist.time() >= dt_time(18, 0):
+                target_date = ist_date
+            else:
+                target_date = get_expected_latest_closed_daily_bar(now_ist)
+
+            # ── Path 1: Exact target date DB hit (fast, 1 query) ───────────
+            target_data = get_bhavcopy_cache(target_date)
+            if target_data:
                 logger.info(
-                    f"[SESSION] ⚡ Delivery: DB cache hit for {ist_date} "
-                    f"({len(today_data)} symbols) — FRESH"
+                    f"[SESSION] ⚡ Delivery: DB cache hit for {target_date} "
+                    f"({len(target_data)} symbols) — FRESH"
                 )
-                return today_data, ist_date, "FRESH"
+                return target_data, target_date, "FRESH"
 
-            # ── Path 2: Live ScraperAPI fetch ───────────────────────────────
-            logger.info(f"[SESSION] 🔄 Delivery: Attempting live fetch for {ist_date} (ScraperAPI primary)...")
+            # ── Path 2: Fetch for target_date (guaranteed valid completed trading session) ──
+            logger.info(f"[SESSION] 🔄 Delivery: Fetching Bhavcopy for target session {target_date}...")
             try:
                 from delivery_data import fetch_delivery_data
-                live_data = fetch_delivery_data(ist_date, skip_db_save=False)
+                live_data = fetch_delivery_data(target_date, skip_db_save=False)
                 if live_data:
                     logger.info(
-                        f"[SESSION] ✅ Delivery: Live fetch succeeded for {ist_date} "
+                        f"[SESSION] ✅ Delivery: Fetch succeeded for {target_date} "
                         f"({len(live_data)} symbols) — FRESH"
                     )
-                    return live_data, ist_date, "FRESH"
+                    return live_data, target_date, "FRESH"
             except Exception as live_err:
                 logger.warning(f"[SESSION] ⚠️ Delivery: Live fetch failed: {live_err}")
 
             # ── Path 3: Bulk single-query fallback (no N+1 loop) ────────────
-            # get_latest_bhavcopy_cache_with_date() issues one SQL:
-            #   SELECT delivery_data, trading_date FROM bhavcopy_cache
-            #   ORDER BY trading_date DESC LIMIT 1
-            # This returns whatever the most recent cached date is in one round-trip.
-            logger.warning(
-                f"[SESSION] ⚠️ Delivery: Today ({ist_date}) unavailable. "
-                f"Fetching most recent DB-cached entry in single query..."
-            )
-            stale_data, stale_date = get_latest_bhavcopy_cache_with_date()
-            if stale_data:
+            latest_data, latest_date = get_latest_bhavcopy_cache_with_date()
+            if latest_data:
+                status = "FRESH" if (latest_date == target_date) else "STALE"
                 logger.info(
-                    f"[SESSION] 📅 Delivery: Using STALE data from {stale_date} "
-                    f"({len(stale_data)} symbols)"
+                    f"[SESSION] 📅 Delivery: Using DB Bhavcopy from {latest_date} "
+                    f"({len(latest_data)} symbols) — {status}"
                 )
-                return stale_data, stale_date, "STALE"
+                return latest_data, latest_date, status
 
             logger.error("[SESSION] ❌ Delivery: No Bhavcopy data available in DB at all")
             return {}, None, "UNAVAILABLE"
