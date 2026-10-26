@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-10-24T19:10:26.328029+05:30",
+    "last_successful_check_at": "2026-10-26T10:46:57.044458+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -26,13 +26,13 @@
         "last_successful_check_at": "2026-10-24T19:13:14.453242"
       },
       "DPABHUSHAN": {
-        "last_successful_check_at": "2026-10-24T19:12:14.328618"
+        "last_successful_check_at": "2026-10-26T10:45:41.351755"
       },
       "FOSECOIND": {
-        "last_successful_check_at": "2026-10-24T19:12:29.735657"
+        "last_successful_check_at": "2026-10-26T10:46:08.992057"
       },
       "GMBREW": {
-        "last_successful_check_at": "2026-10-24T19:12:32.103763"
+        "last_successful_check_at": "2026-10-26T10:46:12.518564"
       },
       "HIRECT": {
         "last_successful_check_at": "2026-10-24T19:13:19.065117"
@@ -41,10 +41,10 @@
         "last_successful_check_at": "2026-10-24T18:47:33.088305"
       },
       "PRECWIRE": {
-        "last_successful_check_at": "2026-10-24T19:12:34.087874"
+        "last_successful_check_at": "2026-10-26T10:46:15.550388"
       },
       "TIMKEN": {
-        "last_successful_check_at": "2026-10-24T19:12:36.148724"
+        "last_successful_check_at": "2026-10-26T10:46:18.835937"
       },
       "UTLSOLAR": {
         "last_successful_check_at": "2026-10-18T22:20:14.252026"
@@ -209,7 +209,7 @@
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-10-24T19:10:26.328029+05:30",
+    "last_successful_check_at": "2026-10-26T10:46:57.044458+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -234,13 +234,13 @@
         "last_successful_check_at": "2026-10-24T19:13:14.458565"
       },
       "DPABHUSHAN": {
-        "last_successful_check_at": "2026-10-24T19:12:14.339115"
+        "last_successful_check_at": "2026-10-26T10:45:41.402267"
       },
       "FOSECOIND": {
-        "last_successful_check_at": "2026-10-24T19:12:29.740024"
+        "last_successful_check_at": "2026-10-26T10:46:09.007582"
       },
       "GMBREW": {
-        "last_successful_check_at": "2026-10-24T19:12:32.108942"
+        "last_successful_check_at": "2026-10-26T10:46:12.528844"
       },
       "HIRECT": {
         "last_successful_check_at": "2026-10-24T19:13:19.069508"
@@ -249,10 +249,10 @@
         "last_successful_check_at": "2026-10-24T18:47:33.093070"
       },
       "PRECWIRE": {
-        "last_successful_check_at": "2026-10-24T19:12:34.094678"
+        "last_successful_check_at": "2026-10-26T10:46:15.580669"
       },
       "TIMKEN": {
-        "last_successful_check_at": "2026-10-24T19:12:36.154918"
+        "last_successful_check_at": "2026-10-26T10:46:18.845099"
       },
       "UTLSOLAR": {
         "last_successful_check_at": "2026-10-18T22:20:14.261210"

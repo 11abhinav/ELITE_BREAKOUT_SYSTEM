@@ -1637,11 +1637,27 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
     logger.info(f"📋 {len(raw_alerts)} total alerts in database")
     stage_tracker.total_symbols = len(raw_alerts)
+
+    # [RULE 67 CHANGE-RATIONALE: Guarantee every performance tracker execution creates an entry in scanner_execution_history]
+    own_run_ctx = False
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(
+                scanner_name="PERFORMANCE_TRACKER",
+                trigger_type="MANUAL" if force_live_fetch else "SCHEDULED",
+                scheduler_name="PERFORMANCE_TRACKER",
+                total_stocks=len(raw_alerts),
+                allow_concurrent=True
+            )
+            own_run_ctx = True
+        except Exception as _e_ctx:
+            logger.debug(f"[PERFORMANCE_TRACKER] Standalone execution context init note: {_e_ctx}")
+
     if run_ctx:
         run_ctx.set_total_stocks(len(raw_alerts))
         run_ctx.record_fresh_data(len(raw_alerts))
     stage_tracker.end_stage(f"Loaded {len(raw_alerts)} alerts from DB")
-
     trades = [t for row in raw_alerts if (t := _row_to_trade_dict(row)) is not None]
 
     if recalc_ids:
@@ -2232,6 +2248,33 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         stage_tracker.print_summary(alerts_found=len(winners))
     except Exception:
         pass
+    finally:
+        if own_run_ctx and run_ctx:
+            try:
+                from database import complete_scanner_execution_run, upsert_scanner_health
+                complete_scanner_execution_run(
+                    run_ctx,
+                    total_scanned=len(trades) if 'trades' in locals() else len(raw_alerts),
+                    total_stocks=len(trades) if 'trades' in locals() else len(raw_alerts),
+                    fresh_data_count=len(trades) if 'trades' in locals() else len(raw_alerts),
+                    stale_data_count=0,
+                    candidate_count=len(judged) if 'judged' in locals() else 0,
+                    summary_notes=f"Performance tracker refresh completed ({len(trades) if 'trades' in locals() else 0} alerts, WR={wr if 'wr' in locals() else 0}%, AvgReturn={avg_ret if 'avg_ret' in locals() else 0}%)"
+                )
+                upsert_scanner_health(
+                    scanner_name="PERFORMANCE_TRACKER",
+                    status="OK",
+                    last_success=datetime.now(IST).isoformat(),
+                    processed_count=len(trades) if 'trades' in locals() else len(raw_alerts),
+                    total_count=len(trades) if 'trades' in locals() else len(raw_alerts),
+                    outcome="SUCCESS",
+                    duration_seconds=round(_time.time() - _fn_start, 2),
+                    error_msg=None,
+                    run_id=run_ctx.run_id
+                )
+            except Exception as _comp_err:
+                logger.debug(f"[PERFORMANCE_TRACKER] Standalone completion note: {_comp_err}")
+
 
 
 # =====================================================================================

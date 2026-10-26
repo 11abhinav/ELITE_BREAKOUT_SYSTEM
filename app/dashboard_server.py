@@ -859,8 +859,12 @@ def notify_stream_clients(event_type: str = "alert", payload: dict = None):
         _LATEST_STREAM_EVENT["last_payload"] = payload
 
 _todays_alerts_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
-_ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
 _SEH_API_CACHE = {}
+
+def invalidate_seh_api_cache():
+    """Invalidates the scanner execution history API cache so newly registered or completed runs appear instantly."""
+    global _SEH_API_CACHE
+    _SEH_API_CACHE.clear()
 
 def invalidate_notifications_cache():
     global _notifications_cache

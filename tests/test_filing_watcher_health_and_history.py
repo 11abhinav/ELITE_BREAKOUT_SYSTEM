@@ -89,6 +89,10 @@ def test_successful_watcher_cycle_records_history_and_ok_health(monkeypatch):
         monkeypatch.setattr("app.database.start_scanner_execution_run", mock_start_run)
         monkeypatch.setattr("app.database.complete_scanner_execution_run", mock_complete_run)
         monkeypatch.setattr("app.database.upsert_scanner_health", mock_upsert_health)
+        monkeypatch.setattr("app.database.upload_parquet_to_db", lambda *args, **kwargs: None)
+        monkeypatch.setattr("app.database.upload_pit_raw_bundle_to_db", lambda *args, **kwargs: None)
+        monkeypatch.setattr("app.live_fundamental_scanner.ApprovedUniverseRegistry._load_universe", lambda self: setattr(self, "clean_symbols", {"TCS"}))
+        monkeypatch.setattr("app.fundamental_pre_recovery.FundamentalPreRecoveryEngine.execute_pre_scan_sweep", lambda self: None)
         monkeypatch.setattr("scripts.financial_filing_watcher.SNAPSHOT_PATH", snap_path)
 
         watcher = FinancialFilingWatcher(state_file=state_file, events_log=events_log)
@@ -146,6 +150,8 @@ def test_failed_watcher_cycle_marks_down_and_records_failures(monkeypatch):
         monkeypatch.setattr("app.database.complete_scanner_execution_run", mock_complete_run)
         monkeypatch.setattr("app.database.upsert_scanner_health", mock_upsert_health)
         monkeypatch.setattr("app.database.upsert_fetch_error", mock_upsert_fetch_error)
+        monkeypatch.setattr("app.live_fundamental_scanner.ApprovedUniverseRegistry._load_universe", lambda self: setattr(self, "clean_symbols", {"TCS"}))
+        monkeypatch.setattr("app.fundamental_pre_recovery.FundamentalPreRecoveryEngine.execute_pre_scan_sweep", lambda self: None)
         monkeypatch.setattr("scripts.financial_filing_watcher.SNAPSHOT_PATH", snap_path)
 
         watcher = FinancialFilingWatcher(state_file=state_file, events_log=events_log)

@@ -8150,3 +8150,20 @@ __all__ = [
 QualityCompounderValueScannerV2Final = QualityCompounderValueV2Scanner
 
 
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Live Fundamental Scanner Suite")
+    parser.add_argument("--mode", type=str, default="FUNDAMENTAL", choices=["FUNDAMENTAL", "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY"], help="Scanner to run")
+    parser.add_argument("--trigger-type", type=str, default="MANUAL", help="Trigger type")
+    parser.add_argument("--scheduler-name", type=str, default="CLI", help="Scheduler name")
+    args = parser.parse_args()
+    if args.mode == "FUNDAMENTAL":
+        res = run_fundamental_scan(trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    elif args.mode == "QUALITY_COMPOUNDER":
+        res = run_quality_compounder_v2_scan(trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    elif args.mode == "QUALITY_VALUE_RECOVERY":
+        res = run_quality_value_recovery_scan(trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    print(f"\n[{args.mode}] Finished with status: {res.get('status') if isinstance(res, dict) else 'OK'}")
+
+
+

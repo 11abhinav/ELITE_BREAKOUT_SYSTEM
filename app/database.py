@@ -5334,7 +5334,7 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "SHORT_COVERING"
     elif upper in ["BAYESIAN_UPDATER", "BAYESIANUPDATER"]:
         return "BayesianUpdater"
-    elif upper in ["FILING_WATCHER", "FINANCIAL_FILING_WATCHER", "FILINGWATCHER", "FINANCIAL_WATCHER"]:
+    elif upper in ["FILING_WATCHER", "FINANCIAL_FILING_WATCHER", "FILINGWATCHER", "FINANCIAL_WATCHER", "FILING_SCANNER", "FILLING_WATCHER", "FILLING_SCANNER", "FILLING", "FILING", "CORPORATE_FILING", "CORPORATE_FILINGS"]:
         return "FILING_WATCHER"
     return s
 
@@ -9385,12 +9385,15 @@ def _enroll_single_cooloff(
     except Exception:
         pass
 
-    # Admin notification for marking stock as stale data (sent strictly ONCE per 7-day cooloff period)
+    # Admin notification for marking stock as stale or insufficient data (sent strictly ONCE per 7-day cooloff period)
     if notify_admin and is_new_stale:
         try:
-            title = f"Stale Data: {sym} ({scan})"
+            is_insufficient = any(k in reason_clean.upper() for k in ("PARTIAL_RECOVERY", "UNRESOLVED", "MISSING", "INSUFFICIENT", "CONFLICT", "DEPTH"))
+            category_label = "Data Insufficient" if is_insufficient else "Stale Data"
+            action_desc = "Marking as data insufficient" if is_insufficient else "Marking as stale data"
+            title = f"{category_label}: {sym} ({scan})"
             msg = (
-                f"Marking as stale data for {scan}: {sym}. Reason: {reason_clean}.{missing_desc} "
+                f"{action_desc} for {scan}: {sym}. Reason: {reason_clean}.{missing_desc} "
                 f"Entered into cool-off table ({scan}) to not be processed for {duration_days} days "
                 f"(until {until_dt.strftime('%Y-%m-%d')})."
             )
@@ -10924,6 +10927,69 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     "latest_annual_period": str(row.get("latest_annual_period") or ""),
                     "latest_period_in_db": raw_period,
                     "filings_count_in_db": raw_count,
+                    "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
+                    "cmp": _val(row.get("cmp")),
+                    "market_cap_cr": _val(row.get("market_cap"), 1),
+                    "enterprise_value": _val(row.get("enterprise_value"), 1),
+                    "current_pe": _val(row.get("current_pe")),
+                    "pe_3y_median": _val(row.get("pe_3y_median")),
+                    "current_ev_ebitda": _val(row.get("current_ev_ebitda")),
+                    "ev_ebitda_3y_median": _val(row.get("ev_ebitda_3y_median")),
+                    "roce_5y_avg": _val(row.get("roce_5y_avg")),
+                    "roce": _val(row.get("roce")),
+                    "roe": _val(row.get("roe")),
+                    "sales_cagr_5y": _val(row.get("sales_cagr_5y")),
+                    "pat_cagr_5y": _val(row.get("pat_cagr_5y")),
+                    "cfo_pat_5y_ratio": _val(row.get("cfo_pat_5y_ratio")),
+                    "debt_to_equity": _val(row.get("debt_to_equity")),
+                    "shares_outstanding_m": _val(row.get("shares_outstanding_m"), 2),
+                    "share_dilution_3y_pct": _val(row.get("share_dilution_3y_pct"), 2),
+                    "share_dilution_status": str(row.get("share_dilution_status") or ""),
+                    "revenue": _val(row.get("revenue"), 1),
+                    "net_profit": _val(row.get("net_profit"), 1),
+                    "operating_cash_flow": _val(row.get("operating_cash_flow"), 1),
+                    "ebitda": _val(row.get("ebitda"), 1),
+                    "provenance_status": str(row.get("provenance_status") or "PARTIAL")
+                }
+                continue
+
+            # 3. [RULE 67 CHANGE-RATIONALE: ZERO FALSE-POSITIVE FRESH INVARIANT]
+            # Required fundamental metrics completeness gate. A stock CANNOT be certified FRESH if its
+            # required 5Y CAGR, ROCE, or Debt metrics are missing/None. It must be classified as DATA_INSUFFICIENT.
+            missing_fund_fields = []
+            is_bfsi = bool(row.get("is_bfsi", False))
+            listing_age = float(row.get("listing_age_years") or 99.0)
+
+            if row.get("roce_5y_avg") is None and row.get("roce") is None:
+                missing_fund_fields.append("ROCE")
+            if listing_age >= 5.0:
+                if row.get("sales_cagr_5y") is None:
+                    missing_fund_fields.append("sales_cagr_5y")
+                if row.get("pat_cagr_5y") is None:
+                    missing_fund_fields.append("pat_cagr_5y")
+            if not is_bfsi and row.get("debt_to_equity") is None:
+                missing_fund_fields.append("debt_to_equity")
+
+            is_insuff_status = freshness in ("DATA_INSUFFICIENT", "DATA_UNAVAILABLE", "INCOMPLETE") or snap_st in ("DATA_INSUFFICIENT", "DATA_UNAVAILABLE", "INCOMPLETE")
+
+            if missing_fund_fields or is_insuff_status:
+                comp_name = sec_master.get(sym, {}).get("company_name", sym)
+                reason = f"INSUFFICIENT_HISTORICAL_DEPTH: {', '.join(missing_fund_fields)}" if missing_fund_fields else (freshness or "DATA_INSUFFICIENT")
+                stale_map[sym] = {
+                    "symbol": sym,
+                    "company_name": comp_name,
+                    "scanner": "FUNDAMENTAL",
+                    "reason": reason,
+                    "missing_data_summary": f"Missing required fundamental metrics: {', '.join(missing_fund_fields)}. Upstream providers lack continuous 5-6 year annual series.",
+                    "provider_failures": str(missing_fund_fields),
+                    "cooloff_start_at": str(row.get("as_of_date") or now_dt.strftime("%Y-%m-%d")),
+                    "cooloff_until": (now_dt + timedelta(days=7)).isoformat(),
+                    "days_remaining": 7.0,
+                    "status": "DATA_INSUFFICIENT",
+                    "source": "PIT_METRIC_VALIDATION",
+                    "latest_annual_period": str(row.get("latest_annual_period") or ""),
+                    "latest_period_in_db": raw_info.get("latest", "None") if raw_info else "No local file",
+                    "filings_count_in_db": raw_info.get("count", 0) if raw_info else 0,
                     "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
                     "cmp": _val(row.get("cmp")),
                     "market_cap_cr": _val(row.get("market_cap"), 1),
@@ -14001,16 +14067,7 @@ def get_scanner_execution_history(
                             where_clauses.append(f"UPPER(scanner_name) IN ({placeholders})")
                             for s in sc_list:
                                 params.append(normalize_scanner_name(s))
-                    else:
-                        active_scs = [
-                            "DAILY_BUILDER", "TECHNICAL", "FUNDAMENTAL",
-                            "QUALITY_COMPOUNDER", "QUALITY_VALUE_RECOVERY",
-                            "PERFORMANCE_TRACKER", "WEALTH_EXIT_V1", "WEALTH_EXIT_V2",
-                            "FILING_WATCHER"
-                        ]
-                        placeholders = ", ".join(["UPPER(%s)"] * len(active_scs))
-                        where_clauses.append(f"UPPER(scanner_name) IN ({placeholders})")
-                        params.extend(active_scs)
+                    # When scanner_name is "ALL" or empty, do NOT restrict by scanner_name so all scanner runs are visible.
 
                 if lifecycle_status and lifecycle_status.upper() != "ALL":
                     where_clauses.append("lifecycle_status = %s")
@@ -14040,10 +14097,20 @@ def get_scanner_execution_history(
                     where_clauses.append("started_at >= NOW() - INTERVAL '30 days'")
 
                 if search and search.strip():
-                    # [VERSION: PERF_FIX] Focus only on indexed or small columns. Include summary_notes for deep search.
-                    where_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR stop_reason ILIKE %s OR system_version ILIKE %s OR summary_notes ILIKE %s)")
-                    term = f"%{search.strip()}%"
-                    params.extend([term, term, term, term, term])
+                    term_raw = search.strip()
+                    # [RULE 67 CHANGE-RATIONALE: Flexible search supporting spelling variants like filling vs filing]
+                    search_terms = [term_raw]
+                    if "filling" in term_raw.lower():
+                        search_terms.append(term_raw.lower().replace("filling", "filing"))
+                    elif "filing" in term_raw.lower():
+                        search_terms.append(term_raw.lower().replace("filing", "filling"))
+
+                    sub_clauses = []
+                    for st in list(dict.fromkeys(search_terms)):
+                        st_pat = f"%{st}%"
+                        sub_clauses.append("(scanner_name ILIKE %s OR run_id ILIKE %s OR stop_reason ILIKE %s OR system_version ILIKE %s OR summary_notes ILIKE %s)")
+                        params.extend([st_pat, st_pat, st_pat, st_pat, st_pat])
+                    where_clauses.append(f"({' OR '.join(sub_clauses)})")
 
                 where_sql = " AND ".join(where_clauses)
 

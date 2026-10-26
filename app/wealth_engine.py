@@ -3043,7 +3043,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
 
 _wealth_exit_lock = threading.Lock()
 
-def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=False):
+def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=False, trigger_type="SCHEDULED", scheduler_name="CRON"):
     """
     Lightweight, ultra-fast market-hours update (< 3 seconds) for the 5-minute Wealth Engine schedule.
     Fetches real-time prices for active portfolio holdings, evaluates open position exit rules,
@@ -3059,7 +3059,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
         logger.info("🛑 [WEALTH_EXIT] In-memory lock held. Another WEALTH_EXIT run is actively executing. Skipping duplicate.")
         try:
             from database import record_skipped_execution_run
-            record_skipped_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON", stop_reason="In-memory lock held (previous run active)")
+            record_skipped_execution_run(scanner_name="WEALTH_EXIT", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="In-memory lock held (previous run active)")
         except Exception:
             pass
         return None
@@ -3072,7 +3072,12 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
     run_ctx = None
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run
-        run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT_V1", trigger_type="SCHEDULED", scheduler_name="CRON")
+        run_ctx = start_scanner_execution_run(
+            scanner_name="WEALTH_EXIT_V1",
+            trigger_type=trigger_type,
+            scheduler_name=scheduler_name,
+            allow_concurrent=(trigger_type in ("MANUAL", "CLI"))
+        )
 
         if not os.path.exists(WEALTH_PATH):
             logger.info("⚠️ WEALTH_PATH parquet not found for intraday update. Running full scan once...")
@@ -3482,3 +3487,20 @@ def restore_healthy_wealth_positions():
     except Exception as e:
         logger.error(f"Failed to re-evaluate wealth positions: {e}")
         return 0
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Wealth Engine Portfolio Scanner & Exit Monitor")
+    parser.add_argument("--mode", type=str, default="SCAN", choices=["SCAN", "INTRADAY_UPDATE", "EOD_UPDATE"], help="Operation mode")
+    parser.add_argument("--trigger-type", type=str, default="MANUAL", help="Trigger type")
+    parser.add_argument("--scheduler-name", type=str, default="CLI", help="Scheduler name")
+    args = parser.parse_args()
+    if args.mode == "SCAN":
+        run_wealth_scan(trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    elif args.mode == "INTRADAY_UPDATE":
+        run_wealth_intraday_update(is_eod=False, trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    elif args.mode == "EOD_UPDATE":
+        run_wealth_intraday_update(is_eod=True, trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    print(f"\n[Wealth Engine] Mode {args.mode} completed.")
+

@@ -1305,7 +1305,7 @@ def get_live_wealth_monitor() -> LiveWealthMonitorEngine:
 # QUALITY_COMPOUNDER — 15:15 & 18:30 EXIT PULSE CHECKER
 # ─────────────────────────────────────────────────────────────────────────────────────
 
-def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
+def run_v2_exit_check(check_type: str = "EOD", trigger_type: str = "SCHEDULED", scheduler_name: str = "CRON") -> Dict[str, Any]:
     """
     Executes V2 exit checks for QUALITY_COMPOUNDER:
     - check_type = 'PRE_CLOSE' (15:15 IST pulse): Warning check, GREEN -> ORANGE on intraday SMA200 breach, NO final exit.
@@ -1325,7 +1325,12 @@ def run_v2_exit_check(check_type: str = "EOD") -> Dict[str, Any]:
     run_ctx = None
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
-        run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT_V2", trigger_type="SCHEDULED", scheduler_name="CRON")
+        run_ctx = start_scanner_execution_run(
+            scanner_name="WEALTH_EXIT_V2",
+            trigger_type=trigger_type,
+            scheduler_name=scheduler_name,
+            allow_concurrent=(trigger_type in ("MANUAL", "CLI"))
+        )
     except Exception as _tr_e:
         logger.debug(f"WEALTH_EXIT_V2 telemetry init failed: {_tr_e}")
 
@@ -1571,6 +1576,18 @@ QualityCompounderExitMonitor = LiveWealthMonitorEngine
 
 QualityValueRecoveryExitEvaluator = CanonicalRecoveryE3ExitEvaluator
 QualityValueRecoveryExitMonitor = LiveWealthMonitorEngine
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Live Wealth Monitor (V2 Shadow Exit Pulse)")
+    parser.add_argument("--check-type", type=str, default="EOD", choices=["PRE_CLOSE", "EOD"], help="Check type pulse")
+    parser.add_argument("--trigger-type", type=str, default="MANUAL", help="Trigger type")
+    parser.add_argument("--scheduler-name", type=str, default="CLI", help="Scheduler name")
+    args = parser.parse_args()
+    res = run_v2_exit_check(check_type=args.check_type, trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    print(f"\n[V2_EXIT_MONITOR] {args.check_type} finished: {res}")
+
 
 
 

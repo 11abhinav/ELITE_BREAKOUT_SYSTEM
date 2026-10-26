@@ -587,12 +587,14 @@ class FundamentalPreRecoveryEngine:
                         except ImportError:
                             from app.database import add_symbol_to_cooloff
                         unrec_str = ", ".join(actionable_unrecovered) if actionable_unrecovered else "DATA_UNRESOLVED"
+                        target_scan = "FUNDAMENTAL" if self.scanner_name == "FILING_WATCHER" else self.scanner_name
                         add_symbol_to_cooloff(
                             symbol=symbol,
                             reason=f"PARTIAL_RECOVERY_UNRESOLVED: {unrec_str}",
-                            scanner=self.scanner_name,
+                            scanner=target_scan,
                             duration_days=7,
-                            provider_failures={"missing_fields": actionable_unrecovered}
+                            provider_failures={"missing_fields": actionable_unrecovered},
+                            notify_admin=False
                         )
                     except Exception as _c_err:
                         logger.debug(f"Cool-off notice for {symbol}: {_c_err}")
@@ -648,12 +650,14 @@ class FundamentalPreRecoveryEngine:
                         if metrics.overall_status == FundamentalStatus.DATA_CONFLICT
                         else f"RECOVERY_UNAVAILABLE: {miss_str}"
                     )
+                    target_scan = "FUNDAMENTAL" if self.scanner_name == "FILING_WATCHER" else self.scanner_name
                     add_symbol_to_cooloff(
                         symbol=symbol,
                         reason=reason_desc,
-                        scanner=self.scanner_name,
+                        scanner=target_scan,
                         duration_days=7,
-                        provider_failures={"missing_fields": missing_fields}
+                        provider_failures={"missing_fields": missing_fields},
+                        notify_admin=False
                     )
                 except Exception:
                     pass

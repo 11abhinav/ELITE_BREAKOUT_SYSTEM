@@ -2023,3 +2023,14 @@ def run_technical_scan(
                 _scan_lock.release()
             except Exception as _se:
                 logger.debug(f"Error releasing scan lock: {_se}")
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Unified Technical Pattern Scanner")
+    parser.add_argument("--trigger-type", type=str, default="MANUAL", help="Trigger type")
+    parser.add_argument("--scheduler-name", type=str, default="CLI", help="Scheduler name")
+    args = parser.parse_args()
+    res = run_technical_scan(trigger_type=args.trigger_type, scheduler_name=args.scheduler_name)
+    print(f"\n[TECHNICAL] Finished with {res} alerts saved.")
+

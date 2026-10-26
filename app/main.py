@@ -2384,7 +2384,7 @@ def _trigger_ai_worker():
 def _trigger_earnings_calendar():
     return {"total_count": 0, "processed_count": 0}
 
-def _trigger_performance_tracker():
+def _trigger_performance_tracker(trigger_type="MANUAL", scheduler_name="MANUAL"):
     from database import is_scanner_stopped
     if is_scanner_stopped("PERFORMANCE_TRACKER"):
         logger.info("⏸️ [PERFORMANCE_TRACKER] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
@@ -2392,25 +2392,34 @@ def _trigger_performance_tracker():
     if not _perf_tracker_lock.acquire(blocking=False):
         logger.info("⏳ PERFORMANCE_TRACKER is already actively running. Skipping manual/auto-recovery trigger.")
         return {"total_count": 0, "processed_count": 0}
+    run_ctx = None
     try:
+        from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+        upsert_scanner_health("PERFORMANCE_TRACKER", status="RUNNING", error_msg="Refreshing portfolio performance metrics...")
+        run_ctx = start_scanner_execution_run(
+            scanner_name="PERFORMANCE_TRACKER",
+            trigger_type=trigger_type,
+            scheduler_name=scheduler_name,
+            allow_concurrent=True
+        )
         from performance_tracker import build_performance_data
-        build_performance_data(force_live_fetch=True)
+        build_performance_data(force_live_fetch=True, run_ctx=run_ctx)
         return {"total_count": 1, "processed_count": 1}
     finally:
         if _perf_tracker_lock.locked():
             _perf_tracker_lock.release()
 
 
-def _trigger_wealth_exit(check_type="EOD"):
+def _trigger_wealth_exit(check_type="EOD", trigger_type="MANUAL", scheduler_name="MANUAL"):
     from database import is_scanner_stopped
     if is_scanner_stopped("WEALTH_EXIT"):
         logger.info("⏸️ [WEALTH_EXIT] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
     from wealth_engine import run_wealth_intraday_update
-    run_wealth_intraday_update(is_eod=(check_type == "EOD"))
+    run_wealth_intraday_update(is_eod=(check_type == "EOD"), trigger_type=trigger_type, scheduler_name=scheduler_name)
     try:
         from live_wealth_monitor import run_v2_exit_check
-        run_v2_exit_check(check_type=check_type)
+        run_v2_exit_check(check_type=check_type, trigger_type=trigger_type, scheduler_name=scheduler_name)
     except Exception as v2_exit_err:
         logger.error(f"❌ V2 Exit check trigger failed: {v2_exit_err}")
     return {"total_count": 1, "processed_count": 1}

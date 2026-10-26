@@ -893,6 +893,27 @@ class FinancialFilingWatcher:
 
         logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str} (concurrency={max_workers})...")
 
+        # [RULE 67 CHANGE-RATIONALE: Guarantee every execution creates an entry in scanner_execution_history]
+        # If poll_exchange_filings is invoked standalone (e.g. from dashboard or test script) without run_ctx,
+        # auto-create a dedicated execution run context so execution history is 100% captured and never orphaned.
+        own_run_ctx = False
+        if run_ctx is None:
+            try:
+                try:
+                    from app.database import start_scanner_execution_run
+                except ImportError:
+                    from database import start_scanner_execution_run
+                run_ctx = start_scanner_execution_run(
+                    scanner_name="FILING_WATCHER",
+                    trigger_type="STANDALONE_POLL",
+                    scheduler_name="WATCHER",
+                    total_stocks=len(symbols),
+                    allow_concurrent=True
+                )
+                own_run_ctx = True
+            except Exception as _e_ctx:
+                logger.debug(f"[filling scanner] Standalone execution context init note: {_e_ctx}")
+
         # Pre-load snapshot cache ONCE in memory to avoid repeated parquet disk reads
         snap_lookup: Dict[str, Any] = {}
         try:
@@ -1905,6 +1926,35 @@ class FinancialFilingWatcher:
         except Exception as _wm_f_err:
             logger.debug(f"[filling scanner] Final exchange watermark update note: {_wm_f_err}")
 
+        if own_run_ctx and run_ctx:
+            try:
+                try:
+                    from app.database import complete_scanner_execution_run, upsert_scanner_health
+                except ImportError:
+                    from database import complete_scanner_execution_run, upsert_scanner_health
+                err_c = error_count[0] if 'error_count' in locals() else 0
+                disc_c = len(discovered_events) if 'discovered_events' in locals() else 0
+                complete_scanner_execution_run(
+                    run_ctx,
+                    total_scanned=len(symbols),
+                    total_stocks=len(symbols),
+                    fresh_data_count=max(0, len(symbols) - err_c),
+                    incomplete_data_count=err_c,
+                    summary_notes=f"Standalone poll finished. Discovered: {disc_c}, Errors: {err_c}"
+                )
+                upsert_scanner_health(
+                    scanner_name="FILING_WATCHER",
+                    status="OK",
+                    last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+                    processed_count=len(symbols),
+                    total_count=len(symbols),
+                    outcome="SUCCESS",
+                    error_msg=None,
+                    run_id=run_ctx.run_id if run_ctx else None
+                )
+            except Exception as _comp_err:
+                logger.debug(f"[filling scanner] Standalone execution run completion note: {_comp_err}")
+
         return discovered_events
 
     def _merge_into_pit_raw_filings(
@@ -2322,17 +2372,19 @@ class FinancialFilingWatcher:
 
         try:
             # 1. Register execution run in scanner_execution_history
+            is_manual_or_force = (trigger_type in ("MANUAL", "CLI") or force_backfill or force_rebuild)
             try:
                 run_ctx = start_scanner_execution_run(
                     scanner_name="FILING_WATCHER",
                     trigger_type=trigger_type,
                     scheduler_name=scheduler_name,
                     total_stocks=total_count,
+                    allow_concurrent=is_manual_or_force,
                 )
             except Exception as run_err:
                 if "already actively running" in str(run_err).lower():
                     # If this is a MANUAL trigger, CLI, or force run, auto-clean stale orphan and retry
-                    if trigger_type in ("MANUAL", "CLI") or force_backfill or force_rebuild:
+                    if is_manual_or_force:
                         logger.warning("🧹 [filling scanner] Auto-cleaning stale orphaned RUNNING/QUEUED run before manual trigger...")
                         try:
                             with get_connection() as conn:
@@ -2351,6 +2403,7 @@ class FinancialFilingWatcher:
                                 trigger_type=trigger_type,
                                 scheduler_name=scheduler_name,
                                 total_stocks=total_count,
+                                allow_concurrent=True,
                             )
                         except Exception as retry_err:
                             logger.error(f"[filling scanner] Failed to start execution run after auto-clean: {retry_err}")
@@ -2359,6 +2412,18 @@ class FinancialFilingWatcher:
                         return {"status": "ALREADY_RUNNING", "message": "Already running in database"}
                 else:
                     logger.warning(f"[filling scanner] Failed to insert execution run in scanner_execution_history: {run_err}")
+
+            if not run_ctx:
+                try:
+                    run_ctx = start_scanner_execution_run(
+                        scanner_name="FILING_WATCHER",
+                        trigger_type=trigger_type,
+                        scheduler_name=scheduler_name,
+                        total_stocks=total_count,
+                        allow_concurrent=True,
+                    )
+                except Exception as _fb_err:
+                    logger.debug(f"[filling scanner] Fallback run_ctx creation note: {_fb_err}")
 
             if run_ctx and hasattr(run_ctx, "start_heartbeat_worker"):
                 try:
