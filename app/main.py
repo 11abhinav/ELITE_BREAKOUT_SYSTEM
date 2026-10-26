@@ -2027,6 +2027,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "WEALTH_EXIT":                        _trigger_wealth_exit,
         "TECHNICAL":                          _trigger_technical,
         "FILING_WATCHER":                     _trigger_filing_watcher,
+        "EARNINGS_FORENSIC":                  _trigger_earnings_forensic,
+        "Earnings Forensic":                  _trigger_earnings_forensic,
     }
     
     fn = TRIGGER_MAP.get(scanner_key) or TRIGGER_MAP.get(norm_key)
@@ -2046,6 +2048,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "WEALTH_EXIT":                        lambda: __import__('wealth_engine')._wealth_exit_lock,
         "TECHNICAL":                          lambda: __import__('technical_scanner')._scan_lock,
         "FILING_WATCHER":                     lambda: __import__('scripts.financial_filing_watcher', fromlist=['_WATCHER_LOCK'])._WATCHER_LOCK,
+        "EARNINGS_FORENSIC":                  lambda: _forensic_worker_lock,
+        "Earnings Forensic":                  lambda: _forensic_worker_lock,
     }
 
     
@@ -2462,6 +2466,27 @@ def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON"):
     except Exception:
         pass
     return res
+
+
+_forensic_worker_lock = threading.Lock()
+
+def _trigger_earnings_forensic(trigger_type="SCHEDULED", scheduler_name="CRON"):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("Earnings Forensic") or is_scanner_stopped("EARNINGS_FORENSIC"):
+        logger.info("⏸️ [Earnings Forensic] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
+    if not _forensic_worker_lock.acquire(blocking=False):
+        logger.warning("⚠️ [Earnings Forensic] Worker already running. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
+    try:
+        from app.earnings_forensic import run_forensic_worker_scan_once
+        res = run_forensic_worker_scan_once(limit=20, enable_ai=True)
+        return res
+    except Exception as e:
+        logger.error(f"❌ [Earnings Forensic] Trigger failed: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)}
+    finally:
+        _forensic_worker_lock.release()
 
 
 # ENTRY POINT

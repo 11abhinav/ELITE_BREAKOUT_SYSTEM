@@ -634,6 +634,8 @@ class FinancialFilingWatcher:
                     if not true_filing_date:
                         true_filing_date = period_end or today_ist
 
+                    # Mark FORENSIC_PENDING for new/unseen filings so Earnings Forensic Worker can analyze it
+                    initial_status = "FORENSIC_PENDING" if event_type.value in ("NEW_FILING", "UNSEEN_PERIOD", "AMENDED_FILING") else "SNAPSHOT_UPDATED"
                     upsert_corporate_filing_finding({
                         "filing_date": true_filing_date,
                         "discovered_at": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
@@ -656,7 +658,7 @@ class FinancialFilingWatcher:
                         "net_margin_pct": float(facts.get("net_margin")) if facts.get("net_margin") is not None else None,
                         "shares_outstanding": float(facts.get("shares_outstanding")) if facts.get("shares_outstanding") is not None else None,
                         "filing_broadcast_date": broadcast_time,
-                        "status": "SNAPSHOT_UPDATED",
+                        "status": initial_status,
                         "headline": headline,
                         "run_id": run_id,
                         "raw_facts": facts,

@@ -3449,6 +3449,7 @@ window.renderStockIntelligenceDossierModal = function(modal, cleanSym, data, asO
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
                 <button onclick="openStockIntelligenceDossier('${cleanSym}', null, true)" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; box-shadow:0 0 12px rgba(139,92,246,0.35); transition:all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'" title="Re-fetch exchange filings, analyst reports & run Gemini synthesis">⚡ Re-Analyze & Fetch Fresh Data</button>
+                <button onclick="openForensicReportModal('${cleanSym}')" style="background:linear-gradient(135deg,rgba(16,185,129,0.2),rgba(59,130,246,0.2)); color:#10b981; border:1px solid rgba(16,185,129,0.4); padding:6px 12px; border-radius:6px; font-size:11px; font-weight:800; cursor:pointer; display:inline-flex; align-items:center; gap:5px; transition:all 0.2s;" title="View One-Page Forensic Accounting Audit">📑 Forensic Report</button>
                 ${verdictBadge}
                 <button onclick="document.getElementById('stock-intelligence-dossier-modal').style.display='none'" style="background:transparent; border:none; color:#888; font-size:22px; cursor:pointer; padding:0 6px;">✕</button>
             </div>
@@ -3586,6 +3587,173 @@ window.openStockIntelligenceDossier = async function(symbol, asOf=null, forceRef
                 <button onclick="openStockIntelligenceDossier('${cleanSym}', null, true)" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:8px 16px; border-radius:6px; font-weight:700; font-size:12px; cursor:pointer;">🔄 Retry Fresh Analysis</button>
                 <button onclick="document.getElementById('stock-intelligence-dossier-modal').style.display='none'" style="background:#2d3748; color:#cbd5e0; border:none; padding:8px 16px; border-radius:6px; font-weight:600; font-size:12px; cursor:pointer;">Close</button>
             </div>
+        </div>`;
+    }
+};
+
+window.closeForensicReportModal = function() {
+    const modal = document.getElementById('forensic-report-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.openForensicReportModal = async function(symbol, periodEnd=null) {
+    let modal = document.getElementById('forensic-report-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'forensic-report-modal';
+        modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(10px); display:flex; justify-content:center; align-items:center; z-index:10006; padding:20px;';
+        document.body.appendChild(modal);
+    }
+    modal.onclick = (e) => { if(e.target === modal) modal.style.display = 'none'; };
+
+    const cleanSym = (symbol || '').replace('.NS', '').replace('.BO', '').trim();
+
+    modal.innerHTML = `
+    <div style="background:#11151c; border:1px solid rgba(255,255,255,0.12); border-radius:14px; max-width:840px; width:100%; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 25px 60px rgba(0,0,0,0.85);">
+        <div style="padding:16px 20px; background:#1a202c; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:16px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
+                <span>📑</span> Loading Forensic Audit for ${cleanSym}...
+            </div>
+            <button onclick="closeForensicReportModal()" style="background:transparent; border:none; color:#888; font-size:20px; cursor:pointer;">✕</button>
+        </div>
+        <div style="padding:40px; text-align:center; color:#a0aec0; font-size:14px;">
+            ⏳ Evaluating multi-period financial statements & cash-conversion quality...
+        </div>
+    </div>`;
+    modal.style.display = 'flex';
+
+    try {
+        const url = `/api/forensic-report?symbol=${encodeURIComponent(cleanSym)}` + (periodEnd ? `&period=${encodeURIComponent(periodEnd)}` : '');
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok || data.status !== 'success' || !data.report) {
+            modal.innerHTML = `
+            <div style="background:#11151c; border:1px solid rgba(239,68,68,0.3); border-radius:14px; max-width:550px; width:100%; padding:24px; text-align:center; color:#fff;">
+                <div style="font-size:18px; font-weight:800; color:#ef4444; margin-bottom:8px;">Forensic Report Unavailable</div>
+                <div style="font-size:13px; color:#a0aec0; margin-bottom:20px;">${data.message || 'No filings available to analyze for this period.'}</div>
+                <button onclick="closeForensicReportModal()" style="background:#2d3748; border:none; color:#fff; padding:8px 16px; border-radius:6px; font-weight:700; cursor:pointer;">Close</button>
+            </div>`;
+            return;
+        }
+
+        const r = data.report;
+        const gradeColors = { 'A': '#10b981', 'B': '#3b82f6', 'C': '#f59e0b', 'D': '#ef4444', 'U': '#9ca3af' };
+        const gradeColor = gradeColors[r.earnings_grade] || '#3b82f6';
+        const revColor = (r.revenue_yoy_pct != null && r.revenue_yoy_pct >= 0) ? '#10b981' : '#ef4444';
+        const patColor = (r.net_profit_yoy_pct != null && r.net_profit_yoy_pct >= 0) ? '#10b981' : '#ef4444';
+        const cfoRatio = (r.cfo_pat_ratio != null) ? Number(r.cfo_pat_ratio).toFixed(2) : 'N/A';
+        const cfoColor = (r.cfo_pat_ratio != null && r.cfo_pat_ratio >= 0.8) ? '#10b981' : ((r.cfo_pat_ratio != null && r.cfo_pat_ratio >= 0.4) ? '#f59e0b' : '#ef4444');
+
+        const topFindings = (r.findings || []).slice(0, 4);
+        const aiFindings = (r.ai_findings || []).slice(0, 3);
+        const questions = r.investor_questions || [];
+
+        let findingsHtml = '';
+        if (topFindings.length === 0 && aiFindings.length === 0) {
+            findingsHtml = '<div style="color:#a0aec0; font-size:12px; padding:10px;">No material accounting divergence detected in this period.</div>';
+        } else {
+            topFindings.forEach(f => {
+                const sevColor = f.severity === 'HIGH' ? '#ef4444' : (f.severity === 'MEDIUM' ? '#f59e0b' : '#3b82f6');
+                findingsHtml += `
+                <div style="background:#1a202c; border-left:4px solid ${sevColor}; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:10px 12px; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size:11px; font-weight:800; color:${sevColor};">[${f.severity}] ${f.title}</span>
+                        <span style="font-size:10px; color:#718096; font-family:monospace;">${(f.source_refs || []).join(', ') || 'PIT'}</span>
+                    </div>
+                    <div style="font-size:12px; color:#e2e8f0; line-height:1.4;">${f.explanation}</div>
+                </div>`;
+            });
+            aiFindings.forEach(f => {
+                findingsHtml += `
+                <div style="background:#1a202c; border-left:4px solid #8b5cf6; border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:10px 12px; margin-bottom:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size:11px; font-weight:800; color:#a78bfa;">[AI ENRICHMENT] ${f.title}</span>
+                        <span style="font-size:10px; color:#718096; font-family:monospace;">HYPOTHESIS</span>
+                    </div>
+                    <div style="font-size:12px; color:#e2e8f0; line-height:1.4;">${f.explanation}</div>
+                </div>`;
+            });
+        }
+
+        let questionsHtml = '';
+        if (questions.length > 0) {
+            questionsHtml = `
+            <div style="margin-top:14px; background:rgba(37,99,235,0.08); border:1px solid rgba(37,99,235,0.25); border-radius:8px; padding:12px 14px;">
+                <div style="font-size:11px; font-weight:800; color:#60a5fa; text-transform:uppercase; margin-bottom:6px; letter-spacing:0.5px;">🔍 Investor Verification Questions:</div>
+                <ol style="margin:0; padding-left:18px; font-size:12px; color:#e2e8f0; line-height:1.5;">
+                    ${questions.map(q => `<li style="margin-bottom:4px;">${q}</li>`).join('')}
+                </ol>
+            </div>`;
+        }
+
+        modal.innerHTML = `
+        <div style="background:#11151c; border:1px solid rgba(255,255,255,0.12); border-radius:14px; max-width:840px; width:100%; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 25px 60px rgba(0,0,0,0.85); color:#e0e6ed;">
+            <div style="padding:16px 20px; background:#1a202c; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:17px; font-weight:800; color:#fff; display:flex; align-items:center; gap:10px;">
+                    <span>📑</span> ${r.symbol} · ${r.period_end}
+                    <span style="font-size:11px; font-weight:800; background:${gradeColor}22; color:${gradeColor}; border:1px solid ${gradeColor}44; padding:2px 8px; border-radius:6px;">GRADE ${r.earnings_grade}</span>
+                    <span style="font-size:11px; color:#718096;">${r.statement_type} (${r.reporting_basis})</span>
+                </div>
+                <button onclick="closeForensicReportModal()" style="background:transparent; border:none; color:#888; font-size:20px; cursor:pointer;">✕</button>
+            </div>
+
+            <div style="padding:20px; overflow-y:auto; flex:1;">
+                <div style="padding:12px 16px; background:linear-gradient(135deg, rgba(37,99,235,0.12), rgba(16,185,129,0.06)); border:1px solid rgba(37,99,235,0.25); border-radius:10px; margin-bottom:16px;">
+                    <div style="font-size:10px; font-weight:800; color:#60a5fa; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Forensic Auditor Verdict:</div>
+                    <div style="font-size:14px; font-weight:800; color:#fff; line-height:1.4;">${r.headline_verdict || 'Analysis complete.'}</div>
+                    <div style="margin-top:6px; font-size:11px; color:#a0aec0; display:flex; gap:12px;">
+                        <span>Evidence Coverage: <b>${r.evidence_coverage_pct}%</b></span>
+                        <span>Engine: <b>v${r.engine_version}</b></span>
+                        ${r.ai_model_used ? `<span>AI: <b>${r.ai_model_used}</b></span>` : ''}
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:18px;">
+                    <div style="background:#1a202c; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; text-align:center;">
+                        <div style="font-size:10px; font-weight:700; color:#718096; text-transform:uppercase;">Revenue YoY</div>
+                        <div style="font-size:16px; font-weight:800; color:${revColor}; margin-top:3px; font-family:monospace;">${r.revenue_yoy_pct != null ? (r.revenue_yoy_pct > 0 ? '+' : '') + r.revenue_yoy_pct + '%' : 'N/A'}</div>
+                        <div style="font-size:10px; color:#a0aec0; margin-top:2px;">Quality: <b>${r.revenue_quality}</b></div>
+                    </div>
+                    <div style="background:#1a202c; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; text-align:center;">
+                        <div style="font-size:10px; font-weight:700; color:#718096; text-transform:uppercase;">PAT YoY</div>
+                        <div style="font-size:16px; font-weight:800; color:${patColor}; margin-top:3px; font-family:monospace;">${r.net_profit_yoy_pct != null ? (r.net_profit_yoy_pct > 0 ? '+' : '') + r.net_profit_yoy_pct + '%' : 'N/A'}</div>
+                        <div style="font-size:10px; color:#a0aec0; margin-top:2px;">Quality: <b>${r.profit_quality}</b></div>
+                    </div>
+                    <div style="background:#1a202c; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; text-align:center;">
+                        <div style="font-size:10px; font-weight:700; color:#718096; text-transform:uppercase;">CFO / PAT</div>
+                        <div style="font-size:16px; font-weight:800; color:${cfoColor}; margin-top:3px; font-family:monospace;">${cfoRatio}</div>
+                        <div style="font-size:10px; color:#a0aec0; margin-top:2px;">Cash: <b>${r.cash_conversion}</b></div>
+                    </div>
+                    <div style="background:#1a202c; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; text-align:center;">
+                        <div style="font-size:10px; font-weight:700; color:#718096; text-transform:uppercase;">Op. Margin (OPM)</div>
+                        <div style="font-size:16px; font-weight:800; color:#fff; margin-top:3px; font-family:monospace;">${r.opm_current != null ? r.opm_current + '%' : 'N/A'}</div>
+                        <div style="font-size:10px; color:#a0aec0; margin-top:2px;">YoY: <b>${r.opm_yoy_delta_bps != null ? (r.opm_yoy_delta_bps > 0 ? '+' : '') + r.opm_yoy_delta_bps + ' bps' : 'N/A'}</b></div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:14px;">
+                    <div style="font-size:12px; font-weight:800; color:#fff; text-transform:uppercase; margin-bottom:8px; letter-spacing:0.5px;">Core Forensic Accounting Findings:</div>
+                    ${findingsHtml}
+                </div>
+
+                ${questionsHtml}
+            </div>
+
+            <div style="padding:12px 20px; background:#1a202c; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:11px; color:#718096;">
+                    Point-in-Time Causality Enforced · Native Exchange Fields Only
+                </div>
+                <button onclick="closeForensicReportModal()" style="background:#2d3748; border:none; color:#fff; padding:6px 14px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer;">
+                    Close
+                </button>
+            </div>
+        </div>`;
+    } catch (err) {
+        modal.innerHTML = `
+        <div style="background:#11151c; border:1px solid rgba(239,68,68,0.3); border-radius:14px; max-width:550px; width:100%; padding:24px; text-align:center; color:#fff;">
+            <div style="font-size:18px; font-weight:800; color:#ef4444; margin-bottom:8px;">Error Fetching Report</div>
+            <div style="font-size:13px; color:#a0aec0; margin-bottom:20px;">${err.message || 'An unexpected error occurred.'}</div>
+            <button onclick="closeForensicReportModal()" style="background:#2d3748; border:none; color:#fff; padding:8px 16px; border-radius:6px; font-weight:700; cursor:pointer;">Close</button>
         </div>`;
     }
 };

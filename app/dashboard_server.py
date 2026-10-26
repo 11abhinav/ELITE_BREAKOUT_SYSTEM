@@ -3215,6 +3215,72 @@ def api_get_corporate_filings():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# ─── EARNINGS FORENSIC SCANNER API ENDPOINTS ───────────────────────────────────
+
+@app.route("/api/forensic-report", methods=["GET"])
+@app.route("/api/admin/forensic-report", methods=["GET"])
+@login_required
+def api_get_forensic_report():
+    """
+    Returns the one-page forensic report for a symbol (and optional period_end).
+    If no report exists in the DB, it dynamically generates one from local PIT data on the fly.
+    """
+    symbol = (request.args.get("symbol") or "").strip().upper()
+    period = (request.args.get("period") or "").strip()
+    if not symbol:
+        return jsonify({"status": "error", "message": "Symbol is required"}), 400
+
+    try:
+        from app.earnings_forensic.repository import get_latest_report
+        report_data = get_latest_report(symbol, period_end=period if period else None)
+        if report_data:
+            return jsonify({"status": "success", "report": report_data, "source": "DATABASE"})
+
+        # On-the-fly deterministic fallback if not yet run through background queue
+        from app.earnings_forensic.normalizer import build_factsheet
+        from app.earnings_forensic.engine import run_all_checks
+        fs = build_factsheet(symbol=symbol, period_end=period if period else None)
+        if not fs or not fs.current:
+            return jsonify({
+                "status": "not_found",
+                "message": f"No PIT filings available for {symbol} ({period or 'latest'})"
+            }), 404
+
+        rep = run_all_checks(fs)
+        # Attempt to persist dynamically so subsequent loads are instant
+        try:
+            from app.earnings_forensic.repository import upsert_forensic_report
+            upsert_forensic_report(rep)
+        except Exception:
+            pass
+
+        return jsonify({"status": "success", "report": rep.to_dict(), "source": "ON_THE_FLY_DETERMINISTIC"})
+    except Exception as e:
+        logger.exception(f"[API_FORENSIC_REPORT] Error for {symbol}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/forensic-reports/recent", methods=["GET"])
+@app.route("/api/admin/forensic-reports/recent", methods=["GET"])
+@login_required
+def api_get_recent_forensic_reports():
+    """Returns recent forensic reports for table overview / feeds."""
+    try:
+        from app.earnings_forensic.repository import get_recent_reports
+        limit = min(100, max(1, int(request.args.get("limit", 50))))
+        status = request.args.get("status", "COMPLETE")
+        reports = get_recent_reports(limit=limit, status=status)
+        return jsonify({
+            "status": "success",
+            "count": len(reports),
+            "reports": reports,
+            "server_time": datetime.now(IST).isoformat()
+        })
+    except Exception as e:
+        logger.exception(f"[API_RECENT_FORENSIC_REPORTS] Error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 _STOCK_DATA_HEALTH_REFRESHING = False
 
 
