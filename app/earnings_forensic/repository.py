@@ -141,6 +141,7 @@ def mark_filing_status(filing_log_id: int, status: str) -> None:
 def get_latest_report(symbol: str, period_end: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Returns the latest completed report for symbol (optionally for specific period)."""
     try:
+        init_earnings_forensic_db()
         with get_connection() as conn, conn.cursor() as cur:
             if period_end:
                 sql = """
@@ -170,6 +171,7 @@ def get_recent_reports(limit: int = 50, status: str = "COMPLETE") -> List[Dict[s
     """Returns recent reports for the dashboard overview."""
     results = []
     try:
+        init_earnings_forensic_db()
         with get_connection() as conn, conn.cursor() as cur:
             sql = """
                 SELECT symbol, period_end, statement_type, reporting_basis,

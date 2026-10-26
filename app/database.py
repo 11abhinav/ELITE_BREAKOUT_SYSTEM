@@ -492,6 +492,48 @@ def init_db(force: bool = False):
                                         ALTER TABLE corporate_filings_log ADD COLUMN IF NOT EXISTS run_id VARCHAR(64);
                                         CREATE INDEX IF NOT EXISTS idx_cfl_filing_date ON corporate_filings_log(filing_date DESC, discovered_at DESC);
                                         CREATE INDEX IF NOT EXISTS idx_cfl_run_id ON corporate_filings_log(run_id);
+
+                                        CREATE TABLE IF NOT EXISTS earnings_forensic_reports (
+                                            id BIGSERIAL PRIMARY KEY,
+                                            symbol VARCHAR(30) NOT NULL,
+                                            period_end VARCHAR(20) NOT NULL,
+                                            statement_type VARCHAR(30) NOT NULL DEFAULT 'QUARTERLY',
+                                            reporting_basis VARCHAR(30) NOT NULL DEFAULT 'CONSOLIDATED',
+                                            filing_id VARCHAR(128),
+                                            report_version INTEGER NOT NULL DEFAULT 1,
+                                            source_hash VARCHAR(64),
+                                            engine_version VARCHAR(20) NOT NULL,
+                                            headline_verdict TEXT NOT NULL,
+                                            earnings_grade VARCHAR(5) NOT NULL DEFAULT 'U',
+                                            revenue_quality VARCHAR(30) NOT NULL,
+                                            profit_quality VARCHAR(30) NOT NULL,
+                                            cash_conversion VARCHAR(30) NOT NULL,
+                                            revenue_yoy_pct NUMERIC(10, 2),
+                                            revenue_qoq_pct NUMERIC(10, 2),
+                                            op_profit_yoy_pct NUMERIC(10, 2),
+                                            net_profit_yoy_pct NUMERIC(10, 2),
+                                            opm_current NUMERIC(6, 2),
+                                            opm_yoy_delta_bps NUMERIC(10, 2),
+                                            npm_current NUMERIC(6, 2),
+                                            cfo_pat_ratio NUMERIC(10, 2),
+                                            cfo_pat_3y_avg NUMERIC(10, 2),
+                                            ttm_revenue NUMERIC(16, 2),
+                                            ttm_net_profit NUMERIC(16, 2),
+                                            evidence_coverage_pct NUMERIC(5, 2) NOT NULL DEFAULT 0.0,
+                                            findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                            ai_findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                            investor_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                            evidence_missing JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                            raw_report_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                                            status VARCHAR(30) NOT NULL DEFAULT 'COMPLETE',
+                                            ai_model_used VARCHAR(50),
+                                            error_message TEXT,
+                                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                            CONSTRAINT efr_sym_period_basis_v_uniq UNIQUE (symbol, period_end, statement_type, reporting_basis, report_version)
+                                        );
+                                        CREATE INDEX IF NOT EXISTS idx_efr_symbol_period ON earnings_forensic_reports(symbol, period_end DESC);
+                                        CREATE INDEX IF NOT EXISTS idx_efr_created_at ON earnings_forensic_reports(created_at DESC);
                                     """)
                                     check_conn.commit()
                                 except Exception as _cfl_fast_err:
@@ -2377,6 +2419,48 @@ def init_db(force: bool = False):
                         DELETE FROM corporate_filings_log
                          WHERE filing_date > CURRENT_DATE + INTERVAL '1 day'
                             OR period_end > '2027-12-31';
+
+                        CREATE TABLE IF NOT EXISTS earnings_forensic_reports (
+                            id BIGSERIAL PRIMARY KEY,
+                            symbol VARCHAR(30) NOT NULL,
+                            period_end VARCHAR(20) NOT NULL,
+                            statement_type VARCHAR(30) NOT NULL DEFAULT 'QUARTERLY',
+                            reporting_basis VARCHAR(30) NOT NULL DEFAULT 'CONSOLIDATED',
+                            filing_id VARCHAR(128),
+                            report_version INTEGER NOT NULL DEFAULT 1,
+                            source_hash VARCHAR(64),
+                            engine_version VARCHAR(20) NOT NULL,
+                            headline_verdict TEXT NOT NULL,
+                            earnings_grade VARCHAR(5) NOT NULL DEFAULT 'U',
+                            revenue_quality VARCHAR(30) NOT NULL,
+                            profit_quality VARCHAR(30) NOT NULL,
+                            cash_conversion VARCHAR(30) NOT NULL,
+                            revenue_yoy_pct NUMERIC(10, 2),
+                            revenue_qoq_pct NUMERIC(10, 2),
+                            op_profit_yoy_pct NUMERIC(10, 2),
+                            net_profit_yoy_pct NUMERIC(10, 2),
+                            opm_current NUMERIC(6, 2),
+                            opm_yoy_delta_bps NUMERIC(10, 2),
+                            npm_current NUMERIC(6, 2),
+                            cfo_pat_ratio NUMERIC(10, 2),
+                            cfo_pat_3y_avg NUMERIC(10, 2),
+                            ttm_revenue NUMERIC(16, 2),
+                            ttm_net_profit NUMERIC(16, 2),
+                            evidence_coverage_pct NUMERIC(5, 2) NOT NULL DEFAULT 0.0,
+                            findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+                            ai_findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+                            investor_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+                            evidence_missing JSONB NOT NULL DEFAULT '[]'::jsonb,
+                            raw_report_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            status VARCHAR(30) NOT NULL DEFAULT 'COMPLETE',
+                            ai_model_used VARCHAR(50),
+                            error_message TEXT,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            CONSTRAINT efr_sym_period_basis_v_uniq UNIQUE (symbol, period_end, statement_type, reporting_basis, report_version)
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_efr_symbol_period ON earnings_forensic_reports(symbol, period_end DESC);
+                        CREATE INDEX IF NOT EXISTS idx_efr_created_at ON earnings_forensic_reports(created_at DESC);
                     """)
                 except Exception as _dossier_err:
                     logger.debug(f"Universal corporate intelligence tables init notice: {_dossier_err}")

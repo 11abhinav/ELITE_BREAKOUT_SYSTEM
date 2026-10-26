@@ -3068,6 +3068,7 @@ def api_get_corporate_filings():
 
         cache_key = f"{target_date}:{run_id}:{symbol}:{event_type}:{statement_type}:{limit}"
         now_t = time.time()
+        cached = None
         with _CORP_FILINGS_LOCK:
             # [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_FILING_CACHE_v1.0]
             # Cache persists indefinitely (up to 1hr safety window) as long as no DB write occurs.
@@ -4458,9 +4459,12 @@ def api_clear_all_fetch_errors():
     try:
         from database import acknowledge_all_fetch_errors
         ok = acknowledge_all_fetch_errors()
-        global _fetch_errors_grouped_cache
+        global _fetch_errors_grouped_cache, _fetch_errors_cache
         _fetch_errors_grouped_cache["ts"] = 0
         _fetch_errors_grouped_cache["payload"] = None
+        _fetch_errors_cache["ts"] = 0.0
+        _fetch_errors_cache["payload"] = None
+        _fetch_errors_cache["gzip"] = None
         return jsonify({"ok": ok})
     except Exception:
         logger.exception("❌ /api/fetch_errors/all DELETE failed")
