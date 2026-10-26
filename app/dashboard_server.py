@@ -2993,6 +2993,25 @@ def _invalidate_all_stock_data_health_caches():
         pass
 
 
+def invalidate_corp_filings_cache():
+    """
+    [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_FILING_CACHE_v1.0]
+    Write-invalidation hook for the corporate filings response cache.
+
+    Called from database.py immediately after any successful write to corporate_filings_log
+    (upsert_corporate_filing_finding / batch_upsert_corporate_filings).  Ensures the
+    dashboard never shows stale filing data after the filing scanner persists new rows.
+
+    Strategy: cache is kept valid as long as no DB write occurred; on first write the entire
+    _CORP_FILINGS_CACHE dict is cleared so the next API request re-reads from PostgreSQL.
+    This is a write-invalidation (not TTL) pattern — cache stays forever-valid until a write
+    happens, then it is evicted atomically here.
+    """
+    with _CORP_FILINGS_LOCK:
+        _CORP_FILINGS_CACHE.clear()
+    logger.debug("[CACHE_INVALIDATION] Corporate filings cache cleared on DB write.")
+
+
 
 @app.route("/api/corporate_filings", methods=["GET"])
 @app.route("/api/admin/corporate_filings", methods=["GET"])
@@ -3046,8 +3065,11 @@ def api_get_corporate_filings():
         cache_key = f"{target_date}:{run_id}:{symbol}:{event_type}:{statement_type}:{limit}"
         now_t = time.time()
         with _CORP_FILINGS_LOCK:
-            cached = _CORP_FILINGS_CACHE.get(cache_key)
-            if not force and cached and (now_t - cached["ts"] < 30.0):
+            # [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_FILING_CACHE_v1.0]
+            # Cache persists indefinitely (up to 1hr safety window) as long as no DB write occurs.
+            # As soon as a filing is inserted or updated in database.py, invalidate_corp_filings_cache()
+            # evicts this cache instantly, satisfying the zero-stale, write-driven invalidation strategy.
+            if not force and cached and (now_t - cached["ts"] < 3600.0):
                 return _make_json_response(
                     cached["payload"],
                     etag=cached.get("etag"),

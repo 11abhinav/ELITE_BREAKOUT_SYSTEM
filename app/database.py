@@ -9340,6 +9340,10 @@ def _enroll_single_cooloff(
                         sym, reason_clean, scan, now_dt, until_dt, pf_str, now_dt, now_dt
                     ))
                 conn.commit()
+                try:
+                    clear_unified_stock_data_health_cache()
+                except Exception:
+                    pass
     except Exception as e:
         logger.debug(f"Cool-off DB insertion notice: {e}")
 
@@ -9559,6 +9563,10 @@ def remove_symbol_from_cooloff(symbol: str, scanner: str = "ALL") -> bool:
                           AND (UPPER(scanner) = %s OR UPPER(scanner) = 'ALL' OR %s = 'ALL')
                     """, (sym, scan, scan))
                 conn.commit()
+                try:
+                    clear_unified_stock_data_health_cache()
+                except Exception:
+                    pass
         return True
     except Exception as e:
         logger.error(f"Failed to remove {sym} from symbol_cooloff_journal: {e}")
@@ -9677,6 +9685,11 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
     except Exception:
         pass
 
+    try:
+        clear_unified_stock_data_health_cache()
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "symbol": sym_u,
@@ -9702,6 +9715,10 @@ def cleanup_expired_cooloffs() -> int:
                 conn.commit()
                 if cnt and cnt > 0:
                     logger.info(f"🧹 Evicted {cnt} expired (7-day reached) entries from symbol_cooloff_journal.")
+                    try:
+                        clear_unified_stock_data_health_cache()
+                    except Exception:
+                        pass
                 return cnt or 0
         return 0
     except Exception as e:
@@ -9867,9 +9884,11 @@ def check_and_restore_stale_stock(
             except Exception as notif_err:
                 logger.debug(f"[STALE_RESTORE] Notification dispatch error for {sym}: {notif_err}")
 
-    # Invalidate raw filings audit scan time so subsequent audit reflects restored stock immediately
-    global _AUDIT_RAW_FILINGS_LAST_SCAN
-    _AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
+    if was_stale:
+        try:
+            clear_unified_stock_data_health_cache()
+        except Exception:
+            pass
 
     return was_stale
 
@@ -10372,11 +10391,28 @@ _UNIFIED_AUDIT_LOCK = threading.Lock()
 
 
 def clear_unified_stock_data_health_cache() -> None:
-    """Invalidates the unified stock data health cache."""
+    """
+    [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_HEALTH_CACHE_v1.0]
+    Atomically invalidates both the database-level _UNIFIED_AUDIT_CACHE and
+    the Flask dashboard_server _STOCK_DATA_HEALTH_CACHE. This ensures any write to
+    cool-off tables or corporate filings immediately evicts cached health data so
+    the next dashboard request recalculates fresh status without waiting for TTL expiry.
+    """
     global _UNIFIED_AUDIT_CACHE, _UNIFIED_AUDIT_CACHE_TS
     with _UNIFIED_AUDIT_LOCK:
         _UNIFIED_AUDIT_CACHE = None
         _UNIFIED_AUDIT_CACHE_TS = 0.0
+    try:
+        from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
+        with _STOCK_DATA_HEALTH_LOCK:
+            _STOCK_DATA_HEALTH_CACHE.clear()
+    except Exception:
+        try:
+            from dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
+            with _STOCK_DATA_HEALTH_LOCK:
+                _STOCK_DATA_HEALTH_CACHE.clear()
+        except Exception:
+            pass
 
 
 def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]], reason: str) -> bool:
@@ -15433,9 +15469,18 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     except Exception as _vc_err:
         logger.debug(f"[CORPORATE_FILINGS] Layer B overlay update note for {sym}: {_vc_err}")
 
+    # [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_FILING_CACHE_v1.0]
+    # Evict BOTH the stock data health cache AND the corporate filings response cache
+    # immediately after each filing upsert.  Without this, the dashboard would serve
+    # the TTL-cached (30s-stale) filing list even though the filing scanner just wrote
+    # a fresh row — the user would see outdated data until the TTL expired.
     try:
-        from dashboard_server import _STOCK_DATA_HEALTH_CACHE
-        _STOCK_DATA_HEALTH_CACHE.clear()
+        clear_unified_stock_data_health_cache()
+    except Exception:
+        pass
+    try:
+        from dashboard_server import invalidate_corp_filings_cache
+        invalidate_corp_filings_cache()
     except Exception:
         pass
 
@@ -15675,9 +15720,16 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
             except Exception as _bve:
                 logger.debug(f"[CORPORATE_FILINGS] Layer B batch update note for {sym}: {_bve}")
 
+    # [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_FILING_CACHE_v1.0]
+    # Batch upsert also evicts both caches on every commit so bulk filing ingestion
+    # (e.g. filing scanner processing 900 symbols) never serves a stale cache window.
     try:
-        from dashboard_server import _STOCK_DATA_HEALTH_CACHE
-        _STOCK_DATA_HEALTH_CACHE.clear()
+        clear_unified_stock_data_health_cache()
+    except Exception:
+        pass
+    try:
+        from dashboard_server import invalidate_corp_filings_cache
+        invalidate_corp_filings_cache()
     except Exception:
         pass
 

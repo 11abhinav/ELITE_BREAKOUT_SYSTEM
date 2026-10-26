@@ -1647,13 +1647,22 @@ class LiveFundamentalBuyScanner:
             rejections.extend(fq_errs)
 
         # 4. Earnings Acceleration Gate (Rev Accel, Op Profit Accel, EPS Accel, Prior EPS > 0)
-        ea_pass, ea_errs, ea_metrics = EarningsAccelerationGate.evaluate(fundamentals, sym)
-        gate_metrics.update(ea_metrics)
-        if telemetry is not None:
-            telemetry.record_gate_evaluation(sym, "EARNINGS_ACCELERATION", ea_pass, ea_metrics, [e.value for e in ea_errs])
-            telemetry.record_earnings_acceleration_gate_detail(sym, ea_metrics, ea_pass, [e.value for e in ea_errs])
-        if not ea_pass:
-            rejections.extend(ea_errs)
+        # [RULE 67 CHANGE-RATIONALE: FINANCIAL_SECTOR_EARNINGS_ACCEL_SKIP_v1.0]
+        # Financial sector entities (banks, NBFCs, insurance) report interest income / financing margins
+        # and are already structurally excluded by FundamentalQualityGate (FAIL_UNIVERSE_FINANCIAL_SECTOR).
+        # Evaluating industrial revenue/operating profit on them creates spurious GROWTH_DATA_INSUFFICIENT
+        # flags. We skip industrial EA evaluation for financial entities to maintain true data health metrics.
+        if RejectionReason.FAIL_UNIVERSE_FINANCIAL_SECTOR not in rejections and not is_financial_entity(fundamentals, sym):
+            ea_pass, ea_errs, ea_metrics = EarningsAccelerationGate.evaluate(fundamentals, sym)
+            gate_metrics.update(ea_metrics)
+            if telemetry is not None:
+                telemetry.record_gate_evaluation(sym, "EARNINGS_ACCELERATION", ea_pass, ea_metrics, [e.value for e in ea_errs])
+                telemetry.record_earnings_acceleration_gate_detail(sym, ea_metrics, ea_pass, [e.value for e in ea_errs])
+            if not ea_pass:
+                rejections.extend(ea_errs)
+        else:
+            ea_pass = False
+            ea_errs = []
 
         # 4.5. Value Trap Gate (§7)
         is_trap = bool(fundamentals.get("is_value_trap", False) or (str(fundamentals.get("fundamental_category", "")).upper() == "VALUE_TRAP"))
@@ -3004,12 +3013,18 @@ class LiveFundamentalBuyScanner:
                         RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK in rej_set or
                         RejectionReason.MARKET_DATA_MISSING in rej_set
                     )
+                    is_fin = bool(
+                        RejectionReason.FAIL_UNIVERSE_FINANCIAL_SECTOR in rej_set or
+                        is_financial_entity(funds, sym)
+                    )
                     is_quality_insuff = bool(
-                        RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE in rej_set or
-                        getattr(RejectionReason, "DATA_INSUFFICIENT_QUALITY", None) in rej_set
+                        not is_fin and (
+                            RejectionReason.FAIL_QUALITY_METRICS_INCOMPLETE in rej_set or
+                            getattr(RejectionReason, "DATA_INSUFFICIENT_QUALITY", None) in rej_set
+                        )
                     )
                     is_growth_insuff = bool(
-                        RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT in rej_set
+                        not is_fin and (RejectionReason.FAIL_GROWTH_DATA_INSUFFICIENT in rej_set)
                     )
                     is_pit_missing = bool(
                         funds.get("upstream_provider") == "DATA_UNAVAILABLE" or 
@@ -3041,7 +3056,7 @@ class LiveFundamentalBuyScanner:
                         missing_reasons = []
                         if is_price_insuff:
                             bars_len = len(df_bars) if df_bars is not None else 0
-                            missing_reasons.append(f"1D Price History Insufficient ({bars_len} bars; min 50 required)")
+                            missing_reasons.append(f"1D Price History Insufficient ({bars_len} bars; min 200 required)")
                         if is_quality_insuff:
                             missing_q_fields = [f for f in ["roce", "roe", "debt_equity", "operating_cash_flow"] if funds.get(f) is None]
                             if missing_q_fields:
@@ -7578,8 +7593,19 @@ class QualityValueRecoveryScanner:
                 rejection_reasons.append("RECOVERY_DEBT_TO_EQUITY_FAIL")
 
         if cfo_pat_raw is None or pd.isna(cfo_pat_raw):
-            rejection_reasons.append("QUALITY_DATA_INSUFFICIENT")
-            cfo_pat = 1.0
+            # [RULE 67 CHANGE-RATIONALE: CFO_PAT_ANNUAL_NATIVE_DERIVATION_v1.0]
+            # When cfo_pat_5y_ratio is unavailable (e.g. recent IPOs or <5Y trading history),
+            # derive CFO/PAT directly from verified annual operating_cash_flow and net_profit (PAT).
+            # This evaluates actual cash-conversion capability without producing false DATA_INSUFFICIENT failures.
+            ocf_val = row.get('operating_cash_flow')
+            pat_val = row.get('pat') if row.get('pat') is not None else row.get('net_profit')
+            if ocf_val is not None and pat_val is not None and not pd.isna(ocf_val) and not pd.isna(pat_val) and abs(float(pat_val)) > 1e-4:
+                cfo_pat = float(ocf_val) / float(pat_val)
+                if cfo_pat < 0.70:
+                    rejection_reasons.append("RECOVERY_CFO_PAT_BASELINE_FAIL")
+            else:
+                rejection_reasons.append("QUALITY_DATA_INSUFFICIENT")
+                cfo_pat = 1.0
         else:
             cfo_pat = float(cfo_pat_raw)
             if cfo_pat < 0.70:

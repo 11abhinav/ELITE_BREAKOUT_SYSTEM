@@ -9347,15 +9347,23 @@ function renderScannerExecutionHistory(data) {
       lcClass = 'background:rgba(249,115,22,0.18); color:#f97316; border:1px solid rgba(249,115,22,0.4);';
     }
 
-    // Quality status badge
+    // Quality status badge aligned with AGENTS.md Standard Health Status Boundaries:
+    // NORMAL/OK <= 10% data failures, DEGRADED > 10%, DOWN > 25%
     let displayQuality = (r.quality_status || 'NORMAL').toUpperCase();
     if (displayQuality === 'COMPLETED' || displayQuality === 'OK') {
       displayQuality = 'NORMAL';
     }
-    if ((r.incomplete_data_count || 0) > 5) {
+    const scanned = r.scanned_count || r.total_scanned || 861;
+    const incCount = r.incomplete_data_count || 0;
+    const failRatio = scanned > 0 ? (incCount / scanned) : 0;
+    if (failRatio > 0.25 || displayQuality === 'CRITICAL' || displayQuality === 'DOWN') {
+      displayQuality = 'DOWN';
+    } else if (failRatio > 0.10 || displayQuality === 'DEGRADED') {
       displayQuality = 'DEGRADED';
-    } else if (displayQuality === 'NORMAL' && (r.incomplete_data_count || 0) > 0) {
+    } else if (displayQuality === 'PARTIAL') {
       displayQuality = 'PARTIAL';
+    } else {
+      displayQuality = 'NORMAL';
     }
 
     let qClass = 'background:rgba(0,212,161,0.1); color:var(--accent); border:1px solid rgba(0,212,161,0.3); font-weight:700;';
