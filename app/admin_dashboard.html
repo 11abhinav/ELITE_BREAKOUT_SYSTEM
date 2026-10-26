@@ -4095,6 +4095,14 @@ function changeAdminPage(type, delta) {
                 🔍 Apply & Fetch API
               </button>
 
+              <!-- DIRECT FORENSIC REPORT LOOKUP -->
+              <div style="display:flex; align-items:center; gap:6px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); padding:4px 8px; border-radius:8px;">
+                <input type="text" id="directForensicInput" placeholder="Symbol (e.g. SUPRIYA)..." onkeyup="if(event.key==='Enter'){openForensicFromInput();}" style="background:transparent; border:none; color:var(--text); font-size:12px; font-weight:700; width:140px; outline:none; text-transform:uppercase;">
+                <button onclick="openForensicFromInput()" style="background:#10b981; color:#000; border:none; padding:4px 10px; border-radius:6px; font-size:11px; font-weight:800; cursor:pointer;" title="Open one-page forensic report for any stock">
+                  📑 View Report
+                </button>
+              </div>
+
               <button class="scanner-action-btn run" id="btnRunFilingScan" style="background:#2563eb; color:white; padding:6px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700;" onclick="triggerFilingScanFromUI()">
                 🔄 Run Filing Scan
               </button>
@@ -14152,6 +14160,16 @@ function closeFilingDetailsModal() {
 function closeForensicReportModal() {
   const modal = document.getElementById('forensicReportModal');
   if (modal) modal.style.display = 'none';
+}
+
+function openForensicFromInput() {
+  const inp = document.getElementById('directForensicInput');
+  const sym = inp ? inp.value.trim().toUpperCase() : '';
+  if (!sym) {
+    alert('Please enter a stock symbol (e.g. SUPRIYA, TRENT, RELIANCE)');
+    return;
+  }
+  openForensicReportModal(sym);
 }
 
 async function openForensicReportModal(symbol, periodEnd) {
