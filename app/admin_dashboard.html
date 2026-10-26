@@ -4133,8 +4133,8 @@ function changeAdminPage(type, delta) {
                 <span style="font-size:13px;">🎯</span>
                 <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Total Scanned</span>
               </div>
-              <div id="kpi-filings-total-scanned" style="font-size:24px; font-weight:800; color:var(--text);">2,130</div>
-              <div style="font-size:11px; color:var(--muted); margin-top:2px;">full tracked universe</div>
+              <div id="kpi-filings-total-scanned" style="font-size:24px; font-weight:800; color:var(--text);">861</div>
+              <div style="font-size:11px; color:var(--muted); margin-top:2px;">approved universe</div>
             </div>
 
             <!-- CARD 2: ALREADY UP-TO-DATE (SKIPPED) -->
@@ -13298,9 +13298,9 @@ function _updateFilingQuickDatePills(activeDate) {
 }
 
 function _applyCorporateFilingsData(data) {
-  if (!data || data.status !== 'success') return;
+  if (!data || (data.status !== 'success' && data.status !== 'ok')) return;
   CURRENT_SELECTED_FILING_DATE = data.selected_date;
-  CURRENT_SELECTED_RUN_ID = data.selected_run_id || 'ALL';
+  CURRENT_SELECTED_RUN_ID = data.selected_run_id || '';
   window._CURRENT_RAW_FILINGS = data.filings || [];
   CURRENT_FILINGS_DATA = window._CURRENT_RAW_FILINGS;
 
@@ -13346,17 +13346,25 @@ function _applyCorporateFilingsData(data) {
     datesSelect.innerHTML = opts;
   }
 
-  // Populate Sub-Filter: Actual Run on Selected Date dropdown
+  // Populate Sub-Filter: Actual Run on Selected Date dropdown (independent runs list)
   const runSelect = document.getElementById('filingExecutionRunSelect');
   if (runSelect) {
     const runs = data.runs || [];
-    let rOpts = `<option value="ALL" ${CURRENT_SELECTED_RUN_ID === 'ALL' ? 'selected' : ''}>All Runs on this Date (${runs.length} runs)</option>`;
-    runs.forEach(r => {
-      const isSel = (r.run_id === CURRENT_SELECTED_RUN_ID) ? 'selected' : '';
-      const sc = Number(r.total_scanned || 861).toLocaleString('en-IN');
-      const fc = Number(r.fetch_success || 0).toLocaleString('en-IN');
-      rOpts += `<option value="${r.run_id}" ${isSel}>${r.time_label || ('Run ' + r.run_number)} (${sc} scanned • ${fc} fetched)</option>`;
-    });
+    let rOpts = '';
+    if (runs.length === 0) {
+      rOpts = `<option value="ALL">No runs recorded on this date</option>`;
+    } else {
+      runs.forEach((r, idx) => {
+        const isSel = (r.run_id === CURRENT_SELECTED_RUN_ID) ? 'selected' : '';
+        const sc = Number(r.total_scanned || 861).toLocaleString('en-IN');
+        const fc = Number(r.fetch_success || 0).toLocaleString('en-IN');
+        const runLbl = r.time_label ? `Run ${r.run_number || (runs.length - idx)} (${r.time_label})` : (r.run_id || `Run ${idx + 1}`);
+        rOpts += `<option value="${r.run_id}" ${isSel}>${runLbl} • ${sc} scanned • ${fc} fetched</option>`;
+      });
+      if (runs.length > 1) {
+        rOpts += `<option value="ALL" ${CURRENT_SELECTED_RUN_ID === 'ALL' ? 'selected' : ''}>── All Runs Combined (${runs.length} runs aggregated) ──</option>`;
+      }
+    }
     runSelect.innerHTML = rOpts;
   }
 
@@ -13445,7 +13453,7 @@ function _applyCorporateFilingsData(data) {
 
 async function loadCorporateFilingsDiscovery(targetDate, targetRunId, forceApi = false) {
   const queryDate = (targetDate !== undefined) ? targetDate : (CURRENT_SELECTED_FILING_DATE || '');
-  const queryRunId = (targetRunId !== undefined) ? targetRunId : (CURRENT_SELECTED_RUN_ID || 'ALL');
+  const queryRunId = (targetRunId !== undefined) ? targetRunId : (CURRENT_SELECTED_RUN_ID || '');
 
   const evSelect = document.getElementById('filingEventTypeSelect');
   const stSelect = document.getElementById('filingStatementSelect');
@@ -13462,7 +13470,7 @@ async function loadCorporateFilingsDiscovery(targetDate, targetRunId, forceApi =
     fetchBtn.disabled = true;
   }
 
-  const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + queryRunId + '_' + queryEventType + '_' + queryStatementType + '_' + querySymbol;
+  const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + (queryRunId || 'LATEST_RUN') + '_' + queryEventType + '_' + queryStatementType + '_' + querySymbol;
 
   // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
   if (!forceApi && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
@@ -13498,7 +13506,7 @@ async function loadCorporateFilingsDiscovery(targetDate, targetRunId, forceApi =
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (data.status === 'success') {
+    if (data.status === 'success' || data.status === 'ok') {
       try {
         sessionStorage.setItem(cacheKey, JSON.stringify(data));
       } catch (_) {}
@@ -13523,12 +13531,12 @@ function onFilingFilterChange(forceApi = true) {
 
 function onFilingDateChange(newDate) {
   CURRENT_SELECTED_FILING_DATE = newDate || '';
-  CURRENT_SELECTED_RUN_ID = 'ALL';
-  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, 'ALL', true);
+  CURRENT_SELECTED_RUN_ID = '';
+  loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, '', true);
 }
 
 function onFilingRunChange(newRunId) {
-  CURRENT_SELECTED_RUN_ID = newRunId || 'ALL';
+  CURRENT_SELECTED_RUN_ID = newRunId || '';
   loadCorporateFilingsDiscovery(CURRENT_SELECTED_FILING_DATE, CURRENT_SELECTED_RUN_ID, true);
 }
 

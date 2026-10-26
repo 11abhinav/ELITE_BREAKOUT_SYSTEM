@@ -375,6 +375,7 @@ class FinancialFilingWatcher:
         symbol: str,
         incoming_filing: Dict[str, Any],
         raw_payload: bytes,
+        run_id: Optional[str] = None,
     ) -> FilingEvent:
         """
         Detects whether an incoming filing is NEW, AMENDED, RESTATED, or UNCHANGED
@@ -657,6 +658,7 @@ class FinancialFilingWatcher:
                         "filing_broadcast_date": broadcast_time,
                         "status": "SNAPSHOT_UPDATED",
                         "headline": headline,
+                        "run_id": run_id,
                         "raw_facts": facts,
                         "affected_metrics": affected_metrics,
                     })
@@ -1653,7 +1655,7 @@ class FinancialFilingWatcher:
                         "facts": item,
                     }
 
-                    event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes)
+                    event = self.detect_filing_changes(sym_u, meta_incoming, raw_bytes, run_id=run_ctx.run_id if run_ctx else None)
                     if event.event_type != FilingEventType.NO_CHANGE:
                         sym_new_events += 1
                         with self._state_lock:
@@ -2081,6 +2083,7 @@ class FinancialFilingWatcher:
         as_of_date: Optional[date] = None,
         limit_symbols: Optional[int] = None,
         only_updated: bool = False,
+        run_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Scans filings across universe equities, identifying GENUINELY MISSING
@@ -2295,6 +2298,7 @@ class FinancialFilingWatcher:
                     "filing_broadcast_date": item.get("broadcast_timestamp") or item.get("broadCastDate") or item.get("filing_date") or item.get("actual_publication_timestamp"),
                     "status": "SNAPSHOT_UPDATED",
                     "headline": headline,
+                    "run_id": run_id,
                     "raw_facts": item,
                     "affected_metrics": self.resolve_dependent_metrics(st_type, {"facts": item})
                 }
@@ -2500,7 +2504,12 @@ class FinancialFilingWatcher:
             findings = poll_events or []
             if not findings and hasattr(self, "audit_and_log_filings"):
                 try:
-                    mocked_f = self.audit_and_log_filings(target_symbols=target_symbols, as_of_date=now_ist.date(), only_updated=True)
+                    mocked_f = self.audit_and_log_filings(
+                        target_symbols=target_symbols,
+                        as_of_date=now_ist.date(),
+                        only_updated=True,
+                        run_id=run_ctx.run_id if run_ctx else None
+                    )
                     if mocked_f:
                         findings = mocked_f
                 except Exception:

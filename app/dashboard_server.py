@@ -3073,6 +3073,7 @@ def api_get_corporate_filings():
             # Cache persists indefinitely (up to 1hr safety window) as long as no DB write occurs.
             # As soon as a filing is inserted or updated in database.py, invalidate_corp_filings_cache()
             # evicts this cache instantly, satisfying the zero-stale, write-driven invalidation strategy.
+            cached = _CORP_FILINGS_CACHE.get(cache_key)
             if not force and cached and (now_t - cached["ts"] < 3600.0):
                 return _make_json_response(
                     cached["payload"],
@@ -3091,24 +3092,31 @@ def api_get_corporate_filings():
             if statement_type == "ALL":
                 statement_type = "ANNUAL"
 
+        runs = get_corporate_filing_execution_runs(target_date=target_date)
+
+        # [RULE 67: MULTIPLE RUNS OF THE DAY SHOULD NOT BE CLUBBED]
+        # Resolve specific execution run: if user specified a run_id, locate it;
+        # if not specified and runs exist, default to the latest individual run (runs[0])
+        # so multiple runs on the same date are evaluated independently.
+        sel_run = None
+        if run_id and str(run_id).upper() not in ("ALL", "*", "NONE") and runs:
+            for r in runs:
+                if r.get("run_id") == run_id:
+                    sel_run = r
+                    break
+        elif runs and (not run_id or str(run_id).upper() not in ("ALL", "*")):
+            sel_run = runs[0]
+
+        effective_run_id = sel_run.get("run_id") if sel_run else (None if run_id and str(run_id).upper() in ("ALL", "*") else run_id)
+
         filings = get_corporate_filings_by_date(
             target_date=target_date,
-            run_id=run_id,
+            run_id=effective_run_id,
             symbol=symbol,
             event_type=event_type,
             statement_type=statement_type,
             limit=limit
         )
-
-        runs = get_corporate_filing_execution_runs(target_date=target_date)
-
-        # Telemetry calculations across selected run or all runs on target_date
-        sel_run = None
-        if run_id and runs:
-            for r in runs:
-                if r.get("run_id") == run_id:
-                    sel_run = r
-                    break
 
         TRACKED_UNIVERSE = 861
 
@@ -3123,11 +3131,10 @@ def api_get_corporate_filings():
             tot_scanned = TRACKED_UNIVERSE
             unique_syms_with_filings = len(set(str(f.get("symbol", "")).upper() for f in filings if f.get("symbol")))
             if runs:
-                latest_run = runs[0]
-                up_to_date = min(tot_scanned, int(latest_run.get("already_up_to_date", tot_scanned)))
-                attempted = min(tot_scanned, int(latest_run.get("fetch_attempted", max(0, tot_scanned - up_to_date))))
-                success = unique_syms_with_filings if unique_syms_with_filings > 0 else int(latest_run.get("fetch_success", 0))
-                failed = int(latest_run.get("fetch_failed", 0))
+                attempted = sum(int(r.get("fetch_attempted", 0)) for r in runs)
+                success = sum(int(r.get("fetch_success", 0)) for r in runs) or unique_syms_with_filings
+                failed = sum(int(r.get("fetch_failed", 0)) for r in runs)
+                up_to_date = max(0, tot_scanned - attempted)
             else:
                 success = unique_syms_with_filings
                 attempted = unique_syms_with_filings

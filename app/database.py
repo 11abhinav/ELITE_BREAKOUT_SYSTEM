@@ -454,6 +454,48 @@ def init_db(force: bool = False):
                             """)
                             row = check_cur.fetchone()
                             if row and row[0] >= 3:
+                                try:
+                                    check_cur.execute("""
+                                        CREATE TABLE IF NOT EXISTS corporate_filings_log (
+                                            id BIGSERIAL PRIMARY KEY,
+                                            filing_date DATE NOT NULL,
+                                            discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                            symbol VARCHAR(30) NOT NULL,
+                                            company_name VARCHAR(255),
+                                            exchange VARCHAR(10) NOT NULL DEFAULT 'NSE',
+                                            filing_id VARCHAR(128) NOT NULL,
+                                            period_end VARCHAR(20),
+                                            statement_type VARCHAR(30) NOT NULL DEFAULT 'QUARTERLY',
+                                            basis VARCHAR(30) NOT NULL DEFAULT 'CONSOLIDATED',
+                                            event_type VARCHAR(50) NOT NULL DEFAULT 'NEW_FILING',
+                                            revenue_cr NUMERIC(16, 2),
+                                            operating_profit_cr NUMERIC(16, 2),
+                                            pat_cr NUMERIC(16, 2),
+                                            eps NUMERIC(10, 2),
+                                            roce_pct NUMERIC(6, 2),
+                                            roe_pct NUMERIC(6, 2),
+                                            debt_to_equity NUMERIC(8, 2),
+                                            operating_margin_pct NUMERIC(6, 2),
+                                            net_margin_pct NUMERIC(6, 2),
+                                            shares_outstanding NUMERIC(16, 2),
+                                            filing_broadcast_date TEXT,
+                                            status VARCHAR(30) NOT NULL DEFAULT 'INGESTED',
+                                            headline TEXT,
+                                            source_url TEXT,
+                                            run_id VARCHAR(64),
+                                            raw_facts JSONB NOT NULL DEFAULT '{}'::jsonb,
+                                            affected_metrics JSONB NOT NULL DEFAULT '[]'::jsonb,
+                                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                            CONSTRAINT cfl_sym_filing_uniq UNIQUE (symbol, filing_id, statement_type, basis)
+                                        );
+                                        ALTER TABLE corporate_filings_log ADD COLUMN IF NOT EXISTS run_id VARCHAR(64);
+                                        CREATE INDEX IF NOT EXISTS idx_cfl_filing_date ON corporate_filings_log(filing_date DESC, discovered_at DESC);
+                                        CREATE INDEX IF NOT EXISTS idx_cfl_run_id ON corporate_filings_log(run_id);
+                                    """)
+                                    check_conn.commit()
+                                except Exception as _cfl_fast_err:
+                                    logger.debug(f"Fast-path corporate_filings_log schema note: {_cfl_fast_err}")
                                 _DB_INITIALIZED = True
                                 logger.info("✅ Database schema already initialized (verified 3+ core tables exist in catalog). Skipping DDL execution.")
                                 return
@@ -2305,12 +2347,14 @@ def init_db(force: bool = False):
                             status VARCHAR(30) NOT NULL DEFAULT 'INGESTED',
                             headline TEXT,
                             source_url TEXT,
+                            run_id VARCHAR(64),
                             raw_facts JSONB NOT NULL DEFAULT '{}'::jsonb,
                             affected_metrics JSONB NOT NULL DEFAULT '[]'::jsonb,
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                             CONSTRAINT cfl_sym_filing_uniq UNIQUE (symbol, filing_id, statement_type, basis)
                         );
+                        ALTER TABLE corporate_filings_log ADD COLUMN IF NOT EXISTS run_id VARCHAR(64);
                         CREATE INDEX IF NOT EXISTS idx_cfl_filing_date ON corporate_filings_log(filing_date DESC, discovered_at DESC);
                         CREATE INDEX IF NOT EXISTS idx_cfl_symbol_date ON corporate_filings_log(symbol, filing_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_cfl_event_type ON corporate_filings_log(event_type);
@@ -2318,6 +2362,7 @@ def init_db(force: bool = False):
                         CREATE INDEX IF NOT EXISTS idx_cfl_distinct_query ON corporate_filings_log(symbol, period_end DESC, discovered_at DESC);
                         CREATE INDEX IF NOT EXISTS idx_cfl_filing_sym_period ON corporate_filings_log(filing_date, symbol, period_end DESC);
                         CREATE INDEX IF NOT EXISTS idx_cfl_period_end ON corporate_filings_log(period_end DESC);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_run_id ON corporate_filings_log(run_id);
 
                         -- [RULE 67 CHANGE-RATIONALE: Self-heal clerical 30xx future date typos and purge future anomalies]
                         UPDATE corporate_filings_log
@@ -15357,6 +15402,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     shares_outstanding = _to_float(filing.get("shares_outstanding"))
     broadcast_date = str(filing.get("filing_broadcast_date") or filing.get("broadcast_timestamp") or filing_date)
     status = str(filing.get("status") or "INGESTED").upper()
+    run_id = str(filing.get("run_id") or "") or None
     headline = str(filing.get("headline") or f"{sym} {period_end} {st_type} Results Discovered")
     source_url = str(filing.get("source_url") or "")
     raw_facts = filing.get("raw_facts") if isinstance(filing.get("raw_facts"), dict) else {}
@@ -15387,6 +15433,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
         "status": status,
         "headline": headline,
         "source_url": source_url,
+        "run_id": run_id,
         "raw_facts": raw_facts,
         "affected_metrics": affected_metrics,
     }
@@ -15403,13 +15450,13 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
                             revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
                             roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
                             shares_outstanding, filing_broadcast_date, status, headline,
-                            source_url, raw_facts, affected_metrics, updated_at
+                            source_url, run_id, raw_facts, affected_metrics, updated_at
                         ) VALUES (
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
                             %s::jsonb, %s::jsonb, NOW()
                         )
                         ON CONFLICT (symbol, filing_id, statement_type, basis)
@@ -15435,6 +15482,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
                             status = EXCLUDED.status,
                             headline = EXCLUDED.headline,
                             source_url = COALESCE(EXCLUDED.source_url, corporate_filings_log.source_url),
+                            run_id = COALESCE(EXCLUDED.run_id, corporate_filings_log.run_id),
                             raw_facts = EXCLUDED.raw_facts,
                             affected_metrics = EXCLUDED.affected_metrics,
                             updated_at = NOW()
@@ -15444,7 +15492,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
                         revenue_cr, op_profit_cr, pat_cr, eps, roce_pct,
                         roe_pct, debt_to_equity, op_margin_pct, net_margin_pct,
                         shares_outstanding, broadcast_date, status, headline,
-                        source_url, json.dumps(_sanitize_for_json(raw_facts)),
+                        source_url, run_id, json.dumps(_sanitize_for_json(raw_facts)),
                         json.dumps(_sanitize_for_json(affected_metrics))
                     ))
                     conn.commit()
@@ -15610,6 +15658,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
         raw_facts = filing.get("raw_facts") if isinstance(filing.get("raw_facts"), dict) else {}
         affected_metrics = filing.get("affected_metrics") if isinstance(filing.get("affected_metrics"), list) else []
 
+        run_id = str(filing.get("run_id") or "") or None
         rec_item = {
             "filing_date": filing_date,
             "discovered_at": discovered_at,
@@ -15635,6 +15684,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
             "status": status,
             "headline": headline,
             "source_url": source_url,
+            "run_id": run_id,
             "raw_facts": raw_facts,
             "affected_metrics": affected_metrics,
         }
@@ -15663,13 +15713,13 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
                                 revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
                                 roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
                                 shares_outstanding, filing_broadcast_date, status, headline,
-                                source_url, raw_facts, affected_metrics, updated_at
+                                source_url, run_id, raw_facts, affected_metrics, updated_at
                             ) VALUES (
                                 %s, %s, %s, %s, %s,
                                 %s, %s, %s, %s, %s,
                                 %s, %s, %s, %s, %s,
                                 %s, %s, %s, %s, %s,
-                                %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s,
                                 %s::jsonb, %s::jsonb, NOW()
                             )
                             ON CONFLICT (symbol, filing_id, statement_type, basis) DO UPDATE SET
@@ -15688,6 +15738,8 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
                                 filing_broadcast_date = COALESCE(EXCLUDED.filing_broadcast_date, corporate_filings_log.filing_broadcast_date),
                                 status = EXCLUDED.status,
                                 headline = EXCLUDED.headline,
+                                source_url = COALESCE(EXCLUDED.source_url, corporate_filings_log.source_url),
+                                run_id = COALESCE(EXCLUDED.run_id, corporate_filings_log.run_id),
                                 raw_facts = EXCLUDED.raw_facts,
                                 affected_metrics = EXCLUDED.affected_metrics,
                                 updated_at = NOW();
@@ -15697,7 +15749,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
                             rec["revenue_cr"], rec["operating_profit_cr"], rec["pat_cr"], rec["eps"], rec["roce_pct"],
                             rec["roe_pct"], rec["debt_to_equity"], rec["operating_margin_pct"], rec["net_margin_pct"],
                             rec["shares_outstanding"], rec["filing_broadcast_date"], rec["status"], rec["headline"],
-                            rec["source_url"], json.dumps(_sanitize_for_json(rec["raw_facts"])),
+                            rec["source_url"], rec.get("run_id"), json.dumps(_sanitize_for_json(rec["raw_facts"])),
                             json.dumps(_sanitize_for_json(rec["affected_metrics"]))
                         ))
                     conn.commit()
@@ -15803,6 +15855,92 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
     return len(valid_records)
 
 
+def seed_corporate_filings_if_empty() -> int:
+    """
+    Self-healing seed: If corporate_filings_log in PostgreSQL has 0 rows,
+    seeds historical exchange corporate filing findings from data/filing_invalidation_events.jsonl.
+    Ensures findings and discoveries are immediately visible without waiting for a manual trigger.
+    """
+    try:
+        with get_connection(timeout=5) as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("SELECT count(*) FROM corporate_filings_log")
+                    cnt_row = cur.fetchone()
+                    if cnt_row and cnt_row[0] > 0:
+                        return cnt_row[0]
+            elif CORPORATE_FILINGS_LOG_FILE.exists() and CORPORATE_FILINGS_LOG_FILE.stat().st_size > 100:
+                return 1
+
+            jsonl_path = Path(__file__).resolve().parent.parent / "data" / "filing_invalidation_events.jsonl"
+            if not jsonl_path.exists():
+                return 0
+
+                records = []
+                with open(jsonl_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            item = json.loads(line)
+                            sym = str(item.get("symbol", "")).strip().upper()
+                            if not sym:
+                                continue
+                            raw_f = item.get("raw_facts", {}) or {}
+                            p_end = str(item.get("period_end_date") or raw_f.get("period_end_date") or "").strip()
+                            if not p_end or p_end < "2015-01-01":
+                                continue
+                            f_date = str(raw_f.get("filing_date") or item.get("broadcast_timestamp") or p_end)[:10]
+                            if not f_date or f_date < "2015-01-01":
+                                f_date = p_end
+                            st_type = str(item.get("statement_type") or "QUARTERLY").upper()
+                            fid = str(item.get("filing_id") or raw_f.get("filing_id") or f"{sym}_{p_end}")
+                            rev = raw_f.get("revenue") or raw_f.get("revenue_cr")
+                            pat = raw_f.get("net_profit") or raw_f.get("pat")
+                            ebit = raw_f.get("operating_profit") or raw_f.get("ebit")
+                            eps = raw_f.get("eps")
+                            records.append({
+                                "filing_date": f_date,
+                                "discovered_at": str(item.get("retrieved_timestamp") or datetime.now(IST).isoformat()),
+                                "symbol": sym,
+                                "company_name": sym,
+                                "exchange": str(item.get("exchange") or "NSE"),
+                                "filing_id": fid,
+                                "period_end": p_end,
+                                "statement_type": st_type,
+                                "basis": str(item.get("basis") or "CONSOLIDATED").upper(),
+                                "event_type": str(item.get("event_type") or "UNSEEN_PERIOD"),
+                                "revenue_cr": float(rev) if rev is not None else None,
+                                "operating_profit_cr": float(ebit) if ebit is not None else None,
+                                "pat_cr": float(pat) if pat is not None else None,
+                                "eps": float(eps) if eps is not None else None,
+                                "roce_pct": None,
+                                "roe_pct": None,
+                                "debt_to_equity": None,
+                                "operating_margin_pct": None,
+                                "net_margin_pct": None,
+                                "shares_outstanding": None,
+                                "filing_broadcast_date": str(item.get("broadcast_timestamp") or ""),
+                                "status": "INGESTED",
+                                "headline": f"{sym} {p_end} ({st_type}) Filing Discovered & Reconciled",
+                                "source_url": None,
+                                "run_id": "RUN_SEED_INITIAL",
+                                "raw_facts": raw_f,
+                                "affected_metrics": item.get("affected_metrics", [])
+                            })
+                        except Exception:
+                            continue
+
+                if records:
+                    batch_upsert_corporate_filings(records)
+                    logger.info(f"✅ Self-healed/seeded {len(records)} corporate filing findings into PostgreSQL")
+                    return len(records)
+    except Exception as e:
+        logger.debug(f"[seed_corporate_filings_if_empty] notice: {e}")
+    return 0
+
+
 def get_corporate_filings_by_date(
     target_date: Optional[str] = None,
     run_id: Optional[str] = None,
@@ -15819,6 +15957,9 @@ def get_corporate_filings_by_date(
     purging duplicate runs. Enforces strict past-or-present bounds (no future dates).]
     """
     init_db()
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    import re as _re_q
     results = []
 
     # 1. Try PostgreSQL (Deduplicated per stock report period & statement scope)
@@ -15826,6 +15967,15 @@ def get_corporate_filings_by_date(
         with get_connection() as conn:
             if not isinstance(conn, DummyConnection):
                 with conn.cursor() as cur:
+                    # Self-heal check: If table is currently empty, seed from historical events
+                    try:
+                        cur.execute("SELECT count(*) FROM corporate_filings_log")
+                        _c_row = cur.fetchone()
+                        if _c_row and _c_row[0] == 0:
+                            seed_corporate_filings_if_empty()
+                    except Exception:
+                        pass
+
                     query = """
                         SELECT DISTINCT ON (symbol, period_end, statement_type, basis)
                                id, filing_date, discovered_at, symbol, company_name, exchange,
@@ -15833,7 +15983,7 @@ def get_corporate_filings_by_date(
                                revenue_cr, operating_profit_cr, pat_cr, eps, roce_pct,
                                roe_pct, debt_to_equity, operating_margin_pct, net_margin_pct,
                                shares_outstanding, filing_broadcast_date, status, headline,
-                               source_url, raw_facts, affected_metrics
+                               source_url, run_id, raw_facts, affected_metrics
                         FROM corporate_filings_log
                         WHERE period_end ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
                           AND period_end >= '2020-01-01'
@@ -15850,21 +16000,25 @@ def get_corporate_filings_by_date(
                         r_id = str(run_id).strip()
                         if r_id.startswith("RUN_AUTO_") and len(r_id) >= 22:
                             try:
-                                from datetime import datetime, timedelta
-                                from zoneinfo import ZoneInfo
                                 r_ts = datetime.strptime(r_id[9:22], "%Y%m%d_%H%M").replace(tzinfo=ZoneInfo("Asia/Kolkata"))
                                 w_start = (r_ts - timedelta(minutes=15)).isoformat()
                                 w_end = (r_ts + timedelta(minutes=15)).isoformat()
-                                query += " AND (discovered_at AT TIME ZONE 'Asia/Kolkata') >= %s AND (discovered_at AT TIME ZONE 'Asia/Kolkata') <= %s"
-                                params.extend([w_start, w_end])
+                                query += " AND (run_id = %s OR ((discovered_at AT TIME ZONE 'Asia/Kolkata') >= %s AND (discovered_at AT TIME ZONE 'Asia/Kolkata') <= %s))"
+                                params.extend([r_id, w_start, w_end])
                             except Exception:
-                                pass
+                                query += " AND run_id = %s"
+                                params.append(r_id)
                         else:
                             query += """
-                                AND discovered_at >= COALESCE((SELECT started_at - INTERVAL '2 minutes' FROM scanner_execution_history WHERE run_id = %s), NOW() - INTERVAL '100 years')
-                                AND discovered_at <= COALESCE((SELECT COALESCE(completed_at, started_at + INTERVAL '1 hour') + INTERVAL '2 minutes' FROM scanner_execution_history WHERE run_id = %s), NOW())
+                                AND (
+                                    run_id = %s
+                                    OR (
+                                        discovered_at >= COALESCE((SELECT started_at - INTERVAL '2 minutes' FROM scanner_execution_history WHERE run_id = %s), NOW() - INTERVAL '100 years')
+                                        AND discovered_at <= COALESCE((SELECT COALESCE(completed_at, started_at + INTERVAL '1 hour') + INTERVAL '2 minutes' FROM scanner_execution_history WHERE run_id = %s), NOW())
+                                    )
+                                )
                             """
-                            params.extend([r_id, r_id])
+                            params.extend([r_id, r_id, r_id])
 
                     if symbol:
                         query += " AND symbol = %s"
@@ -15900,7 +16054,7 @@ def get_corporate_filings_by_date(
                             "revenue_cr", "operating_profit_cr", "pat_cr", "eps", "roce_pct",
                             "roe_pct", "debt_to_equity", "operating_margin_pct", "net_margin_pct",
                             "shares_outstanding", "filing_broadcast_date", "status", "headline",
-                            "source_url", "raw_facts", "affected_metrics"
+                            "source_url", "run_id", "raw_facts", "affected_metrics"
                         ]
                         for r in rows:
                             d = dict(zip(cols, r))
@@ -15918,8 +16072,6 @@ def get_corporate_filings_by_date(
     if CORPORATE_FILINGS_LOG_FILE.exists():
         try:
             seen_keys = set()
-            import re as _re_q
-            from zoneinfo import ZoneInfo
             now_ist = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
             matching_items = []
             with open(CORPORATE_FILINGS_LOG_FILE, "r", encoding="utf-8") as f:
