@@ -2504,16 +2504,7 @@ if __name__ == "__main__":
         except Exception as _d_err:
             logger.error(f"❌ Could not start dashboard server: {_d_err}")
 
-    # 1. SINGLE-THREADED DB INIT — Run DDL migrations on main thread BEFORE worker threads start
-    try:
-        from database import init_db, reset_all_scanners_on_boot
-        init_db()
-        reset_all_scanners_on_boot()
-        logger.info("✅ [BOOT] Single-threaded DB schema initialization and scanner health boot reset complete.")
-    except Exception as _init_err:
-        logger.warning(f"⚠️ Single-threaded init_db warning: {_init_err}")
-
-    # 2. SIGNAL HANDLERS FOR CLEAN SHUTDOWN
+    # 1. SIGNAL HANDLERS FOR CLEAN SHUTDOWN
     def handle_sigterm(*args):
         logger.info("🛑 SIGTERM received — container shutting down. Closing gracefully...")
         try:
@@ -2526,8 +2517,21 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
 
-    # 3. RUN DB & SCANNER INITIALIZATION IN BACKGROUND THREAD
+    # 2. RUN DB & SCANNER INITIALIZATION IN BACKGROUND THREAD
+    # [CRITICAL ARCHITECTURAL FIX FOR HEALTH CHECKS]:
+    # Running DB schema initialization, scanner resets, and diagnostics in a background thread
+    # ensures that main.py does not block the process or GIL for 40-50s during PostgreSQL network handshake.
+    # Ports 8000/8080 respond to Coolify health checks in < 1 second on container boot.
     def _bg_boot_sequence():
+        # Single-threaded DB initialization
+        try:
+            from database import init_db, reset_all_scanners_on_boot
+            init_db()
+            reset_all_scanners_on_boot()
+            logger.info("✅ [BOOT] Single-threaded DB schema initialization and scanner health boot reset complete.")
+        except Exception as _init_err:
+            logger.warning(f"⚠️ Single-threaded init_db warning: {_init_err}")
+
         # Phase 2 Dataset Registry: Self-Register Consumers
         try:
             from data_registry import registry
@@ -2564,7 +2568,6 @@ if __name__ == "__main__":
         # and causes performance_tracker to replay them, resulting in massive notification spam.
         # Historical rebuilds should only be done manually via the admin dashboard API.
 
-
         # ORPHANED SCANNER RUNS CLEANUP
         try:
             from database import cleanup_orphaned_scanner_runs_on_boot
@@ -2581,13 +2584,15 @@ if __name__ == "__main__":
         except Exception as e:
             logger.warning(f"⚠️ ApplicationContext init warning: {e}")
 
-    # Execute boot sequence synchronously BEFORE starting Watchdog/Scheduler threads
-    _bg_boot_sequence()
+        # WATCHDOG THREAD — Start Watchdog AFTER boot sequence is 100% complete
+        logger.info("🚀 [BOOT] Boot sequence complete. Launching Watchdog thread...")
+        watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
+        watchdog_thread.start()
 
-    # WATCHDOG THREAD — Start Watchdog AFTER boot sequence is 100% complete
-    watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
-    watchdog_thread.start()
+    # Launch background boot sequence in daemon thread so main thread remains free
+    boot_thread = threading.Thread(target=_bg_boot_sequence, name="BootSequence", daemon=True)
+    boot_thread.start()
 
-    # Block main thread to keep container alive
+    # Block main thread to keep container alive and responsive
     while True:
         time.sleep(3600)
