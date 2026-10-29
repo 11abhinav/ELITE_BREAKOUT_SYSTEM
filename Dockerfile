@@ -22,7 +22,7 @@ RUN cp -r /app/data /app/data_seed 2>/dev/null || true
 EXPOSE 8000
 EXPOSE 8080
 
-HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=10 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=15 \
   CMD curl -sf http://127.0.0.1:8000/ || curl -sf http://127.0.0.1:8000/health || wget -qO- http://127.0.0.1:8000/ >/dev/null || exit 1
 
 CMD ["bash", "start.sh"]
