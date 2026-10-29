@@ -30,28 +30,42 @@ def get_market_regime() -> dict:
     if _cached_regime_payload is not None and (now_mono - _cached_regime_ts) < _REGIME_CACHE_TTL_SEC:
         return _cached_regime_payload
 
+    try:
+        from engine.production.governance_registry import calculate_live_market_regime
+        live_g = calculate_live_market_regime()
+        default_reg = "BEAR_NORMAL" if live_g.get("regime") == "BEAR" else ("BULL_NORMAL" if live_g.get("regime") == "BULL" else "RANGE")
+    except Exception:
+        default_reg = "BEAR_NORMAL"
+
     default_regime = {
-        "market_regime": "BULL_NORMAL",
-        "nifty_close": 24000.0,
-        "nifty_sma20": 23900.0,
-        "nifty_sma50": 23500.0,
-        "nifty_sma200": 22000.0,
-        "nifty_adx": 20.0,
+        "market_regime": default_reg,
+        "nifty_close": 22698.85,
+        "nifty_sma20": 22674.35,
+        "nifty_sma50": 23303.80,
+        "nifty_sma200": 24113.87,
+        "nifty_adx": 35.0,
         "india_vix": 15.0,
-        "nifty_advance_decline": 1.0,
-        "nifty_pct_above_sma50": 60.0
+        "nifty_advance_decline": 0.8,
+        "nifty_pct_above_sma50": 35.5
     }
     
     try:
         # First check local price cache to avoid hitting external network if possible
         nifty_hist = None
         try:
-            from price_cache import get_cached_df
-            nifty_hist = get_cached_df("^NSEI", interval="1d", period="1y")
-            if nifty_hist is None or nifty_hist.empty:
-                nifty_hist = get_cached_df("NIFTY 50", interval="1d", period="1y")
+            from macro_utils import _get_daily_nifty
+            nifty_hist = _get_daily_nifty()
         except Exception:
             pass
+
+        if nifty_hist is None or nifty_hist.empty:
+            try:
+                from price_cache import get_cached_df
+                nifty_hist = get_cached_df("^NSEI", interval="1d", period="1y")
+                if nifty_hist is None or nifty_hist.empty:
+                    nifty_hist = get_cached_df("NIFTY 50", interval="1d", period="1y")
+            except Exception:
+                pass
 
         if nifty_hist is None or nifty_hist.empty:
             try:
