@@ -9868,28 +9868,42 @@ def check_and_restore_stale_stock(
     if source in ("CORPORATE_FILING_WATCHER", "BATCH_FILINGS_INGESTION", "FILING_WATCHER", "EXCHANGE_INGESTION", "PRE_RECOVERY_PROMOTED", "EXCHANGE_VERIFIED", "EXCHANGE_FILING_WATCHER", "REBUILD_PUBLISH", "CANONICAL_PUBLISHER") or "FILING" in src_u or "EXCHANGE" in src_u or "REBUILD" in src_u or "PUBLISH" in src_u or "CANONICAL" in src_u:
         force = True
 
-    # STRICT 7-DAY INVARIANT: Do not delete active cool-off unless expired (cooloff_until <= now_dt) or force=True
-    if not force:
-        with _LOCAL_COOLOFF_LOCK:
-            active_cache = [k for k, v in _LOCAL_COOLOFF_CACHE.items() if k[0] == sym and v.get("cooloff_until") and v.get("cooloff_until") > now_dt]
-            if active_cache:
+    # STRICT 7-DAY INVARIANT:
+    # Routine background rebuilds and watchers must NOT delete active cool-offs for stocks that
+    # had UNRESOLVED, INSUFFICIENT, or CONFLICT reasons unless the 7-day period has actually expired,
+    # or unless an admin explicitly requests a forced override.
+    with _LOCAL_COOLOFF_LOCK:
+        active_cache = [k for k, v in _LOCAL_COOLOFF_CACHE.items() if k[0] == sym and v.get("cooloff_until") and v.get("cooloff_until") > now_dt]
+        if active_cache:
+            reasons = [_LOCAL_COOLOFF_CACHE.get(k, {}).get("reason", "") for k in active_cache]
+            is_unresolved = any(any(w in r.upper() for w in ("UNRESOLVED", "INSUFFICIENT", "CONFLICT", "DEPTH")) for r in reasons)
+            if is_unresolved and source in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+                logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in cache for unresolved fundamentals. Preserving cool-off.")
+                return False
+            if not force:
                 logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in cache. Preserving cool-off record until 7 days reach.")
                 return False
 
-        try:
-            with get_connection() as conn:
-                if not isinstance(conn, DummyConnection):
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "SELECT cooloff_until, scanner FROM symbol_cooloff_journal WHERE symbol = %s AND cooloff_until > %s",
-                            (sym, now_dt)
-                        )
-                        active_db = cur.fetchall()
-                        if active_db:
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT cooloff_until, scanner, reason FROM symbol_cooloff_journal WHERE symbol = %s AND cooloff_until > %s",
+                        (sym, now_dt)
+                    )
+                    active_db = cur.fetchall()
+                    if active_db:
+                        db_reasons = [r[2] or "" for r in active_db]
+                        is_unresolved_db = any(any(w in r.upper() for w in ("UNRESOLVED", "INSUFFICIENT", "CONFLICT", "DEPTH")) for r in db_reasons)
+                        if is_unresolved_db and source in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+                            logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in DB until {active_db[0][0]} for unresolved fundamentals. Preserving cool-off.")
+                            return False
+                        if not force:
                             logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in DB until {active_db[0][0]}. Preserving cool-off record until 7 days reach.")
                             return False
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     # 1. Check & evict from _LOCAL_COOLOFF_CACHE
     with _LOCAL_COOLOFF_LOCK:

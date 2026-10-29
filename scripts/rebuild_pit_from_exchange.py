@@ -814,17 +814,29 @@ def rebuild_canonical_pit_dataset(
                 from app.database import check_and_restore_stale_stock
             except ImportError:
                 from database import check_and_restore_stale_stock
-            # Only auto-restore stocks that are certified, fresh, and not missing core fundamental metrics
-            # (stocks missing ROCE/CAGR must remain in cool-off until their 7-day period expires to prevent ScraperAPI loops)
+            # Only auto-restore stocks that are certified, fresh, and have all essential fundamental metrics populated
+            # (stocks missing ROCE, Sales CAGR, PAT CAGR, or D/E must remain in cool-off until their 7-day period expires)
             valid_rebuilt = df_final[
                 (df_final["provenance_status"] == "CERTIFIED") &
                 (df_final["pit_freshness_status"].isin(["VALID", "FRESH"])) &
                 (~df_final["filing_gap_detected"].fillna(False))
             ]
-            if "roce_5y_avg" in valid_rebuilt.columns:
-                valid_rebuilt = valid_rebuilt[valid_rebuilt["roce_5y_avg"].notna()]
-            elif "roce" in valid_rebuilt.columns:
-                valid_rebuilt = valid_rebuilt[valid_rebuilt["roce"].notna()]
+            # Verify ROCE
+            roce_col = next((c for c in ["roce_5y_avg", "ROCE", "roce"] if c in valid_rebuilt.columns), None)
+            if roce_col:
+                valid_rebuilt = valid_rebuilt[valid_rebuilt[roce_col].notna()]
+            # Verify Sales CAGR
+            sales_col = next((c for c in ["sales_cagr_5y", "sales_cagr"] if c in valid_rebuilt.columns), None)
+            if sales_col:
+                valid_rebuilt = valid_rebuilt[valid_rebuilt[sales_col].notna()]
+            # Verify PAT CAGR
+            pat_col = next((c for c in ["pat_cagr_5y", "pat_cagr"] if c in valid_rebuilt.columns), None)
+            if pat_col:
+                valid_rebuilt = valid_rebuilt[valid_rebuilt[pat_col].notna()]
+            # Verify Debt to Equity
+            de_col = next((c for c in ["debt_to_equity", "debt"] if c in valid_rebuilt.columns), None)
+            if de_col:
+                valid_rebuilt = valid_rebuilt[valid_rebuilt[de_col].notna()]
 
             for s in valid_rebuilt["symbol"].dropna().unique():
                 check_and_restore_stale_stock(str(s).strip().upper(), source="REBUILD_PUBLISH", notify_admin=False)

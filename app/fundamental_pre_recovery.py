@@ -122,8 +122,9 @@ class FundamentalPreRecoveryEngine:
             except ImportError:
                 from pit_recovery_cache import get_validated_recovery_cache
             self.validated_cache = get_validated_recovery_cache()
-        # 0 or negative means uncapped (processes every incomplete symbol in universe)
-        self.global_daily_recovery_limit = int(os.getenv("PRE_RECOVERY_LIMIT", "0"))
+        # Cap automated pre-recovery attempts per sweep to protect external ScraperAPI/NSE quotas
+        # Default is 5 symbols per sweep (can be customized via PRE_RECOVERY_LIMIT environment variable).
+        self.global_daily_recovery_limit = int(os.getenv("PRE_RECOVERY_LIMIT", "5"))
 
     _generate_deterministic_key = staticmethod(_generate_deterministic_key)
 
@@ -492,7 +493,11 @@ class FundamentalPreRecoveryEngine:
                 from database import get_active_cooloff_symbols
             except ImportError:
                 from app.database import get_active_cooloff_symbols
-            active_cooloff = get_active_cooloff_symbols(self.scanner_name)
+            # Check cool-offs enrolled for this specific scanner, as well as ALL/FUNDAMENTAL
+            active_cooloff = set(get_active_cooloff_symbols(self.scanner_name) or [])
+            active_cooloff |= set(get_active_cooloff_symbols("ALL") or [])
+            if self.scanner_name != "FUNDAMENTAL":
+                active_cooloff |= set(get_active_cooloff_symbols("FUNDAMENTAL") or [])
         except Exception:
             active_cooloff = set()
 
