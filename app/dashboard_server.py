@@ -7495,14 +7495,22 @@ def start_dashboard_server():
         logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
         logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
 
-        # Forward alternate ports (8000, 8080) to primary port so healthchecks on any port succeed
-        for p in (8000, 8080):
-            if p != port:
-                _start_port_forwarder(p, port)
+        # If early health responder is listening on 8000/8080, run Flask on internal port 8001
+        # and notify health responder to transparently reverse-proxy full dashboard requests to Flask!
+        flask_port = port
+        try:
+            from health_responder import mark_flask_ready, FLASK_INTERNAL_PORT
+            flask_port = FLASK_INTERNAL_PORT
+            mark_flask_ready(flask_port)
+            logger.info(f"🌐 [PROXY] Early health responder routing traffic to Flask on internal port {flask_port}")
+        except Exception:
+            for p in (8000, 8080):
+                if p != port:
+                    _start_port_forwarder(p, port)
 
         # use_reloader=False is critical — Flask reloader forks the process and
         # breaks the container single-process model and our threading setup.
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        app.run(host="127.0.0.1" if flask_port != port else "0.0.0.0", port=flask_port, debug=False, use_reloader=False)
     except Exception as e:
         logger.exception(f"❌ Critical failure starting Flask dashboard server: {e}")
 

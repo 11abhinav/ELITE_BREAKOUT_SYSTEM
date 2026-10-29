@@ -24,13 +24,20 @@ for p in (APP_DIR, ROOT_DIR):
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S", stream=sys.stdout)
 
-# 0. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
-# Must start before any database connections, network requests, or heavy module imports
+# 0. START ULTRA-FAST HEALTH RESPONDER (0ms latency for health checks & Coolify)
+# Binds ports 8000 and 8080 instantly so Coolify healthcheck passes on Attempt 1.
 if "--worker" not in sys.argv:
+    try:
+        from health_responder import start_early_health_responder
+        start_early_health_responder()
+        logging.getLogger(__name__).info("🌐 [BOOT] Early health responder active — ports 8000/8080 answering 200 OK instantly!")
+    except Exception as _hr_err:
+        logging.getLogger(__name__).error(f"❌ Could not start health responder: {_hr_err}")
+
     try:
         from dashboard_server import start_dashboard_server_async
         start_dashboard_server_async()
-        logging.getLogger(__name__).info("🌐 [BOOT] Dashboard server started asynchronously — ports 8000/8080/80 open instantly for healthchecks!")
+        logging.getLogger(__name__).info("🌐 [BOOT] Dashboard server started asynchronously.")
     except Exception as _d_err:
         logging.getLogger(__name__).error(f"❌ Could not start dashboard server: {_d_err}")
 
@@ -59,8 +66,7 @@ def ist_converter(*args):
 
 logging.Formatter.converter = ist_converter
 
-from db_logger import install_db_logger
-install_db_logger()
+# [BOOT DECOUPLING]: db_logger is deferred to _bg_boot_sequence() to prevent any PostgreSQL network connection during module import.
 
 # [VERSION: PERF_PROFILER_v1.0] Capture process startup timestamp for boot latency telemetry.
 # This lets us log how long the full boot sequence takes (imports, DB init, diagnostics).
@@ -2519,6 +2525,11 @@ if __name__ == "__main__":
             init_db()
             reset_all_scanners_on_boot()
             logger.info("✅ [BOOT] Single-threaded DB schema initialization and scanner health boot reset complete.")
+            try:
+                from db_logger import install_db_logger
+                install_db_logger()
+            except Exception as _dbe:
+                logger.warning(f"⚠️ db_logger installation warning: {_dbe}")
         except Exception as _init_err:
             logger.warning(f"⚠️ Single-threaded init_db warning: {_init_err}")
 
