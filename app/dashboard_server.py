@@ -6023,13 +6023,19 @@ def _get_fallback_indices() -> dict:
     _FALLBACK_INDICES_CACHE = {"ts": now, "data": fallback}
     return fallback
 
+try:
+    from engine.production.governance_registry import calculate_live_market_regime
+    _seed_regime = calculate_live_market_regime()
+except Exception:
+    _seed_regime = {"regime": "BEAR", "detail": "Live Breadth"}
+
 _DEFAULT_INDICES_DATA = {
     "NIFTY 50": {"price": 25014.10, "pct_change": -0.15, "point_change": -37.50, "prev_close": 25051.60},
     "BANKNIFTY": {"price": 51430.50, "pct_change": -0.38, "point_change": -195.20, "prev_close": 51625.70},
     "SENSEX": {"price": 81688.45, "pct_change": -0.22, "point_change": -180.30, "prev_close": 81868.75},
     "_strong_sectors": [],
     "_weak_sectors": [],
-    "_regime": {"regime": "BULL", "detail": "Baseline"}
+    "_regime": _seed_regime
 }
 _DEFAULT_INDICES_JSON = json.dumps(_DEFAULT_INDICES_DATA)
 _DEFAULT_INDICES_GZ = _gzip.compress(_DEFAULT_INDICES_JSON.encode("utf-8"), compresslevel=1)

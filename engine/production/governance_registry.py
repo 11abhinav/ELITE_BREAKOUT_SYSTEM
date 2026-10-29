@@ -574,8 +574,9 @@ def calculate_live_market_regime(sample_size: int = 200, cache_ttl_sec: float = 
     if _REGIME_CACHE["regime"] is not None and (now_mono - _REGIME_CACHE["timestamp"]) < cache_ttl_sec:
         return dict(_REGIME_CACHE["regime"])
 
-    # First check CSV if available for fast read (ONLY if it matches today's date)
-    regime_file = "reports/certification/FINAL_AUDIT_2026-09-26/regime_daycount_daily.csv"
+    # Resolve project root directory regardless of current working directory
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    regime_file = os.path.join(base_dir, "reports", "certification", "FINAL_AUDIT_2026-09-26", "regime_daycount_daily.csv")
     if os.path.exists(regime_file):
         try:
             import pandas as pd
@@ -610,7 +611,11 @@ def calculate_live_market_regime(sample_size: int = 200, cache_ttl_sec: float = 
     try:
         import glob
         import pandas as pd
-        files = glob.glob("data/history/1d/*.parquet")[:sample_size]
+        parquet_pattern = os.path.join(base_dir, "data", "history", "1d", "*.parquet")
+        files = glob.glob(parquet_pattern)[:sample_size]
+        if not files:
+            # Fallback to local data/history/1d/*.parquet if pattern did not match
+            files = glob.glob("data/history/1d/*.parquet")[:sample_size]
         breadth_rows = []
         for p in files:
             try:
@@ -649,21 +654,54 @@ def calculate_live_market_regime(sample_size: int = 200, cache_ttl_sec: float = 
                 "source": f"LIVE_BREADTH_{len(breadth_rows)}_STOCKS"
             }
         else:
+            # Fallback to MarketRegimeEngine (NIFTY 50 moving averages + trend)
+            try:
+                try:
+                    from app.macro_utils import MarketRegimeEngine, get_macro_regime
+                except ImportError:
+                    from macro_utils import MarketRegimeEngine, get_macro_regime
+                m_ctx = MarketRegimeEngine.get_regime_context()
+                raw_m_reg = get_macro_regime()
+                norm_reg = "BEAR" if "BEAR" in raw_m_reg else ("BULL" if "BULL" in raw_m_reg else "SIDEWAYS")
+                p_50 = m_ctx.get("metrics", {}).get("price_vs_50dma", 0)
+                res = {
+                    "regime": norm_reg,
+                    "above_sma50_pct": 50.0,
+                    "above_sma200_pct": 50.0,
+                    "detail": f"Nifty vs 50DMA: {p_50:+0.1f}%",
+                    "source": "MARKET_REGIME_ENGINE"
+                }
+            except Exception:
+                res = {
+                    "regime": "BEAR",
+                    "above_sma50_pct": 35.0,
+                    "above_sma200_pct": 50.0,
+                    "detail": "Market Trend",
+                    "source": "FALLBACK"
+                }
+    except Exception:
+        try:
+            try:
+                from app.macro_utils import MarketRegimeEngine, get_macro_regime
+            except ImportError:
+                from macro_utils import MarketRegimeEngine, get_macro_regime
+            raw_m_reg = get_macro_regime()
+            norm_reg = "BEAR" if "BEAR" in raw_m_reg else ("BULL" if "BULL" in raw_m_reg else "SIDEWAYS")
             res = {
-                "regime": "BULL",
-                "above_sma50_pct": 50.0,
+                "regime": norm_reg,
+                "above_sma50_pct": 35.0,
                 "above_sma200_pct": 50.0,
-                "detail": "Baseline",
+                "detail": "Market Trend",
+                "source": "MARKET_REGIME_ENGINE"
+            }
+        except Exception:
+            res = {
+                "regime": "BEAR",
+                "above_sma50_pct": 35.0,
+                "above_sma200_pct": 50.0,
+                "detail": "Market Trend",
                 "source": "FALLBACK"
             }
-    except Exception:
-        res = {
-            "regime": "BULL",
-            "above_sma50_pct": 50.0,
-            "above_sma200_pct": 50.0,
-            "detail": "Baseline",
-            "source": "FALLBACK"
-        }
 
     _REGIME_CACHE["regime"] = res
     _REGIME_CACHE["timestamp"] = now_mono
