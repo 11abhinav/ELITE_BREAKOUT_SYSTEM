@@ -7519,8 +7519,9 @@ def start_dashboard_server_async():
         _DASHBOARD_SERVER_STARTED = True
         t = threading.Thread(target=start_dashboard_server, name="FlaskDashboardServer", daemon=True)
         t.start()
-        # Async background pre-warm of stock data health cache so first user view is instant
-        threading.Thread(target=_background_refresh_stock_data_health, name="StockDataHealthPrewarm", daemon=True).start()
+        # Async background pre-warm of stock data health cache deferred by 30s
+        # This guarantees zero GIL or Postgres contention during Coolify container healthcheck boot.
+        threading.Timer(30.0, _background_refresh_stock_data_health).start()
         return t
 
 

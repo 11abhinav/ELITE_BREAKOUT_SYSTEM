@@ -341,9 +341,8 @@ def _build_watchlist_background():
                 _watchlist_ready.set()
         except Exception as fallback_err:
             logger.error(f"❌ Emergency fallback watchlist creation failed: {fallback_err}")
-
-_threading.Thread(target=_build_watchlist_background, name="WatchlistBuilder", daemon=True).start()
-
+# [BOOT DECOUPLING]: WatchlistBuilder is started inside _bg_boot_sequence() so module import completes instantly.
+# _threading.Thread(target=_build_watchlist_background, name="WatchlistBuilder", daemon=True).start()
 
 
 # =====================================================================================
@@ -2495,15 +2494,6 @@ def _trigger_earnings_forensic(trigger_type="SCHEDULED", scheduler_name="CRON"):
 if __name__ == "__main__":
     forensics.take_snapshot("startup")
 
-    # 0. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
-    if "--worker" not in sys.argv:
-        try:
-            from dashboard_server import start_dashboard_server_async
-            start_dashboard_server_async()
-            logger.info("🌐 [BOOT] Dashboard server started asynchronously — ports 8000/8080/80 open instantly for healthchecks!")
-        except Exception as _d_err:
-            logger.error(f"❌ Could not start dashboard server: {_d_err}")
-
     # 1. SIGNAL HANDLERS FOR CLEAN SHUTDOWN
     def handle_sigterm(*args):
         logger.info("🛑 SIGTERM received — container shutting down. Closing gracefully...")
@@ -2583,6 +2573,13 @@ if __name__ == "__main__":
             logger.info("✅ [SESSION_ARCH] ApplicationContext ready.")
         except Exception as e:
             logger.warning(f"⚠️ ApplicationContext init warning: {e}")
+
+        # WATCHLIST BUILDER
+        try:
+            _threading.Thread(target=_build_watchlist_background, name="WatchlistBuilder", daemon=True).start()
+            logger.info("📋 [BOOT] WatchlistBuilder launched in background thread.")
+        except Exception as _wb_err:
+            logger.warning(f"⚠️ [BOOT] WatchlistBuilder launch warning: {_wb_err}")
 
         # WATCHDOG THREAD — Start Watchdog AFTER boot sequence is 100% complete
         logger.info("🚀 [BOOT] Boot sequence complete. Launching Watchdog thread...")

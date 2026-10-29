@@ -244,8 +244,13 @@ class ScannerDataGateway:
                 except ImportError:
                     from database import upload_parquet_to_db, clear_canonical_snapshot_cache
                 clear_canonical_snapshot_cache()
-                upload_parquet_to_db("canonical_pit_rebuilt", path)
-                logger.info(f"💾 [GATEWAY] Materialized {updated_cells} updated cells to disk ({path}) and synced to PostgreSQL DB.")
+                threading.Thread(
+                    target=upload_parquet_to_db,
+                    args=("canonical_pit_rebuilt", path),
+                    name="GatewayDbSync",
+                    daemon=True
+                ).start()
+                logger.info(f"💾 [GATEWAY] Materialized {updated_cells} updated cells to disk ({path}) and queued async PostgreSQL DB sync.")
             except Exception as _sync_err:
                 logger.debug(f"[GATEWAY] Sync note: {_sync_err}")
 
