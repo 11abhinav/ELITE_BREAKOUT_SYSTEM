@@ -9517,27 +9517,9 @@ def _enroll_single_cooloff(
     except Exception:
         pass
 
-    # Admin notification for marking stock as stale or insufficient data (sent strictly ONCE per 7-day cooloff period)
-    if notify_admin and is_new_stale:
-        try:
-            is_insufficient = any(k in reason_clean.upper() for k in ("PARTIAL_RECOVERY", "UNRESOLVED", "MISSING", "INSUFFICIENT", "CONFLICT", "DEPTH"))
-            category_label = "Data Insufficient" if is_insufficient else "Stale Data"
-            action_desc = "Marking as data insufficient" if is_insufficient else "Marking as stale data"
-            title = f"{category_label}: {sym} ({scan})"
-            msg = (
-                f"{action_desc} for {scan}: {sym}. Reason: {reason_clean}.{missing_desc} "
-                f"Entered into cool-off table ({scan}) to not be processed for {duration_days} days "
-                f"(until {until_dt.strftime('%Y-%m-%d')})."
-            )
-            insert_notification(
-                notif_type="admin",
-                title=title,
-                message=msg,
-                symbol=sym
-            )
-        except Exception as notif_err:
-            logger.debug(f"[COOLOFF_NOTIF] Admin notification error for {sym}: {notif_err}")
-
+    # [CHANGE-RATIONALE: User requested removing Data Insufficient and Stale Data notifications to admin/user]
+    # The system still logs ⚠️ [STALE_STOCK_MARKED] and enforces the 7-day cooloff in DB and memory,
+    # but does NOT clutter the UI / global_notifications feed.
     return True
 
 
@@ -9996,28 +9978,14 @@ def check_and_restore_stale_stock(
     except Exception as snap_err:
         logger.debug(f"[STALE_RESTORE] Snapshot status update note for {sym}: {snap_err}")
 
-    # 5. Notify admin if stock was previously stale
+    # 5. Stock restored from cool-off
     if was_stale:
         reasons_summary = ", ".join(stale_reasons) if stale_reasons else "Previously Cool-off/Stale"
         logger.info(
             f"🔄 [STALE_STOCK_RESTORED] {sym} was previously marked stale ({reasons_summary}). "
             f"Removed from suppression. Fresh data ({period_end or 'Latest'}) available. Scanners can now review."
         )
-        if notify_admin:
-            try:
-                title = f"Stale Stock Restored: {sym}"
-                msg = (
-                    f"Fresh financial data ({period_end or 'Latest'}) received. "
-                    f"Removed {sym} from stale cool-off suppression. Scanners can now review."
-                )
-                insert_notification(
-                    notif_type="admin",
-                    title=title,
-                    message=msg,
-                    symbol=sym
-                )
-            except Exception as notif_err:
-                logger.debug(f"[STALE_RESTORE] Notification dispatch error for {sym}: {notif_err}")
+        # [CHANGE-RATIONALE: Suppress Stale Stock Restored UI notifications to avoid spamming admin/user]
 
     if was_stale:
         try:

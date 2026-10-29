@@ -814,11 +814,18 @@ def rebuild_canonical_pit_dataset(
                 from app.database import check_and_restore_stale_stock
             except ImportError:
                 from database import check_and_restore_stale_stock
+            # Only auto-restore stocks that are certified, fresh, and not missing core fundamental metrics
+            # (stocks missing ROCE/CAGR must remain in cool-off until their 7-day period expires to prevent ScraperAPI loops)
             valid_rebuilt = df_final[
                 (df_final["provenance_status"] == "CERTIFIED") &
                 (df_final["pit_freshness_status"].isin(["VALID", "FRESH"])) &
                 (~df_final["filing_gap_detected"].fillna(False))
             ]
+            if "roce_5y_avg" in valid_rebuilt.columns:
+                valid_rebuilt = valid_rebuilt[valid_rebuilt["roce_5y_avg"].notna()]
+            elif "roce" in valid_rebuilt.columns:
+                valid_rebuilt = valid_rebuilt[valid_rebuilt["roce"].notna()]
+
             for s in valid_rebuilt["symbol"].dropna().unique():
                 check_and_restore_stale_stock(str(s).strip().upper(), source="REBUILD_PUBLISH", notify_admin=False)
         except Exception as r_err:

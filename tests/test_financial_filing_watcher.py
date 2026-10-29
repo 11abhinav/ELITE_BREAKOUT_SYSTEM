@@ -201,34 +201,26 @@ def test_stale_stock_restoration_on_new_filing(monkeypatch):
     remove_symbol_from_cooloff(sym, "ALL")
     remove_symbol_from_cooloff(sym, "FUNDAMENTAL")
 
-    # 1. Place symbol into cooloff / mark stale -> Should dispatch Stale Data notification
+    # 1. Place symbol into cooloff / mark stale
     res = mark_symbol_stale(sym, reason="STALE_DATA_TEST", scanner="FUNDAMENTAL", duration_days=7, notify_admin=True)
     assert res is True
     cooloffs = get_active_cooloff_symbols("FUNDAMENTAL")
     assert sym in cooloffs
 
-    assert len(notifications_sent) == 1
-    assert sym in notifications_sent[0]["title"]
-    assert notifications_sent[0]["symbol"] == sym
-    assert "Marking as stale data" in notifications_sent[0]["message"]
+    # Data Insufficient & Stale Data notifications are intentionally suppressed per user request
+    assert len(notifications_sent) == 0
 
-    # 2. Call check_and_restore_stale_stock -> Should dispatch Stale Stock Restored notification
+    # 2. Call check_and_restore_stale_stock -> Successfully restores symbol from cool-off
     restored = check_and_restore_stale_stock(sym, source="FILING_WATCHER", period_end="2025-03-31", notify_admin=True)
     assert restored is True
-
-    assert len(notifications_sent) == 2
-    assert notifications_sent[1]["title"] == f"Stale Stock Restored: {sym}"
-    assert notifications_sent[1]["symbol"] == sym
-    assert "Fresh financial data" in notifications_sent[1]["message"]
 
     # 3. Verify symbol is evicted from active cooloff
     cooloffs_after = get_active_cooloff_symbols("FUNDAMENTAL")
     assert sym not in cooloffs_after
 
-    # 4. Calling again for the same now-clean symbol should return False (not stale) and send no new notifications
+    # 4. Calling again for the same now-clean symbol should return False (not stale)
     restored_again = check_and_restore_stale_stock(sym, source="FILING_WATCHER")
     assert restored_again is False
-    assert len(notifications_sent) == 2
 
 
 def test_event_logging_date_normalization_not_truncated(temp_watcher):

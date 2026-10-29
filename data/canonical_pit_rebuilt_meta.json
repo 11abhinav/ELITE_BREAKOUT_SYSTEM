@@ -7,7 +7,7 @@
   "universe_symbol_hash": "2a7bce799def04c77cc65d6b5af69cdb2a5c04124d16c0596abf6f3be6d7bf71",
   "publication_decision": "PUBLISHED",
   "publication_reason": "Backfill authentic filings for 9 stale stocks",
-  "FINANCIAL_SNAPSHOT_STATUS": "SNAPSHOT_READY_FOR_SCANNER",
+  "FINANCIAL_SNAPSHOT_STATUS": "BUILDING",
   "snapshot_status": "READY",
   "total_symbols": 886,
   "pit_complete_count": 884,
@@ -26,5 +26,9 @@
   "roce_complete": 814,
   "certified_provenance_count": 645,
   "stale_count": 0,
-  "gap_count": 0
+  "gap_count": 0,
+  "snapshot_status_updated_at": "2026-10-29T10:33:27.681865",
+  "as_of_date": "2026-10-29",
+  "target_symbols_count": 1,
+  "rebuild_started_at": "2026-10-29T10:33:27.680336"
 }
