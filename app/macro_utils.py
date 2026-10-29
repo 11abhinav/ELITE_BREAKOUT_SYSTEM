@@ -8,7 +8,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
-from database import get_connection
+try:
+    from database import get_connection
+except ImportError:
+    from app.database import get_connection
 
 # [VERSION: MACRO_CACHE_V2.0] Session-Aware Single-Flight Macro Cache with 15m TTL
 # RATIONALE:
@@ -160,9 +163,20 @@ class MarketRegimeEngine:
             except Exception:
                 adx_val = 0.0
                 
+            # Multi-dimensional trend evaluation combining momentum (20d return)
+            # and moving average trend structure (price vs SMA50/SMA200 & SMA50 vs SMA200)
+            ma_bull = (price > sma50 and sma50 > sma200)
+            ma_bear = (price < sma50 and price < sma200) or (sma50 < sma200 and price < sma50)
+
             trend = "NEUTRAL"
-            if n_ret > 2.0: trend = "BULL"
-            elif n_ret < -2.0: trend = "BEAR"
+            if n_ret > 2.0 or (ma_bull and n_ret > -1.0):
+                trend = "BULL"
+            elif n_ret < -2.0 or (ma_bear and n_ret < 1.0):
+                trend = "BEAR"
+            elif ma_bear:
+                trend = "BEAR"
+            elif ma_bull:
+                trend = "BULL"
                 
             strength = "WEAK"
             if adx_val >= 25.0: strength = "STRONG"
