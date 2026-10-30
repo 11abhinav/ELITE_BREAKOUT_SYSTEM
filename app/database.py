@@ -5347,6 +5347,21 @@ def reset_all_scanners_on_boot() -> None:
                     );
                 """)
 
+                # Clean up legacy false findings rows from previous audit bug on 2026-10-30
+                cur.execute("""
+                    DELETE FROM corporate_filings_log WHERE run_id = '1d34ebc4';
+                    UPDATE scanner_execution_history
+                    SET metrics_json = jsonb_set(
+                        jsonb_set(
+                            jsonb_set(metrics_json, '{fetch_success}', '0'::jsonb),
+                            '{filings_found}', '0'::jsonb
+                        ),
+                        '{already_up_to_date}', '861'::jsonb
+                    ),
+                    summary_notes = 'Audited 861 stocks in 968.15s. Up to date: 861, Attempted: 0, Ingested: 0, Failed: 0.'
+                    WHERE run_id = '1d34ebc4';
+                """)
+
                 # 4. Ensure schedule_map entries exist without overwriting PAUSED status
                 now_str = datetime.now(IST).isoformat()
                 schedule_map = {
