@@ -5169,7 +5169,7 @@ def get_all_scanner_health() -> list[dict]:
         "WEALTH_EXIT_V2": "V2 EOD Exit Execution Engine · 18:30 IST EOD Execution Pulse (Strategy Evaluators + wealth_engine.py)",
         "QUALITY_COMPOUNDER_EXIT": "QualityCompounderExitMonitor · 18:30 IST Post-Market Exit Engine (QualityCompounderExitEvaluator + wealth_engine.py)",
         "QUALITY_VALUE_RECOVERY_EXIT": "QualityValueRecoveryExitMonitor · 18:30 IST Post-Market Exit Engine (CanonicalRecoveryE3ExitEvaluator + wealth_engine.py)",
-        "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
+        "FILING_WATCHER": "Daily 22:00 IST (Night Filing Sweep)",
     }
 
 
@@ -5358,7 +5358,7 @@ def reset_all_scanners_on_boot() -> None:
                     "PERFORMANCE_TRACKER": "Exit Monitor · Technical (EOD, REVERSAL, MULTI_TF) · Every 5m (09:15 - 15:30 IST)",
                     "WEALTH_EXIT_V1": "V1 Intraday Exit Monitor · 15:15 IST Pre-Close Warning Pulse (ORANGE / SELL_REVIEW, Position OPEN)",
                     "WEALTH_EXIT_V2": "V2 EOD Exit Execution Engine · 18:30 IST EOD Execution Pulse (Strategy Evaluators + wealth_engine.py)",
-                    "FILING_WATCHER": "Periodic (08:00, 16:30, 21:00 IST)",
+                    "FILING_WATCHER": "Daily 22:00 IST (Night Filing Sweep)",
                 }
                 for sc_name, sched_str in schedule_map.items():
                     is_stopped = is_scanner_stopped(sc_name)

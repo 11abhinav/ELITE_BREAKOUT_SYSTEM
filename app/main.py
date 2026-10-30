@@ -1520,9 +1520,7 @@ def run_system_scheduler():
     last_technical_date = now_boot.date() if (now_boot.hour > 18 or (now_boot.hour == 18 and now_boot.minute >= 15)) else None
     last_wealth_daily_date = now_boot.date() if now_boot.hour >= 17 else None
     last_quality_recovery_date = now_boot.date() if (now_boot.hour > 17 or (now_boot.hour == 17 and now_boot.minute >= 15)) else None
-    last_filing_poll_morning = now_boot.date() if now_boot.hour >= 8 else None
-    last_filing_poll_postclose = now_boot.date() if (now_boot.hour > 16 or (now_boot.hour == 16 and now_boot.minute >= 30)) else None
-    last_filing_poll_night = now_boot.date() if now_boot.hour >= 21 else None
+    last_filing_poll_date = now_boot.date() if now_boot.hour >= 22 else None
     
     try:
         from stock_analyzer import refresh_master_symbols_universe
@@ -1582,15 +1580,7 @@ def run_system_scheduler():
 
             now = datetime.now(IST)
 
-            # 08:00 AM - Corporate Filing Watcher Pre-Market Sweep
-            if (now.hour > 8 or (now.hour == 8 and now.minute >= 0)) and last_filing_poll_morning != now.date():
-                last_filing_poll_morning = now.date()
-                if not is_scanner_stopped("FILING_WATCHER"):
-                    logger.info("🕒 SCHEDULER | [08:00] Triggering FILING_WATCHER (Pre-Market Corporate Filing Sweep)")
-                    import threading
-                    threading.Thread(target=_trigger_filing_watcher, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="FilingWatcherMorning", daemon=True).start()
-                else:
-                    logger.info("⏭️ FILING_WATCHER is STOPPED by Admin. Skipping 08:00 run.")
+
 
             # 8:30 AM - Verify Scans
             if now.hour == 8 and now.minute >= 30 and not verify_scans_ran:
@@ -1709,19 +1699,7 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ TECHNICAL is STOPPED by Admin. Skipping 18:15 run.")
 
-            # 16:30 - Corporate Filing Watcher Post-Market Earnings Sweep (Pre-17:00 Daily Scans)
-            if (now.hour > 16 or (now.hour == 16 and now.minute >= 30)) and last_filing_poll_postclose != now.date():
-                last_filing_poll_postclose = now.date()
-                if not is_scanner_stopped("FILING_WATCHER"):
-                    logger.info("🕒 SCHEDULER | [16:30] Triggering FILING_WATCHER (Post-Market Earnings Sweep)")
-                    import threading
-                    threading.Thread(target=_trigger_filing_watcher, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="FilingWatcherPostClose", daemon=True).start()
-                else:
-                    logger.info("⏭️ FILING_WATCHER is STOPPED by Admin. Skipping 16:30 run.")
-
             # 17:00 - Quality Compounder V2 Full Daily Scan (Post-Market 5Y Quality & 25% EV/EBITDA Valuation Review)
-            # [RULE 67 CHANGE-RATIONALE: Align 17:00 daily scan with certified QUALITY_COMPOUNDER]
-            # Wealth Engine was decommissioned; QUALITY_COMPOUNDER is the certified production strategy.
             if (now.hour > 17 or (now.hour == 17 and now.minute >= 0)) and last_wealth_daily_date != now.date():
                 last_wealth_daily_date = now.date()
                 if not is_scanner_stopped("QUALITY_COMPOUNDER") and not is_scanner_stopped("QUALITY_COMPOUNDER_VALUE_V2_FINAL"):
@@ -1741,15 +1719,15 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ QUALITY_VALUE_RECOVERY is STOPPED by Admin. Skipping 17:15 IST daily scan.")
 
-            # 21:00 - Corporate Filing Watcher Night Sweep
-            if (now.hour > 21 or (now.hour == 21 and now.minute >= 0)) and last_filing_poll_night != now.date():
-                last_filing_poll_night = now.date()
+            # 22:00 - Corporate Filing Watcher Daily Sweep (Once a day at 10:00 PM IST)
+            if (now.hour > 22 or (now.hour == 22 and now.minute >= 0)) and last_filing_poll_date != now.date():
+                last_filing_poll_date = now.date()
                 if not is_scanner_stopped("FILING_WATCHER"):
-                    logger.info("🕒 SCHEDULER | [21:00] Triggering FILING_WATCHER (Night Filing Sweep)")
+                    logger.info("🕒 SCHEDULER | [22:00] Triggering FILING_WATCHER (Daily 10:00 PM Corporate Filing Sweep)")
                     import threading
-                    threading.Thread(target=_trigger_filing_watcher, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="FilingWatcherNight", daemon=True).start()
+                    threading.Thread(target=_trigger_filing_watcher, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="FilingWatcherDaily", daemon=True).start()
                 else:
-                    logger.info("⏭️ FILING_WATCHER is STOPPED by Admin. Skipping 21:00 run.")
+                    logger.info("⏭️ FILING_WATCHER is STOPPED by Admin. Skipping 22:00 run.")
 
             # [DECOMMISSIONED] 17:30 MULTIBAGGER scanner slot permanently removed.
 
@@ -1788,7 +1766,7 @@ def check_scanner_staleness(now):
         "QUALITY_VALUE_RECOVERY":             "DAILY",  # runs full scan once daily at 17:15 IST
         "QUALITY_VALUE_RECOVERY_WEALTH_V1":   "DAILY",  # alias for backward compat
         "DAILY_BUILDER":                      "DAILY",
-        "FILING_WATCHER":                     "DAILY",  # corporate filings watcher (08:00, 16:30, 21:00 IST)
+        "FILING_WATCHER":                     "DAILY",  # corporate filings watcher (daily 22:00 IST)
     }
     
     # Throttle: only run this check every 15 minutes

@@ -57,8 +57,7 @@ def test_get_all_scanner_health_includes_filing_watcher():
     filing_rows = [r for r in rows if r.get("scanner_name") == "FILING_WATCHER"]
     assert len(filing_rows) == 1, "FILING_WATCHER must appear in get_all_scanner_health"
     row = filing_rows[0]
-    assert "08:00" in row.get("scheduled_for", "")
-    assert "16:30" in row.get("scheduled_for", "")
+    assert "22:00" in row.get("scheduled_for", "")
 
 
 def test_successful_watcher_cycle_records_history_and_ok_health(monkeypatch):
