@@ -2113,6 +2113,9 @@ class FinancialFilingWatcher:
         except ImportError:
             from database import upsert_corporate_filing_finding
 
+        if only_updated:
+            return []
+
         # Load canonical PIT snapshot used by trading scanners (Single Source of Truth)
         snap_map: Dict[str, Any] = {}
         try:
@@ -2563,9 +2566,9 @@ class FinancialFilingWatcher:
             # 6. Complete scanner_execution_history with detailed telemetry breakdown
             poll_stats = getattr(self, "last_poll_stats", {})
             tot_scanned = poll_stats.get("total_scanned", processed)
-            up_to_date = poll_stats.get("already_up_to_date", max(0, tot_scanned - filings_found_count))
-            attempted = poll_stats.get("fetch_attempted", max(0, tot_scanned - up_to_date))
-            success = poll_stats.get("fetch_success", filings_found_count)
+            up_to_date = poll_stats["already_up_to_date"] if "already_up_to_date" in poll_stats else max(0, tot_scanned - filings_found_count)
+            attempted = poll_stats["fetch_attempted"] if "fetch_attempted" in poll_stats else max(0, tot_scanned - up_to_date)
+            success = poll_stats["fetch_success"] if "fetch_success" in poll_stats else filings_found_count
             failed = poll_stats.get("fetch_failed", 0)
 
             if run_ctx:
