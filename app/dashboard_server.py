@@ -7499,11 +7499,15 @@ def start_dashboard_server():
         # and notify health responder to transparently reverse-proxy full dashboard requests to Flask!
         flask_port = port
         try:
-            from health_responder import mark_flask_ready, FLASK_INTERNAL_PORT
+            try:
+                from health_responder import mark_flask_ready, FLASK_INTERNAL_PORT
+            except ImportError:
+                from app.health_responder import mark_flask_ready, FLASK_INTERNAL_PORT
             flask_port = FLASK_INTERNAL_PORT
             mark_flask_ready(flask_port)
             logger.info(f"🌐 [PROXY] Early health responder routing traffic to Flask on internal port {flask_port}")
-        except Exception:
+        except Exception as _e:
+            logger.warning(f"⚠️ Could not notify early health responder: {_e}")
             for p in (8000, 8080):
                 if p != port:
                     _start_port_forwarder(p, port)

@@ -36,22 +36,13 @@ def _handle_client(client_sock: socket.socket):
             client_sock.close()
             return
 
-        # Check if Flask dashboard is running and request is NOT a simple health probe
-        is_healthcheck = (
-            data.startswith(b"GET / ") or 
-            data.startswith(b"GET /health") or 
-            data.startswith(b"HEAD /") or 
-            b"curl" in data.lower() or 
-            b"wget" in data.lower() or 
-            b"healthcheck" in data.lower()
-        )
-
-        if not FLASK_READY or is_healthcheck:
+        # Before Flask is ready, immediately answer any incoming probe/request with 200 OK
+        if not FLASK_READY:
             client_sock.sendall(HEALTH_HTTP_200)
             client_sock.close()
             return
 
-        # Forward non-healthcheck requests to Flask
+        # Forward requests to Flask on internal port once Flask is ready
         try:
             target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             target_sock.connect(("127.0.0.1", FLASK_PORT))
