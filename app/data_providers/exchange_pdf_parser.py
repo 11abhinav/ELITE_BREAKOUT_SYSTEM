@@ -169,10 +169,18 @@ class ExchangePdfParser:
         records: List[RawFinancialRecord] = []
 
         try:
-            reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-        except Exception as pdf_err:
-            logger.warning(f"[PDF_PARSER] PyPDF2 failed to open PDF for {symbol}: {pdf_err}")
-            return []
+            # Strip trailing garbage bytes after %%EOF to prevent PyPDF2 'negative seek value -1'
+            clean_bytes = pdf_bytes
+            eof_pos = clean_bytes.rfind(b"%%EOF")
+            if eof_pos != -1:
+                clean_bytes = clean_bytes[:eof_pos + 5]
+            reader = PyPDF2.PdfReader(io.BytesIO(clean_bytes), strict=False)
+        except Exception:
+            try:
+                reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes), strict=False)
+            except Exception as pdf_err:
+                logger.warning(f"[PDF_PARSER] PyPDF2 failed to open PDF for {symbol}: {pdf_err}")
+                return []
 
         for page_idx, page in enumerate(reader.pages):
             try:
