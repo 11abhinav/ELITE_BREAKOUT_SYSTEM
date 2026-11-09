@@ -2060,6 +2060,54 @@ class FinancialFilingWatcher:
         os.replace(tmp_path, raw_path)
         logger.info(f"💾 [filling scanner] Successfully persisted fresh filing for {sym_u} ({norm_period_end} {statement_type}) to {raw_path}.")
 
+        # Also persist & merge into data/exchange_financials/<sym_u>/raw/<sym_u>_filings_v1.payload.json and update sha256
+        try:
+            exch_raw_dir = BASE_DIR / "data" / "exchange_financials" / sym_u / "raw"
+            exch_raw_dir.mkdir(parents=True, exist_ok=True)
+            payload_f = exch_raw_dir / f"{sym_u}_filings_v1.payload.json"
+            sha_f = exch_raw_dir / f"{sym_u}_filings_v1.sha256"
+            payload_list = []
+            if payload_f.exists():
+                try:
+                    with open(payload_f, "r", encoding="utf-8") as pf:
+                        p_data = json.load(pf)
+                        if isinstance(p_data, list):
+                            payload_list = p_data
+                except Exception:
+                    payload_list = []
+
+            p_map = {}
+            for item in payload_list:
+                pk = (_normalize_iso_date(item.get("period_end_date")), str(item.get("statement_type", "")).upper(), str(item.get("basis", "")).upper())
+                p_map[pk] = item
+            for item in existing_list:
+                pk = (_normalize_iso_date(item.get("period_end_date")), str(item.get("statement_type", "")).upper(), str(item.get("basis", "")).upper())
+                p_map[pk] = item
+
+            merged_payload = sorted(list(p_map.values()), key=lambda x: str(_normalize_iso_date(x.get("period_end_date")) or ""))
+            tmp_payload = f"{payload_f}.tmp.{os.getpid()}"
+            with open(tmp_payload, "w", encoding="utf-8") as pf:
+                json.dump(merged_payload, pf, indent=2)
+            os.replace(tmp_payload, payload_f)
+
+            import hashlib
+            with open(payload_f, "rb") as pf:
+                payload_sha = hashlib.sha256(pf.read()).hexdigest()
+            with open(sha_f, "w", encoding="utf-8") as sf:
+                sf.write(payload_sha)
+        except Exception as _sync_err:
+            logger.debug(f"[filling scanner] Exchange payload sync note for {sym_u}: {_sync_err}")
+
+        # Evict health audit cache so dashboard displays fresh filing info immediately
+        try:
+            try:
+                from app.database import clear_unified_stock_data_health_cache
+            except ImportError:
+                from database import clear_unified_stock_data_health_cache
+            clear_unified_stock_data_health_cache()
+        except Exception:
+            pass
+
         # Check and restore if stock was previously marked stale or in cool-off
         try:
             try:

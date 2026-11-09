@@ -10051,6 +10051,28 @@ def _get_bse_security_master() -> Dict[str, Any]:
     except Exception:
         return _SEC_MASTER_CACHE or {}
 
+_WATCHER_STATE_CACHE = {}
+_WATCHER_STATE_MTIME = 0.0
+_WATCHER_STATE_LOCK = threading.Lock()
+
+def _get_watcher_state_cache() -> Dict[str, Any]:
+    """Caches filing_watcher_state.json in memory using mtime validation."""
+    global _WATCHER_STATE_CACHE, _WATCHER_STATE_MTIME
+    state_p = Path(__file__).resolve().parent.parent / "data" / "filing_watcher_state.json"
+    if not state_p.exists():
+        return {}
+    try:
+        mt = state_p.stat().st_mtime
+        with _WATCHER_STATE_LOCK:
+            if _WATCHER_STATE_CACHE and _WATCHER_STATE_MTIME == mt:
+                return _WATCHER_STATE_CACHE
+            with open(state_p, "r", encoding="utf-8") as f:
+                _WATCHER_STATE_CACHE = json.load(f)
+            _WATCHER_STATE_MTIME = mt
+            return _WATCHER_STATE_CACHE
+    except Exception:
+        return _WATCHER_STATE_CACHE or {}
+
 def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[str, Any]]:
     """
     Scans and parses pit_raw_filings/*.json incrementally across worker threads.
@@ -10082,7 +10104,7 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                     _m_data = json.load(_mf)
                 if isinstance(_m_data, dict) and len(_m_data) > 0:
                     sample_entry = next(iter(_m_data.values())) if _m_data else None
-                    if sample_entry and "null_filings" in sample_entry:
+                    if sample_entry and "null_filings" in sample_entry and "latest_quarterly" in sample_entry:
                         _AUDIT_RAW_FILINGS_CACHE = _m_data
             except Exception:
                 pass
@@ -10098,7 +10120,7 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
             try:
                 mtime = p.stat().st_mtime
                 cached = _AUDIT_RAW_FILINGS_CACHE.get(sym)
-                if not cached or cached.get("mtime") != mtime or "null_filings" not in cached:
+                if not cached or cached.get("mtime") != mtime or "null_filings" not in cached or "latest_quarterly" not in cached:
                     to_parse.append((p, sym, mtime))
             except Exception:
                 to_parse.append((p, sym, 0))
@@ -10127,6 +10149,8 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                         annual_years = []
                         has_missing_bs = False
                         latest_annual = None
+                        latest_annual_p = None
+                        latest_quarterly_p = None
 
                         for stmt in data:
                             p_end = str(stmt.get("period_end_date") or "")[:10]
@@ -10137,6 +10161,8 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                             except Exception:
                                 is_ann = (("ANNUAL" in stt or "FY" in stt or (p_end.endswith("-03-31") and "QUARTER" not in stt and "Q" not in stt)) and not any(k in stt for k in ("HALF", "H1", "H2", "6M")))
                             if is_ann and len(p_end) >= 4:
+                                if latest_annual_p is None or p_end > latest_annual_p:
+                                    latest_annual_p = p_end
                                 try:
                                     yr = int(p_end[:4])
                                     if yr not in annual_years:
@@ -10145,6 +10171,9 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                                     pass
                                 if latest_annual is None or p_end > str(latest_annual.get("period_end_date", "")):
                                     latest_annual = stmt
+                            elif not is_ann:
+                                if latest_quarterly_p is None or p_end > latest_quarterly_p:
+                                    latest_quarterly_p = p_end
 
                             # Check if facts are null in recent statements (e.g. within last 3 years)
                             if p_end >= "2024-01-01":
@@ -10170,6 +10199,8 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                         return sym, {
                             "count": len(data),
                             "latest": latest,
+                            "latest_quarterly": latest_quarterly_p or "",
+                            "latest_annual": latest_annual_p or "",
                             "mtime": mtime,
                             "recent": recent,
                             "null_filings": null_filings,
@@ -10178,9 +10209,9 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                             "has_missing_bs": has_missing_bs,
                         }
                     else:
-                        return sym, {"count": 0, "latest": "Empty", "mtime": mtime, "recent": [], "null_filings": [], "annual_years": [], "gaps": [], "has_missing_bs": False}
+                        return sym, {"count": 0, "latest": "Empty", "latest_quarterly": "", "latest_annual": "", "mtime": mtime, "recent": [], "null_filings": [], "annual_years": [], "gaps": [], "has_missing_bs": False}
                 except Exception:
-                    return sym, {"count": 0, "latest": "Error", "mtime": 0, "recent": [], "null_filings": [], "annual_years": [], "gaps": [], "has_missing_bs": False}
+                    return sym, {"count": 0, "latest": "Error", "latest_quarterly": "", "latest_annual": "", "mtime": 0, "recent": [], "null_filings": [], "annual_years": [], "gaps": [], "has_missing_bs": False}
 
             workers = min(16, max(4, (os.cpu_count() or 4) * 2))
             with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -10531,9 +10562,17 @@ def clear_unified_stock_data_health_cache() -> None:
     the next dashboard request recalculates fresh status without waiting for TTL expiry.
     """
     global _UNIFIED_AUDIT_CACHE, _UNIFIED_AUDIT_CACHE_TS
+    global _AUDIT_RAW_FILINGS_CACHE, _AUDIT_RAW_FILINGS_LAST_SCAN
+    global _WATCHER_STATE_CACHE, _WATCHER_STATE_MTIME
     with _UNIFIED_AUDIT_LOCK:
         _UNIFIED_AUDIT_CACHE = None
         _UNIFIED_AUDIT_CACHE_TS = 0.0
+    with _AUDIT_RAW_LOCK:
+        _AUDIT_RAW_FILINGS_CACHE = {}
+        _AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
+    with _WATCHER_STATE_LOCK:
+        _WATCHER_STATE_CACHE = {}
+        _WATCHER_STATE_MTIME = 0.0
     try:
         from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
         with _STOCK_DATA_HEALTH_LOCK:
@@ -10770,6 +10809,34 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
     sec_master = _get_bse_security_master()
     raw_cache = _get_parsed_raw_filings_cache()
     snap_df = _load_canonical_snapshot_df()
+    watcher_state = _get_watcher_state_cache()
+
+    def _resolve_last_fetch(sym, raw_i, snap_i=None, fallback_dt=None):
+        w_i = watcher_state.get(sym, {})
+        p_iso = w_i.get("last_polled_at")
+        if p_iso and len(str(p_iso)) >= 16:
+            return str(p_iso).replace("T", " ")[:16]
+        m = raw_i.get("mtime", 0) if raw_i else 0
+        if m:
+            return datetime.fromtimestamp(m).strftime("%Y-%m-%d %H:%M")
+        if snap_i and snap_i.get("as_of_date"):
+            return str(snap_i.get("as_of_date"))[:16]
+        if fallback_dt:
+            return str(fallback_dt)[:16]
+        return "—"
+
+    def _resolve_periods(sym, raw_i, snap_i=None):
+        ann = ""
+        qtr = ""
+        if snap_i:
+            ann = str(snap_i.get("latest_annual_period") or "")[:10]
+            qtr = str(snap_i.get("latest_quarterly_period") or "")[:10]
+        if raw_i:
+            if not ann or ann == "None":
+                ann = str(raw_i.get("latest_annual") or "")[:10]
+            if not qtr or qtr == "None":
+                qtr = str(raw_i.get("latest_quarterly") or "")[:10]
+        return ann, qtr
 
     if snap_df is None or snap_df.empty:
         return [], []
@@ -10827,6 +10894,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                         isin_val = sm_info.get("isin", "")
 
                         raw_info = raw_cache.get(sym)
+                        ann_p, qtr_p = _resolve_periods(sym, raw_info, snap_item)
                         stale_map[sym] = {
                             "symbol": sym,
                             "company_name": comp_name,
@@ -10839,7 +10907,10 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                             "cooloff_until": until_dt.isoformat() if hasattr(until_dt, "isoformat") else str(until_dt),
                             "days_remaining": max(0.0, days_left),
                             "status": "STALE_COOLOFF",
-                            "source": "COOLOFF_JOURNAL"
+                            "source": "COOLOFF_JOURNAL",
+                            "last_fetched_at": _resolve_last_fetch(sym, raw_info, snap_item, start_at),
+                            "latest_annual_period": ann_p,
+                            "latest_quarterly_period": qtr_p,
                         }
 
                     # Fast batch purge of restored symbols in single SQL statement
@@ -10876,6 +10947,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     comp_name = sm_info.get("company_name", sym)
                     isin_val = sm_info.get("isin", "")
                     raw_info = raw_cache.get(sym)
+                    ann_p, qtr_p = _resolve_periods(sym, raw_info, snap_item)
                     stale_map[sym] = {
                         "symbol": sym,
                         "company_name": comp_name,
@@ -10888,7 +10960,10 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                         "cooloff_until": until.isoformat() if hasattr(until, "isoformat") else str(until),
                         "days_remaining": max(0.0, days_left),
                         "status": "STALE_COOLOFF",
-                        "source": "COOLOFF_CACHE"
+                        "source": "COOLOFF_CACHE",
+                        "last_fetched_at": _resolve_last_fetch(sym, raw_info, snap_item, rec.get("cooloff_start_at")),
+                        "latest_annual_period": ann_p,
+                        "latest_quarterly_period": qtr_p,
                     }
         for k in local_keys_to_del:
             try:
@@ -10924,8 +10999,14 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             # If symbol already identified as stale (from cooloff journal/cache), enrich with snapshot metrics
             if sym in stale_map:
                 item = stale_map[sym]
+                raw_info = raw_cache.get(sym)
+                ann_p, qtr_p = _resolve_periods(sym, raw_info, row)
                 if not item.get("latest_annual_period"):
-                    item["latest_annual_period"] = str(row.get("latest_annual_period") or "")
+                    item["latest_annual_period"] = ann_p or str(row.get("latest_annual_period") or "")
+                if not item.get("latest_quarterly_period"):
+                    item["latest_quarterly_period"] = qtr_p
+                if not item.get("last_fetched_at"):
+                    item["last_fetched_at"] = _resolve_last_fetch(sym, raw_info, row)
                 if not item.get("isin"):
                     item["isin"] = str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or "")
                 item["cmp"] = _val(row.get("cmp"))
@@ -10951,7 +11032,6 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                 item["ebitda"] = _val(row.get("ebitda"), 1)
                 item["provenance_status"] = str(row.get("provenance_status") or "PARTIAL")
 
-                raw_info = raw_cache.get(sym)
                 if raw_info and raw_info.get("count", 0) > 0:
                     item["filings_count_in_db"] = raw_info["count"]
                     item["latest_period_in_db"] = raw_info["latest"]
@@ -10970,6 +11050,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                 reason = f"PIT_STALENESS_{round(staleness_years, 1)}Y" if staleness_years > 2.0 else ("FILING_GAP_DETECTED" if has_gap else "DATA_STALE")
                 comp_name = sec_master.get(sym, {}).get("company_name", sym)
                 raw_info = raw_cache.get(sym)
+                ann_p, qtr_p = _resolve_periods(sym, raw_info, row)
                 stale_map[sym] = {
                     "symbol": sym,
                     "company_name": comp_name,
@@ -10982,7 +11063,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     "days_remaining": 7.0,
                     "status": "STALE_SNAPSHOT",
                     "source": "PIT_SNAPSHOT_METRICS",
-                    "latest_annual_period": str(row.get("latest_annual_period") or ""),
+                    "last_fetched_at": _resolve_last_fetch(sym, raw_info, row, row.get("as_of_date")),
+                    "latest_annual_period": ann_p,
+                    "latest_quarterly_period": qtr_p,
                     "latest_period_in_db": raw_info.get("latest", "None") if raw_info else "No local file",
                     "filings_count_in_db": raw_info.get("count", 0) if raw_info else 0,
                     "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
@@ -11041,6 +11124,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     if not missing_summary or missing_summary == reason or "not met" in missing_summary.lower():
                         missing_summary = f"Local raw cache backfill pending ({sym_label}). Exchange requires {sym_mand_period} (Due {sym_deadline}), but local files end at {raw_period}."
 
+                ann_p, qtr_p = _resolve_periods(sym, raw_info, row)
                 stale_map[sym] = {
                     "symbol": sym,
                     "company_name": comp_name,
@@ -11053,7 +11137,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     "days_remaining": 7.0,
                     "status": status_code,
                     "source": "SEBI_LODR_REG33_SCHEDULE",
-                    "latest_annual_period": str(row.get("latest_annual_period") or ""),
+                    "last_fetched_at": _resolve_last_fetch(sym, raw_info, row, row.get("as_of_date")),
+                    "latest_annual_period": ann_p,
+                    "latest_quarterly_period": qtr_p,
                     "latest_period_in_db": raw_period,
                     "filings_count_in_db": raw_count,
                     "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
@@ -11104,6 +11190,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             if missing_fund_fields or is_insuff_status:
                 comp_name = sec_master.get(sym, {}).get("company_name", sym)
                 reason = f"INSUFFICIENT_HISTORICAL_DEPTH: {', '.join(missing_fund_fields)}" if missing_fund_fields else (freshness or "DATA_INSUFFICIENT")
+                ann_p, qtr_p = _resolve_periods(sym, raw_info, row)
                 stale_map[sym] = {
                     "symbol": sym,
                     "company_name": comp_name,
@@ -11116,7 +11203,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     "days_remaining": 7.0,
                     "status": "DATA_INSUFFICIENT",
                     "source": "PIT_METRIC_VALIDATION",
-                    "latest_annual_period": str(row.get("latest_annual_period") or ""),
+                    "last_fetched_at": _resolve_last_fetch(sym, raw_info, row, row.get("as_of_date")),
+                    "latest_annual_period": ann_p,
+                    "latest_quarterly_period": qtr_p,
                     "latest_period_in_db": raw_info.get("latest", "None") if raw_info else "No local file",
                     "filings_count_in_db": raw_info.get("count", 0) if raw_info else 0,
                     "isin": str(row.get("isin") or sec_master.get(sym, {}).get("isin", "") or ""),
@@ -11147,10 +11236,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
 
             # Otherwise: perfectly certified FRESH stock
             comp_name = sec_master.get(sym, {}).get("company_name", sym)
-            mtime = raw_info.get("mtime", 0) if raw_info else 0
-            last_fetched_at = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M") if mtime else None
+            ann_p, qtr_p = _resolve_periods(sym, raw_info, row)
+            last_fetched = _resolve_last_fetch(sym, raw_info, row, row.get("as_of_date"))
             as_of = str(row.get("as_of_date") or "")
-            annual_period = str(row.get("latest_annual_period") or "")[:10]
 
             if len(fresh_list) < limit_fresh:
                 fresh_list.append({
@@ -11163,9 +11251,10 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     "recovery_status": str(row.get("recovery_status") or ""),
                     "provenance_hash": str(row.get("provenance_hash") or "")[:16],
                     "latest_period_in_db": raw_period,
-                    "latest_annual_period": annual_period,
+                    "latest_annual_period": ann_p,
+                    "latest_quarterly_period": qtr_p,
                     "as_of_date": as_of,
-                    "last_fetched_at": last_fetched_at or as_of,
+                    "last_fetched_at": last_fetched or as_of,
                     "pit_staleness_years": _val(row.get("pit_staleness_years"), 2),
                     "annual_filing_count": raw_count,
                     "filings_count_in_db": raw_count,

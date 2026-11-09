@@ -4458,8 +4458,8 @@ function changeAdminPage(type, delta) {
                   <th onclick="sortStockDataHealth('last_fetched')" class="sdh-th-sortable" style="padding:10px 12px; width:130px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Last Fetched date">
                     Last Fetched <span id="sdh-sort-last_fetched" style="color:var(--muted); font-size:10px;">⇅</span>
                   </th>
-                  <th onclick="sortStockDataHealth('latest_period')" class="sdh-th-sortable" style="padding:10px 12px; width:110px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Latest Period">
-                    Latest Period <span id="sdh-sort-latest_period" style="color:var(--muted); font-size:10px;">⇅</span>
+                  <th onclick="sortStockDataHealth('latest_period')" class="sdh-th-sortable" style="padding:10px 12px; width:130px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Latest Period (Qtr / FY)">
+                    Latest Period (Qtr / FY) <span id="sdh-sort-latest_period" style="color:var(--muted); font-size:10px;">⇅</span>
                   </th>
                   <th onclick="sortStockDataHealth('filings_count')" class="sdh-th-sortable" style="padding:10px 12px; width:80px; text-align:center; cursor:pointer; user-select:none;" title="Click to sort by Number of Filings in DB">
                     Filings <span id="sdh-sort-filings_count" style="color:var(--muted); font-size:10px;">⇅</span>
@@ -14956,12 +14956,12 @@ function renderStockDataHealthTable() {
         bVal = b._is_stale ? 'STALE' : 'FRESH';
         break;
       case 'last_fetched':
-        aVal = a._is_stale ? (a.cooloff_start_at || '') : (a.last_fetched_at || a.as_of_date || '');
-        bVal = b._is_stale ? (b.cooloff_start_at || '') : (b.last_fetched_at || b.as_of_date || '');
+        aVal = a.last_fetched_at || a.as_of_date || (a._is_stale ? (a.cooloff_start_at || '') : '');
+        bVal = b.last_fetched_at || b.as_of_date || (b._is_stale ? (b.cooloff_start_at || '') : '');
         break;
       case 'latest_period':
-        aVal = a.latest_period_in_db || a.latest_annual_period || '';
-        bVal = b.latest_period_in_db || b.latest_annual_period || '';
+        aVal = a.latest_quarterly_period || a.latest_period_in_db || a.latest_annual_period || '';
+        bVal = b.latest_quarterly_period || b.latest_period_in_db || b.latest_annual_period || '';
         break;
       case 'filings_count':
         aVal = a.filings_count_in_db !== undefined ? a.filings_count_in_db : 0;
@@ -15225,27 +15225,37 @@ function renderStockDataHealthTable() {
         <td style="padding:7px 10px; text-align:center; vertical-align:middle;">${statusBadge}</td>
         <!-- LAST FETCHED -->
         <td style="padding:7px 10px; text-align:center; vertical-align:middle; font-family:monospace; font-size:11px; color:${isStale ? '#f59e0b' : 'var(--muted)'};">
-          ${isStale ? (it.cooloff_start_at ? it.cooloff_start_at.slice(0,10) : '—') : lastFetched}
+          ${lastFetched}
         </td>
-        <!-- LATEST PERIOD (Display Parity: Snapshot Period & Raw Cache Period) -->
+        <!-- LATEST PERIOD (Display Parity: Latest Quarter / Annual FY) -->
         <td style="padding:7px 10px; text-align:center; vertical-align:middle; font-family:monospace; font-size:11px;">
           ${(() => {
-            const snapP = it.latest_annual_period || '';
-            const rawP = it.latest_period_in_db || '';
-            const isSebiOverdue = it.status === 'STALE_SEBI_LODR' || (it.reason && it.reason.includes('STALE_SEBI_LODR'));
-            const statusLabel = isSebiOverdue ? '<span style="color:#ef4444;">(SEBI filing pending)</span>' : '<span style="color:#ef4444;">(Backfill pending)</span>';
-            if (rawP && rawP !== 'No local file' && rawP !== 'None' && snapP && snapP !== rawP) {
+            const annP = it.latest_annual_period || '';
+            const qtrP = it.latest_quarterly_period || (it.latest_period_in_db && it.latest_period_in_db !== annP && it.latest_period_in_db !== 'No local file' && it.latest_period_in_db !== 'None' ? it.latest_period_in_db : '');
+            
+            // Format Quarter label if date is standard quarter end
+            const getQtrLabel = (d) => {
+              if (!d || d.length < 10) return d || '';
+              const m = d.slice(5, 7);
+              let q = '';
+              if (m === '06') q = ' (Q1)';
+              else if (m === '09') q = ' (Q2)';
+              else if (m === '12') q = ' (Q3)';
+              else if (m === '03') q = ' (Q4)';
+              return `${d}${q}`;
+            };
+
+            if (qtrP) {
               return `
-                <div style="font-weight:800; color:var(--text); font-size:11px;">${snapP}</div>
-                <div style="font-size:9.5px; color:#f59e0b; font-weight:700; margin-top:2px;" title="Latest statement present in local raw filings on disk">Raw DB: ${rawP} ${isStale ? statusLabel : ''}</div>
+                <div style="font-weight:800; color:${isStale ? '#f59e0b' : '#10b981'}; font-size:11px;">${getQtrLabel(qtrP)}</div>
+                ${annP ? `<div style="font-size:9.5px; color:var(--muted); margin-top:1px;">FY: ${annP}</div>` : ''}
               `;
-            } else if (rawP === 'No local file' || rawP === 'None') {
+            } else if (annP) {
               return `
-                <div style="font-weight:800; color:var(--text); font-size:11px;">${snapP || '—'}</div>
-                <div style="font-size:9.5px; color:#ef4444; font-weight:700; margin-top:2px;" title="No local raw filing on disk">Raw DB: None ${statusLabel}</div>
+                <div style="font-weight:800; color:${isStale ? '#f59e0b' : '#10b981'}; font-size:11px;">FY: ${annP}</div>
               `;
             } else {
-              return `<span style="color:${isStale ? '#f59e0b' : '#10b981'}; font-weight:800;">${rawP || snapP || '—'}</span>`;
+              return `<span style="color:var(--muted);">—</span>`;
             }
           })()}
         </td>
