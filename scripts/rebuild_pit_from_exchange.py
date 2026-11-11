@@ -165,7 +165,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
                             st_type = str(it.get("statement_type") or it.get("period_type") or it.get("period") or "").upper()
                             src = str(it.get("source") or "").upper()
                             st = classify_statement_type(st_type, period_end_date=p_end)
-                            if st != "ANNUAL" and ("AUDITED" in src or "ANNUAL" in src) and not any(k in st_type for k in ("HALF", "H1", "H2", "6M", "Q1", "Q2", "Q3", "QUARTER")):
+                            if st != "ANNUAL" and ("AUDITED" in src or "ANNUAL" in src) and not any(k in st_type for k in ("HALF", "H1", "H2", "6M", "Q1", "Q2", "Q3", "QUARTER")) and not p_end.endswith(("-06-30", "-09-30")):
                                 st = "ANNUAL"
                             elif st != "ANNUAL" and p_end.endswith("-03-31") and not any(k in st_type for k in ("HALF", "H1", "H2", "6M", "Q1", "Q2", "Q3", "QUARTER")) and (it.get("revenue") is not None or it.get("net_profit") is not None):
                                 st = "ANNUAL"

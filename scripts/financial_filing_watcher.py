@@ -857,6 +857,30 @@ class FinancialFilingWatcher:
             return SnapshotFreshnessStatus.FRESH  # Default to baseline if un-updated
 
         status_str = entry.get("snapshot_status", SnapshotFreshnessStatus.FRESH.value)
+        if status_str == SnapshotFreshnessStatus.INVALID.value:
+            # Self-healing reconciliation: check if canonical snapshot is actually certified and fresh
+            try:
+                if SNAPSHOT_PATH.exists():
+                    import pandas as _pd_heal
+                    _df_heal = _pd_heal.read_parquet(
+                        SNAPSHOT_PATH,
+                        columns=["symbol", "provenance_status", "pit_freshness_status", "filing_gap_detected"]
+                    )
+                    _row = _df_heal[_df_heal["symbol"] == sym]
+                    if not _row.empty:
+                        _r = _row.iloc[0]
+                        if (
+                            _r.get("provenance_status") == "CERTIFIED"
+                            and _r.get("pit_freshness_status") in ("VALID", "FRESH")
+                            and not bool(_r.get("filing_gap_detected", False))
+                        ):
+                            logger.info(f"🛡️ [WATCHER] Auto-healed snapshot status from INVALID to FRESH for {sym} (canonical dataset is CERTIFIED & FRESH).")
+                            entry["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
+                            self._save_state()
+                            return SnapshotFreshnessStatus.FRESH
+            except Exception as _heal_err:
+                logger.debug(f"[WATCHER] Freshness healing probe notice for {sym}: {_heal_err}")
+
         return SnapshotFreshnessStatus(status_str)
 
     # -------------------------------------------------------------------------
@@ -1069,7 +1093,9 @@ class FinancialFilingWatcher:
                                 is_qtr = (_st_class in ("QUARTERLY", "HALF_YEARLY", "NINE_MONTHS"))
 
                                 # Annual statements: audited full year results or completed March 31 fiscal periods
-                                if is_ann or _p.endswith("-03-31"):
+                                # (Strict guard: -06-30 and -09-30 are strictly Q1 and Q2/H1, never Annual full-year)
+                                is_genuine_annual = (is_ann or _p.endswith("-03-31")) and not _p.endswith(("-06-30", "-09-30"))
+                                if is_genuine_annual:
                                     local_annual_count += 1
                                     try:
                                         annual_years.add(int(_p[:4]))
@@ -1242,6 +1268,8 @@ class FinancialFilingWatcher:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
                         latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                        if latest_ann_p and not latest_ann_p.endswith(("-03-31", "-12-31")):
+                            latest_ann_p = None
                         if sym_u not in self.state:
                             self.state[sym_u] = {
                                 "filings": {},
@@ -1254,6 +1282,18 @@ class FinancialFilingWatcher:
                         else:
                             self.state[sym_u]["bootstrap_completed"] = True
                             self.state[sym_u]["last_polled_at"] = now_ist_str
+                            if latest_local_period:
+                                self.state[sym_u]["latest_filing_date"] = latest_local_period
+                            if latest_ann_p:
+                                self.state[sym_u]["latest_annual_date"] = latest_ann_p
+                            if (
+                                snap_row is not None
+                                and snap_row.get("provenance_status") == "CERTIFIED"
+                                and snap_row.get("pit_freshness_status") in ("VALID", "FRESH")
+                                and not bool(snap_row.get("filing_gap_detected", False))
+                                and self.state[sym_u].get("snapshot_status") == SnapshotFreshnessStatus.INVALID.value
+                            ):
+                                self.state[sym_u]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
                     with counter_lock:
                         skipped_complete_count[0] += 1
                     logger.info(
@@ -1570,6 +1610,8 @@ class FinancialFilingWatcher:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
                         latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                        if latest_ann_p and not latest_ann_p.endswith(("-03-31", "-12-31")):
+                            latest_ann_p = None
                         if sym_u not in self.state:
                             self.state[sym_u] = {
                                 "filings": {},
@@ -1583,6 +1625,10 @@ class FinancialFilingWatcher:
                             self.state[sym_u]["last_polled_at"] = now_ist_str
                             if not needs_bootstrap:
                                 self.state[sym_u]["bootstrap_completed"] = True
+                            if latest_local_period:
+                                self.state[sym_u]["latest_filing_date"] = latest_local_period
+                            if latest_ann_p:
+                                self.state[sym_u]["latest_annual_date"] = latest_ann_p
                     return
 
                 import re as _re_poll
@@ -1599,6 +1645,8 @@ class FinancialFilingWatcher:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
                         latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                        if latest_ann_p and not latest_ann_p.endswith(("-03-31", "-12-31")):
+                            latest_ann_p = None
                         if sym_u not in self.state:
                             self.state[sym_u] = {
                                 "filings": {},
@@ -1612,6 +1660,10 @@ class FinancialFilingWatcher:
                             self.state[sym_u]["last_polled_at"] = now_ist_str
                             if not needs_bootstrap:
                                 self.state[sym_u]["bootstrap_completed"] = True
+                            if latest_local_period:
+                                self.state[sym_u]["latest_filing_date"] = latest_local_period
+                            if latest_ann_p:
+                                self.state[sym_u]["latest_annual_date"] = latest_ann_p
                     return
 
                 # Deduplicate and sort items chronologically
@@ -1698,6 +1750,8 @@ class FinancialFilingWatcher:
                     from zoneinfo import ZoneInfo
                     now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
                     latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                    if latest_ann_p and not latest_ann_p.endswith(("-03-31", "-12-31")):
+                        latest_ann_p = None
                     if sym_u not in self.state:
                         self.state[sym_u] = {
                             "filings": {},
@@ -2098,13 +2152,17 @@ class FinancialFilingWatcher:
         except Exception as _sync_err:
             logger.debug(f"[filling scanner] Exchange payload sync note for {sym_u}: {_sync_err}")
 
-        # Evict health audit cache so dashboard displays fresh filing info immediately
+        # Evict health audit cache and raw filings audit cache so dashboard displays fresh filing info immediately
         try:
             try:
-                from app.database import clear_unified_stock_data_health_cache
+                import app.database as _app_db_evict
             except ImportError:
-                from database import clear_unified_stock_data_health_cache
-            clear_unified_stock_data_health_cache()
+                import database as _app_db_evict
+            if hasattr(_app_db_evict, "_AUDIT_RAW_LOCK") and hasattr(_app_db_evict, "_AUDIT_RAW_FILINGS_CACHE"):
+                with _app_db_evict._AUDIT_RAW_LOCK:
+                    _app_db_evict._AUDIT_RAW_FILINGS_CACHE.pop(sym_u, None)
+            if hasattr(_app_db_evict, "clear_unified_stock_data_health_cache"):
+                _app_db_evict.clear_unified_stock_data_health_cache()
         except Exception:
             pass
 

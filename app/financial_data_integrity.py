@@ -258,14 +258,23 @@ def classify_statement_type(
     if any(k in raw_st for k in quarterly_keywords):
         return "QUARTERLY"
 
-    # 5. Check for Annual / Full Year keywords (NOW SAFE from 'HALF_YEAR' substring!)
+    # 5. Strict Period-End Date Guard against False Annuals:
+    # Under Indian Corporate Law (Companies Act 2013 / SEBI LODR Reg 33):
+    # - June 30 (-06-30) is strictly Q1 (Quarterly). Never Annual.
+    # - September 30 (-09-30) is strictly Q2 / H1 (Half-Yearly). Never Annual.
+    p_end_clean = str(p_to or period_end_date or "").strip()[:10]
+    if p_end_clean.endswith("-06-30"):
+        return "QUARTERLY"
+    if p_end_clean.endswith("-09-30"):
+        return "HALF_YEARLY"
+
+    # 6. Check for Annual / Full Year keywords (NOW SAFE from 'HALF_YEAR' substring and -06-30/-09-30!)
     annual_keywords = ("ANNUAL", "FULL YEAR", "FULL-YEAR", "AUDITED", "FY", "12 MONTH")
     if any(k in raw_st for k in annual_keywords) or (raw_st in ("YEAR", "YEARLY")) or ("_YEAR" in raw_st) or ("YEARLY" in raw_st):
         return "ANNUAL"
 
-    # 6. Fallback based on period_end_date if available:
-    p_end = str(period_end_date or "").strip()
-    if p_end.endswith("-03-31"):
+    # 7. Fallback based on period_end_date if available:
+    if p_end_clean.endswith("-03-31"):
         return "ANNUAL"
 
     return "QUARTERLY"
@@ -2448,9 +2457,11 @@ def check_pre_buy_source_freshness_fence(
                 sym_st = st_data.get(sym_clean, {})
                 is_annual_canonical = str(canonical_period_end or "").endswith("-03-31")
                 w_latest_date = sym_st.get("latest_annual_date") if is_annual_canonical else sym_st.get("latest_filing_date")
+                if is_annual_canonical and w_latest_date and not str(w_latest_date).endswith(("-03-31", "-12-31")):
+                    w_latest_date = None
                 if not w_latest_date and is_annual_canonical:
                     raw_w = sym_st.get("latest_filing_date")
-                    if raw_w and str(raw_w).endswith("-03-31"):
+                    if raw_w and str(raw_w).endswith(("-03-31", "-12-31")):
                         w_latest_date = raw_w
                 if w_latest_date and canonical_period_end and str(w_latest_date) > str(canonical_period_end):
                     return False, f"UNPROCESSED_WATCHER_FILING: Watcher detected filing {w_latest_date} > canonical {canonical_period_end}"
