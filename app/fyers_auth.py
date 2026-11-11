@@ -825,11 +825,19 @@ def get_fyers_client() -> fyersModel.FyersModel:
         f"  History endpoint       : https://api-t1.fyers.in/data/history"
     )
 
+    # Suppress internal Fyers SDK error logging on candidate symbol probing (-300 Invalid symbol)
+    for _f_lg in ("fyersModel", "fyers_apiv3", "fyers_apiv3.fyersModel", "FyersAPI", "FyersAPIRequest"):
+        try:
+            logging.getLogger(_f_lg).setLevel(logging.CRITICAL)
+        except Exception:
+            pass
+
     client = fyersModel.FyersModel(
         client_id=target_client_id,
         token=token,
         log_path=log_path,
-        is_async=False
+        is_async=False,
+        log_level="CRITICAL"
     )
     return client
 

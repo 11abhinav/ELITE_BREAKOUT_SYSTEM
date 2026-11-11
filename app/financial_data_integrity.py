@@ -2923,15 +2923,15 @@ def pre_buy_integrity_gate(
             )
 
     if reasons:
-        has_only_position_open = all(r.startswith("EXISTING_POSITION_OPEN") for r in reasons)
-        if has_only_position_open:
+        has_position_open = any(r.startswith("EXISTING_POSITION_OPEN") for r in reasons)
+        if has_position_open:
             logger.info(
-                f"ℹ️ [PRE_BUY_GATE] {scanner}/{symbol}: BUY SKIPPED. Position already open: {reasons}"
+                f"ℹ️ [PRE_BUY_GATE] {scanner}/{symbol}: BUY SKIPPED. Position already open in portfolio: {reasons}"
             )
         else:
-            logger.error(
-                f"[PRE_BUY_GATE] {scanner}/{symbol}: BUY BLOCKED. "
-                f"{len(reasons)} integrity failure(s): {reasons}"
+            logger.warning(
+                f"🛡️ [PRE_BUY_GATE] {scanner}/{symbol}: BUY REJECTED by integrity gate. "
+                f"{len(reasons)} reason(s): {reasons}"
             )
         return False, reasons
 

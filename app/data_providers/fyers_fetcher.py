@@ -21,6 +21,14 @@ import fyers_auth
 import config
 
 logger = logging.getLogger(__name__)
+
+# Suppress noisy internal Fyers SDK error loggers (-300 Invalid symbol during candidate probe)
+for _f_name in ("fyersModel", "fyers_apiv3", "fyers_apiv3.fyersModel", "FyersAPI", "FyersAPIRequest"):
+    try:
+        logging.getLogger(_f_name).setLevel(logging.CRITICAL)
+    except Exception:
+        pass
+
 IST = ZoneInfo("Asia/Kolkata")
 _last_auth_notif_time = 0
 
