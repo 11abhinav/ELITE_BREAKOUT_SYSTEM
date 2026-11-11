@@ -167,10 +167,9 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
             return None
-        # Configure pool size via env override if provided (strictly default to 10 to prevent Postgres client exhaustion)
-        # Configure pool size via env override if provided (default to 30 for high concurrency)
+        # Configure pool size via env override if provided (default to 10 min, 50 max)
         maxconn = int(os.getenv("DB_MAXCONN", "50"))
-        minconn = int(os.getenv("DB_MINCONN", "5"))
+        minconn = int(os.getenv("DB_MINCONN", "10"))
         # [RULE 67 CHANGE-RATIONALE]:
         # Configures PostgreSQL session parameters (timezone, statement_timeout, idle_in_transaction_timeout)
         # directly in the connection options at pool initialization. This eliminates 4 synchronous network round-trips
@@ -211,11 +210,11 @@ atexit.register(close_pool)
 
 
 @contextmanager
-def get_connection(timeout: int = 20):
-    """Get DB connection with circuit breaker pattern.
+def get_connection(timeout: int = 15):
+    """Get DB connection with circuit breaker pattern and leak-proof semaphore cleanup.
 
     Acquires an internal semaphore before checking out a connection from the pool.
-    This prevents busy loops from exhausting the pool and creating noisy logs.
+    Guarantees that semaphore permits and connections are always released in finally blocks.
     """
     from psycopg2 import OperationalError, DatabaseError, pool as ps_pool
 
@@ -229,6 +228,7 @@ def get_connection(timeout: int = 20):
     if p is None:
         yield DummyConnection()
         return
+
     conn = None
     acquired = False
     try:
@@ -243,10 +243,10 @@ def get_connection(timeout: int = 20):
         if _conn_semaphore is not None:
             acquired = _conn_semaphore.acquire(timeout=timeout)
             if not acquired:
-                logger.warning("⚠️ Semaphore checkout timeout (20s) — attempting direct pool checkout fallback")
+                logger.warning("⚠️ Semaphore checkout timeout (15s) — pool saturated, attempting direct pool checkout fallback")
 
-        # Retry checkout up to 5 times if server returns "too many clients" or pool exhausted
-        for attempt in range(5):
+        # Retry checkout up to 3 times
+        for attempt in range(3):
             try:
                 conn = p.getconn()
                 if conn is not None:
@@ -257,11 +257,10 @@ def get_connection(timeout: int = 20):
                             pass
                         conn = None
                         continue
-                    # Ensure checked out connection is clean and not in an aborted transaction state
+                    # Ensure checked out connection is clean and idle
                     try:
-                        conn.rollback()
-                        with conn.cursor() as _ping_cur:
-                            _ping_cur.execute("SELECT 1")
+                        if not conn.closed and conn.info.transaction_status != 0:
+                            conn.rollback()
                     except Exception:
                         try:
                             p.putconn(conn, close=True)
@@ -274,19 +273,23 @@ def get_connection(timeout: int = 20):
                 if conn:
                     try:
                         p.putconn(conn, close=True)
-                    except Exception: pass
+                    except Exception:
+                        pass
                     conn = None
-                if attempt < 4:
-                    time.sleep(0.25 * (attempt + 1))
+                if attempt < 2:
+                    time.sleep(0.1 * (attempt + 1))
                     continue
+                logger.warning(f"⚠️ DB connection pool checkout failed after 3 attempts: {oe}")
                 raise oe
-    except (OperationalError, ps_pool.PoolError) as e:
-        # Circuit breaker: log and fail fast instead of hanging
-        logger.warning(f"⚠️ DB connection pool exhausted: {e}")
-        raise
 
-    try:
+        if conn is None:
+            raise ps_pool.PoolError("connection pool checkout returned None")
+
         yield conn
+
+    except (OperationalError, ps_pool.PoolError) as e:
+        logger.warning(f"⚠️ DB connection pool checkout error: {e}")
+        raise
     except Exception as e:
         is_conn_drop = False
         if isinstance(e, OperationalError):
@@ -301,7 +304,8 @@ def get_connection(timeout: int = 20):
         if conn:
             try:
                 conn.rollback()
-            except Exception: pass
+            except Exception:
+                pass
             try:
                 p.putconn(conn, close=True)
             except Exception:
@@ -312,11 +316,6 @@ def get_connection(timeout: int = 20):
         # Return connection to pool if we checked one out
         if conn:
             try:
-                # [FIX: IDLE IN TRANSACTION]
-                # psycopg2 does not implicitly rollback open read transactions when putconn is called.
-                # If a caller forgets to commit, or if it was just a SELECT query,
-                # we MUST rollback here to prevent poisoning the pool with open transactions
-                # which blocks Postgres vacuuming and causes severe MVCC bloat.
                 if not conn.closed:
                     conn.rollback()
                 p.putconn(conn)
@@ -325,6 +324,7 @@ def get_connection(timeout: int = 20):
                     p.putconn(conn, close=True)
                 except Exception:
                     pass
+            conn = None
         # Release semaphore if we acquired it
         if _conn_semaphore is not None and acquired:
             try:
