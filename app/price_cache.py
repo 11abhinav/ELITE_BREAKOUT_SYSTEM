@@ -925,6 +925,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         batch_size = BATCH_DOWNLOAD_SIZE
     fetcher = get_fetcher()
     rate_limited = False
+    _download_start = time.monotonic()
+    max_download_duration = int(os.environ.get("MAX_DOWNLOAD_ALL_SECONDS", "1200"))
 
     history_dir = os.path.join(DATA_DIR, "history", interval)
     os.makedirs(history_dir, exist_ok=True)
@@ -1161,6 +1163,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         desc = "FULL" if group_key == "FULL" else f"DELTA {range_from} to {range_to}"
         
         for i in range(0, group_total, batch_size):
+            if (time.monotonic() - _download_start) > max_download_duration:
+                logger.warning(
+                    f"⏳ [{requester}] Batch download reached maximum duration limit ({max_download_duration}s). "
+                    f"Proceeding with {len(all_data)} acquired symbols to prevent watchdog execution timeout."
+                )
+                break
             batch = group_symbols[i : i + batch_size]
             batch_end = min(i + batch_size, group_total)
             import random

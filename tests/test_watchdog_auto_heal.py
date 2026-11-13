@@ -7,11 +7,27 @@ class TestWatchdogAutoHeal(unittest.TestCase):
         from database import auto_heal_stuck_scanner_runs, SCANNER_MAX_RUNTIME_MINUTES
         self.assertIn("PERFORMANCE_TRACKER", SCANNER_MAX_RUNTIME_MINUTES)
         self.assertLessEqual(SCANNER_MAX_RUNTIME_MINUTES["PERFORMANCE_TRACKER"], 15.0)
+        self.assertIn("TECHNICAL", SCANNER_MAX_RUNTIME_MINUTES)
+        self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["TECHNICAL"], 60.0)
 
     def test_scanner_run_context_safety_fuse_configuration(self):
         from scanner_run_context import SCANNER_MAX_EXECUTION_SECONDS, ScannerRunContext
         self.assertIn("PERFORMANCE_TRACKER", SCANNER_MAX_EXECUTION_SECONDS)
         self.assertLessEqual(SCANNER_MAX_EXECUTION_SECONDS["PERFORMANCE_TRACKER"], 900)
+        self.assertIn("TECHNICAL", SCANNER_MAX_EXECUTION_SECONDS)
+        self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["TECHNICAL"], 3600)
+
+    @patch("psycopg2.extras.execute_values")
+    @patch("database.get_connection")
+    def test_bulk_update_alert_current_prices(self, mock_conn, mock_exec_val):
+        from database import bulk_update_alert_current_prices
+        mock_cur = MagicMock()
+        mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cur
+        
+        updates = [(1, 100.5), (2, 250.75)]
+        bulk_update_alert_current_prices(updates)
+        self.assertTrue(mock_exec_val.called)
+        self.assertTrue(mock_conn.return_value.__enter__.return_value.commit.called)
 
     @patch("database.get_connection")
     @patch("database.insert_notification")

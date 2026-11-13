@@ -1753,18 +1753,11 @@ def run_technical_scan(
             "final_alerts": 0,
         }
 
-        for idx, symbol in enumerate(watchlist, 1):
-            if idx % 50 == 0 or idx == len(watchlist):
-                logger.info(f"⏳ [TECHNICAL] Evaluated {idx}/{len(watchlist)} stocks ({len(qualified_candidates)} qualified)...")
-
+        def _evaluate_single_stock(symbol):
             df = all_1d.get(symbol)
             if df is None or df.empty:
-                if real_run_ctx:
-                    real_run_ctx.mark_incomplete(1)
-                rejection_counts["NO_DATA"] = rejection_counts.get("NO_DATA", 0) + 1
-                continue
+                return symbol, "NO_DATA", None, None, False
 
-            # Track data freshness / staleness in execution context and hard-block stale data
             is_stale = getattr(df, "_is_stale", False) or getattr(df, "attrs", {}).get("is_stale", False)
             if not is_stale:
                 t_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
@@ -1778,46 +1771,61 @@ def run_technical_scan(
                             is_stale = True
 
             if is_stale:
+                return symbol, "STALE_DATA", None, None, True
+
+            try:
+                res, tr = detect_technical_setup(df, symbol, return_trace=True)
+                return symbol, "SUCCESS", res, tr, False
+            except Exception as e:
+                logger.debug(f"Error evaluating {symbol} in technical scanner: {e}")
+                return symbol, "EXCEPTION", None, None, False
+
+        import concurrent.futures
+        max_workers = min(8, max(2, os.cpu_count() or 4))
+        logger.info(f"⚡ [TECHNICAL] Evaluating {len(watchlist)} stocks concurrently with {max_workers} worker threads...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            eval_results = list(executor.map(_evaluate_single_stock, watchlist))
+
+        for symbol, outcome, res, tr, is_stale in eval_results:
+            if outcome == "NO_DATA":
+                if real_run_ctx:
+                    real_run_ctx.mark_incomplete(1)
+                rejection_counts["NO_DATA"] = rejection_counts.get("NO_DATA", 0) + 1
+                continue
+            if outcome == "STALE_DATA":
                 if real_run_ctx:
                     real_run_ctx.mark_stale(1)
                 logger.debug(f"🛑 [TECHNICAL REJECT] {symbol} rejected due to STALE market data.")
                 rejection_counts["STALE_DATA"] = rejection_counts.get("STALE_DATA", 0) + 1
                 continue
-            else:
-                if real_run_ctx:
-                    real_run_ctx.mark_fresh(1)
+            if outcome == "EXCEPTION":
+                rejection_counts["EXCEPTION"] = rejection_counts.get("EXCEPTION", 0) + 1
+                continue
 
+            # Fresh data passed
+            if real_run_ctx:
+                real_run_ctx.mark_fresh(1)
             funnel_stats["data_fetched"] += 1
 
-            try:
-                res, tr = detect_technical_setup(df, symbol, return_trace=True)
-                
-                # Funnel accounting based on structured trace
-                if tr["02_COMMON_GATES"]["status"] == "PASS":
-                    funnel_stats["common_gates_pass"] += 1
-                    
-                if len(tr["03_PATTERN_DISCOVERY"]["detected_patterns"]) > 0:
-                    funnel_stats["pattern_candidates"] += 1
-                    
-                if tr["05_RISK"]["status"] == "PASS":
-                    funnel_stats["risk_pass"] += 1
-                    
-                if tr["06_SCORE"].get("status") == "PASS":
-                    funnel_stats["score_pass"] += 1
+            if tr and tr.get("02_COMMON_GATES", {}).get("status") == "PASS":
+                funnel_stats["common_gates_pass"] += 1
+            if tr and len(tr.get("03_PATTERN_DISCOVERY", {}).get("detected_patterns", [])) > 0:
+                funnel_stats["pattern_candidates"] += 1
+            if tr and tr.get("05_RISK", {}).get("status") == "PASS":
+                funnel_stats["risk_pass"] += 1
+            if tr and tr.get("06_SCORE", {}).get("status") == "PASS":
+                funnel_stats["score_pass"] += 1
 
-                if res and res.get("score", 0) >= 70:
-                    pat_detected = res.get("primary_pattern")
-                    if pat_detected in APPROVED_TECHNICAL_PATTERNS:
-                        qualified_candidates.append(res)
-                    else:
-                        logger.debug(f"🛑 [UNAPPROVED PATTERN DROPPED] {symbol} {pat_detected} not in APPROVED_TECHNICAL_PATTERNS")
-                        rejection_counts[f"UNAPPROVED_PATTERN_{pat_detected}"] = rejection_counts.get(f"UNAPPROVED_PATTERN_{pat_detected}", 0) + 1
+            if res and res.get("score", 0) >= 70:
+                pat_detected = res.get("primary_pattern")
+                if pat_detected in APPROVED_TECHNICAL_PATTERNS:
+                    qualified_candidates.append(res)
                 else:
-                    term_reason = tr["FINAL"].get("terminal_reason", "UNKNOWN_REJECTION")
-                    rejection_counts[term_reason] = rejection_counts.get(term_reason, 0) + 1
-            except Exception as e:
-                logger.debug(f"Error evaluating {symbol} in technical scanner: {e}")
-                rejection_counts["EXCEPTION"] = rejection_counts.get("EXCEPTION", 0) + 1
+                    logger.debug(f"🛑 [UNAPPROVED PATTERN DROPPED] {symbol} {pat_detected} not in APPROVED_TECHNICAL_PATTERNS")
+                    rejection_counts[f"UNAPPROVED_PATTERN_{pat_detected}"] = rejection_counts.get(f"UNAPPROVED_PATTERN_{pat_detected}", 0) + 1
+            else:
+                term_reason = tr.get("FINAL", {}).get("terminal_reason", "UNKNOWN_REJECTION") if tr else "UNKNOWN_REJECTION"
+                rejection_counts[term_reason] = rejection_counts.get(term_reason, 0) + 1
 
         alerts_saved = 0
 

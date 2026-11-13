@@ -25,13 +25,13 @@ STALE_THRESHOLDS = {
 }
 
 SCANNER_MAX_EXECUTION_SECONDS = {
-    "PERFORMANCE_TRACKER": 600,       # 10 min
+    "PERFORMANCE_TRACKER": 900,       # 15 min
     "WEALTH_EXIT": 600,               # 10 min
     "AI Worker": 600,                 # 10 min
     "Pledge Worker": 600,             # 10 min
     "FILING_WATCHER": 1800,           # 30 min
     "DAILY_BUILDER": 2700,            # 45 min
-    "TECHNICAL": 2700,                # 45 min
+    "TECHNICAL": 3600,                # 60 min
     "FUNDAMENTAL": 2700,              # 45 min
     "QUALITY_COMPOUNDER": 2700,       # 45 min
     "QUALITY_VALUE_RECOVERY": 2700,   # 45 min

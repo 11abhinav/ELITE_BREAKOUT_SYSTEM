@@ -4201,6 +4201,35 @@ def update_alert_current_price(alert_id: int, current_price: float) -> None:
             except Exception as e:
                 logger.warning(f"⚠️ Failed to update current_price to {current_price} for alert_id {alert_id}: {e}")
 
+def bulk_update_alert_current_prices(updates: list[tuple[int, float]]) -> None:
+    """
+    [OPTIMIZATION: BULK_UPDATE_ALERT_CMP_v1.0]
+    Batch-update current_price and cmp_updated_at for multiple alerts in a single transaction.
+    Replaces N individual single-row UPDATE queries, eliminating lock contention and connection checkout overhead.
+    """
+    if not updates:
+        return
+    from psycopg2.extras import execute_values
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    execute_values(
+                        cur,
+                        """
+                        UPDATE alerts AS a
+                        SET current_price = v.cmp::numeric,
+                            cmp_updated_at = NOW() AT TIME ZONE 'Asia/Kolkata'
+                        FROM (VALUES %s) AS v(alert_id, cmp)
+                        WHERE a.id = v.alert_id::bigint;
+                        """,
+                        updates,
+                        page_size=500
+                    )
+                    conn.commit()
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to bulk-update alert current_prices ({len(updates)} alerts): {e}")
+
 def reset_alert_for_recalculation(alert_id: int) -> bool:
     """
     Resets a closed or partially closed alert back to OPEN state for full replay.
@@ -13577,13 +13606,13 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
 
 
 SCANNER_MAX_RUNTIME_MINUTES = {
-    "PERFORMANCE_TRACKER": 10.0,
+    "PERFORMANCE_TRACKER": 15.0,
     "WEALTH_EXIT": 10.0,
     "AI Worker": 10.0,
     "Pledge Worker": 10.0,
     "FILING_WATCHER": 30.0,
     "DAILY_BUILDER": 45.0,
-    "TECHNICAL": 45.0,
+    "TECHNICAL": 60.0,
     "FUNDAMENTAL": 45.0,
     "QUALITY_COMPOUNDER": 45.0,
     "QUALITY_VALUE_RECOVERY": 45.0,

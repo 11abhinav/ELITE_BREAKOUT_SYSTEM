@@ -1718,34 +1718,37 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         run_ctx.incomplete_count = max(0, len(unique_symbols) - len(current_prices))
 
     # [VERSION: CMP_MASTER_v1.0] Fetch CMP for ALL watchlist symbols and persist to stock_analysis_master.
-    # This makes the master table the single source of truth for live prices across admin + user dashboards.
+    # Offloaded to background daemon thread to eliminate network blocking from the critical 5-minute exit monitor loop.
     if is_open:
-        try:
-            from database import get_connection, bulk_update_cmp
-            watchlist_symbols = set()
-            with get_connection() as _wconn:
-                with _wconn.cursor() as _wcur:
-                    _wcur.execute("""
-                        SELECT DISTINCT symbol FROM user_watchlists WHERE symbol IS NOT NULL AND symbol != ''
-                        UNION
-                        SELECT DISTINCT symbol FROM breakout_watchlist WHERE is_active = TRUE AND symbol IS NOT NULL
-                        UNION
-                        SELECT DISTINCT symbol FROM daily_watchlist_v2 WHERE build_date = (SELECT MAX(build_date) FROM daily_watchlist_v2) AND symbol IS NOT NULL
-                    """)
-                    watchlist_symbols = {r[0] for r in _wcur.fetchall() if r[0]}
-            # Symbols already in current_prices → reuse; new ones → fetch live
-            extra_syms = list(watchlist_symbols - set(unique_symbols))
-            if extra_syms:
-                extra_prices = _fetch_current_prices(extra_syms)
-                all_cmp = {**current_prices, **extra_prices}
-            else:
-                all_cmp = {sym: current_prices[sym] for sym in watchlist_symbols if sym in current_prices}
-            if all_cmp:
-                bulk_update_cmp(all_cmp)
-                logger.info(f"💰 [CMP_MASTER] Updated CMP for {len(all_cmp)} universe/watchlist symbols in stock_analysis_master")
-        except Exception as _cmp_err:
-            logger.warning(f"⚠️ [CMP_MASTER] Could not update watchlist CMP: {_cmp_err}")
+        def _async_update_universe_cmp(known_prices: dict):
+            try:
+                from database import get_connection, bulk_update_cmp
+                watchlist_symbols = set()
+                with get_connection() as _wconn:
+                    with _wconn.cursor() as _wcur:
+                        _wcur.execute("""
+                            SELECT DISTINCT symbol FROM user_watchlists WHERE symbol IS NOT NULL AND symbol != ''
+                            UNION
+                            SELECT DISTINCT symbol FROM breakout_watchlist WHERE is_active = TRUE AND symbol IS NOT NULL
+                            UNION
+                            SELECT DISTINCT symbol FROM daily_watchlist_v2 WHERE build_date = (SELECT MAX(build_date) FROM daily_watchlist_v2) AND symbol IS NOT NULL
+                        """)
+                        watchlist_symbols = {r[0] for r in _wcur.fetchall() if r[0]}
+                # Symbols already in known_prices → reuse; new ones → fetch live
+                extra_syms = list(watchlist_symbols - set(known_prices.keys()))
+                if extra_syms:
+                    extra_prices = _fetch_current_prices(extra_syms)
+                    all_cmp = {**known_prices, **extra_prices}
+                else:
+                    all_cmp = {sym: known_prices[sym] for sym in watchlist_symbols if sym in known_prices}
+                if all_cmp:
+                    bulk_update_cmp(all_cmp)
+                    logger.info(f"💰 [CMP_MASTER] Updated CMP for {len(all_cmp)} universe/watchlist symbols in stock_analysis_master")
+            except Exception as _cmp_err:
+                logger.warning(f"⚠️ [CMP_MASTER] Could not update watchlist CMP: {_cmp_err}")
 
+        import threading as _th
+        _th.Thread(target=_async_update_universe_cmp, args=(dict(current_prices),), name="AsyncUniverseCmpUpdate", daemon=True).start()
 
     stage_tracker.end_stage(f"Fetched prices for {len(current_prices)} symbols | market_open={is_open}")
     # ── 3. Per-trade SL + Target detection via post-alert intraday bars ─────────────
@@ -1860,10 +1863,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             except Exception as _t2_err:
                 logger.warning(f"⚠️ [TIER2] Batch prefetch failed (will fall back to cur_p only): {_t2_err}")
 
-    for t in trades:
-        # [PERF] Yield the GIL so the Flask Dashboard server can handle incoming API requests
-        # preventing 504 Gateway Timeouts during heavy performance tracking loops.
-        time.sleep(0.01)
+    alert_cmp_updates = []
+    for idx, t in enumerate(trades):
+        # [PERF] Micro-yield the GIL periodically without adding dozens of seconds of dead sleep
+        if idx % 50 == 0:
+            time.sleep(0.001)
 
         from corporate_actions import adjust_trade_for_corporate_actions
         adjust_trade_for_corporate_actions(t)
@@ -1910,11 +1914,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                         t["pnl_rs"] = round((cur_p - ep) * sh_b, 2)
                     elif t.get("capital_allocated"):
                         t["pnl_rs"] = round((live_pnl_pct / 100.0) * float(t["capital_allocated"]), 2)
-                try:
-                    from database import update_alert_current_price
-                    update_alert_current_price(t["id"], cur_p)
-                except Exception as e:
-                    logger.warning(f"Failed to persist current_price for trade id {t['id']}: {e}")
+                # Collect active alert CMP for single-transaction bulk update
+                alert_cmp_updates.append((t["id"], float(cur_p)))
         elif is_open and not t["_db_closed"]:
             # [BUG FIX: SL_MISS_ON_BREACH_DAY_v1.0]
             # Previously: hard 'continue' here caused 7-day silent skips when live price failed.
@@ -2057,6 +2058,15 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             )
         if t.get("is_rejected"):
             t["status"] = "REJECTED"
+
+    # [OPTIMIZATION] Bulk-update CMP for all active alerts in one single PostgreSQL transaction
+    if alert_cmp_updates:
+        try:
+            from database import bulk_update_alert_current_prices
+            bulk_update_alert_current_prices(alert_cmp_updates)
+            logger.info(f"✅ [PERF_TRACKER] Bulk-updated current_price for {len(alert_cmp_updates)} active alerts in DB")
+        except Exception as _b_err:
+            logger.warning(f"Failed to bulk-update alert CMPs: {_b_err}")
 
     stage_tracker.end_stage(f"Processed {len(trades)} trades")
     # ── 4. Summary stats ────────────────────────────────────────────────────────────
