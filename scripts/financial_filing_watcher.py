@@ -973,7 +973,7 @@ class FinancialFilingWatcher:
             except ImportError:
                 from data_providers.nse_xbrl_provider import NseXbrlProvider
             _sweep_prov = NseXbrlProvider()
-            market_sweep_filings = _sweep_prov.discover_market_filings_sweep()
+            market_sweep_filings = _sweep_prov.discover_market_filings_sweep(as_of_date=as_of, lookback_days=14)
             if market_sweep_filings:
                 market_sweep_ok = True
                 total_market_disclosures = sum(len(v) for v in market_sweep_filings.values())
@@ -1075,6 +1075,7 @@ class FinancialFilingWatcher:
                 latest_annual_rec = None
                 has_corrupt_or_empty_raw = False
                 has_nse_history = False
+                _ldata: List[Dict[str, Any]] = []
 
                 if raw_path.exists():
                     try:
@@ -1259,6 +1260,19 @@ class FinancialFilingWatcher:
                         elif p_end and not latest_local_period:
                             has_newer_sweep_filing = True
                             break
+                        # Also check if it is a fresh announcement published in the last 14 days
+                        b_ts = str(it.get("broadCastDate") or it.get("filingDate") or "")
+                        if b_ts:
+                            try:
+                                from dateutil.parser import parse as _parse_dt
+                                dt_bcast = _parse_dt(b_ts)
+                                now_bcast = datetime.now(dt_bcast.tzinfo)
+                                if (now_bcast - dt_bcast).total_seconds() < (14 * 86400):
+                                    if str(it.get("attchmntFile") or "").lower().endswith(".pdf") or it.get("hasXbrl"):
+                                        has_newer_sweep_filing = True
+                                        break
+                            except Exception:
+                                pass
 
                 # ── RULE 67 / RESOURCE CONSERVATION INVARIANT: ZERO REDUNDANT SCRAPING ──
                 # 1. If history is complete (not needs_bootstrap) and market sweep verified no new filing:

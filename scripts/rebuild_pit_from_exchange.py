@@ -337,7 +337,7 @@ def compute_canonical_symbol_row(sym: str, as_of: date) -> Dict[str, Any]:
 
     # If latest filing lacks shares and cannot derive from net_profit/eps, check prior valid filings point-in-time
     if (shares_raw is None or pd.isna(shares_raw)) and (net_profit_val is None or eps_val is None or eps_val == 0):
-        for prev_f in reversed(pit_eligible_annual or filings_to_use):
+        for prev_f in reversed(pit_eligible_annual or filings):
             prev_sh = prev_f.get("shares_outstanding")
             if prev_sh is not None and not pd.isna(prev_sh) and float(prev_sh) > 0:
                 shares_raw = prev_sh

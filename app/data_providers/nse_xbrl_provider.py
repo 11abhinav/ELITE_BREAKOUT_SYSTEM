@@ -58,7 +58,7 @@ import time
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Tuple, Any, Set
+from typing import Dict, List, Optional, Tuple, Any, Set, Union
 import xml.etree.ElementTree as ET
 
 import requests
@@ -373,14 +373,23 @@ def _parse_period_end_from_announcement_text(text: Optional[str]) -> Optional[st
             return _parse_date_to_iso(cand)
         except Exception:
             pass
-    # Pattern 3: DD/MM/YYYY
-    m3 = re.search(r"(?:ended|ended on|ending|period ended)\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.IGNORECASE)
+    # Pattern 3: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
+    m3 = re.search(r"(?:ended|ended on|ending|period ended|quarter ended|year ended)\s+(\d{1,2}[-/.][A-Za-z0-9]{2,3}[-/.]\d{4})", text, re.IGNORECASE)
     if m3:
-        try:
-            cand = datetime.strptime(m3.group(1).strip(), "%d/%m/%Y").strftime("%Y-%m-%d")
-            return _parse_date_to_iso(cand)
-        except Exception:
-            pass
+        raw_m3 = m3.group(1).strip()
+        for sep in ["/", "-", "."]:
+            if sep in raw_m3:
+                parts = raw_m3.split(sep)
+                if len(parts) == 3:
+                    try:
+                        d_cand = datetime.strptime(raw_m3, f"%d{sep}%m{sep}%Y").strftime("%Y-%m-%d")
+                        return _parse_date_to_iso(d_cand)
+                    except Exception:
+                        try:
+                            d_cand = datetime.strptime(raw_m3, f"%d{sep}%b{sep}%Y").strftime("%Y-%m-%d")
+                            return _parse_date_to_iso(d_cand)
+                        except Exception:
+                            pass
     # Pattern 4: direct ISO date YYYY-MM-DD (including 30xx clerical slips)
     m4 = re.search(r"\b((?:19|20|30)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))\b", text)
     if m4:
@@ -870,10 +879,15 @@ class NseXbrlProvider:
         self._discovered_cache[symbol] = all_filings
         return all_filings
 
-    def discover_market_filings_sweep(self) -> Dict[str, List[Dict[str, Any]]]:
+    def discover_market_filings_sweep(
+        self,
+        as_of_date: Optional[Union[date, str]] = None,
+        lookback_days: int = 14,
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Discovers all recently published corporate financial results and announcements
-        across the entire market in 3 fast requests (Quarterly, Annual, Corporate Announcements).
+        across the entire market in fast batched requests (Corporate Announcements with date range,
+        plus historical Quarterly and Annual fallback dumps).
         Returns a dict of symbol -> list of filing dictionaries.
         Also warms self._discovered_cache for discovered symbols.
         """
@@ -882,41 +896,27 @@ class NseXbrlProvider:
 
         market_filings: Dict[str, List[Dict[str, Any]]] = {}
 
-        # 1. Fetch market-wide quarterly results
+        # 1. Fetch market-wide corporate announcements (real-time same-day & recent filings)
+        # Using date range parameters (from_date, to_date) ensures NSE returns all recent disclosures
         try:
-            q_url = f"{_BASE_URL}?index=equities&period=Quarterly"
-            raw_q = self._get(q_url, "MARKET_QUARTERLY")
-            if raw_q:
-                rows = raw_q if isinstance(raw_q, list) else (raw_q.get("data", []) if isinstance(raw_q, dict) else [])
-                for r in rows:
-                    if isinstance(r, dict):
-                        sym = str(r.get("symbol") or "").strip().upper()
-                        if sym:
-                            r_copy = dict(r)
-                            r_copy["exchange"] = "NSE"
-                            market_filings.setdefault(sym, []).append(r_copy)
-        except Exception as _e_q:
-            logger.debug(f"[NSE] Market sweep quarterly error: {_e_q}")
+            if as_of_date is None:
+                try:
+                    from zoneinfo import ZoneInfo
+                    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+                    as_of_dt = now_ist.date()
+                except Exception:
+                    as_of_dt = date.today()
+            elif isinstance(as_of_date, str):
+                try:
+                    as_of_dt = datetime.strptime(as_of_date[:10], "%Y-%m-%d").date()
+                except Exception:
+                    as_of_dt = date.today()
+            else:
+                as_of_dt = as_of_date
 
-        # 2. Fetch market-wide annual results
-        try:
-            a_url = f"{_BASE_URL}?index=equities&period=Annual"
-            raw_a = self._get(a_url, "MARKET_ANNUAL")
-            if raw_a:
-                rows = raw_a if isinstance(raw_a, list) else (raw_a.get("data", []) if isinstance(raw_a, dict) else [])
-                for r in rows:
-                    if isinstance(r, dict):
-                        sym = str(r.get("symbol") or "").strip().upper()
-                        if sym:
-                            r_copy = dict(r)
-                            r_copy["exchange"] = "NSE"
-                            market_filings.setdefault(sym, []).append(r_copy)
-        except Exception as _e_a:
-            logger.debug(f"[NSE] Market sweep annual error: {_e_a}")
-
-        # 3. Fetch market-wide corporate announcements (real-time same-day filings)
-        try:
-            ann_url = f"{_ANN_URL}?index=equities"
+            d_to = (as_of_dt + timedelta(days=1)).strftime("%d-%m-%Y")
+            d_from = (as_of_dt - timedelta(days=max(1, lookback_days))).strftime("%d-%m-%Y")
+            ann_url = f"{_ANN_URL}?index=equities&from_date={d_from}&to_date={d_to}"
             raw_ann = self._get(ann_url, "MARKET_ANNOUNCEMENTS")
             if raw_ann:
                 ann_rows = raw_ann if isinstance(raw_ann, list) else (raw_ann.get("data", []) if isinstance(raw_ann, dict) else [])
@@ -942,7 +942,28 @@ class NseXbrlProvider:
                         continue
                     p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
                     if not p_end or p_end < "2020-01-01":
+                        # Attempt to infer reporting period end from filing date if clearly a financial results announcement
+                        an_dt_str = str(item.get("an_dt") or item.get("sort_date") or "")
+                        if an_dt_str:
+                            for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%Y-%m-%d"):
+                                try:
+                                    f_dt = datetime.strptime(an_dt_str[:11].strip(), fmt).date()
+                                    m, y = f_dt.month, f_dt.year
+                                    if m in (10, 11, 12):
+                                        p_end = f"{y}-09-30"
+                                    elif m in (1, 2, 3):
+                                        p_end = f"{y-1}-12-31"
+                                    elif m in (4, 5, 6):
+                                        p_end = f"{y}-03-31"
+                                    elif m in (7, 8, 9):
+                                        p_end = f"{y}-06-30"
+                                    break
+                                except Exception:
+                                    pass
+
+                    if not p_end or p_end < "2020-01-01":
                         continue
+
                     st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
                     basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
                     market_filings.setdefault(sym, []).append({
@@ -963,6 +984,38 @@ class NseXbrlProvider:
                     })
         except Exception as _e_ann:
             logger.debug(f"[NSE] Market sweep announcements error: {_e_ann}")
+
+        # 2. Fetch market-wide quarterly results (fallback dump for historical baseline)
+        try:
+            q_url = f"{_BASE_URL}?index=equities&period=Quarterly"
+            raw_q = self._get(q_url, "MARKET_QUARTERLY")
+            if raw_q:
+                rows = raw_q if isinstance(raw_q, list) else (raw_q.get("data", []) if isinstance(raw_q, dict) else [])
+                for r in rows:
+                    if isinstance(r, dict):
+                        sym = str(r.get("symbol") or "").strip().upper()
+                        if sym:
+                            r_copy = dict(r)
+                            r_copy["exchange"] = "NSE"
+                            market_filings.setdefault(sym, []).append(r_copy)
+        except Exception as _e_q:
+            logger.debug(f"[NSE] Market sweep quarterly error: {_e_q}")
+
+        # 3. Fetch market-wide annual results (fallback dump for historical baseline)
+        try:
+            a_url = f"{_BASE_URL}?index=equities&period=Annual"
+            raw_a = self._get(a_url, "MARKET_ANNUAL")
+            if raw_a:
+                rows = raw_a if isinstance(raw_a, list) else (raw_a.get("data", []) if isinstance(raw_a, dict) else [])
+                for r in rows:
+                    if isinstance(r, dict):
+                        sym = str(r.get("symbol") or "").strip().upper()
+                        if sym:
+                            r_copy = dict(r)
+                            r_copy["exchange"] = "NSE"
+                            market_filings.setdefault(sym, []).append(r_copy)
+        except Exception as _e_a:
+            logger.debug(f"[NSE] Market sweep annual error: {_e_a}")
 
         for s, flist in market_filings.items():
             self._discovered_cache[s] = flist
