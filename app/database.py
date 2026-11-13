@@ -13817,7 +13817,7 @@ SCANNER_MAX_RUNTIME_MINUTES = {
     "WEALTH_EXIT": 10.0,
     "AI Worker": 10.0,
     "Pledge Worker": 10.0,
-    "FILING_WATCHER": 30.0,
+    "FILING_WATCHER": 45.0,
     "DAILY_BUILDER": 45.0,
     "TECHNICAL": 60.0,
     "FUNDAMENTAL": 45.0,

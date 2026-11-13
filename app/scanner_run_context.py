@@ -29,7 +29,7 @@ SCANNER_MAX_EXECUTION_SECONDS = {
     "WEALTH_EXIT": 600,               # 10 min
     "AI Worker": 600,                 # 10 min
     "Pledge Worker": 600,             # 10 min
-    "FILING_WATCHER": 1800,           # 30 min
+    "FILING_WATCHER": 2700,           # 45 min (861 symbols across NSE/BSE corporate filings)
     "DAILY_BUILDER": 2700,            # 45 min
     "TECHNICAL": 3600,                # 60 min
     "FUNDAMENTAL": 2700,              # 45 min

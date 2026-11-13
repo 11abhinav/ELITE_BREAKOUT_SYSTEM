@@ -5909,17 +5909,18 @@ function changeAdminPage(type, delta) {
     };
 
     function openScannerHistory(sc) {
+      const cleanSc = String(sc || '').trim().toUpperCase();
+      window._activeSehScanner = cleanSc;
+      window._sehUserModified = true;
       switchAdminTab('health-errors');
-      setTimeout(() => {
-        const cbs = document.querySelectorAll('.seh-scanner-cb');
-        if (cbs.length > 0) {
-          cbs.forEach(cb => { cb.checked = (cb.value === sc); });
-          if (typeof onSehScannerChange === 'function') onSehScannerChange();
-          if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
-        }
-        const sec = document.getElementById('scanner-execution-history-section');
-        if (sec) sec.scrollIntoView({ behavior: 'smooth' });
-      }, 120);
+      const cbs = document.querySelectorAll('.seh-scanner-cb');
+      if (cbs.length > 0) {
+        cbs.forEach(cb => { cb.checked = (cb.value.toUpperCase() === cleanSc); });
+      }
+      if (typeof updateSehScannerLabel === 'function') updateSehScannerLabel();
+      if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
+      const sec = document.getElementById('scanner-execution-history-section');
+      if (sec) sec.scrollIntoView({ behavior: 'smooth' });
     }
 
     function openScannerCooloff(sc) {
@@ -9114,10 +9115,19 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// [RULE 67 CHANGE-RATIONALE: Persistent Active Scanner History Filter State & Anti-Race Controller]
+window._activeSehScanner = null;
+window._sehUserModified = false;
+let _sehInFlightController = null;
+let _sehRequestSeq = 0;
+
 function getSelectedSehScanners() {
+  if (window._activeSehScanner !== undefined && window._activeSehScanner !== null && window._activeSehScanner !== '') {
+    return window._activeSehScanner;
+  }
   const cbs = Array.from(document.querySelectorAll('.seh-scanner-cb:checked'));
   const allCbs = Array.from(document.querySelectorAll('.seh-scanner-cb'));
-  if (cbs.length === 0 || cbs.length === allCbs.length) {
+  if (cbs.length === 0 || (allCbs.length > 0 && cbs.length === allCbs.length)) {
     return 'ALL';
   }
   return cbs.map(cb => cb.value).join(',');
@@ -9128,24 +9138,51 @@ function updateSehScannerLabel() {
   const allCbs = Array.from(document.querySelectorAll('.seh-scanner-cb'));
   const labelEl = document.getElementById('seh-scanner-label');
   if (!labelEl) return;
-  if (cbs.length === allCbs.length || cbs.length === 0) {
+  
+  const active = window._activeSehScanner;
+  if (active === '' || (window._sehUserModified && cbs.length === 0)) {
+    labelEl.innerHTML = '🎯 <span>Select Scanners...</span>';
+  } else if (active === 'ALL' || (!window._sehUserModified && (cbs.length === allCbs.length || cbs.length === 0))) {
     labelEl.innerHTML = '🎯 <span>All Scanners</span>';
+  } else if (active && !active.includes(',')) {
+    labelEl.innerHTML = `🎯 <span>${escapeHTML(active)}</span>`;
   } else if (cbs.length === 1) {
     labelEl.innerHTML = `🎯 <span>${cbs[0].value}</span>`;
   } else {
-    labelEl.innerHTML = `🎯 <span>${cbs.length} Scanners</span>`;
+    const count = active ? active.split(',').length : cbs.length;
+    labelEl.innerHTML = `🎯 <span>${count} Scanners</span>`;
   }
 }
 
 function setAllSehScanners(checked) {
   document.querySelectorAll('.seh-scanner-cb').forEach(cb => { cb.checked = checked; });
-  updateSehScannerLabel();
-  fetchScannerExecutionHistory(1);
+  window._sehUserModified = true;
+  if (checked) {
+    window._activeSehScanner = 'ALL';
+    updateSehScannerLabel();
+    fetchScannerExecutionHistory(1);
+  } else {
+    window._activeSehScanner = '';
+    const labelEl = document.getElementById('seh-scanner-label');
+    if (labelEl) labelEl.innerHTML = '🎯 <span>Select Scanners...</span>';
+  }
 }
 
 function onSehScannerChange() {
+  const cbs = Array.from(document.querySelectorAll('.seh-scanner-cb:checked'));
+  const allCbs = Array.from(document.querySelectorAll('.seh-scanner-cb'));
+  window._sehUserModified = true;
+  if (cbs.length === 0) {
+    window._activeSehScanner = '';
+  } else if (allCbs.length > 0 && cbs.length === allCbs.length) {
+    window._activeSehScanner = 'ALL';
+  } else {
+    window._activeSehScanner = cbs.map(cb => cb.value).join(',');
+  }
   updateSehScannerLabel();
-  fetchScannerExecutionHistory(1);
+  if (window._activeSehScanner !== '') {
+    fetchScannerExecutionHistory(1);
+  }
 }
 
 async function fetchScannerExecutionHistory(page = 1) {
@@ -9159,11 +9196,22 @@ async function fetchScannerExecutionHistory(page = 1) {
 
   const tbody = document.getElementById('seh-table-body');
 
+  // Cancel prior in-flight fetch and increment sequence counter to eliminate stale response races
+  if (_sehInFlightController) {
+    try { _sehInFlightController.abort(); } catch (e) {}
+  }
+  _sehInFlightController = new AbortController();
+  const thisSeq = ++_sehRequestSeq;
+
   try {
     const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=ALL&git_commit=${encodeURIComponent(git_commit)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20&_t=${Date.now()}`;
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(url, { cache: 'no-store', signal: _sehInFlightController.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+
+    // If another request was dispatched while this request was in-flight, discard stale response
+    if (thisSeq !== _sehRequestSeq) return;
+
     if (data.available_commits) {
       updateSehCommitDropdown(data.available_commits);
     }
@@ -9176,6 +9224,8 @@ async function fetchScannerExecutionHistory(page = 1) {
     }
     renderScannerExecutionHistory(data);
   } catch (e) {
+    if (e.name === 'AbortError') return; // Expected cancellation of superseded request
+    if (thisSeq !== _sehRequestSeq) return;
     console.error("Failed to fetch scanner execution history", e);
     if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--warn);">Failed to load execution history: ${escapeHTML(e.message)}</td></tr>`;
   }
@@ -9212,6 +9262,9 @@ function updateSehScannerDropdown(scanners) {
 
   const currentCbs = container.querySelectorAll('.seh-scanner-cb');
   const isInitial = currentCbs.length === 0;
+  const activeScStr = window._activeSehScanner;
+  const activeSet = new Set(activeScStr ? activeScStr.split(',').map(s => s.trim().toUpperCase()) : []);
+
   const checkedSet = new Set();
   currentCbs.forEach(cb => {
     if (cb.checked) checkedSet.add(cb.value.toUpperCase());
@@ -9220,13 +9273,40 @@ function updateSehScannerDropdown(scanners) {
   const existingValues = Array.from(currentCbs).map(cb => cb.value.toUpperCase()).sort();
   const newValues = scanners.map(s => String(s).trim().toUpperCase()).sort();
   const isSame = existingValues.length === newValues.length && existingValues.every((v, i) => v === newValues[i]);
-  if (isSame && !isInitial) return;
+  
+  if (isSame && !isInitial) {
+    // If the user modified the filter, ensure checkboxes reflect active state without wiping DOM
+    if (window._sehUserModified && activeScStr !== null && activeScStr !== undefined) {
+      currentCbs.forEach(cb => {
+        if (activeScStr === 'ALL') {
+          cb.checked = true;
+        } else if (!activeScStr) {
+          cb.checked = false;
+        } else {
+          cb.checked = activeSet.has(cb.value.toUpperCase());
+        }
+      });
+      updateSehScannerLabel();
+    }
+    return;
+  }
 
   container.innerHTML = '';
   scanners.forEach(sc => {
     const scClean = String(sc).trim().toUpperCase();
     if (!scClean) return;
-    const isChecked = isInitial ? true : checkedSet.has(scClean);
+    let isChecked = true;
+    if (window._sehUserModified && activeScStr !== null && activeScStr !== undefined) {
+      if (activeScStr === 'ALL') {
+        isChecked = true;
+      } else if (!activeScStr) {
+        isChecked = false;
+      } else {
+        isChecked = activeSet.has(scClean);
+      }
+    } else {
+      isChecked = isInitial ? true : checkedSet.has(scClean);
+    }
     const label = document.createElement('label');
     label.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);';
     label.onmouseover = () => { label.style.background = 'var(--card2)'; };
