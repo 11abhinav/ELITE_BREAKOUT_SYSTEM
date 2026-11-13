@@ -82,7 +82,8 @@ DEFAULT_XBRL_CACHE_DIR = os.path.join(BASE_DIR, "data", "xbrl_cache", "nse")
 _BASE_URL     = "https://www.nseindia.com/api/corporates-financial-results"
 _ANN_URL      = "https://www.nseindia.com/api/corporate-announcements"
 _HOME_URL     = "https://www.nseindia.com"
-_TIMEOUT      = 7
+_TIMEOUT      = 15
+_BULK_TIMEOUT = 45
 _MAX_RETRIES  = 2
 _MAX_SESSION_REFRESHES = 1
 
@@ -660,7 +661,7 @@ class NseXbrlProvider:
             self.session = get_nse_session()
             try:
                 # Crucial: Must visit homepage first to prime Akamai anti-bot cookies (_abck, bm_sz, etc.)
-                r_home = self.session.get(_HOME_URL, headers=_HEADERS, timeout=7)
+                r_home = self.session.get(_HOME_URL, headers=_HEADERS, timeout=10)
                 if r_home.status_code == 200:
                     self._initialized = True
                     return True
@@ -673,7 +674,7 @@ class NseXbrlProvider:
         except Exception:
             try:
                 self.session = requests.Session()
-                self.session.get(_HOME_URL, headers=_HEADERS, timeout=7)
+                self.session.get(_HOME_URL, headers=_HEADERS, timeout=10)
                 self._initialized = True
                 return True
             except Exception as e2:
@@ -681,9 +682,13 @@ class NseXbrlProvider:
                 self._initialized = False
                 return False
 
-    def _get(self, url: str, symbol: str) -> Optional[list]:
+    def _get(self, url: str, symbol: str, timeout: Optional[Union[int, tuple]] = None) -> Optional[list]:
         """GET corporate results. Per user directive: Directly tries ScraperAPI first. Only if scraper token not working, falls back to direct NSE session."""
         global _LAST_REQUEST_TIME, _CONSECUTIVE_TIMEOUTS, _CIRCUIT_BREAKER_UNTIL
+
+        is_bulk = symbol.startswith("MARKET_") or "corporate-announcements" in url or "period=" in url
+        effective_timeout = timeout or (_BULK_TIMEOUT if is_bulk else _TIMEOUT)
+        scraper_timeout = 45 if is_bulk else 25
 
         # 1. DIRECTLY TRY WITH SCRAPER API FIRST
         try:
@@ -692,7 +697,7 @@ class NseXbrlProvider:
             except ImportError:
                 from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
             if get_scraper_api_key():
-                s_resp = fetch_via_scraperapi(url, timeout=20, country_code="in")
+                s_resp = fetch_via_scraperapi(url, timeout=scraper_timeout, country_code="in")
                 if s_resp is not None and s_resp.status_code == 200:
                     try:
                         data = s_resp.json()
@@ -721,6 +726,14 @@ class NseXbrlProvider:
         api_headers = {**_HEADERS, "Accept": "application/json, text/plain, */*"}
         session_refreshes = 0
 
+        # For curl_cffi, format timeout tuple (connect_timeout, read_timeout)
+        if isinstance(effective_timeout, (list, tuple)):
+            cffi_timeout = effective_timeout
+        elif is_bulk:
+            cffi_timeout = (12, effective_timeout)
+        else:
+            cffi_timeout = (6, effective_timeout)
+
         for attempt in range(_MAX_RETRIES):
             # Enforce pacing between direct NSE requests to avoid Akamai burst drop
             with _RATE_LIMIT_LOCK:
@@ -731,7 +744,7 @@ class NseXbrlProvider:
                 _LAST_REQUEST_TIME = time.time()
 
             try:
-                res = self.session.get(url, headers=api_headers, timeout=_TIMEOUT)
+                res = self.session.get(url, headers=api_headers, timeout=cffi_timeout)
 
                 if res.status_code == 200:
                     self.http_success_count += 1
@@ -774,14 +787,18 @@ class NseXbrlProvider:
                 err_str = str(e).lower()
                 if "timed out" in err_str or "curl: (28)" in err_str or "timeout" in err_str:
                     is_timeout = True
-                    with _CIRCUIT_LOCK:
-                        _CONSECUTIVE_TIMEOUTS += 1
-                        if _CONSECUTIVE_TIMEOUTS >= _MAX_CONSECUTIVE_TIMEOUTS:
-                            _CIRCUIT_BREAKER_UNTIL = time.time() + _COOLDOWN_PERIOD
-                            logger.error(
-                                f"[NSE] {_MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts/drops encountered. "
-                                f"Tripping circuit breaker for {_COOLDOWN_PERIOD}s to prevent thread blocking."
-                            )
+                    # If bytes were already streaming, this is a bandwidth/payload-size latency, NOT a dropped connection.
+                    # Only count zero-byte dropouts towards tripping the circuit breaker.
+                    is_partial_stream = "bytes received" in err_str and "with 0 out of" not in err_str and " 0 bytes received" not in err_str
+                    if not is_partial_stream:
+                        with _CIRCUIT_LOCK:
+                            _CONSECUTIVE_TIMEOUTS += 1
+                            if _CONSECUTIVE_TIMEOUTS >= _MAX_CONSECUTIVE_TIMEOUTS:
+                                _CIRCUIT_BREAKER_UNTIL = time.time() + _COOLDOWN_PERIOD
+                                logger.error(
+                                    f"[NSE] {_MAX_CONSECUTIVE_TIMEOUTS} consecutive timeouts/drops encountered. "
+                                    f"Tripping circuit breaker for {_COOLDOWN_PERIOD}s to prevent thread blocking."
+                                )
 
                 if attempt < _MAX_RETRIES - 1:
                     logger.warning(f"[NSE] {symbol}: Request error on attempt {attempt+1}/{_MAX_RETRIES} ({e}). Re-initializing session...")
@@ -917,7 +934,7 @@ class NseXbrlProvider:
             d_to = (as_of_dt + timedelta(days=1)).strftime("%d-%m-%Y")
             d_from = (as_of_dt - timedelta(days=max(1, lookback_days))).strftime("%d-%m-%Y")
             ann_url = f"{_ANN_URL}?index=equities&from_date={d_from}&to_date={d_to}"
-            raw_ann = self._get(ann_url, "MARKET_ANNOUNCEMENTS")
+            raw_ann = self._get(ann_url, "MARKET_ANNOUNCEMENTS", timeout=45)
             if raw_ann:
                 ann_rows = raw_ann if isinstance(raw_ann, list) else (raw_ann.get("data", []) if isinstance(raw_ann, dict) else [])
                 for item in ann_rows:
@@ -988,7 +1005,7 @@ class NseXbrlProvider:
         # 2. Fetch market-wide quarterly results (fallback dump for historical baseline)
         try:
             q_url = f"{_BASE_URL}?index=equities&period=Quarterly"
-            raw_q = self._get(q_url, "MARKET_QUARTERLY")
+            raw_q = self._get(q_url, "MARKET_QUARTERLY", timeout=35)
             if raw_q:
                 rows = raw_q if isinstance(raw_q, list) else (raw_q.get("data", []) if isinstance(raw_q, dict) else [])
                 for r in rows:
@@ -1004,7 +1021,7 @@ class NseXbrlProvider:
         # 3. Fetch market-wide annual results (fallback dump for historical baseline)
         try:
             a_url = f"{_BASE_URL}?index=equities&period=Annual"
-            raw_a = self._get(a_url, "MARKET_ANNUAL")
+            raw_a = self._get(a_url, "MARKET_ANNUAL", timeout=35)
             if raw_a:
                 rows = raw_a if isinstance(raw_a, list) else (raw_a.get("data", []) if isinstance(raw_a, dict) else [])
                 for r in rows:
