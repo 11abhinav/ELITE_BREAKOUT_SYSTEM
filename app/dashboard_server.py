@@ -8384,15 +8384,6 @@ def handle_429_error(e):
 @app.errorhandler(500)
 def handle_500_error(e):
     logger.exception(f"Unhandled 500 Server Error: {e}")
-    try:
-        from telegram_engine import send_emergency_admin_alert
-        send_emergency_admin_alert(
-            subject=f"Dashboard 500 Server Error on {request.path}",
-            message=f"Path: {request.path}\nMethod: {request.method}\nError: {e}",
-            severity="CRITICAL"
-        )
-    except Exception:
-        pass
     if _wants_json_response():
         return jsonify({"status": "error", "error": "Internal Server Error. Please try again shortly."}), 500
     return "Internal Server Error", 500

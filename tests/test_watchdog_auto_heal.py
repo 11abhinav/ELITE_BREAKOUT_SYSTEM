@@ -14,8 +14,8 @@ class TestWatchdogAutoHeal(unittest.TestCase):
         self.assertLessEqual(SCANNER_MAX_EXECUTION_SECONDS["PERFORMANCE_TRACKER"], 900)
 
     @patch("database.get_connection")
-    @patch("telegram_engine.send_emergency_admin_alert")
-    def test_auto_heal_terminates_stuck_performance_tracker(self, mock_alert, mock_conn):
+    @patch("database.insert_notification")
+    def test_auto_heal_terminates_stuck_performance_tracker(self, mock_notif, mock_conn):
         from database import auto_heal_stuck_scanner_runs
         
         # Mock cursor returning a stuck PERFORMANCE_TRACKER run (duration 25 mins > 10 min ceiling)
@@ -40,9 +40,9 @@ class TestWatchdogAutoHeal(unittest.TestCase):
         
         # Verify DB updates executed
         self.assertTrue(mock_cur.execute.called)
-        # Verify emergency admin alert called
-        mock_alert.assert_called_once()
-        self.assertIn("PERFORMANCE_TRACKER", mock_alert.call_args[1]["subject"])
+        # Verify in-app admin notification called
+        mock_notif.assert_called_once()
+        self.assertIn("PERFORMANCE_TRACKER", mock_notif.call_args[0][1])
 
     @patch("database.is_scanner_stopped", return_value=False)
     @patch("database.start_scanner_execution_run")
@@ -64,3 +64,4 @@ class TestWatchdogAutoHeal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

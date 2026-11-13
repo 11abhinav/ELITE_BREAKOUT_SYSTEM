@@ -158,15 +158,6 @@ class ScannerRunContext:
                             upsert_scanner_health(self.scanner_name, status="IDLE", error_msg=f"Auto-terminated: exceeded {int(max_duration/60)}m execution limit")
                         except Exception as _fuse_err:
                             logger.error(f"Failed to auto-terminate run: {_fuse_err}")
-                        try:
-                            from telegram_engine import send_emergency_admin_alert
-                            send_emergency_admin_alert(
-                                subject=f"Scanner Auto-Terminated: {self.scanner_name}",
-                                message=f"Run {self.run_id[:8]} exceeded maximum duration ({int(elapsed/60)}m > {int(max_duration/60)}m).\nHeartbeat terminated and run marked TIMED_OUT.",
-                                severity="CRITICAL"
-                            )
-                        except Exception:
-                            pass
                         return
 
                     try:
