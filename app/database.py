@@ -13813,19 +13813,25 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
 
 
 SCANNER_MAX_RUNTIME_MINUTES = {
-    "PERFORMANCE_TRACKER": 15.0,
-    "WEALTH_EXIT": 10.0,
-    "AI Worker": 10.0,
-    "Pledge Worker": 10.0,
-    "FILING_WATCHER": 45.0,
-    "DAILY_BUILDER": 45.0,
-    "TECHNICAL": 60.0,
-    "FUNDAMENTAL": 45.0,
-    "QUALITY_COMPOUNDER": 45.0,
-    "QUALITY_VALUE_RECOVERY": 45.0,
-    "Wealth Engine": 45.0,
+    "PERFORMANCE_TRACKER": 120.0,
+    "WEALTH_EXIT": 120.0,
+    "WEALTH_EXIT_V1": 120.0,
+    "WEALTH_EXIT_V2": 120.0,
+    "AI Worker": 120.0,
+    "Pledge Worker": 120.0,
+    "FILING_WATCHER": 120.0,
+    "DAILY_BUILDER": 120.0,
+    "TECHNICAL": 120.0,
+    "FUNDAMENTAL": 120.0,
+    "QUALITY_COMPOUNDER": 120.0,
+    "QUALITY_VALUE_RECOVERY": 120.0,
+    "Wealth Engine": 120.0,
+    "REVERSAL": 120.0,
+    "PULLBACK": 120.0,
+    "MULTIBAGGER": 120.0,
+    "SHORT_COVERING": 120.0,
 }
-DEFAULT_MAX_RUNTIME_MINUTES = 60.0
+DEFAULT_MAX_RUNTIME_MINUTES = 120.0
 
 def auto_heal_stuck_scanner_runs() -> list[dict]:
     """
@@ -13864,9 +13870,9 @@ def auto_heal_stuck_scanner_runs() -> list[dict]:
                     if duration_min > max_runtime:
                         is_stuck = True
                         reason = f"Exceeded maximum allowed runtime ({duration_min:.1f}m > {max_runtime:.0f}m ceiling)"
-                    elif silent_min > 10.0:
+                    elif silent_min > 15.0:
                         is_stuck = True
-                        reason = f"Inactive heartbeat for {silent_min:.1f}m (>10m limit)"
+                        reason = f"Inactive heartbeat for {silent_min:.1f}m (>15m limit)"
                         
                     if is_stuck:
                         # Hard-reset record in scanner_execution_history

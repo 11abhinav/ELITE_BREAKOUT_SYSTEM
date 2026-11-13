@@ -25,19 +25,25 @@ STALE_THRESHOLDS = {
 }
 
 SCANNER_MAX_EXECUTION_SECONDS = {
-    "PERFORMANCE_TRACKER": 900,       # 15 min
-    "WEALTH_EXIT": 600,               # 10 min
-    "AI Worker": 600,                 # 10 min
-    "Pledge Worker": 600,             # 10 min
-    "FILING_WATCHER": 2700,           # 45 min (861 symbols across NSE/BSE corporate filings)
-    "DAILY_BUILDER": 2700,            # 45 min
-    "TECHNICAL": 3600,                # 60 min
-    "FUNDAMENTAL": 2700,              # 45 min
-    "QUALITY_COMPOUNDER": 2700,       # 45 min
-    "QUALITY_VALUE_RECOVERY": 2700,   # 45 min
-    "Wealth Engine": 2700,            # 45 min
+    "PERFORMANCE_TRACKER": 7200,      # 120 min
+    "WEALTH_EXIT": 7200,              # 120 min
+    "WEALTH_EXIT_V1": 7200,           # 120 min
+    "WEALTH_EXIT_V2": 7200,           # 120 min
+    "AI Worker": 7200,                # 120 min
+    "Pledge Worker": 7200,            # 120 min
+    "FILING_WATCHER": 7200,           # 120 min
+    "DAILY_BUILDER": 7200,            # 120 min
+    "TECHNICAL": 7200,                # 120 min
+    "FUNDAMENTAL": 7200,              # 120 min
+    "QUALITY_COMPOUNDER": 7200,       # 120 min
+    "QUALITY_VALUE_RECOVERY": 7200,   # 120 min
+    "Wealth Engine": 7200,            # 120 min
+    "REVERSAL": 7200,                 # 120 min
+    "PULLBACK": 7200,                 # 120 min
+    "MULTIBAGGER": 7200,              # 120 min
+    "SHORT_COVERING": 7200,           # 120 min
 }
-DEFAULT_MAX_EXECUTION_SECONDS = 3600  # 60 min
+DEFAULT_MAX_EXECUTION_SECONDS = 7200  # 120 min
 
 
 class ScannerRunContext:
