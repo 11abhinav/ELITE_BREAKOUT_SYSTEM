@@ -456,7 +456,11 @@ class ProcessLockImpl:
                             logger.warning(f"⚠️ [{self.lock_name.upper()}] Lock connection dropped mid-wait for {owner_scanner} (attempt {_lock_conn_retries}/{_lock_conn_max_retries}): {_conn_err}. Reconnecting...")
                             try:
                                 if getattr(self, '_pool_ref', None):
-                                    self._pool_ref.putconn(self.db_conn, close=True)
+                                    try:
+                                        from database import _safe_putconn
+                                        _safe_putconn(self._pool_ref, self.db_conn, close=True)
+                                    except Exception:
+                                        self._pool_ref.putconn(self.db_conn, close=True)
                                 else:
                                     self.db_conn.close()
                             except Exception:
@@ -524,7 +528,11 @@ class ProcessLockImpl:
             except Exception: pass
             try:
                 if getattr(self, '_pool_ref', None):
-                    self._pool_ref.putconn(self.db_conn, close=close)
+                    try:
+                        from database import _safe_putconn
+                        _safe_putconn(self._pool_ref, self.db_conn, close=close)
+                    except Exception:
+                        self._pool_ref.putconn(self.db_conn, close=close)
                 else:
                     self.db_conn.close()
             except Exception: pass

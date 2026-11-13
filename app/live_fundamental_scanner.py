@@ -4797,6 +4797,19 @@ class QualityCompounderValueV2Scanner:
 
         for sym in universe_symbols:
             total_scanned += 1
+            if total_scanned % 25 == 0 or total_scanned == len(universe_symbols):
+                if exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
+                    try:
+                        exec_run_ctx.heartbeat(force=True)
+                        from database import update_scanner_run_progress
+                        update_scanner_run_progress(
+                            run_id=exec_run_ctx.run_id,
+                            processed_count=total_scanned,
+                            total_count=total_approved_univ,
+                            summary_notes=f"Scanning {total_scanned}/{total_approved_univ} symbols..."
+                        )
+                    except Exception:
+                        pass
             cmp_price = float(live_prices_map.get(sym, 0.0) or 0.0)
             price_source = "LIVE_QUOTE" if cmp_price > 0 else "UNRESOLVED"
 
@@ -7867,6 +7880,20 @@ class QualityValueRecoveryScanner:
 
                         passed, rejection_reasons, metrics = self.evaluate_symbol_recovery(sym, row, cmp_price, df_px=df_px)
                         evaluated_count += 1
+
+                        if evaluated_count % 25 == 0 or evaluated_count == len(approved_univ):
+                            if exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
+                                try:
+                                    exec_run_ctx.heartbeat(force=True)
+                                    from database import update_scanner_run_progress
+                                    update_scanner_run_progress(
+                                        run_id=exec_run_ctx.run_id,
+                                        processed_count=evaluated_count,
+                                        total_count=len(approved_univ),
+                                        summary_notes=f"Scanning {evaluated_count}/{len(approved_univ)} symbols..."
+                                    )
+                                except Exception:
+                                    pass
 
                         if passed:
                             cand = {

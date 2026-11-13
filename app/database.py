@@ -209,14 +209,100 @@ def close_pool():
 atexit.register(close_pool)
 
 
+def _safe_putconn(p, conn, close: bool = False):
+    """Leak-proof wrapper for psycopg2 putconn.
+    Guarantees that connection references are purged from _used and _rused
+    even if conn.close() throws an exception (e.g. broken socket or network error).
+    """
+    if p is None or conn is None:
+        return
+    try:
+        p.putconn(conn, close=close)
+    except Exception:
+        # Psycopg2 putconn failed (e.g. dead socket threw inside conn.close()).
+        # Manually purge registration to prevent permanent slot leakage.
+        try:
+            with getattr(p, '_lock', threading.Lock()):
+                conn_id = id(conn)
+                key = getattr(p, '_rused', {}).pop(conn_id, None)
+                if key is not None:
+                    getattr(p, '_used', {}).pop(key, None)
+        except Exception:
+            pass
+        if close:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _prune_stale_pool_connections(p) -> int:
+    """Scans connection pool for closed, disconnected, or orphaned sockets and purges them from _used."""
+    if p is None:
+        return 0
+    pruned = 0
+    try:
+        with getattr(p, '_lock', threading.Lock()):
+            # 1. Prune dead entries from _used
+            stale_keys = []
+            for key, c in list(getattr(p, '_used', {}).items()):
+                if c is None or getattr(c, 'closed', 0) != 0:
+                    stale_keys.append((key, c))
+            for key, c in stale_keys:
+                p._used.pop(key, None)
+                if c is not None:
+                    p._rused.pop(id(c), None)
+                    try:
+                        c.close()
+                    except Exception:
+                        pass
+                pruned += 1
+
+            # 2. Prune dead entries from idle _pool
+            alive_pool = []
+            for c in getattr(p, '_pool', []):
+                if c is not None and getattr(c, 'closed', 0) == 0:
+                    alive_pool.append(c)
+                else:
+                    pruned += 1
+                    if c is not None:
+                        try:
+                            c.close()
+                        except Exception:
+                            pass
+            p._pool = alive_pool
+    except Exception as e:
+        logger.debug(f"Stale connection pruning notice: {e}")
+    return pruned
+
+
+def reset_connection_pool():
+    """Atomically recycles the global PostgreSQL connection pool on exhaustion or corruption."""
+    global _pool, _conn_semaphore
+    logger.warning("🔄 [POOL_SELF_HEAL] Recycling PostgreSQL connection pool...")
+    with _pool_lock:
+        old_pool = _pool
+        _pool = None
+        _conn_semaphore = None
+        if old_pool is not None:
+            try:
+                old_pool.closeall()
+            except Exception as e:
+                logger.debug(f"Error during pool closeall: {e}")
+        return _get_pool()
+
+
 @contextmanager
-def get_connection(timeout: int = 15):
-    """Get DB connection with circuit breaker pattern and leak-proof semaphore cleanup.
+def get_connection(timeout: int = 5):
+    """Get DB connection with self-healing pool recycling, fast timeout, and direct connection fallback.
 
     Acquires an internal semaphore before checking out a connection from the pool.
     Guarantees that semaphore permits and connections are always released in finally blocks.
+    Automatically prunes stale connections and recycles pool if exhausted.
+    Falls back to a short-lived direct connection if the pool is saturated.
     """
     from psycopg2 import OperationalError, DatabaseError, pool as ps_pool
+    import psycopg2
 
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
@@ -241,9 +327,15 @@ def get_connection(timeout: int = 15):
             except Exception:
                 _conn_semaphore = None
         if _conn_semaphore is not None:
-            acquired = _conn_semaphore.acquire(timeout=timeout)
+            wait_timeout = max(1.0, min(float(timeout), 5.0))
+            acquired = _conn_semaphore.acquire(timeout=wait_timeout)
             if not acquired:
-                logger.warning("⚠️ Semaphore checkout timeout (15s) — pool saturated, attempting direct pool checkout fallback")
+                pruned = _prune_stale_pool_connections(p)
+                if pruned > 0:
+                    logger.info(f"🧹 Pruned {pruned} dead connections from saturated pool. Retrying acquire...")
+                    acquired = _conn_semaphore.acquire(timeout=1.0)
+                if not acquired:
+                    logger.warning("⚠️ Semaphore checkout timeout — attempting pool checkout fallback")
 
         # Retry checkout up to 3 times
         for attempt in range(3):
@@ -251,10 +343,7 @@ def get_connection(timeout: int = 15):
                 conn = p.getconn()
                 if conn is not None:
                     if getattr(conn, 'closed', 0) != 0:
-                        try:
-                            p.putconn(conn, close=True)
-                        except Exception:
-                            pass
+                        _safe_putconn(p, conn, close=True)
                         conn = None
                         continue
                     # Ensure checked out connection is clean and idle
@@ -262,28 +351,58 @@ def get_connection(timeout: int = 15):
                         if not conn.closed and conn.info.transaction_status != 0:
                             conn.rollback()
                     except Exception:
-                        try:
-                            p.putconn(conn, close=True)
-                        except Exception:
-                            pass
+                        _safe_putconn(p, conn, close=True)
                         conn = None
                         continue
                 break
             except (OperationalError, ps_pool.PoolError) as oe:
                 if conn:
-                    try:
-                        p.putconn(conn, close=True)
-                    except Exception:
-                        pass
+                    _safe_putconn(p, conn, close=True)
                     conn = None
+
+                # Check for pool exhaustion: trigger self-healing!
+                err_str = str(oe).lower()
+                if "exhausted" in err_str or attempt >= 1:
+                    pruned = _prune_stale_pool_connections(p)
+                    if pruned > 0:
+                        logger.info(f"🧹 Auto-healed pool: pruned {pruned} stale connections on attempt {attempt + 1}")
+                        continue
+                    elif attempt >= 1:
+                        # Full pool recycling on persistent exhaustion
+                        p = reset_connection_pool()
+                        if p is not None:
+                            try:
+                                conn = p.getconn()
+                                if conn is not None and getattr(conn, 'closed', 0) == 0:
+                                    logger.info("✅ Connection pool self-healed and connection checked out successfully")
+                                    break
+                            except Exception:
+                                conn = None
+
                 if attempt < 2:
-                    time.sleep(0.1 * (attempt + 1))
+                    time.sleep(0.05 * (attempt + 1))
                     continue
                 logger.warning(f"⚠️ DB connection pool checkout failed after 3 attempts: {oe}")
-                raise oe
 
+        # If pool still failed to supply a connection, use direct emergency standalone connection
         if conn is None:
-            raise ps_pool.PoolError("connection pool checkout returned None")
+            logger.warning("⚠️ Pool exhausted/failed — opening direct emergency standalone DB connection")
+            direct_conn = None
+            try:
+                direct_conn = psycopg2.connect(
+                    dsn=db_url,
+                    connect_timeout=3,
+                    options="-c timezone=Asia/Kolkata -c statement_timeout=30000 -c idle_in_transaction_session_timeout=10000"
+                )
+                direct_conn.autocommit = True
+                yield direct_conn
+                return
+            finally:
+                if direct_conn:
+                    try:
+                        direct_conn.close()
+                    except Exception:
+                        pass
 
         yield conn
 
@@ -306,10 +425,7 @@ def get_connection(timeout: int = 15):
                 conn.rollback()
             except Exception:
                 pass
-            try:
-                p.putconn(conn, close=True)
-            except Exception:
-                pass
+            _safe_putconn(p, conn, close=True)
             conn = None
         raise
     finally:
@@ -318,12 +434,9 @@ def get_connection(timeout: int = 15):
             try:
                 if not conn.closed:
                     conn.rollback()
-                p.putconn(conn)
+                _safe_putconn(p, conn, close=False)
             except Exception:
-                try:
-                    p.putconn(conn, close=True)
-                except Exception:
-                    pass
+                _safe_putconn(p, conn, close=True)
             conn = None
         # Release semaphore if we acquired it
         if _conn_semaphore is not None and acquired:
@@ -8879,7 +8992,7 @@ def get_user_first_name(user_id) -> Optional[str]:
 def ping_user_session(user_id: int, ip_address: str):
     """Update active session or create new one."""
     try:
-        with get_connection() as conn:
+        with get_connection(timeout=2) as conn:
             with conn.cursor() as cur:
                 # Check for active session for this user/ip
                 cur.execute("""
@@ -8903,7 +9016,7 @@ def ping_user_session(user_id: int, ip_address: str):
                     """, (user_id, ip_address))
                 conn.commit()
     except Exception as e:
-        logger.exception(f"❌ Failed to ping user session {user_id}")
+        logger.warning(f"Could not ping user session {user_id}: {e}")
 
 def cleanup_stale_sessions():
     """Mark sessions as offline if not pinged within 2 minutes, and revoke sessions inactive for > 12 hours."""
