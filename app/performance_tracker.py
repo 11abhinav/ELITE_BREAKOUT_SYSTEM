@@ -2249,7 +2249,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     except Exception:
         pass
     finally:
-        if own_run_ctx and run_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run, upsert_scanner_health
                 complete_scanner_execution_run(
@@ -2273,7 +2273,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     run_id=run_ctx.run_id
                 )
             except Exception as _comp_err:
-                logger.debug(f"[PERFORMANCE_TRACKER] Standalone completion note: {_comp_err}")
+                logger.debug(f"[PERFORMANCE_TRACKER] Completion note: {_comp_err}")
 
 
 

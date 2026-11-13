@@ -13612,6 +13612,139 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
 
 
 
+SCANNER_MAX_RUNTIME_MINUTES = {
+    "PERFORMANCE_TRACKER": 10.0,
+    "WEALTH_EXIT": 10.0,
+    "AI Worker": 10.0,
+    "Pledge Worker": 10.0,
+    "FILING_WATCHER": 30.0,
+    "DAILY_BUILDER": 45.0,
+    "TECHNICAL": 45.0,
+    "FUNDAMENTAL": 45.0,
+    "QUALITY_COMPOUNDER": 45.0,
+    "QUALITY_VALUE_RECOVERY": 45.0,
+    "Wealth Engine": 45.0,
+}
+DEFAULT_MAX_RUNTIME_MINUTES = 60.0
+
+def auto_heal_stuck_scanner_runs() -> list[dict]:
+    """
+    [WATCHDOG AUTO-HEAL & HARD-RESET]
+    Scans scanner_execution_history for active (RUNNING/QUEUED) runs that have exceeded their
+    maximum allowed runtime ceiling OR have an inactive heartbeat (>10 minutes).
+    
+    Hard-resets them to 'TIMED_OUT', resets scanner_health to 'IDLE', and dispatches
+    emergency notifications to admin via Telegram and in-app alerts.
+    """
+    from psycopg2.extras import RealDictCursor
+    terminated_runs = []
+    try:
+        with get_connection(timeout=5) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. Fetch all active RUNNING or QUEUED runs
+                cur.execute("""
+                    SELECT run_id, scanner_name, started_at, heartbeat_at, lifecycle_status,
+                           ROUND(EXTRACT(EPOCH FROM (NOW() - started_at)) / 60.0, 1) as duration_min,
+                           ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(heartbeat_at, started_at))) / 60.0, 1) as silent_min
+                    FROM scanner_execution_history
+                    WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
+                """)
+                active_runs = cur.fetchall() or []
+                
+                for run in active_runs:
+                    run_id = run.get("run_id")
+                    sc_name = run.get("scanner_name") or "UNKNOWN"
+                    duration_min = float(run.get("duration_min") or 0.0)
+                    silent_min = float(run.get("silent_min") or 0.0)
+                    
+                    max_runtime = SCANNER_MAX_RUNTIME_MINUTES.get(sc_name, DEFAULT_MAX_RUNTIME_MINUTES)
+                    
+                    is_stuck = False
+                    reason = ""
+                    if duration_min > max_runtime:
+                        is_stuck = True
+                        reason = f"Exceeded maximum allowed runtime ({duration_min:.1f}m > {max_runtime:.0f}m ceiling)"
+                    elif silent_min > 10.0:
+                        is_stuck = True
+                        reason = f"Inactive heartbeat for {silent_min:.1f}m (>10m limit)"
+                        
+                    if is_stuck:
+                        # Hard-reset record in scanner_execution_history
+                        cur.execute("""
+                            UPDATE scanner_execution_history
+                            SET completed_at = NOW(),
+                                lifecycle_status = 'TIMED_OUT',
+                                error_summary = %s,
+                                error_details = %s
+                            WHERE run_id = %s;
+                        """, (
+                            f"Hard-reset: Execution timed out ({reason})",
+                            f"Watchdog auto-healer hard-reset scan stuck in RUNNING for {duration_min:.1f} min. Limit: {max_runtime:.0f} min.",
+                            run_id
+                        ))
+                        # Reset scanner_health to IDLE so UI is not stuck
+                        cur.execute("""
+                            UPDATE scanner_health
+                            SET status = 'IDLE',
+                                updated_at = NOW(),
+                                error_msg = %s
+                            WHERE scanner_name = %s AND status IN ('RUNNING', 'QUEUED');
+                        """, (
+                            f"Watchdog auto-reset stuck run ({run_id[:8]}) to IDLE: {reason}",
+                            sc_name
+                        ))
+                        terminated_runs.append({
+                            "run_id": run_id,
+                            "scanner_name": sc_name,
+                            "duration_min": duration_min,
+                            "silent_min": silent_min,
+                            "reason": reason
+                        })
+                
+                if terminated_runs:
+                    conn.commit()
+    except Exception as e:
+        logger.warning(f"⚠️ [WATCHDOG AUTO-HEAL] Failed to check stuck runs: {e}")
+        return []
+
+    # Send alerts for each terminated run outside of DB transaction
+    for item in terminated_runs:
+        r_id = item["run_id"]
+        sc = item["scanner_name"]
+        dur = item["duration_min"]
+        reas = item["reason"]
+        logger.critical(f"🛑 [WATCHDOG HARD-RESET] Terminated stuck run {r_id[:8]} for '{sc}' | Duration: {dur:.1f}m | Reason: {reas}")
+        
+        # 1. Telegram Emergency Alert
+        try:
+            from telegram_engine import send_emergency_admin_alert
+            send_emergency_admin_alert(
+                subject=f"Scanner Stuck in RUNNING Auto-Terminated: {sc}",
+                message=(
+                    f"Scanner: {sc}\n"
+                    f"Run ID: {r_id[:8]}\n"
+                    f"Duration Stuck: {dur:.1f} min\n"
+                    f"Reason: {reas}\n\n"
+                    f"Action: Watchdog auto-healer hard-reset the execution status to TIMED_OUT and reset scanner health to IDLE."
+                ),
+                severity="CRITICAL"
+            )
+        except Exception as _tg_err:
+            logger.debug(f"Telegram emergency alert error: {_tg_err}")
+            
+        # 2. In-app notification
+        try:
+            insert_notification(
+                "scanner_down",
+                f"🛑 Watchdog Hard-Reset: {sc}",
+                f"Scan run {r_id[:8]} was stuck in RUNNING for {dur:.1f}m and was automatically terminated ({reas}). Status reset to IDLE."
+            )
+        except Exception as _notif_err:
+            logger.debug(f"In-app notification error: {_notif_err}")
+
+    return terminated_runs
+
+
 def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, check_system_wide: bool = False) -> bool:
     """
     [VERSION: SCANNER_DUPLICATE_GUARD_FIX_v3.0]
@@ -13621,6 +13754,12 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
     if not scanner_name and not check_system_wide:
         return False
     try:
+        # First trigger auto-heal on any stuck/expired runs
+        try:
+            auto_heal_stuck_scanner_runs()
+        except Exception:
+            pass
+
         with get_connection() as conn:
             with conn.cursor() as cur:
                 # 🧹 WATCHDOG HEALING: Auto-mark any pre-boot or stale RUNNING/QUEUED records as SERVER_RESTARTED / TIMEOUT_STALE
@@ -14225,62 +14364,11 @@ def get_scanner_execution_history(
                 import time as _time_mod
                 global _ORPHAN_CLEANUP_LAST_RUN_TS
                 _now_mono = _time_mod.monotonic()
-                if _now_mono - _ORPHAN_CLEANUP_LAST_RUN_TS >= _ORPHAN_CLEANUP_INTERVAL_S:
+                if _now_mono - _ORPHAN_CLEANUP_LAST_RUN_TS >= 60.0:
                     try:
-                        # [RULE 67 CHANGE-RATIONALE: RULE_71_HEARTBEAT_LEASE_ENFORCEMENT_v1.0]
-                        # Enforce Rule 71.6 and Rule 71.11B: A running scanner MUST NOT be auto-cleaned
-                        # merely because its runtime is long. It is considered orphaned ONLY when missing heartbeat (>15m).
-                        cur.execute("""
-                            SELECT run_id, scanner_name, started_at, heartbeat_at, lifecycle_status
-                            FROM scanner_execution_history
-                            WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                              AND (
-                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
-                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
-                              );
-                        """)
-                        orphaned_rows = cur.fetchall()
-                        if orphaned_rows:
-                            # [BUG FIX] UPDATE runs first; log message fires AFTER commit so it only
-                            # appears when the change actually persisted.
-                            cur.execute("""
-                                UPDATE scanner_execution_history
-                                SET completed_at = NOW(),
-                                    lifecycle_status = 'TIMEOUT_STALE',
-                                    error_summary = 'Execution timed out: missing heartbeat (>15m)',
-                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
-                                WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                                  AND (
-                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
-                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
-                                  );
-                            """)
-                            orphaned_sc_names = tuple(set(orphan.get("scanner_name") for orphan in orphaned_rows if orphan.get("scanner_name")))
-                            if orphaned_sc_names:
-                                cur.execute("""
-                                    UPDATE scanner_health
-                                    SET status = 'DOWN',
-                                        error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >15m)'
-                                    WHERE status = 'RUNNING'
-                                      AND scanner_name IN %s;
-                                """, (orphaned_sc_names,))
-                            conn.commit()
-                            # Log AFTER successful commit — accurate report of what was cleaned
-                            for orphan in orphaned_rows:
-                                r_id = orphan.get("run_id") or "UNKNOWN"
-                                sc_name = orphan.get("scanner_name") or "UNKNOWN"
-                                st_at = orphan.get("started_at")
-                                hb_at = orphan.get("heartbeat_at")
-                                logger.warning(
-                                    f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
-                                    f"Reason: Inactive heartbeat (>15m) (started_at: {st_at}, heartbeat_at: {hb_at})"
-                                )
+                        auto_heal_stuck_scanner_runs()
                         _ORPHAN_CLEANUP_LAST_RUN_TS = _now_mono
                     except Exception as _e_sweep:
-                        try:
-                            conn.rollback()
-                        except Exception:
-                            pass
                         logger.debug(f"Stale history auto-sweep warning: {_e_sweep}")
 
                 where_clauses = ["1=1"]

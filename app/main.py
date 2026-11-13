@@ -1782,7 +1782,8 @@ def check_scanner_staleness(now):
         return
     
     try:
-        from database import get_all_scanner_health, upsert_scanner_health, insert_notification
+        from database import get_all_scanner_health, upsert_scanner_health, insert_notification, auto_heal_stuck_scanner_runs
+        auto_heal_stuck_scanner_runs()
         health_rows = get_all_scanner_health()
         
         for row in health_rows:
@@ -1959,6 +1960,13 @@ def run_watchdog():
                     time.sleep(10)
                     start_thread(name, RESTARTABLE_THREADS[name])
                     logger.info(f"🔄 THREAD REVIVED: {name}")
+
+        # Autonomous Watchdog Auto-Healer: check for and hard-reset any stuck RUNNING executions
+        try:
+            from database import auto_heal_stuck_scanner_runs
+            auto_heal_stuck_scanner_runs()
+        except Exception as _heal_err:
+            logger.debug(f"Watchdog auto-heal sweep error: {_heal_err}")
 
         time.sleep(30)
 
@@ -2380,6 +2388,7 @@ def _trigger_performance_tracker(trigger_type="MANUAL", scheduler_name="MANUAL")
         logger.info("⏳ PERFORMANCE_TRACKER is already actively running. Skipping manual/auto-recovery trigger.")
         return {"total_count": 0, "processed_count": 0}
     run_ctx = None
+    start_time = time.time()
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
         upsert_scanner_health("PERFORMANCE_TRACKER", status="RUNNING", error_msg="Refreshing portfolio performance metrics...")
@@ -2391,7 +2400,30 @@ def _trigger_performance_tracker(trigger_type="MANUAL", scheduler_name="MANUAL")
         )
         from performance_tracker import build_performance_data
         build_performance_data(force_live_fetch=True, run_ctx=run_ctx)
+        duration_sec = round(time.time() - start_time, 2)
+        upsert_scanner_health(
+            "PERFORMANCE_TRACKER",
+            status="OK",
+            last_success=datetime.now(IST).isoformat(),
+            error_msg=None,
+            duration_seconds=duration_sec
+        )
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx)
         return {"total_count": 1, "processed_count": 1}
+    except Exception as exc:
+        logger.exception(f"❌ PERFORMANCE_TRACKER manual trigger failed: {exc}")
+        if run_ctx:
+            try:
+                complete_scanner_execution_run(run_ctx, exception=exc)
+            except Exception:
+                pass
+        try:
+            from database import upsert_scanner_health
+            upsert_scanner_health("PERFORMANCE_TRACKER", status="DOWN", error_msg=str(exc)[:500])
+        except Exception:
+            pass
+        raise exc
     finally:
         if _perf_tracker_lock.locked():
             _perf_tracker_lock.release()

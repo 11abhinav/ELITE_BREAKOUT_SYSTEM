@@ -24,6 +24,22 @@ STALE_THRESHOLDS = {
     "AI_WORKER": 0.30,
 }
 
+SCANNER_MAX_EXECUTION_SECONDS = {
+    "PERFORMANCE_TRACKER": 600,       # 10 min
+    "WEALTH_EXIT": 600,               # 10 min
+    "AI Worker": 600,                 # 10 min
+    "Pledge Worker": 600,             # 10 min
+    "FILING_WATCHER": 1800,           # 30 min
+    "DAILY_BUILDER": 2700,            # 45 min
+    "TECHNICAL": 2700,                # 45 min
+    "FUNDAMENTAL": 2700,              # 45 min
+    "QUALITY_COMPOUNDER": 2700,       # 45 min
+    "QUALITY_VALUE_RECOVERY": 2700,   # 45 min
+    "Wealth Engine": 2700,            # 45 min
+}
+DEFAULT_MAX_EXECUTION_SECONDS = 3600  # 60 min
+
+
 class ScannerRunContext:
     def __init__(
         self,
@@ -119,6 +135,40 @@ class ScannerRunContext:
                         time.sleep(1.0)
                     if self._stopped:
                         return
+
+                    # SAFETY FUSE: If this context has been running longer than its max allowed duration,
+                    # stop pulsing heartbeats, auto-complete the run as TIMED_OUT, and alert admin!
+                    max_duration = SCANNER_MAX_EXECUTION_SECONDS.get(self.scanner_name, DEFAULT_MAX_EXECUTION_SECONDS)
+                    elapsed = time.time() - self.start_time
+                    if elapsed > max_duration:
+                        logger.critical(
+                            f"🛑 [WATCHDOG SAFETY FUSE] Scanner '{self.scanner_name}' run {self.run_id[:8]} "
+                            f"exceeded maximum allowed duration ({int(elapsed/60)}m > {int(max_duration/60)}m). "
+                            f"Terminating heartbeat and auto-failing run."
+                        )
+                        self._stopped = True
+                        try:
+                            from database import complete_scanner_execution_run, upsert_scanner_health
+                            complete_scanner_execution_run(
+                                self,
+                                status_override="TIMED_OUT",
+                                stop_reason=f"Exceeded maximum runtime ({int(max_duration/60)}m ceiling)",
+                                summary_notes=f"Auto-terminated by internal context safety fuse after {int(elapsed/60)}m."
+                            )
+                            upsert_scanner_health(self.scanner_name, status="IDLE", error_msg=f"Auto-terminated: exceeded {int(max_duration/60)}m execution limit")
+                        except Exception as _fuse_err:
+                            logger.error(f"Failed to auto-terminate run: {_fuse_err}")
+                        try:
+                            from telegram_engine import send_emergency_admin_alert
+                            send_emergency_admin_alert(
+                                subject=f"Scanner Auto-Terminated: {self.scanner_name}",
+                                message=f"Run {self.run_id[:8]} exceeded maximum duration ({int(elapsed/60)}m > {int(max_duration/60)}m).\nHeartbeat terminated and run marked TIMED_OUT.",
+                                severity="CRITICAL"
+                            )
+                        except Exception:
+                            pass
+                        return
+
                     try:
                         self.heartbeat(force=True)
                     except Exception:
