@@ -407,6 +407,10 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
     if df is None or not hasattr(df, "empty") or df.empty:
         return df
 
+    # [OPTIMIZATION] Avoid redundant enforcement if this DataFrame was already cleaned
+    if getattr(df, "_trading_candles_enforced", False) or (hasattr(df, "attrs") and df.attrs.get("_trading_candles_enforced", False)):
+        return df
+
     import pandas as pd
     time_col = None
     for candidate in ("Date", "Datetime", "timestamp", "time"):
@@ -463,7 +467,7 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
             if is_corrupt.any(): reasons.append(f"{int(is_corrupt.sum())} corrupt/NaT")
             reason_str = ", ".join(reasons)
 
-            logger.warning(
+            logger.debug(
                 f"🚫 [TRADING SESSION ENFORCEMENT] Purged {dropped_count} invalid candle(s){sym_tag} ({reason_str}). "
                 f"Latest valid trading candle: {latest_valid_str}. Continuing using valid trading session data."
             )
@@ -476,12 +480,23 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
 
             if hasattr(df, "attrs"):
                 df_clean.attrs = dict(df.attrs)
+            df_clean.attrs["_trading_candles_enforced"] = True
+            try:
+                df_clean._trading_candles_enforced = True
+            except Exception:
+                pass
             return df_clean
         else:
             # Maintain clean DatetimeIndex if index was object with timestamps
             if time_col is None and not isinstance(df.index, pd.DatetimeIndex) and len(ts_series) == len(df):
                 df = df.copy()
                 df.index = pd.DatetimeIndex(ts_series)
+            if hasattr(df, "attrs"):
+                df.attrs["_trading_candles_enforced"] = True
+            try:
+                df._trading_candles_enforced = True
+            except Exception:
+                pass
 
     except Exception as err:
         logger.error(f"❌ [TRADING SESSION ENFORCEMENT] Error enforcing session rules on candles: {err}")

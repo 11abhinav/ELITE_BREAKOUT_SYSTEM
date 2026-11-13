@@ -633,7 +633,16 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
         from technical_indicators import hydrate_indicators
         for s, df_val in final_res.items():
             if df_val is not None and isinstance(df_val, pd.DataFrame) and not df_val.empty:
-                final_res[s] = hydrate_indicators(df_val, required=required_indicators, timeframe=interval)
+                # [OPTIMIZATION] If 1d data and requested period is <= 1y, truncate to 400 bars
+                # (1.5 years of trading sessions) before hydrating indicators. Prevents running indicators
+                # across 10 years (2,500+ bars) of historical data for daily screening.
+                if interval == "1d" and period in ("1y", "6mo", "1mo", "10d", "3mo") and len(df_val) > 400:
+                    df_slice = df_val.iloc[-400:].copy()
+                    if hasattr(df_val, "attrs"):
+                        df_slice.attrs = dict(df_val.attrs)
+                    final_res[s] = hydrate_indicators(df_slice, required=required_indicators, timeframe=interval)
+                else:
+                    final_res[s] = hydrate_indicators(df_val, required=required_indicators, timeframe=interval)
 
     return final_res
 

@@ -25,7 +25,7 @@ import json
 import logging
 import time
 import pandas as pd
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Tuple, List
 from datetime import datetime, date, timedelta, time as time_cls
 from zoneinfo import ZoneInfo
 from price_cache import fetch_watchlist_data
@@ -381,13 +381,13 @@ def is_long_term_compounder_trade(record: dict) -> bool:
         return True
     return False
 
-def evaluate_trade_exits(t: dict, hist: pd.DataFrame = None, cur_p: float = None, is_recalculate: bool = False):
+def evaluate_trade_exits(t: dict, hist: pd.DataFrame = None, cur_p: float = None, is_recalculate: bool = False, quality_collector: Optional[List[Tuple[int, dict]]] = None):
     """Evaluates trade exits against price history bars (alias for process_trade_history)."""
     if cur_p is None and hist is not None and not hist.empty:
         cur_p = float(hist.iloc[-1].get("Close", hist.iloc[-1].get("close", 0.0)))
-    return process_trade_history(t, hist, cur_p or 0.0, is_recalculate=is_recalculate)
+    return process_trade_history(t, hist, cur_p or 0.0, is_recalculate=is_recalculate, quality_collector=quality_collector)
 
-def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalculate: bool = False):
+def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalculate: bool = False, quality_collector: Optional[List[Tuple[int, dict]]] = None):
     """
     State Machine Evaluator for Partial Exits (Point-in-Time Replay & Exit Monitor).
     - If is_recalculate=True: Resets in-memory state to alert origin and replays tick by tick forward.
@@ -1130,11 +1130,14 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             "weighted_realized_r": weighted_realized_r
         }
 
-        try:
-            from database import update_alert_quality_metrics
-            update_alert_quality_metrics(t["id"], quality_metrics)
-        except Exception as db_err:
-            logger.error(f"❌ Failed to persist alert quality metrics: {db_err}")
+        if quality_collector is not None:
+            quality_collector.append((t["id"], quality_metrics))
+        else:
+            try:
+                from database import update_alert_quality_metrics
+                update_alert_quality_metrics(t["id"], quality_metrics)
+            except Exception as db_err:
+                logger.error(f"❌ Failed to persist alert quality metrics: {db_err}")
 def _days_held(alert_date_str: str) -> int:
     try:
         # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
@@ -1815,6 +1818,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     # If CMP has breached SL or T1, execute exit immediately in milliseconds so
     # actionable SL hits (like GENUSPOWER) never get stalled behind 15-minute broker batch fetches.
     fast_evaluated_syms = set()
+    quality_metrics_batch: List[Tuple[int, dict]] = []
     if is_open and not do_tick_replay:
         for t in trades:
             if t["_db_closed"] or is_long_term_compounder_trade(t):
@@ -1827,7 +1831,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             t1 = t.get("target_1") or t.get("target_price")
             if sl and ((sl > 0 and cur_p <= sl) or (t1 and cur_p >= t1)):
                 try:
-                    process_trade_history(t, hist=None, cur_p=cur_p, is_recalculate=False)
+                    process_trade_history(t, hist=None, cur_p=cur_p, is_recalculate=False, quality_collector=quality_metrics_batch)
                     if t.get("status") in ("WIN", "LOSS", "CLOSED"):
                         t["_db_closed"] = True
                         fast_evaluated_syms.add(sym)
@@ -1981,12 +1985,12 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks from alert time...")
                 pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
                 hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
-                process_trade_history(t, hist, cur_p=cur_p if (is_open and cur_p) else None, is_recalculate=True)
+                process_trade_history(t, hist, cur_p=cur_p if (is_open and cur_p) else None, is_recalculate=True, quality_collector=quality_metrics_batch)
             elif is_open:
                 # Normal 5-minute exit monitor loop during active market hours
                 # In targeted recalc mode (do_tick_replay=True), only evaluate non-recalc open trades against cur_p
                 hist = tier2_prefetch.get(sym) if (not do_tick_replay and tier2_prefetch) else None
-                process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=False)
+                process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=False, quality_collector=quality_metrics_batch)
 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)
@@ -2067,6 +2071,15 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             logger.info(f"✅ [PERF_TRACKER] Bulk-updated current_price for {len(alert_cmp_updates)} active alerts in DB")
         except Exception as _b_err:
             logger.warning(f"Failed to bulk-update alert CMPs: {_b_err}")
+
+    # [OPTIMIZATION] Bulk-update alert quality improvement metrics in one single transaction
+    if quality_metrics_batch:
+        try:
+            from database import bulk_update_alert_quality_metrics
+            bulk_update_alert_quality_metrics(quality_metrics_batch)
+            logger.info(f"✅ [PERF_TRACKER] Bulk-updated quality metrics for {len(quality_metrics_batch)} active alerts in DB")
+        except Exception as _qm_err:
+            logger.warning(f"Failed to bulk-update quality metrics: {_qm_err}")
 
     stage_tracker.end_stage(f"Processed {len(trades)} trades")
     # ── 4. Summary stats ────────────────────────────────────────────────────────────

@@ -71,18 +71,39 @@ def _build_momentum_rsi(close: pd.Series) -> Dict[str, pd.Series]:
     return {"RSI": ta.momentum.rsi(close, window=14)}
 
 
-def _build_volatility_columns(high: pd.Series, low: pd.Series, close: pd.Series) -> Dict[str, pd.Series]:
+def _build_atr_columns(high: pd.Series, low: pd.Series, close: pd.Series) -> Dict[str, pd.Series]:
     cols = {}
-    cols["ATR"]     = ta.volatility.average_true_range(high, low, close, window=14)
-    cols["ATR20"]   = ta.volatility.average_true_range(high, low, close, window=20)
-    cols["ATR_PCT"] = (cols["ATR"] / close * 100).round(2)
+    prev_close = close.shift(1)
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
 
+    # Fast vectorized Wilder's smoothing (alpha = 1 / window) matches TA-Lib / ta library
+    atr14 = tr.ewm(alpha=1.0 / 14, min_periods=14, adjust=False).mean()
+    atr20 = tr.ewm(alpha=1.0 / 20, min_periods=20, adjust=False).mean()
+
+    cols["ATR"]     = atr14
+    cols["ATR_14"]  = atr14
+    cols["ATR20"]   = atr20
+    cols["ATR_PCT"] = (atr14 / close * 100).round(2)
+    return cols
+
+
+def _build_bollinger_columns(close: pd.Series) -> Dict[str, pd.Series]:
+    cols = {}
     bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
     cols["BB_UPPER"] = bb.bollinger_hband()
     cols["BB_LOWER"] = bb.bollinger_lband()
     cols["BB_MID"]   = bb.bollinger_mavg()
     cols["BB_WIDTH"] = (cols["BB_UPPER"] - cols["BB_LOWER"]) / close
     cols["BB_WIDTH_PCTILE"] = cols["BB_WIDTH"].rolling(window=100, min_periods=50).rank(pct=True)
+    return cols
+
+
+def _build_volatility_columns(high: pd.Series, low: pd.Series, close: pd.Series) -> Dict[str, pd.Series]:
+    cols = _build_atr_columns(high, low, close)
+    cols.update(_build_bollinger_columns(close))
     return cols
 
 
@@ -377,15 +398,23 @@ def hydrate_indicators(
     if req_all or "RSI" in required:
         new_cols.update(_build_momentum_rsi(close))
 
-    # 3. Volatility (ATR, ATR20, ATR_PCT, Bollinger Bands)
-    vol_needed = (
+    # 3. True Range & ATR
+    atr_needed = (
         req_all 
-        or required.intersection({"ATR", "ATR20", "ATR_PCT", "BB_UPPER", "BB_LOWER", "BB_MID", "BB_WIDTH", "BB_WIDTH_PCTILE"})
+        or required.intersection({"ATR", "ATR_14", "ATR20", "ATR_PCT"})
         or "BASE_WIDTH" in required
         or "VCP_TIGHTENING" in required
     )
-    if vol_needed:
-        new_cols.update(_build_volatility_columns(high, low, close))
+    if atr_needed:
+        new_cols.update(_build_atr_columns(high, low, close))
+
+    # 3.5 Bollinger Bands (only calculated when BB columns explicitly needed)
+    bb_needed = (
+        req_all 
+        or required.intersection({"BB_UPPER", "BB_LOWER", "BB_MID", "BB_WIDTH", "BB_WIDTH_PCTILE"})
+    )
+    if bb_needed:
+        new_cols.update(_build_bollinger_columns(close))
 
     # 4. ADX Directional
     if req_all or "ADX" in required:
