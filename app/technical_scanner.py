@@ -1671,6 +1671,7 @@ def run_technical_scan(
                 real_run_ctx = None
 
         _scan_start = print_scanner_start_banner("TECHNICAL", queued_at=queued_at, run_id=real_run_ctx.run_id if real_run_ctx else None)
+        scan_dt_ist = datetime.now(IST)
 
         init_db()
         upsert_scanner_health(
@@ -1766,7 +1767,7 @@ def run_technical_scan(
                     last_dt = pd.to_datetime(last_val, errors="coerce")
                     if last_dt is not None and not pd.isna(last_dt):
                         from market_utils import evaluate_data_staleness
-                        staleness_info = evaluate_data_staleness(last_dt)
+                        staleness_info = evaluate_data_staleness(last_dt, now_dt=scan_dt_ist)
                         if staleness_info.get("is_stale", False):
                             is_stale = True
 

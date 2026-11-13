@@ -631,7 +631,10 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
     # If the caller explicitly requested a set of indicators, hydrate them on the in-memory results.
     if required_indicators is not None:
         from technical_indicators import hydrate_indicators
-        for s, df_val in final_res.items():
+        import concurrent.futures
+
+        def _hydrate_single_df(item):
+            s, df_val = item
             if df_val is not None and isinstance(df_val, pd.DataFrame) and not df_val.empty:
                 # [OPTIMIZATION] If 1d data and requested period is <= 1y, truncate to 400 bars
                 # (1.5 years of trading sessions) before hydrating indicators. Prevents running indicators
@@ -640,9 +643,21 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                     df_slice = df_val.iloc[-400:].copy()
                     if hasattr(df_val, "attrs"):
                         df_slice.attrs = dict(df_val.attrs)
-                    final_res[s] = hydrate_indicators(df_slice, required=required_indicators, timeframe=interval)
+                    return s, hydrate_indicators(df_slice, required=required_indicators, timeframe=interval)
                 else:
-                    final_res[s] = hydrate_indicators(df_val, required=required_indicators, timeframe=interval)
+                    return s, hydrate_indicators(df_val, required=required_indicators, timeframe=interval)
+            return s, df_val
+
+        max_h_workers = min(8, max(2, os.cpu_count() or 4))
+        if len(final_res) > 1 and max_h_workers > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_h_workers) as hyd_exec:
+                hydrated_results = list(hyd_exec.map(_hydrate_single_df, final_res.items()))
+            for s, h_df in hydrated_results:
+                final_res[s] = h_df
+        else:
+            for s, df_val in final_res.items():
+                _, h_df = _hydrate_single_df((s, df_val))
+                final_res[s] = h_df
 
     return final_res
 

@@ -2241,8 +2241,11 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
         def _bg_rebuild_valuation():
             try:
                 from pit_valuation_history_builder import build_pit_valuation_history, _count_both_complete_from_dict, _load_current_cache_completeness
-                logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build in background...")
                 current_cache_both_complete, _ = _load_current_cache_completeness()
+                if not force_rebuild and current_cache_both_complete > 0:
+                    logger.info(f"⏭️ [DAILY_BUILDER] Valuation medians cache already certified ({current_cache_both_complete} symbols). Skipping redundant background rebuild.")
+                    return
+                logger.info("🔧 [DAILY_BUILDER] Rebuilding PIT valuation medians cache post-build in background...")
                 _vc_result = build_pit_valuation_history(save_cache=True, upload_db=True)
                 if _vc_result:
                     # Secondary audit: use the same row-level both-field completeness metric as the builder.

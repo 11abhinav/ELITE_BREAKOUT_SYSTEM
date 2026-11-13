@@ -549,7 +549,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
     if hist is not None and not hist.empty:
         hist = enforce_trading_day_candles(hist, symbol)
         hist = hist[~hist.index.duplicated(keep='first')].sort_index()
-        for ts, row in hist.iterrows():
+        for row in hist.itertuples():
+            ts = row.Index
             ts_dt = pd.to_datetime(ts)
             if hasattr(ts_dt, "tz") and ts_dt.tz is not None:
                 ts_dt_ist = ts_dt.tz_convert(IST)
@@ -578,9 +579,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                 continue
 
             ts_str = ts_dt_ist.strftime("%Y-%m-%d %H:%M:%S")
-            vol = float(row.get("Volume", 0.0))
-            close_p = float(row.get("Close", float(row["High"])))
-            ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"]), close_p, vol))
+            vol = float(getattr(row, "Volume", 0.0) or 0.0)
+            high_val = float(getattr(row, "High", 0.0) or 0.0)
+            close_p = float(getattr(row, "Close", high_val) or high_val)
+            open_p = float(getattr(row, "Open", close_p) or close_p)
+            low_val = float(getattr(row, "Low", close_p) or close_p)
+            ticks.append((ts_str, open_p, low_val, high_val, close_p, vol))
 
     if cur_p and cur_p > 0:
         now_dt = _get_current_ist_now()
@@ -614,13 +618,6 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
         if t.get("entry_price") is not None:
             actual_entry_price = t["entry_price"]
             t["actual_entry_price"] = actual_entry_price
-            # Async backfill in DB to fix data integrity
-            try:
-                with get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("UPDATE alerts SET actual_entry_price = %s WHERE id = %s AND actual_entry_price IS NULL", (actual_entry_price, t["id"]))
-            except Exception:
-                pass
         else:
             logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is OPEN but missing actual_entry_price and entry_price. Safe-rejecting evaluation.")
             return
@@ -1497,6 +1494,7 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
             prefetched_bars.update(batch_res)
 
     # 4. Process each trade with full post-alert historical bars
+    quality_metrics_recalc = []
     for t in trades:
         adjust_trade_for_corporate_actions(t)
         sym = t["symbol"]
@@ -1517,7 +1515,7 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
             logger.info(f"🔄 [TARGETED RECALC] Replaying ticks for {sym} (Alert #{t['id']})...")
             pre_hist = prefetched_bars.get(sym) if sym in prefetched_bars else None
             hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
-            process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=True)
+            process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=True, quality_collector=quality_metrics_recalc)
         elif cur_p and ep and ep > 0:
             t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2)
 
@@ -1542,6 +1540,13 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
         elif tr_status in ("WIN", "LOSS", "CLOSED"):
             if t.get("closed_at"):
                 t["closed_at"] = sanitize_market_session_timestamp(t["closed_at"])
+
+    if quality_metrics_recalc:
+        try:
+            from database import bulk_update_alert_quality_metrics
+            bulk_update_alert_quality_metrics(quality_metrics_recalc)
+        except Exception as _rq_err:
+            logger.warning(f"Failed to bulk-update recalc quality metrics: {_rq_err}")
 
     # 5. Surgically patch system_state: performance_data and data/performance_data.json
     try:
@@ -1868,10 +1873,16 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 logger.warning(f"⚠️ [TIER2] Batch prefetch failed (will fall back to cur_p only): {_t2_err}")
 
     alert_cmp_updates = []
+    step3_loop_start = time.monotonic()
+    total_trades_count = len(trades)
     for idx, t in enumerate(trades):
         # [PERF] Micro-yield the GIL periodically without adding dozens of seconds of dead sleep
-        if idx % 50 == 0:
+        if idx % 20 == 0:
             time.sleep(0.001)
+
+        if (idx + 1) % 50 == 0 or (idx + 1) == total_trades_count:
+            step3_elapsed = time.monotonic() - step3_loop_start
+            logger.info(f"⚡ [PERF_TRACKER] Step 3 progress: evaluated {idx + 1}/{total_trades_count} trades ({step3_elapsed:.1f}s)...")
 
         from corporate_actions import adjust_trade_for_corporate_actions
         adjust_trade_for_corporate_actions(t)
