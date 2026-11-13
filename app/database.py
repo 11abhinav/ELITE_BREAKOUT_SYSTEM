@@ -289,6 +289,15 @@ def get_connection(timeout: int = 15):
 
     except (OperationalError, ps_pool.PoolError) as e:
         logger.warning(f"⚠️ DB connection pool checkout error: {e}")
+        try:
+            from telegram_engine import send_emergency_admin_alert
+            send_emergency_admin_alert(
+                subject="PostgreSQL Pool Exhaustion / DB Connection Error",
+                message=f"PostgreSQL connection checkout failed after 3 attempts.\nError: {e}\nPool Capacity: {getattr(p, 'maxconn', 50)}",
+                severity="CRITICAL"
+            )
+        except Exception:
+            pass
         raise
     except Exception as e:
         is_conn_drop = False
@@ -379,8 +388,35 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
             )
         except Exception as push_err:
             logger.debug(f"WebPush dispatch skipped: {push_err}")
+        # [ADMIN TELEGRAM OUT-OF-BAND DISPATCH] Forward critical, error, or scanner notifications to Telegram
+        try:
+            if notif_type in ("error", "critical", "scanner_down", "admin", "buy", "warning", "URGENT", "ALERT"):
+                from telegram_engine import send_emergency_admin_alert, send_telegram_message
+                if notif_type in ("error", "critical", "scanner_down"):
+                    send_emergency_admin_alert(
+                        subject=f"[{notif_type.upper()}] {title}",
+                        message=f"{message}\n(Symbol: {symbol or 'N/A'}, Alert ID: {alert_id or 'N/A'})",
+                        severity=notif_type.upper()
+                    )
+                else:
+                    tg_msg = f"🔔 <b>{title}</b>\n\n{message}"
+                    if symbol:
+                        tg_msg += f"\n<b>Symbol:</b> <code>{symbol}</code>"
+                    send_telegram_message(tg_msg)
+        except Exception as tg_err:
+            logger.debug(f"Telegram dispatch note: {tg_err}")
     except Exception as e:
-        logger.exception(f"Failed to insert notification")
+        logger.exception(f"Failed to insert notification: {e}")
+        # Out-of-band emergency dispatch when DB write fails
+        try:
+            from telegram_engine import send_emergency_admin_alert
+            send_emergency_admin_alert(
+                subject=f"System Notification (DB Fallback): {title}",
+                message=f"Type: {notif_type}\nMessage: {message}\n(DB write failed: {e})",
+                severity="HIGH"
+            )
+        except Exception:
+            pass
 
 def insert_notification(notif_type: str, title: str, message: str, symbol: str = None, alert_id: int = None):
     import threading
@@ -12271,6 +12307,9 @@ def verify_user(identifier, password, ip_address: str = None, user_agent: str = 
                         logger.warning(f"User {identifier} locked out due to {attempts} failed login attempts.")
 
         return None
+    except psycopg2.pool.PoolError:
+        logger.error("DB connection pool exhausted during verify_user")
+        return {'error': 'db_busy'}
     except Exception as e:
         logger.exception(f"Failed to verify user")
         return None

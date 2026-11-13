@@ -29,28 +29,46 @@ def mark_flask_ready(port: int):
     FLASK_READY = True
 
 def _handle_client(client_sock: socket.socket):
+    target_sock = None
     try:
-        client_sock.settimeout(5.0)
+        client_sock.settimeout(10.0)
         data = client_sock.recv(4096)
         if not data:
-            client_sock.close()
+            try: client_sock.close()
+            except Exception: pass
             return
 
         # Before Flask is ready, immediately answer any incoming probe/request with 200 OK
         if not FLASK_READY:
-            client_sock.sendall(HEALTH_HTTP_200)
-            client_sock.close()
+            try:
+                client_sock.sendall(HEALTH_HTTP_200)
+            finally:
+                try: client_sock.close()
+                except Exception: pass
             return
 
         # Forward requests to Flask on internal port once Flask is ready
         try:
             target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            target_sock.settimeout(15.0)
+            client_sock.settimeout(15.0)
             target_sock.connect(("127.0.0.1", FLASK_PORT))
+
+            # Force Connection: close to prevent HTTP/1.1 persistent connection leaks
+            if b"Connection: keep-alive" in data:
+                data = data.replace(b"Connection: keep-alive", b"Connection: close")
+            elif b"connection: keep-alive" in data:
+                data = data.replace(b"connection: keep-alive", b"connection: close")
+            elif b"\r\n\r\n" in data and b"Connection:" not in data and b"connection:" not in data:
+                # Inject Connection: close into request headers
+                data = data.replace(b"\r\n\r\n", b"\r\nConnection: close\r\n\r\n", 1)
+
             target_sock.sendall(data)
 
-            # Bidirectional stream
+            # Bidirectional stream with explicit timeouts and mutual socket teardown
             def _pipe(src, dst):
                 try:
+                    src.settimeout(15.0)
                     while True:
                         buf = src.recv(8192)
                         if not buf:
@@ -59,6 +77,7 @@ def _handle_client(client_sock: socket.socket):
                 except Exception:
                     pass
                 finally:
+                    # Mutual teardown: closing both terminates the other pipe thread immediately
                     try: src.close()
                     except Exception: pass
                     try: dst.close()
@@ -68,15 +87,22 @@ def _handle_client(client_sock: socket.socket):
             t2 = threading.Thread(target=_pipe, args=(target_sock, client_sock), daemon=True)
             t1.start()
             t2.start()
-        except Exception:
+        except Exception as forward_err:
             # Fallback if Flask connection fails
-            client_sock.sendall(HEALTH_HTTP_200)
-            client_sock.close()
+            try:
+                client_sock.sendall(HEALTH_HTTP_200)
+            finally:
+                try: client_sock.close()
+                except Exception: pass
+            if target_sock:
+                try: target_sock.close()
+                except Exception: pass
     except Exception:
-        try:
-            client_sock.close()
-        except Exception:
-            pass
+        try: client_sock.close()
+        except Exception: pass
+        if target_sock:
+            try: target_sock.close()
+            except Exception: pass
 
 def _start_listener(port: int):
     try:

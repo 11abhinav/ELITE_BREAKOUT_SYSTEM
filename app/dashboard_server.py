@@ -435,47 +435,54 @@ def login():
         path = get_html_path("login.html")
         return send_file(path) if path and os.path.exists(path) else "login.html missing"
         
-    req_data = (request.get_json(silent=True) if request.is_json else None) or request.form or {}
-    identifier = str(req_data.get("username") or req_data.get("identifier") or "").strip()
-    password = req_data.get("password")
-    
-    if not identifier or not password:
-        return jsonify({"error": "Missing credentials"}), 400
+    try:
+        req_data = (request.get_json(silent=True) if request.is_json else None) or request.form or {}
+        identifier = str(req_data.get("username") or req_data.get("identifier") or "").strip()
+        password = req_data.get("password")
         
-    user_data = database.verify_user(
-        identifier,
-        password,
-        ip_address=request.remote_addr,
-        user_agent=request.user_agent.string[:255] if request.user_agent else None
-    )
-    if user_data:
-        if isinstance(user_data, dict) and user_data.get('error') == 'pending_approval':
-            return jsonify({"error": "Account pending admin approval"}), 403
+        if not identifier or not password:
+            return jsonify({"error": "Missing credentials"}), 400
             
-        session.clear() # Anti-fixation
-        session.permanent = True
-        session['user_id'] = user_data['user_id']
-        session['username'] = user_data['username']
-        session['first_name'] = user_data.get('first_name')
-        session['role'] = user_data['role']
-        session['must_change_password'] = user_data['must_change_password']
-        session['session_token'] = user_data['session_token']
+        user_data = database.verify_user(
+            identifier,
+            password,
+            ip_address=request.remote_addr,
+            user_agent=request.user_agent.string[:255] if request.user_agent else None
+        )
+        if user_data:
+            if isinstance(user_data, dict):
+                if user_data.get('error') == 'pending_approval':
+                    return jsonify({"error": "Account pending admin approval"}), 403
+                if user_data.get('error') == 'db_busy':
+                    return jsonify({"error": "Server is temporarily busy. Please retry in a few seconds."}), 503
+                
+            session.clear() # Anti-fixation
+            session.permanent = True
+            session['user_id'] = user_data['user_id']
+            session['username'] = user_data['username']
+            session['first_name'] = user_data.get('first_name')
+            session['role'] = user_data['role']
+            session['must_change_password'] = user_data['must_change_password']
+            session['session_token'] = user_data['session_token']
+            
+            target_url = "/complete_profile" if user_data.get('must_change_password') else ("/admin" if user_data.get('role') in ('admin', 'superuser') else "/")
+            
+            is_ajax = (
+                request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or request.is_json
+                or 'application/json' in request.headers.get('Accept', '')
+                or request.headers.get('Sec-Fetch-Mode') in ('cors', 'same-origin')
+            )
+            if is_ajax:
+                return jsonify({"success": True, "redirect": target_url}), 200
+                
+            return redirect(target_url)
         
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
-            if user_data['must_change_password']:
-                return jsonify({"redirect": "/complete_profile"}), 200
-            if user_data['role'] in ('admin', 'superuser'):
-                return jsonify({"redirect": "/admin"}), 200
-            return jsonify({"redirect": "/"}), 200
-            
-        if user_data['must_change_password']:
-            return redirect('/complete_profile')
-        if user_data['role'] in ('admin', 'superuser'):
-            return redirect('/admin')
-        return redirect('/')
-    
-    # Generic error
-    return jsonify({"error": "Invalid credentials"}), 401
+        # Generic error
+        return jsonify({"error": "Invalid credentials"}), 401
+    except Exception as e:
+        logger.exception(f"Unhandled error in /login: {e}")
+        return jsonify({"error": "Login service error. Please try again."}), 500
 
 @app.route("/signup", methods=["GET", "POST"])
 @csrf.exempt
@@ -699,12 +706,33 @@ def api_viewers():
                 precompressed_gzip=_viewers_cache.get("gzip")
             )
 
-    if (now_ts - _last_session_cleanup_ts) > 60.0:
-        cleanup_stale_sessions()
-        _last_session_cleanup_ts = now_ts
+    try:
+        if (now_ts - _last_session_cleanup_ts) > 60.0:
+            try:
+                cleanup_stale_sessions()
+            except Exception as _sc_err:
+                logger.warning(f"Session cleanup deferred: {_sc_err}")
+            _last_session_cleanup_ts = now_ts
 
-    stats = get_online_users_and_history()
-    unread = get_unread_message_counts()
+        stats = get_online_users_and_history()
+        unread = get_unread_message_counts()
+    except Exception as db_err:
+        logger.warning(f"⚠️ /api/viewers database query error: {db_err}")
+        with _dashboard_cache_lock:
+            if _viewers_cache["payload"] is not None:
+                return _make_json_response(
+                    _viewers_cache["payload"],
+                    etag=_viewers_cache.get("etag"),
+                    max_age=3,
+                    precompressed_gzip=_viewers_cache.get("gzip")
+                )
+        return jsonify({
+            "active_count": 0,
+            "viewers": [],
+            "history": [],
+            "detailed_online": [],
+            "unread_messages": {}
+        }), 200
     
     res = {
         "active_count": len(stats["online"]),
@@ -8337,15 +8365,46 @@ def api_v2_quality_compounder_export():
 
 # ── Global Error Handlers ───────────────────────────────────────────────
 
+def _wants_json_response():
+    return (
+        request.path.startswith('/api/')
+        or request.path in ('/login', '/signup', '/complete_profile')
+        or request.is_json
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        or 'application/json' in request.headers.get('Accept', '')
+        or request.headers.get('Sec-Fetch-Mode') in ('cors', 'same-origin')
+    )
+
+@app.errorhandler(429)
+def handle_429_error(e):
+    if _wants_json_response():
+        return jsonify({"status": "error", "error": "Too many attempts. Please wait a moment before trying again."}), 429
+    return "Too Many Requests. Please wait a moment.", 429
+
 @app.errorhandler(500)
 def handle_500_error(e):
     logger.exception(f"Unhandled 500 Server Error: {e}")
-    if request.path.startswith('/api/'):
-        return jsonify({"status": "error", "error": "Internal Server Error", "message": str(e)}), 500
+    try:
+        from telegram_engine import send_emergency_admin_alert
+        send_emergency_admin_alert(
+            subject=f"Dashboard 500 Server Error on {request.path}",
+            message=f"Path: {request.path}\nMethod: {request.method}\nError: {e}",
+            severity="CRITICAL"
+        )
+    except Exception:
+        pass
+    if _wants_json_response():
+        return jsonify({"status": "error", "error": "Internal Server Error. Please try again shortly."}), 500
     return "Internal Server Error", 500
 
 @app.errorhandler(404)
 def handle_404_error(e):
-    if request.path.startswith('/api/'):
+    if _wants_json_response():
         return jsonify({"status": "error", "error": "Endpoint Not Found"}), 404
     return "Page Not Found", 404
+
+@app.errorhandler(400)
+def handle_400_error(e):
+    if _wants_json_response():
+        return jsonify({"status": "error", "error": "Bad Request"}), 400
+    return "Bad Request", 400

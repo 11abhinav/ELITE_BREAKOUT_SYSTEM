@@ -29,10 +29,22 @@
       return JSON.parse(text);
     } catch (e) {
       if (this.status === 401) {
-        return { error: "Unauthorized", status: 401 };
+        return { error: "Invalid username or password.", status: 401 };
+      }
+      if (this.status === 429) {
+        return { error: "Too many attempts. Please wait a moment and try again.", status: 429 };
+      }
+      if (this.status === 502 || this.status === 503 || this.status === 504) {
+        return { error: "Server is temporarily unreachable. Please try again in a few moments.", status: this.status };
+      }
+      if (this.status === 500) {
+        return { error: "Server error occurred. Please try again shortly.", status: 500 };
+      }
+      if (this.status === 200 && (text.includes('<!DOCTYPE') || text.includes('<html'))) {
+        return { redirect: this.url || '/', status: 200 };
       }
       console.warn("JSON parse failed for response status", this.status, ":", text.substring(0, 100));
-      return { error: "Invalid JSON response from server", status: this.status };
+      return { error: `Server error (${this.status || 'unknown'}). Please try again.`, status: this.status };
     }
   };
 })();
@@ -943,30 +955,34 @@
         body: formData,
         credentials: 'include',
         headers: {
+          'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
           'X-CSRFToken': csrfToken
         }
       });
 
       if (res.redirected) {
-        window.location.href = res.url;
-      } else if (!res.ok) {
-        let data = {};
-        try {
-            data = await res.json();
-        } catch(e) {
-            data = { error: res.status === 429 ? 'Too many attempts. Please wait.' : 'Login failed (' + res.status + ')' };
+        const redirUrl = res.url || '';
+        if (!redirUrl.endsWith('/login') && !redirUrl.includes('/login?')) {
+          window.location.href = redirUrl;
+          return;
         }
+      }
 
-        document.getElementById('error-text').textContent = data.error || 'Login failed';
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById('error-text').textContent = data.error || (res.status === 429 ? 'Too many attempts. Please wait.' : 'Login failed');
         errorEl.classList.remove('hidden');
         if (res.status === 400 && data.error && data.error.includes("CSRF")) {
             await fetchCsrf();
         }
       } else {
-        const data = await res.json();
-        if (data.redirect) {
+        if (data && data.redirect && !data.redirect.endsWith('/login')) {
             window.location.href = data.redirect;
+        } else if (data && data.error) {
+            document.getElementById('error-text').textContent = data.error;
+            errorEl.classList.remove('hidden');
         } else {
             window.location.href = `${getApiBase()}/`;
         }

@@ -461,6 +461,12 @@ class ProcessLockImpl:
                                     self.db_conn.close()
                             except Exception:
                                 pass
+                            try:
+                                from database import _conn_semaphore
+                                if _conn_semaphore is not None:
+                                    _conn_semaphore.release()
+                            except Exception:
+                                pass
                             self.db_conn = None
                             # Re-acquire a fresh connection from pool
                             try:

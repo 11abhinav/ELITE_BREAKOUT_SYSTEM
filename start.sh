@@ -3,6 +3,8 @@
 echo "🚀 Starting Elite Breakout System Supervisor..."
 
 export PYTHONUNBUFFERED=1
+# Increase OS file descriptor limit to avoid [Errno 24] Too many open files
+ulimit -n 65535 2>/dev/null || ulimit -n 4096 2>/dev/null || true
 # Reduce glibc native memory fragmentation
 export MALLOC_ARENA_MAX=2
 export PYTHONPATH="/app:/app/app:$PYTHONPATH"

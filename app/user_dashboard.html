@@ -60,8 +60,17 @@ var USER_PAGE_SIZE = 10;
       if (this.status === 401) {
         return { error: "Unauthorized", status: 401 };
       }
+      if (this.status === 429) {
+        return { error: "Too many attempts. Please wait a moment and try again.", status: 429 };
+      }
+      if (this.status === 502 || this.status === 503 || this.status === 504) {
+        return { error: "Server is temporarily unreachable. Please try again shortly.", status: this.status };
+      }
+      if (this.status === 500) {
+        return { error: "Server encountered an error. Please try again shortly.", status: 500 };
+      }
       console.warn("JSON parse failed for response status", this.status, ":", text.substring(0, 100));
-      return { error: "Invalid JSON response from server", status: this.status };
+      return { error: `Server error (${this.status || 'unknown'}). Please try again.`, status: this.status };
     }
   };
 })();
