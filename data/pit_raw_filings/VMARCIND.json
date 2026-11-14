@@ -7,7 +7,7 @@
     "consolidation": "CONSOLIDATED",
     "revenue": 906.24,
     "net_profit": 36.09,
-    "operating_cash_flow": 23.0,
+    "operating_cash_flow": 22.53,
     "total_debt": 175.0,
     "total_equity": 189.0,
     "ebit": 49.71,
@@ -37,7 +37,7 @@
     "raw_NII": null,
     "mapped_revenue": 905.0,
     "mapping_rule": "REVENUE_DIRECT",
-    "source_record_hash": "3e1cb1fc9263ff5a1bfff83a92b56a71862b4f3a69ed1e35b6c6caf5d9bfe502"
+    "source_record_hash": "c43e54935b5a1c7204afc549b012946c2ce1b9bfbbc58cd0d34f3141e6ac10e4"
   },
   {
     "filing_id": "VMARCIND_20250630_Q_v1",
@@ -81,7 +81,7 @@
     "consolidation": "CONSOLIDATED",
     "revenue": 1800.48,
     "net_profit": 98.78,
-    "operating_cash_flow": 109.0,
+    "operating_cash_flow": 109.15,
     "total_debt": 214.0,
     "total_equity": 289.0,
     "ebit": 133.66,
@@ -111,7 +111,7 @@
     "raw_NII": null,
     "mapped_revenue": 1797.0,
     "mapping_rule": "REVENUE_DIRECT",
-    "source_record_hash": "c8333111da97dc33d5be475ae490b970fc11e3883c5095a37fcbf28d1988f8e9"
+    "source_record_hash": "708027d94b043576129764b8fd510bb8b5e3065a07fca943a230dc9253f955e2"
   },
   {
     "filing_id": "VMARCIND_20260630_Q_v1",

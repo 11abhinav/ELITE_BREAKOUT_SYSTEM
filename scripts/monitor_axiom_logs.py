@@ -133,12 +133,13 @@ def fetch_logs(
     elif query_filter:
         apl_parts.append(f"where log contains '{query_filter}'")
         
-    apl_parts.append("order by _time asc")
+    apl_parts.append("order by _time desc")
     apl_parts.append(f"limit {limit}")
     
     apl = " | ".join(apl_parts)
     result = query_axiom(apl, token, org_id)
     matches = result.get("matches", [])
+    matches.reverse()
     return matches
 
 

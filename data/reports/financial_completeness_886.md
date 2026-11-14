@@ -1,7 +1,7 @@
 # 886-Stock Financial Data Completeness Matrix
 
 **Universe**: 886 Approved Equities  
-**Generated At**: 2026-11-14T16:17:03.889361  
+**Generated At**: 2026-11-14T17:48:11.560397  
 
 ## Field-by-Field Completeness Table
 

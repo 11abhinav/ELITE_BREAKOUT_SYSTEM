@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-10-26T10:46:57.044458+05:30",
+    "last_successful_check_at": "2026-11-14T17:47:23.243012+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -29,10 +29,10 @@
         "last_successful_check_at": "2026-10-26T10:45:41.351755"
       },
       "FOSECOIND": {
-        "last_successful_check_at": "2026-10-26T10:46:08.992057"
+        "last_successful_check_at": "2026-11-14T17:47:58.589989"
       },
       "GMBREW": {
-        "last_successful_check_at": "2026-10-26T10:46:12.518564"
+        "last_successful_check_at": "2026-11-14T17:48:03.385620"
       },
       "HIRECT": {
         "last_successful_check_at": "2026-10-24T19:13:19.065117"
@@ -44,7 +44,7 @@
         "last_successful_check_at": "2026-10-26T10:46:15.550388"
       },
       "TIMKEN": {
-        "last_successful_check_at": "2026-10-26T10:46:18.835937"
+        "last_successful_check_at": "2026-11-14T17:48:05.186428"
       },
       "UTLSOLAR": {
         "last_successful_check_at": "2026-10-18T22:20:14.252026"
@@ -161,13 +161,13 @@
         "last_successful_check_at": "2026-10-18T22:22:12.432322"
       },
       "VMARCIND": {
-        "last_successful_check_at": "2026-10-24T19:12:38.202215"
+        "last_successful_check_at": "2026-11-14T17:48:07.313902"
       },
       "VSSL": {
         "last_successful_check_at": "2026-10-24T19:12:39.460302"
       },
       "WEBELSOLAR": {
-        "last_successful_check_at": "2026-10-24T19:12:42.037502"
+        "last_successful_check_at": "2026-11-14T17:48:08.468591"
       },
       "CAMPUS": {
         "last_successful_check_at": "2026-10-15T20:25:47.681650"
@@ -209,7 +209,7 @@
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-10-26T10:46:57.044458+05:30",
+    "last_successful_check_at": "2026-11-14T17:47:23.243012+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
@@ -237,10 +237,10 @@
         "last_successful_check_at": "2026-10-26T10:45:41.402267"
       },
       "FOSECOIND": {
-        "last_successful_check_at": "2026-10-26T10:46:09.007582"
+        "last_successful_check_at": "2026-11-14T17:47:58.594605"
       },
       "GMBREW": {
-        "last_successful_check_at": "2026-10-26T10:46:12.528844"
+        "last_successful_check_at": "2026-11-14T17:48:03.406634"
       },
       "HIRECT": {
         "last_successful_check_at": "2026-10-24T19:13:19.069508"
@@ -252,7 +252,7 @@
         "last_successful_check_at": "2026-10-26T10:46:15.580669"
       },
       "TIMKEN": {
-        "last_successful_check_at": "2026-10-26T10:46:18.845099"
+        "last_successful_check_at": "2026-11-14T17:48:05.190310"
       },
       "UTLSOLAR": {
         "last_successful_check_at": "2026-10-18T22:20:14.261210"
@@ -369,13 +369,13 @@
         "last_successful_check_at": "2026-10-18T22:22:12.435923"
       },
       "VMARCIND": {
-        "last_successful_check_at": "2026-10-24T19:12:38.206890"
+        "last_successful_check_at": "2026-11-14T17:48:07.319126"
       },
       "VSSL": {
         "last_successful_check_at": "2026-10-24T19:12:39.464553"
       },
       "WEBELSOLAR": {
-        "last_successful_check_at": "2026-10-24T19:12:42.045374"
+        "last_successful_check_at": "2026-11-14T17:48:08.473106"
       },
       "CAMPUS": {
         "last_successful_check_at": "2026-10-15T20:25:47.685367"
