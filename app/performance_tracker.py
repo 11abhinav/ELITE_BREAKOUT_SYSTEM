@@ -47,6 +47,13 @@ from database import (
     save_system_state,
     get_connection,
     update_alert_current_price,
+    start_scanner_execution_run,
+    complete_scanner_execution_run,
+    bulk_update_alert_current_prices,
+    bulk_update_alert_quality_metrics,
+    update_alert_quality_metrics,
+    update_shadow_alert_outcome,
+    bulk_update_cmp,
 )
 from trading_calendar import sanitize_market_session_timestamp
 from corporate_actions import adjust_trade_for_corporate_actions
@@ -399,7 +406,6 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
     if is_long_term_compounder_trade(t):
         return
 
-    from database import update_partial_exit, update_alert_outcome
     from corporate_actions import adjust_trade_for_corporate_actions
     from trading_calendar import default_trading_calendar, enforce_trading_day_candles, is_valid_market_session_timestamp
     import json
@@ -1131,7 +1137,6 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             quality_collector.append((t["id"], quality_metrics))
         else:
             try:
-                from database import update_alert_quality_metrics
                 update_alert_quality_metrics(t["id"], quality_metrics)
             except Exception as db_err:
                 logger.error(f"❌ Failed to persist alert quality metrics: {db_err}")
@@ -1650,7 +1655,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     own_run_ctx = False
     if run_ctx is None:
         try:
-            from database import start_scanner_execution_run
             run_ctx = start_scanner_execution_run(
                 scanner_name="PERFORMANCE_TRACKER",
                 trigger_type="MANUAL" if force_live_fetch else "SCHEDULED",
@@ -1707,7 +1711,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     # Fallback to stock_analysis_master CMP if live quote returns partial/empty dict
     if len(current_prices) < len(unique_symbols):
         try:
-            from database import get_connection
             with get_connection() as _cmp_conn:
                 with _cmp_conn.cursor() as _cmp_cur:
                     _cmp_cur.execute("SELECT symbol, cmp FROM stock_analysis_master WHERE symbol = ANY(%s) AND cmp IS NOT NULL", (unique_symbols,))
@@ -1730,7 +1733,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     if is_open:
         def _async_update_universe_cmp(known_prices: dict):
             try:
-                from database import get_connection, bulk_update_cmp
                 watchlist_symbols = set()
                 with get_connection() as _wconn:
                     with _wconn.cursor() as _wcur:
@@ -1974,7 +1976,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     t["shadow_status"] = sh_status
                     t["shadow_exit_price"] = sh_exit_p
                     t["shadow_pnl_pct"] = sh_pnl
-                    from database import update_shadow_alert_outcome
                     update_shadow_alert_outcome(t["id"], sh_status, sh_exit_p, sh_pnl)
             continue
 
@@ -2077,7 +2078,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     # [OPTIMIZATION] Bulk-update CMP for all active alerts in one single PostgreSQL transaction
     if alert_cmp_updates:
         try:
-            from database import bulk_update_alert_current_prices
             bulk_update_alert_current_prices(alert_cmp_updates)
             logger.info(f"✅ [PERF_TRACKER] Bulk-updated current_price for {len(alert_cmp_updates)} active alerts in DB")
         except Exception as _b_err:
@@ -2086,7 +2086,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     # [OPTIMIZATION] Bulk-update alert quality improvement metrics in one single transaction
     if quality_metrics_batch:
         try:
-            from database import bulk_update_alert_quality_metrics
             bulk_update_alert_quality_metrics(quality_metrics_batch)
             logger.info(f"✅ [PERF_TRACKER] Bulk-updated quality metrics for {len(quality_metrics_batch)} active alerts in DB")
         except Exception as _qm_err:
@@ -2285,7 +2284,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     finally:
         if run_ctx:
             try:
-                from database import complete_scanner_execution_run, upsert_scanner_health
                 complete_scanner_execution_run(
                     run_ctx,
                     total_scanned=len(trades) if 'trades' in locals() else len(raw_alerts),

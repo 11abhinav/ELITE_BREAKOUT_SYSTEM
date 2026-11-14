@@ -11150,11 +11150,17 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
         if snap_i:
             ann = str(snap_i.get("latest_annual_period") or "")[:10]
             qtr = str(snap_i.get("latest_quarterly_period") or "")[:10]
+            if ann == "None":
+                ann = ""
+            if qtr == "None":
+                qtr = ""
         if raw_i:
-            if not ann or ann == "None":
-                ann = str(raw_i.get("latest_annual") or "")[:10]
-            if not qtr or qtr == "None":
-                qtr = str(raw_i.get("latest_quarterly") or "")[:10]
+            raw_ann = str(raw_i.get("latest_annual") or "")[:10]
+            raw_qtr = str(raw_i.get("latest_quarterly") or "")[:10]
+            if raw_ann and raw_ann != "None":
+                ann = max(ann, raw_ann) if ann else raw_ann
+            if raw_qtr and raw_qtr != "None":
+                qtr = max(qtr, raw_qtr) if qtr else raw_qtr
         return ann, qtr
 
     if snap_df is None or snap_df.empty:
