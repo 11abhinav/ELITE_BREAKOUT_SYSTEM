@@ -1487,9 +1487,13 @@ class FinancialFilingWatcher:
                 # [RULE 67 CHANGE-RATIONALE: Prevent redundant 20s BSE ScraperAPI calls for dual-listed NSE stocks]
                 # Poll BSE ONLY if:
                 # 1. The stock is BSE-only (e.g. 507526, XYZ.BO), OR
-                # 2. NSE returned 0 filings (fallback when NSE has no disclosures for the stock).
-                # If NSE already returned filings, BSE queries are 100% redundant under SEBI LODR Reg 33.
-                should_poll_bse = (bse_prov is not None) and (is_bse_only or len(raw_filings_list) == 0)
+                # 2. NSE returned 0 filings OR zero structured numeric facts (e.g. unparsed announcement / scanned PDF).
+                # If NSE already returned valid numeric facts, BSE queries are 100% redundant under SEBI LODR Reg 33.
+                has_structured_facts = any(
+                    (r.get("revenue") is not None or r.get("net_profit") is not None)
+                    for r in raw_filings_list
+                )
+                should_poll_bse = (bse_prov is not None) and (is_bse_only or not has_structured_facts)
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)

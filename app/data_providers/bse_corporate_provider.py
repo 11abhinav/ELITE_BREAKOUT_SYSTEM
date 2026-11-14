@@ -539,6 +539,11 @@ class BseCorporateProvider:
         try:
             from app.data_providers.nse_xbrl_provider import NseXbrlProvider
             nse_p = NseXbrlProvider(cache_dir=self.cache_dir)
+            if xml_path.startswith(("http://", "https://")):
+                local_path = nse_p.download_xbrl_file(xml_path)
+                if not local_path:
+                    return []
+                xml_path = local_path
             recs = nse_p.parse_xbrl_document(xml_path=xml_path, symbol=symbol, filing_date=filing_date)
             # Tag source as BSE_XBRL
             bse_recs = []

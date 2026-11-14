@@ -823,5 +823,26 @@
     "raw_NII": null,
     "mapped_revenue": 33089.0,
     "mapping_rule": "REVENUE_DIRECT"
+  },
+  {
+    "filing_id": "106856505",
+    "symbol": "HAL",
+    "period_end_date": "2026-09-30",
+    "filing_date": "2026-11-12",
+    "actual_publication_timestamp": "2026-11-12 13:30:14",
+    "conservative_availability_timestamp": "2026-11-12 13:30:14",
+    "timestamp_basis": "EXCHANGE_BROADCAST",
+    "source": "NSE_XBRL",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 5976.29,
+    "operating_profit": 2004.78,
+    "net_profit": 1498.46,
+    "eps": 22.59,
+    "shares_outstanding": 668000000.0,
+    "operating_cash_flow": null,
+    "total_debt": 66.0,
+    "total_equity": 41041.0,
+    "cash_and_equivalents": 46192.0
   }
 ]
