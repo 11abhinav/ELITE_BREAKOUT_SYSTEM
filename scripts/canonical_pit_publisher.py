@@ -527,6 +527,16 @@ def publish_canonical_pit(
         except Exception:
             pass
 
+        try:
+            try:
+                from app.database import clear_unified_stock_data_health_cache
+            except ImportError:
+                from database import clear_unified_stock_data_health_cache
+            clear_unified_stock_data_health_cache()
+            logger.info("🧹 [CANONICAL_PUBLISHER] Cleared unified stock data health audit cache")
+        except Exception:
+            pass
+
         logger.info(
             f"✅ [CANONICAL_PUBLISHER] Published {len(df_target)} symbols | "
             f"EV/EBITDA: {meta['current_ev_ebitda_complete']}/{len(df_target)} | "

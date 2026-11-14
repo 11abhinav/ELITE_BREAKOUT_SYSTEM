@@ -782,6 +782,15 @@ class FinancialFilingWatcher:
                 run_ctx=run_ctx,
             )
             clear_shared_snapshot_cache()
+            try:
+                from app.database import clear_unified_stock_data_health_cache
+                clear_unified_stock_data_health_cache()
+            except Exception:
+                try:
+                    from database import clear_unified_stock_data_health_cache
+                    clear_unified_stock_data_health_cache()
+                except Exception:
+                    pass
 
             # Invariant: BUILD COMPLETE != DATA COMPLETE != SCANNER READY
             # Verify completeness before declaring FRESH.
