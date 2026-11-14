@@ -139,6 +139,8 @@ def init_corporate_actions_db() -> None:
                         CONSTRAINT uq_corp_action_sym_date_type UNIQUE (symbol, ex_date, action_type)
                     );
                     CREATE INDEX IF NOT EXISTS idx_corp_actions_sym_date ON corporate_actions_history (symbol, ex_date);
+                    CREATE INDEX IF NOT EXISTS idx_corp_actions_splits ON corporate_actions_history (ex_date ASC) WHERE split_factor > 1.0;
+                    CREATE INDEX IF NOT EXISTS idx_corp_actions_sym_splits ON corporate_actions_history (symbol, ex_date ASC) WHERE split_factor > 1.0;
                 """)
                 conn.commit()
                 _CORP_DB_INITIALIZED = True

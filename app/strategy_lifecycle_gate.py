@@ -75,6 +75,7 @@ class PersistentStrategyLifecycleGate:
                     );
                 """)
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_st_lifecycles_status ON strategy_lifecycles(strategy_id, symbol, status);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_st_lifecycles_entry ON strategy_lifecycles(entry_date DESC);")
                 conn.commit()
 
     def _get_key(self, strategy_id: str, symbol: str) -> Tuple[str, str]:

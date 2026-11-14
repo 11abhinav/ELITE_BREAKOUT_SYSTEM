@@ -2304,6 +2304,8 @@ def init_buy_alerts_journal(db_path: Optional[str] = None) -> str:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_buy_alerts_pending ON buy_alerts_journal(materialized_to_parquet);")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_buy_alerts_sym ON buy_alerts_journal(symbol, scanner);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_buy_alerts_time ON buy_alerts_journal(alert_timestamp DESC);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_buy_alerts_status ON buy_alerts_journal(status);")
         conn.commit()
     return db_path
 

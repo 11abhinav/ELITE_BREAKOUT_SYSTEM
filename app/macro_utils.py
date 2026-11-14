@@ -506,7 +506,9 @@ def compute_nifty_rs_rating_with_hysteresis(symbols: list = None) -> dict:
                         rs_date DATE NOT NULL,
                         rs_percentile NUMERIC(5, 2) NOT NULL,
                         PRIMARY KEY (symbol, rs_date)
-                    )
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_daily_rs_hist_sym_date ON daily_rs_history(symbol, rs_date DESC);
+                    CREATE INDEX IF NOT EXISTS idx_daily_rs_hist_date ON daily_rs_history(rs_date DESC);
                 """)
                 for sym, rs_val in current_rs.items():
                     cur.execute("""

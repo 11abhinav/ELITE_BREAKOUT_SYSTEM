@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS universe_watch (
 _UNIVERSE_WATCH_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_universe_watch_symbol ON universe_watch (symbol);",
     "CREATE INDEX IF NOT EXISTS idx_universe_watch_active ON universe_watch (is_active) WHERE is_active = TRUE;",
+    "CREATE INDEX IF NOT EXISTS idx_universe_watch_active_sym ON universe_watch (symbol) WHERE is_active = TRUE;",
     "CREATE INDEX IF NOT EXISTS idx_universe_watch_last_seen ON universe_watch (last_seen_date);",
 ]
 
@@ -147,6 +148,8 @@ _DAILY_WATCHLIST_V2_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_dwv2_build_date ON daily_watchlist_v2 (build_date);",
     "CREATE INDEX IF NOT EXISTS idx_dwv2_symbol ON daily_watchlist_v2 (symbol);",
     "CREATE INDEX IF NOT EXISTS idx_dwv2_status ON daily_watchlist_v2 (universe_status, build_date);",
+    "CREATE INDEX IF NOT EXISTS idx_dwv2_status_date_qs ON daily_watchlist_v2 (universe_status, build_date DESC, universe_quality_score DESC);",
+    "CREATE INDEX IF NOT EXISTS idx_dwv2_date_status ON daily_watchlist_v2 (build_date DESC, universe_status);",
     "CREATE INDEX IF NOT EXISTS idx_dwv2_tier ON daily_watchlist_v2 (quality_tier, build_date) WHERE quality_tier IS NOT NULL;",
     "CREATE INDEX IF NOT EXISTS idx_dwv2_confidence ON daily_watchlist_v2 (data_confidence, build_date);",
 ]
@@ -202,6 +205,7 @@ _DAILY_EXCLUDED_V2_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_dev2_symbol ON daily_excluded_watchlist_v2 (symbol);",
     "CREATE INDEX IF NOT EXISTS idx_dev2_exclusion_class ON daily_excluded_watchlist_v2 (exclusion_class, build_date);",
     "CREATE INDEX IF NOT EXISTS idx_dev2_primary_code ON daily_excluded_watchlist_v2 (primary_exclusion_code, build_date);",
+    "CREATE INDEX IF NOT EXISTS idx_dev2_date_qs ON daily_excluded_watchlist_v2 (build_date DESC, universe_quality_score DESC NULLS LAST);",
 ]
 
 
@@ -298,6 +302,8 @@ CREATE TABLE IF NOT EXISTS daily_builder_master_v2 (
 _DAILY_BUILDER_MASTER_V2_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_dbm_symbol ON daily_builder_master_v2 (symbol);",
     "CREATE INDEX IF NOT EXISTS idx_dbm_build_date ON daily_builder_master_v2 (build_date);",
+    "CREATE INDEX IF NOT EXISTS idx_dbm_date_sym ON daily_builder_master_v2 (build_date DESC, symbol);",
+    "CREATE INDEX IF NOT EXISTS idx_dbm_sym_date ON daily_builder_master_v2 (symbol, build_date DESC);",
     "CREATE INDEX IF NOT EXISTS idx_dbm_regime ON daily_builder_master_v2 (macro_regime);",
     "CREATE INDEX IF NOT EXISTS idx_dbm_fund_cat ON daily_builder_master_v2 (fundamental_category);",
 ]

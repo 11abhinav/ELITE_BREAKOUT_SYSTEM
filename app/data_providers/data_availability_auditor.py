@@ -813,6 +813,10 @@ class DataAvailabilityAuditor:
                             ON data_availability_audit (classification, audit_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daa_severity_date
                             ON data_availability_audit (severity, audit_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_daa_audit_date
+                            ON data_availability_audit (audit_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_daa_date_class
+                            ON data_availability_audit (audit_date DESC, classification);
                     """)
                     today = datetime.now(IST).date()
                     cur.execute(

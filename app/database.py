@@ -605,6 +605,10 @@ def init_db(force: bool = False):
                                         ALTER TABLE corporate_filings_log ADD COLUMN IF NOT EXISTS run_id VARCHAR(64);
                                         CREATE INDEX IF NOT EXISTS idx_cfl_filing_date ON corporate_filings_log(filing_date DESC, discovered_at DESC);
                                         CREATE INDEX IF NOT EXISTS idx_cfl_run_id ON corporate_filings_log(run_id);
+                                        CREATE INDEX IF NOT EXISTS idx_cfl_dedup_query ON corporate_filings_log(symbol, period_end DESC, statement_type, basis, discovered_at DESC);
+                                        CREATE INDEX IF NOT EXISTS idx_cfl_discovered_date ON corporate_filings_log(((discovered_at AT TIME ZONE 'Asia/Kolkata')::date) DESC);
+                                        CREATE INDEX IF NOT EXISTS idx_cfl_status_disc ON corporate_filings_log(status, discovered_at ASC);
+                                        CREATE INDEX IF NOT EXISTS idx_cfl_filing_disc ON corporate_filings_log(filing_date DESC, discovered_at DESC, symbol);
 
                                         CREATE TABLE IF NOT EXISTS earnings_forensic_reports (
                                             id BIGSERIAL PRIMARY KEY,
@@ -646,6 +650,8 @@ def init_db(force: bool = False):
                                             CONSTRAINT efr_sym_period_basis_v_uniq UNIQUE (symbol, period_end, statement_type, reporting_basis, report_version)
                                         );
                                         CREATE INDEX IF NOT EXISTS idx_efr_symbol_period ON earnings_forensic_reports(symbol, period_end DESC);
+                                        CREATE INDEX IF NOT EXISTS idx_efr_sym_period_ver ON earnings_forensic_reports(symbol, period_end DESC, report_version DESC, created_at DESC);
+                                        CREATE INDEX IF NOT EXISTS idx_efr_status_created ON earnings_forensic_reports(status, created_at DESC);
                                         CREATE INDEX IF NOT EXISTS idx_efr_created_at ON earnings_forensic_reports(created_at DESC);
                                     """)
                                     check_conn.commit()
@@ -681,6 +687,8 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_grouping ON system_logs(is_acknowledged, level, module, message)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_level_created ON system_logs(level, created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_module_created ON system_logs(module, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_unack_grp ON system_logs(level, module, message, created_at DESC) WHERE is_acknowledged = FALSE")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_syslogs_mod_msg ON system_logs(module, message) WHERE is_acknowledged = FALSE")
 
                 # 2. master_symbols
                 cur.execute("""
@@ -904,6 +912,10 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_execution_state ON alerts(execution_state)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_exec ON alerts(status, execution_state)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_active_trades ON alerts(symbol, scanner) WHERE status IN ('OPEN', 'PARTIAL_EXIT', 'ACTIVE', 'PENDING')")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_sym_scanner_time ON alerts(symbol, scanner, alert_time DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_open_unrejected_time ON alerts(alert_time DESC, symbol) WHERE (is_rejected = FALSE OR is_rejected IS NULL) AND record_type != 'SCAN_SNAPSHOT'")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_wealth_open ON alerts(scanner, alert_time DESC) WHERE record_type = 'ALERT_EVENT' AND status IN ('OPEN', 'ACTIVE')")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_wealth_closed ON alerts(scanner, alert_time DESC) WHERE record_type = 'ALERT_EVENT' AND status NOT IN ('OPEN', 'ACTIVE')")
                 try:
                     cur.execute("""
                         UPDATE alerts 
@@ -1023,6 +1035,7 @@ def init_db(force: bool = False):
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_alert_id ON trade_audit_log(alert_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_trade_audit_log_timestamp ON trade_audit_log(timestamp DESC)")
 
                 # 7.5. alert_events (Trade Evolution & Immutable Re-Trigger Event History)
                 cur.execute("""
@@ -1062,7 +1075,9 @@ def init_db(force: bool = False):
                 """)
 
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_alert_id ON alert_events(alert_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_alert_id_asc ON alert_events(alert_id, id ASC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_symbol_date ON alert_events(symbol, event_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_sym_time ON alert_events(symbol, event_time DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_event_type ON alert_events(event_type)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_created_at ON alert_events(created_at DESC)")
 
@@ -1079,6 +1094,7 @@ def init_db(force: bool = False):
                         CONSTRAINT chk_weights_json CHECK (weights ? 'volume_breakout' AND weights ? 'rsi_divergence' AND weights ? 'ema_crossover')
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_score_weight_regime ON score_weight_log(regime, created_at DESC)")
 
                 # 9. bayesian_model_updates
                 cur.execute("""
@@ -1103,6 +1119,8 @@ def init_db(force: bool = False):
                         CONSTRAINT chk_bayes_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED'))
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_bayes_status ON bayesian_model_updates(status, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_bayes_regime ON bayesian_model_updates(regime, created_at DESC)")
 
                 # 9.5 mtf_v2_watchlist
                 cur.execute("""
@@ -1173,6 +1191,9 @@ def init_db(force: bool = False):
                         PRIMARY KEY (symbol, box_id)
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_mtf_v2_substate_updated ON mtf_v2_watchlist(mtf_substate, updated_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_mtf_v2_active_boxes ON mtf_v2_watchlist(updated_at DESC) WHERE invalidated_at IS NULL")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_mtf_v2_sym_substate ON mtf_v2_watchlist(symbol, mtf_substate)")
 
                 # 10. scanner_health
                 cur.execute("""
@@ -1225,6 +1246,8 @@ def init_db(force: bool = False):
                         UNIQUE (symbol, evaluation_date)
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_wsh_sym_eval_desc ON wealth_score_history(symbol, evaluation_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_wsh_eval_date ON wealth_score_history(evaluation_date DESC)")
 
                 # 11. scan_failures
                 cur.execute("""
@@ -1240,6 +1263,8 @@ def init_db(force: bool = False):
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_scan_id_idx ON scan_failures(scan_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS scan_failures_failed_at_idx ON scan_failures(failed_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_scan_failures_sc_failed ON scan_failures(scanner_name, failed_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_scan_failures_sym_failed ON scan_failures(symbol, failed_at DESC)")
 
                 # 12. funnel_telemetry
                 cur.execute("""
@@ -1259,6 +1284,7 @@ def init_db(force: bool = False):
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_funnel_telemetry_lookup ON funnel_telemetry(scanner, run_date, symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_funnel_telemetry_date_sc ON funnel_telemetry(run_date DESC, scanner)")
 
                 # 13. system_state
                 cur.execute("""
@@ -1397,6 +1423,7 @@ def init_db(force: bool = False):
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_accum_candidates_run_sym ON accumulation_candidates(run_id, symbol)")
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS accumulation_telemetry (
@@ -1408,6 +1435,7 @@ def init_db(force: bool = False):
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_accum_telemetry_run_sym ON accumulation_telemetry(run_id, symbol)")
 
                 # 14. instrument_registry, provider_instruments, symbol_mappings, resolution_history
                 # [RULE 67 - FIX RATIONALE]: Executing multiple DDLs in a single semicolon-joined batch string
@@ -1502,6 +1530,8 @@ def init_db(force: bool = False):
                         CONSTRAINT ai_concall_cache_v3_symbol_pdf_url_key UNIQUE (symbol, pdf_url)
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_ai_concall_sym_id ON ai_concall_cache_v3(symbol, id DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_ai_concall_sym_created ON ai_concall_cache_v3(symbol, created_at DESC)")
 
                 # 16. promoter_pledge_cache
                 cur.execute("""
@@ -1512,6 +1542,8 @@ def init_db(force: bool = False):
                         last_attempted_at TIMESTAMPTZ
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_promoter_pledge_updated ON promoter_pledge_cache(updated_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_promoter_pledge_as_of ON promoter_pledge_cache(as_of_date DESC)")
                 # [RULE 67 CHANGE-RATIONALE: NSE_OFFICIAL_PLEDGE_SCHEMA_v1.0]
                 # Schema extensions for official NSE depository pledge & provenance tracking
                 cur.execute("""
@@ -1569,6 +1601,8 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_scan ON fetch_errors(scanner_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_last_seen ON fetch_errors(last_seen DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_sym ON fetch_errors(symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_unack_sc_occ ON fetch_errors(scanner_name, occurrences DESC, last_seen DESC) WHERE is_acknowledged = FALSE")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_sc_unack ON fetch_errors(scanner_name, last_seen DESC) WHERE is_acknowledged = FALSE")
 
                 # 19. validation_history
                 cur.execute("""
@@ -1592,6 +1626,7 @@ def init_db(force: bool = False):
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_validation_history_dataset ON validation_history(dataset_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_validation_history_time ON validation_history(validated_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_validation_hist_ds_time ON validation_history(dataset_name, validated_at DESC)")
 
                 # 20. data_cache_metadata
                 cur.execute("""
@@ -1635,6 +1670,8 @@ def init_db(force: bool = False):
                         added_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_manual_portfolio_symbol ON manual_portfolio(symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_manual_portfolio_entry_date ON manual_portfolio(entry_date DESC)")
 
                 # 23. push_subscriptions
                 cur.execute("""
@@ -1647,6 +1684,7 @@ def init_db(force: bool = False):
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_push_subs_user_id ON push_subscriptions(user_id)")
 
                 # 24. parquet_cache
                 cur.execute("""
@@ -1689,6 +1727,7 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_created ON global_notifications(created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_type ON global_notifications(type, created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_seen ON global_notifications(is_seen, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_unseen ON global_notifications(created_at DESC) WHERE is_seen = FALSE")
                 cur.execute("ALTER TABLE global_notifications ADD COLUMN IF NOT EXISTS alert_id INTEGER")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_alert_id ON global_notifications(alert_id) WHERE alert_id IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_unack ON fetch_errors(occurrences DESC, last_seen DESC) WHERE is_acknowledged = FALSE")
@@ -1739,6 +1778,7 @@ def init_db(force: bool = False):
                         reason TEXT DEFAULT ''
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_checkpoints_updated ON system_checkpoints(updated_at DESC)")
 
                 # 27. build_manifest
                 cur.execute("""
@@ -1774,6 +1814,8 @@ def init_db(force: bool = False):
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_status ON telegram_queue(status)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_created ON telegram_queue(created_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_alert_id ON telegram_queue(alert_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_telegram_queue_pending ON telegram_queue(created_at ASC) WHERE status = 'pending'")
 
                 # 30. alert_outcomes (earnings_calendar table removed — see corporate_events.py)
 
@@ -1825,6 +1867,8 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner_regime ON alert_outcomes(scanner, regime)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_exit_time ON alert_outcomes(exit_timestamp DESC) WHERE exit_timestamp IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_alert_exit ON alert_outcomes(alert_id, exit_timestamp)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_symbol ON alert_outcomes(symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_time ON alert_outcomes(alert_timestamp DESC)")
 
                 # [INSTITUTIONAL ALERT QUALITY & EXCURSION TELEMETRY] Safe column migrations
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS r1_hit_before_sl BOOLEAN DEFAULT FALSE")
@@ -1938,6 +1982,8 @@ def init_db(force: bool = False):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_status_active ON users(account_status, is_active)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_active_created ON users(is_active, created_at DESC)")
 
                 # 34. user_sessions
                 cur.execute("""
@@ -1974,6 +2020,8 @@ def init_db(force: bool = False):
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_unread ON user_messages(is_from_admin, is_read)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_unread_user ON user_messages(user_id) WHERE is_read = FALSE")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_id_asc ON user_messages(user_id, id ASC)")
 
                 # 36. capital_history
                 cur.execute("""
@@ -2063,6 +2111,7 @@ def init_db(force: bool = False):
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_master_scanned ON stock_analysis_master(last_scanned_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_master_status_score ON stock_analysis_master(status, health_score DESC)")
 
                 # 39. watchlist (Multibagger Watchlist)
                 cur.execute("""
@@ -2139,6 +2188,10 @@ def init_db(force: bool = False):
                     CREATE INDEX IF NOT EXISTS idx_seh_running_heartbeat ON scanner_execution_history(scanner_name, heartbeat_at, started_at) WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
                     CREATE INDEX IF NOT EXISTS idx_seh_scanner_completed_started ON scanner_execution_history(scanner_name, completed_at DESC, started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_distinct_scanners ON scanner_execution_history(scanner_name) WHERE scanner_name IS NOT NULL AND scanner_name != '';
+                    CREATE INDEX IF NOT EXISTS idx_seh_upper_scanner_started ON scanner_execution_history(UPPER(scanner_name), started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_upper_scanner_life_started ON scanner_execution_history(UPPER(scanner_name), lifecycle_status, started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_life_qual_started ON scanner_execution_history(lifecycle_status, quality_status, started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_started_id ON scanner_execution_history(started_at DESC, id DESC);
 
                     ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_insufficient_count INT DEFAULT 0;
                     ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS data_missing_count INT DEFAULT 0;
@@ -2287,11 +2340,16 @@ def init_db(force: bool = False):
                         CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_date_status ON daily_watchlist_v2(build_date DESC, universe_status);
                         CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_sym_date ON daily_watchlist_v2(symbol, build_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_status_qs ON daily_watchlist_v2(universe_status, universe_quality_score DESC NULLS LAST);
+                        CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_status_date_qs ON daily_watchlist_v2(universe_status, build_date DESC, universe_quality_score DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_qs ON daily_watchlist_v2(universe_quality_score DESC NULLS LAST);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_date ON daily_excluded_watchlist_v2(build_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_sym_date ON daily_excluded_watchlist_v2(symbol, build_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_class ON daily_excluded_watchlist_v2(exclusion_class, build_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_qs ON daily_excluded_watchlist_v2(universe_quality_score DESC NULLS LAST);
+                        CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_date_qs ON daily_excluded_watchlist_v2(build_date DESC, universe_quality_score DESC NULLS LAST);
+                        CREATE INDEX IF NOT EXISTS idx_dbm_date_sym ON daily_builder_master_v2 (build_date DESC, symbol);
+                        CREATE INDEX IF NOT EXISTS idx_dbm_sym_date ON daily_builder_master_v2 (symbol, build_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_universe_watch_active_sym ON universe_watch (symbol) WHERE is_active = TRUE;
                     """)
                 except Exception as _wl_idx_err:
                     logger.debug(f"Watchlist v2 index notice: {_wl_idx_err}")
@@ -2410,6 +2468,8 @@ def init_db(force: bool = False):
                         CREATE INDEX IF NOT EXISTS idx_corp_events_sym_dt ON corporate_events_v1 (symbol, event_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_corp_events_status ON corporate_events_v1 (status);
                         CREATE INDEX IF NOT EXISTS idx_corp_events_grp ON corporate_events_v1 (event_group_id);
+                        CREATE INDEX IF NOT EXISTS idx_corp_events_doc_id ON corporate_events_v1(document_id);
+                        CREATE INDEX IF NOT EXISTS idx_corp_events_sym_dt_ver ON corporate_events_v1 (symbol, event_date DESC, event_version DESC);
 
                         CREATE TABLE IF NOT EXISTS analyst_research_reports_v1 (
                             report_id SERIAL PRIMARY KEY,
@@ -2436,6 +2496,7 @@ def init_db(force: bool = False):
                             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                         );
                         CREATE INDEX IF NOT EXISTS idx_analyst_rep_sym_dt ON analyst_research_reports_v1 (symbol, report_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_analyst_rep_doc_id ON analyst_research_reports_v1(document_id);
 
                         CREATE TABLE IF NOT EXISTS company_intelligence_snapshots_v1 (
                             snapshot_id SERIAL PRIMARY KEY,
@@ -2515,6 +2576,10 @@ def init_db(force: bool = False):
                         CREATE INDEX IF NOT EXISTS idx_cfl_event_type ON corporate_filings_log(event_type);
                         CREATE INDEX IF NOT EXISTS idx_cfl_status ON corporate_filings_log(status);
                         CREATE INDEX IF NOT EXISTS idx_cfl_distinct_query ON corporate_filings_log(symbol, period_end DESC, discovered_at DESC);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_dedup_query ON corporate_filings_log(symbol, period_end DESC, statement_type, basis, discovered_at DESC);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_discovered_date ON corporate_filings_log(((discovered_at AT TIME ZONE 'Asia/Kolkata')::date) DESC);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_status_disc ON corporate_filings_log(status, discovered_at ASC);
+                        CREATE INDEX IF NOT EXISTS idx_cfl_filing_disc ON corporate_filings_log(filing_date DESC, discovered_at DESC, symbol);
                         CREATE INDEX IF NOT EXISTS idx_cfl_filing_sym_period ON corporate_filings_log(filing_date, symbol, period_end DESC);
                         CREATE INDEX IF NOT EXISTS idx_cfl_period_end ON corporate_filings_log(period_end DESC);
                         CREATE INDEX IF NOT EXISTS idx_cfl_run_id ON corporate_filings_log(run_id);
@@ -2573,6 +2638,8 @@ def init_db(force: bool = False):
                             CONSTRAINT efr_sym_period_basis_v_uniq UNIQUE (symbol, period_end, statement_type, reporting_basis, report_version)
                         );
                         CREATE INDEX IF NOT EXISTS idx_efr_symbol_period ON earnings_forensic_reports(symbol, period_end DESC);
+                        CREATE INDEX IF NOT EXISTS idx_efr_sym_period_ver ON earnings_forensic_reports(symbol, period_end DESC, report_version DESC, created_at DESC);
+                        CREATE INDEX IF NOT EXISTS idx_efr_status_created ON earnings_forensic_reports(status, created_at DESC);
                         CREATE INDEX IF NOT EXISTS idx_efr_created_at ON earnings_forensic_reports(created_at DESC);
                     """)
                 except Exception as _dossier_err:
