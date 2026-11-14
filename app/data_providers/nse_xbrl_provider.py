@@ -811,7 +811,7 @@ class NseXbrlProvider:
 
 
 
-    def discover_filings(self, symbol: str) -> List[Dict[str, Any]]:
+    def discover_filings(self, symbol: str, min_period_end_date: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Discovers all available financial filings for a symbol across Annual & Quarterly periods.
         Returns a combined list of raw filing dictionaries from NSE.
@@ -823,7 +823,9 @@ class NseXbrlProvider:
             return self._discovered_cache[symbol]
 
         all_filings = []
-        for period_param in ("Annual", "Quarterly"):
+        # In incremental runs (min_period_end_date >= 2024), skip redundant Annual requests to cut network traffic by 50%
+        periods_to_query = ("Quarterly",) if (min_period_end_date and str(min_period_end_date) >= "2024-01-01") else ("Annual", "Quarterly")
+        for period_param in periods_to_query:
             url = f"{_BASE_URL}?index=equities&symbol={symbol}&period={period_param}"
             raw = self._get(url, symbol)
             if raw:
@@ -1476,7 +1478,7 @@ class NseXbrlProvider:
           Step 3: Download/cache and parse XBRL documents.
           Step 4: Sort chronologically and filter by statement_basis if requested.
         """
-        filings = self.discover_filings(symbol)
+        filings = self.discover_filings(symbol, min_period_end_date=min_period_end_date)
         if not filings:
             self.last_status[symbol] = "NO_DATA_RETURNED"
             self.last_raw_count[symbol] = 0

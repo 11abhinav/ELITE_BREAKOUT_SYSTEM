@@ -2207,8 +2207,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 today_alerts  = len(sc_today),
                 error_msg     = None,
             )
-        except Exception:
-            logger.warning(f"⚠️ Could not update scanner_health for {sc}")
+        except Exception as _sh_err:
+            logger.warning(f"⚠️ Could not update scanner_health for {sc}: {_sh_err}")
 
     # ── 10. Write DB State ───────────────────────────────────────────────────────────
     try:

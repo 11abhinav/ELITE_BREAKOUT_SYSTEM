@@ -1269,27 +1269,47 @@ class FinancialFilingWatcher:
                 has_newer_sweep_filing = False
                 if market_sweep_ok:
                     sym_sweep_items = market_sweep_filings.get(sym_u, [])
+                    existing_local_periods = {
+                        _normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or ""))
+                        for _r in _ldata if isinstance(_r, dict)
+                    }
+                    existing_local_filing_ids = {
+                        str(_r.get("filing_id") or "").strip()
+                        for _r in _ldata if isinstance(_r, dict) and _r.get("filing_id")
+                    }
+
                     for it in sym_sweep_items:
                         p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
+                        if not p_end or len(p_end) != 10:
+                            desc_txt = f"{it.get('desc', '')} {it.get('attchmntText', '')}"
+                            try:
+                                try:
+                                    from app.data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+                                except ImportError:
+                                    from data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+                                p_end = _parse_period_end_from_announcement_text(desc_txt)
+                            except Exception:
+                                p_end = None
+
+                        # 1. Genuinely newer reporting period than anything we have locally
                         if p_end and latest_local_period and p_end > latest_local_period:
                             has_newer_sweep_filing = True
                             break
                         elif p_end and not latest_local_period:
                             has_newer_sweep_filing = True
                             break
-                        # Also check if it is a fresh announcement published in the last 14 days
-                        b_ts = str(it.get("broadCastDate") or it.get("filingDate") or "")
-                        if b_ts:
-                            try:
-                                from dateutil.parser import parse as _parse_dt
-                                dt_bcast = _parse_dt(b_ts)
-                                now_bcast = datetime.now(dt_bcast.tzinfo)
-                                if (now_bcast - dt_bcast).total_seconds() < (14 * 86400):
-                                    if str(it.get("attchmntFile") or "").lower().endswith(".pdf") or it.get("hasXbrl"):
-                                        has_newer_sweep_filing = True
-                                        break
-                            except Exception:
-                                pass
+
+                        # 2. Financial announcement for a missing local period (e.g. intermediate gap)
+                        if p_end and p_end not in existing_local_periods:
+                            has_newer_sweep_filing = True
+                            break
+
+                        # 3. Explicit revised/amended financial results filing with a new sequence number
+                        is_amended = str(it.get("reInd", "")).upper() == "Y"
+                        seq_num = str(it.get("seqNumber") or "").strip()
+                        if is_amended and seq_num and seq_num not in existing_local_filing_ids:
+                            has_newer_sweep_filing = True
+                            break
 
                 # ── RULE 67 / RESOURCE CONSERVATION INVARIANT: ZERO REDUNDANT SCRAPING ──
                 # 1. If history is complete (not needs_bootstrap) and market sweep verified no new filing:
@@ -1457,7 +1477,7 @@ class FinancialFilingWatcher:
                         # Only call discover_filings as supplement if fetch_raw_financials returned 0 records
                         if nse_fetch_count == 0:
                             try:
-                                nse_rows = nse_prov.discover_filings(sym_u)
+                                nse_rows = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)
                                 if nse_rows:
                                     nse_disc_count = len(nse_rows)
                                     for r in nse_rows:

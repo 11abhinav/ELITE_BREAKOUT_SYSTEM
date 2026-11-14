@@ -215,17 +215,20 @@ class ExchangePdfParser:
                 continue
 
             text_lower = text.lower()
+            norm_text_lower = re.sub(r"\s+", " ", text_lower)
 
             # Must contain SEBI Regulation 33 Statement header keywords
-            is_stmt_header = any(k in text_lower for k in [
-                "statement of", "financial results", "financial result", "results for the quarter", "results for the period"
+            is_stmt_header = any(k in norm_text_lower for k in [
+                "statement of", "financial results", "financial result", "results for the quarter", "results for the period",
+                "unaudited results", "audited results", "financial performance"
             ])
             if not is_stmt_header:
                 continue
 
             # Must contain actual operational revenue indicators (or banking total income / interest earned)
-            if not any(k in text_lower for k in [
-                "revenue from operations", "net sales", "total income", "income from operations", "interest earned"
+            if not any(k in norm_text_lower for k in [
+                "revenue from operations", "net sales", "total income", "income from operations", "interest earned",
+                "total revenue from operations"
             ]):
                 continue
 
@@ -233,14 +236,14 @@ class ExchangePdfParser:
             basis = ConsolidationType.STANDALONE
             first_lines = text.split("\n")[:12]
             for line in first_lines:
-                line_low = line.lower()
+                line_low = re.sub(r"\s+", " ", line.lower())
                 if "consolidated" in line_low:
                     basis = ConsolidationType.CONSOLIDATED
                     break
                 elif "standalone" in line_low or "non-consolidated" in line_low:
                     basis = ConsolidationType.STANDALONE
                     break
-            if basis == ConsolidationType.STANDALONE and "consolidated" in text_lower and "standalone" not in text_lower:
+            if basis == ConsolidationType.STANDALONE and "consolidated" in norm_text_lower and "standalone" not in norm_text_lower:
                 basis = ConsolidationType.CONSOLIDATED
 
             # 2. Determine Unit and Multiplier to Crores
@@ -361,11 +364,12 @@ class ExchangePdfParser:
             if num_cols == 1:
                 col_counts = []
                 for line in text.split("\n"):
-                    low = line.lower()
-                    if any(k in low for k in ["revenue from operations", "total income", "profit for the period", "profit after tax"]):
-                        tokens = line.strip().split()
+                    line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/]\s*[\d\w]+\s*\)", "", line.strip())
+                    low = re.sub(r"\s+", " ", line_clean.lower())
+                    if any(k in low for k in ["revenue from operations", "total revenue", "total income", "profit for the period", "profit after tax", "net profit"]):
+                        tokens = line_clean.split()
                         nums = [_clean_token_number(t) for t in tokens if _clean_token_number(t) is not None]
-                        if len(nums) in (3, 4, 5, 6):
+                        if len(nums) in (3, 4, 5, 6, 7, 8):
                             col_counts.append(len(nums))
                 if col_counts:
                     from collections import Counter
