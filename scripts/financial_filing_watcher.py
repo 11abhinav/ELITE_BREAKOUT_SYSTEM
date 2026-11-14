@@ -36,6 +36,7 @@ import logging
 import math
 import os
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -258,7 +259,7 @@ class FinancialFilingWatcher:
         self.registry = ApprovedUniverseRegistry()
         self.approved_symbols = sorted(list(self.registry.approved_symbols))
         self.state: Dict[str, Dict[str, Any]] = self._load_state()
-        self._state_lock = threading.Lock()
+        self._state_lock = threading.RLock()
 
     def _load_state(self) -> Dict[str, Dict[str, Any]]:
         """Loads persistent watcher state with automated healing of legacy truncated dates and DB restoration."""
@@ -322,11 +323,27 @@ class FinancialFilingWatcher:
 
     def _save_state(self) -> None:
         """Persists watcher state atomically to disk and backs up to DB."""
-        os.makedirs(self.state_file.parent, exist_ok=True)
-        tmp_state = f"{self.state_file}.tmp.{os.getpid()}"
-        with open(tmp_state, "w") as f:
-            json.dump(self.state, f, indent=2)
-        os.replace(tmp_state, self.state_file)
+        with self._state_lock:
+            os.makedirs(self.state_file.parent, exist_ok=True)
+            # Create a shallow/item copy of state while under lock to prevent RuntimeError: dictionary changed size during iteration
+            state_snapshot = {k: dict(v) if isinstance(v, dict) else v for k, v in self.state.items()}
+            # Use unique temp file per thread to prevent collision crashes ([Errno 2] No such file or directory)
+            tmp_fd, tmp_state = tempfile.mkstemp(
+                dir=str(self.state_file.parent),
+                prefix=f"fw_state_{os.getpid()}_{threading.get_ident()}_",
+                suffix=".tmp"
+            )
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    json.dump(state_snapshot, f, indent=2)
+                os.replace(tmp_state, self.state_file)
+            except Exception:
+                if os.path.exists(tmp_state):
+                    try:
+                        os.remove(tmp_state)
+                    except Exception:
+                        pass
+                raise
 
         # Atomically backup state to PostgreSQL parquet_cache so it survives container redeployments
         if self.state_file == STATE_FILE and len(self.state) > 0:
@@ -1856,30 +1873,15 @@ class FinancialFilingWatcher:
                         pct = round((curr_c / total_syms) * 100, 1)
 
                         # 1. Atomically persist watcher state
-                        with self._state_lock:
-                            self._save_state()
+                        self._save_state()
 
-                        # 2. If new filings were discovered/fetched, rebuild snapshot and upload to DB
+                        # 2. Accumulate newly fetched stocks for single consolidated rebuild at end of scan
                         if to_sync_syms_batch:
+                            with events_lock:
+                                synced_symbols.update(to_sync_syms_batch)
                             logger.info(
-                                f"💾 [filling scanner] [BATCH {b_num} DB SYNC: {sync_reason}] Rebuilding snapshot & syncing {len(to_sync_syms_batch)} newly fetched stocks to DB: {to_sync_syms_batch[:8]}..."
+                                f"💾 [filling scanner] [BATCH {b_num} SYNC: {sync_reason}] Queued {len(to_sync_syms_batch)} newly fetched stocks for final snapshot rebuild: {to_sync_syms_batch[:8]}..."
                             )
-                            try:
-                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, as_of_date=as_of_date)
-                                with events_lock:
-                                    synced_symbols.update(to_sync_syms_batch)
-                            except Exception as snap_sync_err:
-                                logger.warning(f"[filling scanner] Batch {b_num} snapshot rebuild sync notice: {snap_sync_err}")
-
-                            # Only upload raw bundle when new filings were actually ingested
-                            try:
-                                try:
-                                    from app.database import upload_pit_raw_bundle_to_db
-                                except ImportError:
-                                    from database import upload_pit_raw_bundle_to_db
-                                upload_pit_raw_bundle_to_db()
-                            except Exception as _b_err:
-                                pass
 
                         # 3. Update DB execution progress & health heartbeat
                         progress_summary = (
@@ -1932,16 +1934,15 @@ class FinancialFilingWatcher:
 
                         logger.info(
                             f"💾 [filling scanner] [BATCH {b_num} DB SYNC COMPLETE: {sync_reason}] [{curr_c}/{total_syms}] ({pct}%) | "
-                            f"Pending: {pending_c} (ETA: {eta_str}) | Newly Ingested: {len(to_sync_syms_batch)} | "
-                            f"Total Completed: {curr_c} | DB has all updated data till this batch."
+                            f"Pending: {pending_c} (ETA: {eta_str}) | Newly Ingested Batch: {len(to_sync_syms_batch)} | "
+                            f"Total Completed: {curr_c} | DB heartbeat refreshed."
                         )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="FilingPoll") as executor:
             list(executor.map(_process_symbol, symbols))
 
         # Atomically persist updated watcher state (including bootstrap_completed markers)
-        with self._state_lock:
-            self._save_state()
+        self._save_state()
 
         total_elapsed = time.time() - start_poll_time
         # [RULE 67 CHANGE-RATIONALE: Expose exact execution metrics for dashboard telemetry and auditability]
@@ -1960,30 +1961,33 @@ class FinancialFilingWatcher:
             f"Errors: {error_count[0]}"
         )
 
-        # Invariant: Always upload updated pit_raw_bundle to DB so newly discovered/healed filings survive container restarts
-        try:
+        # Invariant: Upload updated pit_raw_bundle to DB so newly discovered/healed filings survive container restarts
+        if bootstrap_ingested_count[0] > 0 or len(discovered_events) > 0 or len(synced_symbols) > 0:
             try:
-                from app.database import upload_pit_raw_bundle_to_db
-            except ImportError:
-                from database import upload_pit_raw_bundle_to_db
-            upload_pit_raw_bundle_to_db()
-        except Exception as bundle_err:
-            logger.debug(f"[filling scanner] Raw filings bundle upload note: {bundle_err}")
+                try:
+                    from app.database import upload_pit_raw_bundle_to_db
+                except ImportError:
+                    from database import upload_pit_raw_bundle_to_db
+                upload_pit_raw_bundle_to_db()
+            except Exception as bundle_err:
+                logger.debug(f"[filling scanner] Raw filings bundle upload note: {bundle_err}")
 
-        # Ensure any remaining pending or discovered symbols not yet synced are rebuilt
+        # Consolidated single-pass snapshot rebuild for all newly discovered/fetched symbols
         with events_lock:
             remaining_syms = sorted(list(pending_rebuild_syms))
             pending_rebuild_syms.clear()
 
         all_disc_syms = {str(e.get("symbol")).strip().upper() for e in discovered_events if e.get("symbol")}
-        unrebuilt = sorted(list((all_disc_syms | set(remaining_syms)) - synced_symbols))
+        unrebuilt = sorted(list(all_disc_syms | set(remaining_syms) | synced_symbols))
 
         if unrebuilt:
-            logger.info(f"🔄 [filling scanner] Rebuilding snapshot for {len(unrebuilt)} remaining symbols: {unrebuilt[:10]}...")
+            logger.info(f"🔄 [filling scanner] Running single consolidated snapshot rebuild for {len(unrebuilt)} newly fetched/discovered symbols: {unrebuilt[:10]}...")
             try:
-                self.invalidate_and_rebuild_snapshot(symbol=unrebuilt, as_of_date=as_of_date)
+                self.invalidate_and_rebuild_snapshot(symbol=unrebuilt, as_of_date=as_of_date, run_ctx=run_ctx)
             except Exception as auto_rb_err:
                 logger.warning(f"[filling scanner] Final snapshot rebuild error: {auto_rb_err}")
+        else:
+            logger.info("✅ [filling scanner] All symbols are already up-to-date. Skipping snapshot rebuild.")
 
         # Update final exchange watermarks for both NSE and BSE to guarantee FEED_HEARTBEAT_SLA freshness
         try:

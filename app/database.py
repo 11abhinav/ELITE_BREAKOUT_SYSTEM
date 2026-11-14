@@ -10203,45 +10203,61 @@ def check_and_restore_stale_stock(
         logger.debug(f"[STALE_RESTORE] Quarantine clear note for {sym}: {q_err}")
 
     # 4. Check & update canonical snapshot if marked STALE or having fiscal gaps
-    try:
-        import pandas as pd
-        from pathlib import Path
-        snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
-        if snap_path.exists():
-            snap_df = pd.read_parquet(snap_path)
-            if "symbol" in snap_df.columns:
-                mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym
-                if mask.any():
-                    row = snap_df.loc[mask].iloc[0]
-                    snap_status = str(row.get("snapshot_status", "")).upper()
-                    has_gap = bool(row.get("filing_gap_detected", False))
-                    curr_status = str(row.get("pit_freshness_status", "")).upper()
-                    if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap:
-                        was_stale = True
-                        stale_reasons.append(f"Snapshot:{curr_status or 'GAP'}")
-                        snap_df.loc[mask, "pit_freshness_status"] = "VALID"
-                        if "snapshot_status" in snap_df.columns:
-                            snap_df.loc[mask, "snapshot_status"] = "FRESH"
-                        if "filing_gap_detected" in snap_df.columns:
-                            snap_df.loc[mask, "filing_gap_detected"] = False
-                        if period_end:
-                            if "latest_annual_period" in snap_df.columns and ("ANNUAL" in str(source).upper() or "-03-31" in str(period_end)):
-                                snap_df.loc[mask, "latest_annual_period"] = str(period_end)[:10]
-                        tmp_snap = snap_path.with_suffix(f".tmp.{os.getpid()}")
-                        snap_df.to_parquet(tmp_snap, index=False)
-                        tmp_snap.replace(snap_path)
-                        try:
-                            from app.financial_data_integrity import clear_shared_snapshot_cache
-                            clear_shared_snapshot_cache()
-                            clear_canonical_snapshot_cache()
-                        except Exception:
-                            pass
-                        try:
-                            upload_parquet_to_db("canonical_pit_rebuilt", str(snap_path))
-                        except Exception as _up_err:
-                            logger.debug(f"[STALE_RESTORE] DB parquet sync note for {sym}: {_up_err}")
-    except Exception as snap_err:
-        logger.debug(f"[STALE_RESTORE] Snapshot status update note for {sym}: {snap_err}")
+    # (Skip if called directly from canonical snapshot publisher or rebuild, which already wrote/published the fresh canonical file)
+    if source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+        try:
+            import pandas as pd
+            from pathlib import Path
+            import tempfile
+            snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
+            if snap_path.exists():
+                snap_df = pd.read_parquet(snap_path)
+                if "symbol" in snap_df.columns:
+                    mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym
+                    if mask.any():
+                        row = snap_df.loc[mask].iloc[0]
+                        snap_status = str(row.get("snapshot_status", "")).upper()
+                        has_gap = bool(row.get("filing_gap_detected", False))
+                        curr_status = str(row.get("pit_freshness_status", "")).upper()
+                        if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap:
+                            was_stale = True
+                            stale_reasons.append(f"Snapshot:{curr_status or 'GAP'}")
+                            snap_df.loc[mask, "pit_freshness_status"] = "VALID"
+                            if "snapshot_status" in snap_df.columns:
+                                snap_df.loc[mask, "snapshot_status"] = "FRESH"
+                            if "filing_gap_detected" in snap_df.columns:
+                                snap_df.loc[mask, "filing_gap_detected"] = False
+                            if period_end:
+                                if "latest_annual_period" in snap_df.columns and ("ANNUAL" in str(source).upper() or "-03-31" in str(period_end)):
+                                    snap_df.loc[mask, "latest_annual_period"] = str(period_end)[:10]
+                            tmp_fd, tmp_snap = tempfile.mkstemp(
+                                dir=str(snap_path.parent),
+                                prefix=f"stale_rst_{os.getpid()}_",
+                                suffix=".parquet"
+                            )
+                            os.close(tmp_fd)
+                            try:
+                                snap_df.to_parquet(tmp_snap, index=False)
+                                os.replace(tmp_snap, snap_path)
+                            except Exception:
+                                if os.path.exists(tmp_snap):
+                                    try:
+                                        os.remove(tmp_snap)
+                                    except Exception:
+                                        pass
+                                raise
+                            try:
+                                from app.financial_data_integrity import clear_shared_snapshot_cache
+                                clear_shared_snapshot_cache()
+                                clear_canonical_snapshot_cache()
+                            except Exception:
+                                pass
+                            try:
+                                upload_parquet_to_db("canonical_pit_rebuilt", str(snap_path))
+                            except Exception as _up_err:
+                                logger.debug(f"[STALE_RESTORE] DB parquet sync note for {sym}: {_up_err}")
+        except Exception as snap_err:
+            logger.debug(f"[STALE_RESTORE] Snapshot status update note for {sym}: {snap_err}")
 
     # 5. Stock restored from cool-off
     if was_stale:

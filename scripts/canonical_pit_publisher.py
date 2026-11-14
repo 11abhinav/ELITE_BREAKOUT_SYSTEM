@@ -379,32 +379,19 @@ def publish_canonical_pit(
                     return {"publication_decision": "BLOCKED", "reason": fail_reason}
 
                 # ATOMIC DELTA MERGE: update existing canonical without dropping any symbols
-                df_target = df_old.copy()
-                df_target["symbol_norm"] = df_target["symbol"].str.upper()
-                df_cand_copy = df_new.copy()
-                df_cand_copy["symbol_norm"] = df_cand_copy["symbol"].str.upper()
-                cand_indexed = df_cand_copy.set_index("symbol_norm")
-                update_cols = [c for c in df_new.columns if c in df_target.columns and c not in ("symbol", "symbol_norm")]
-
-                new_symbol_rows = []
-                for sym, row in cand_indexed.iterrows():
-                    if sym in df_target["symbol_norm"].values:
-                        idx = df_target[df_target["symbol_norm"] == sym].index[0]
-                        for col in update_cols:
-                            val = row[col]
-                            if val is not None and not (isinstance(val, float) and pd.isna(val)):
-                                df_target.at[idx, col] = val
+                df_old_dict = {str(r.get("symbol", "")).strip().upper(): dict(r) for r in df_old.to_dict("records") if r.get("symbol")}
+                for cand_row in df_new.to_dict("records"):
+                    sym = str(cand_row.get("symbol", "")).strip().upper()
+                    if not sym:
+                        continue
+                    if sym in df_old_dict:
+                        for c, v in cand_row.items():
+                            if c != "symbol" and pd.notna(v):
+                                df_old_dict[sym][c] = v
                     else:
-                        # Append newly added symbol
-                        new_row = {c: row[c] for c in df_target.columns if c in row and c != "symbol_norm"}
-                        new_row["symbol"] = sym
-                        new_row["symbol_norm"] = sym
-                        new_symbol_rows.append(new_row)
+                        df_old_dict[sym] = cand_row
 
-                if new_symbol_rows:
-                    df_target = pd.concat([df_target, pd.DataFrame(new_symbol_rows)], ignore_index=True)
-
-                df_target.drop(columns=["symbol_norm"], inplace=True)
+                df_target = pd.DataFrame(list(df_old_dict.values()))
                 logger.info(f"⚡ [CANONICAL_PUBLISHER] Delta merged {len(cand_symbols)} candidate symbols into {len(df_target)} canonical symbols")
             else:
                 # [RULE 67 CHANGE-RATIONALE: MONOTONIC_CONFLICT_ISOLATION_v1.0]
@@ -426,16 +413,11 @@ def publish_canonical_pit(
                     preserved_count = 0
                     for col in tracked_preserve_cols:
                         if col in df_old.columns and col in df_target.columns:
-                            old_series = df_old_idx[col]
-                            for row_idx, sym in enumerate(target_syms):
-                                if sym in old_series.index:
-                                    old_v = old_series.loc[sym]
-                                    if isinstance(old_v, pd.Series):
-                                        old_v = old_v.iloc[0]
-                                    t_v = df_target.at[row_idx, col]
-                                    if (t_v is None or (isinstance(t_v, float) and pd.isna(t_v))) and (old_v is not None and not (isinstance(old_v, float) and pd.isna(old_v))):
-                                        df_target.at[row_idx, col] = old_v
-                                        preserved_count += 1
+                            old_mapped = target_syms.map(df_old_idx[col])
+                            missing_mask = df_target[col].isna() & old_mapped.notna()
+                            if missing_mask.any():
+                                preserved_count += int(missing_mask.sum())
+                                df_target.loc[missing_mask, col] = old_mapped[missing_mask]
                     if preserved_count > 0:
                         logger.info(f"🛡️ [CANONICAL_PUBLISHER] Conflict isolation: preserved {preserved_count} verified field(s) from existing canonical to prevent regression")
 

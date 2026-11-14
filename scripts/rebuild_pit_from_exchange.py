@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
@@ -723,64 +724,68 @@ def rebuild_canonical_pit_dataset(
     if os.path.exists(out_file):
         try:
             df_old = pd.read_parquet(out_file)
-            df_merged = df_old.copy().set_index("symbol")
-            df_new_idx = df_new.set_index("symbol")
+            old_dict = {str(r.get("symbol", "")).strip().upper(): dict(r) for r in df_old.to_dict("records") if r.get("symbol")}
+            new_records = [dict(r) for r in df_new.to_dict("records") if r.get("symbol")]
 
-            # Update all metrics & attributes from newly computed results for processed symbols
-            for col in df_new_idx.columns:
-                s_new = df_new_idx[col].dropna()
-                for sym, val in s_new.items():
-                    if sym in df_merged.index and not pd.isna(val):
-                        df_merged.loc[sym, col] = val
-
-            # Apply recovered key ratios for valuation failure symbols
+            # Load key ratios cache once outside loop
+            recovered_ratios = {}
             key_ratios_dir = os.path.join(BASE_DIR, "data", "upstox_key_ratios")
             if os.path.exists(key_ratios_dir):
                 for f in os.listdir(key_ratios_dir):
                     if f.endswith(".json"):
                         sym = f[:-5].upper()
-                        if sym in df_merged.index:
-                            if pd.isna(df_merged.loc[sym, "current_ev_ebitda"]):
-                                try:
-                                    with open(os.path.join(key_ratios_dir, f), "r", encoding="utf-8") as kf:
-                                        kd = json.load(kf)
-                                    if kd.get("current_ev_ebitda") is not None:
-                                        df_merged.loc[sym, "current_ev_ebitda"] = float(kd["current_ev_ebitda"])
-                                        if kd.get("current_pe") is not None and pd.isna(df_merged.loc[sym, "current_pe"]):
-                                            df_merged.loc[sym, "current_pe"] = float(kd["current_pe"])
-                                except Exception:
-                                    pass
+                        try:
+                            with open(os.path.join(key_ratios_dir, f), "r", encoding="utf-8") as kf:
+                                kd = json.load(kf)
+                            if kd.get("current_ev_ebitda") is not None or kd.get("current_pe") is not None:
+                                recovered_ratios[sym] = kd
+                        except Exception:
+                            pass
 
-            # Preserve certification, freshness, and gaps from old unless new is certified/valid
-            for sym in df_merged.index:
-                old_row = df_old[df_old["symbol"] == sym].iloc[0]
-                new_row = df_new_idx.loc[sym] if sym in df_new_idx.index else None
+            for new_row in new_records:
+                sym = str(new_row.get("symbol", "")).strip().upper()
+                if sym in old_dict:
+                    old_row = old_dict[sym]
+                    # Update all non-null columns from new row
+                    for col, val in new_row.items():
+                        if col != "symbol" and pd.notna(val):
+                            old_row[col] = val
 
-                if new_row is not None and new_row.get("provenance_status") == "CERTIFIED":
-                    df_merged.loc[sym, "provenance_status"] = "CERTIFIED"
-                elif old_row.get("provenance_status") == "CERTIFIED":
-                    df_merged.loc[sym, "provenance_status"] = "CERTIFIED"
+                    # Preserve certification, freshness, and gaps from old unless new is certified/valid
+                    if new_row.get("provenance_status") == "CERTIFIED" or old_row.get("provenance_status") == "CERTIFIED":
+                        old_row["provenance_status"] = "CERTIFIED"
 
-                if new_row is not None and new_row.get("pit_freshness_status") in ("VALID", "FRESH"):
-                    df_merged.loc[sym, "pit_freshness_status"] = new_row.get("pit_freshness_status")
-                elif old_row.get("pit_freshness_status") != "DATA_STALE":
-                    df_merged.loc[sym, "pit_freshness_status"] = old_row.get("pit_freshness_status", "VALID")
+                    if new_row.get("pit_freshness_status") in ("VALID", "FRESH"):
+                        old_row["pit_freshness_status"] = new_row.get("pit_freshness_status")
+                    elif old_row.get("pit_freshness_status") != "DATA_STALE":
+                        old_row["pit_freshness_status"] = old_row.get("pit_freshness_status", "VALID")
 
-                if new_row is not None and not new_row.get("filing_gap_detected", False):
-                    df_merged.loc[sym, "filing_gap_detected"] = False
-                elif not old_row.get("filing_gap_detected", False):
-                    df_merged.loc[sym, "filing_gap_detected"] = False
+                    if not new_row.get("filing_gap_detected", False) or not old_row.get("filing_gap_detected", False):
+                        old_row["filing_gap_detected"] = False
 
-                # Preserve share_dilution_3y from old if new is null
-                if new_row is not None and (pd.isna(new_row.get("share_dilution_3y")) or new_row.get("share_dilution_3y") is None):
-                    old_dil = old_row.get("share_dilution_3y")
-                    if old_dil is not None and not pd.isna(old_dil):
-                        df_merged.loc[sym, "share_dilution_3y"] = old_dil
-                        df_merged.loc[sym, "share_dilution_3y_pct"] = old_dil
+                    # Preserve share_dilution_3y from old if new is null
+                    if pd.isna(new_row.get("share_dilution_3y")) or new_row.get("share_dilution_3y") is None:
+                        old_dil = old_row.get("share_dilution_3y")
+                        if old_dil is not None and not pd.isna(old_dil):
+                            old_row["share_dilution_3y"] = old_dil
+                            old_row["share_dilution_3y_pct"] = old_dil
+                else:
+                    # New symbol not in old_dict
+                    old_dict[sym] = new_row
 
-            df_final = df_merged.reset_index().sort_values("symbol").reset_index(drop=True)
+            # Apply recovered key ratios
+            for sym, kd in recovered_ratios.items():
+                if sym in old_dict:
+                    r = old_dict[sym]
+                    if pd.isna(r.get("current_ev_ebitda")) or r.get("current_ev_ebitda") is None:
+                        if kd.get("current_ev_ebitda") is not None:
+                            r["current_ev_ebitda"] = float(kd["current_ev_ebitda"])
+                            if kd.get("current_pe") is not None and (pd.isna(r.get("current_pe")) or r.get("current_pe") is None):
+                                r["current_pe"] = float(kd["current_pe"])
+
+            df_final = pd.DataFrame(list(old_dict.values())).sort_values("symbol").reset_index(drop=True)
         except Exception as merge_err:
-            logger.warning(f"⚠️ [filling scanner] Never-downgrade merge failed ({merge_err}). Falling back to df_new.")
+            logger.warning(f"⚠️ [filling scanner] Fast dictionary merge notice ({merge_err}). Falling back to df_new.")
             df_final = df_new.sort_values("symbol").reset_index(drop=True)
     else:
         df_final = df_new.sort_values("symbol").reset_index(drop=True)
@@ -790,9 +795,22 @@ def rebuild_canonical_pit_dataset(
     # the 18-dimension gate inside canonical_pit_publisher.publish_canonical_pit().
     candidate_file = out_file.replace("canonical_pit_rebuilt.parquet", "canonical_pit_rebuild_candidate.parquet")
     os.makedirs(os.path.dirname(candidate_file), exist_ok=True)
-    tmp_cand = f"{candidate_file}.tmp.{os.getpid()}"
-    df_final.to_parquet(tmp_cand, index=False)
-    os.replace(tmp_cand, candidate_file)
+    tmp_fd, tmp_cand = tempfile.mkstemp(
+        dir=os.path.dirname(candidate_file),
+        prefix=f"rebuild_cand_{os.getpid()}_",
+        suffix=".parquet"
+    )
+    os.close(tmp_fd)
+    try:
+        df_final.to_parquet(tmp_cand, index=False)
+        os.replace(tmp_cand, candidate_file)
+    except Exception:
+        if os.path.exists(tmp_cand):
+            try:
+                os.remove(tmp_cand)
+            except Exception:
+                pass
+        raise
     logger.info(f"📝 [REBUILD] Candidate written to {candidate_file}. Routing through canonical publisher...")
 
     try:
@@ -811,35 +829,44 @@ def rebuild_canonical_pit_dataset(
         # Auto-restore any stocks that are now certified and fresh
         try:
             try:
-                from app.database import check_and_restore_stale_stock
+                from app.database import check_and_restore_stale_stock, get_active_cooloff_symbols
             except ImportError:
-                from database import check_and_restore_stale_stock
-            # Only auto-restore stocks that are certified, fresh, and have all essential fundamental metrics populated
-            # (stocks missing ROCE, Sales CAGR, PAT CAGR, or D/E must remain in cool-off until their 7-day period expires)
-            valid_rebuilt = df_final[
-                (df_final["provenance_status"] == "CERTIFIED") &
-                (df_final["pit_freshness_status"].isin(["VALID", "FRESH"])) &
-                (~df_final["filing_gap_detected"].fillna(False))
-            ]
-            # Verify ROCE
-            roce_col = next((c for c in ["roce_5y_avg", "ROCE", "roce"] if c in valid_rebuilt.columns), None)
-            if roce_col:
-                valid_rebuilt = valid_rebuilt[valid_rebuilt[roce_col].notna()]
-            # Verify Sales CAGR
-            sales_col = next((c for c in ["sales_cagr_5y", "sales_cagr"] if c in valid_rebuilt.columns), None)
-            if sales_col:
-                valid_rebuilt = valid_rebuilt[valid_rebuilt[sales_col].notna()]
-            # Verify PAT CAGR
-            pat_col = next((c for c in ["pat_cagr_5y", "pat_cagr"] if c in valid_rebuilt.columns), None)
-            if pat_col:
-                valid_rebuilt = valid_rebuilt[valid_rebuilt[pat_col].notna()]
-            # Verify Debt to Equity
-            de_col = next((c for c in ["debt_to_equity", "debt"] if c in valid_rebuilt.columns), None)
-            if de_col:
-                valid_rebuilt = valid_rebuilt[valid_rebuilt[de_col].notna()]
+                from database import check_and_restore_stale_stock, get_active_cooloff_symbols
 
-            for s in valid_rebuilt["symbol"].dropna().unique():
-                check_and_restore_stale_stock(str(s).strip().upper(), source="REBUILD_PUBLISH", notify_admin=False)
+            # Check if there are ANY active cooloffs across scanners
+            active_cooloffs = set()
+            try:
+                active_cooloffs = set(str(s).strip().upper() for s in (get_active_cooloff_symbols("ALL") or []))
+                for _scn in ("FUNDAMENTAL", "FILING_WATCHER", "QUALITY_COMPOUNDER", "TECHNICAL"):
+                    active_cooloffs |= set(str(s).strip().upper() for s in (get_active_cooloff_symbols(_scn) or []))
+            except Exception:
+                pass
+
+            if active_cooloffs:
+                valid_rebuilt = df_final[
+                    (df_final["provenance_status"] == "CERTIFIED") &
+                    (df_final["pit_freshness_status"].isin(["VALID", "FRESH"])) &
+                    (~df_final["filing_gap_detected"].fillna(False))
+                ]
+                roce_col = next((c for c in ["roce_5y_avg", "ROCE", "roce"] if c in valid_rebuilt.columns), None)
+                if roce_col:
+                    valid_rebuilt = valid_rebuilt[valid_rebuilt[roce_col].notna()]
+                sales_col = next((c for c in ["sales_cagr_5y", "sales_cagr"] if c in valid_rebuilt.columns), None)
+                if sales_col:
+                    valid_rebuilt = valid_rebuilt[valid_rebuilt[sales_col].notna()]
+                pat_col = next((c for c in ["pat_cagr_5y", "pat_cagr"] if c in valid_rebuilt.columns), None)
+                if pat_col:
+                    valid_rebuilt = valid_rebuilt[valid_rebuilt[pat_col].notna()]
+                de_col = next((c for c in ["debt_to_equity", "debt"] if c in valid_rebuilt.columns), None)
+                if de_col:
+                    valid_rebuilt = valid_rebuilt[valid_rebuilt[de_col].notna()]
+
+                valid_syms = set(str(s).strip().upper() for s in valid_rebuilt["symbol"].dropna().unique())
+                to_restore = sorted(list(valid_syms & active_cooloffs))
+                if to_restore:
+                    logger.info(f"🔓 [REBUILD] Unblocking {len(to_restore)} eligible recovered symbols from cool-off: {to_restore[:10]}...")
+                    for s in to_restore:
+                        check_and_restore_stale_stock(s, source="REBUILD_PUBLISH", notify_admin=False)
         except Exception as r_err:
             logger.debug(f"[REBUILD] Auto-restore cooloff notice: {r_err}")
     else:
