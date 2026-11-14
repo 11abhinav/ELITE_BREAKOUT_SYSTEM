@@ -265,7 +265,7 @@ class ProcessLockImpl:
                 return True
 
         # Bounded Queue Wait Timeout Guard (Rule 14)
-        effective_timeout = timeout if timeout > 0 else 600.0
+        effective_timeout = timeout if timeout > 0 else 14400.0  # 4 hours queue wait limit
         queue_start_time = datetime.now(tz=timezone.utc)
 
         # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting

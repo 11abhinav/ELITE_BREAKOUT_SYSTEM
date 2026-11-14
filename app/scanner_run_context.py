@@ -25,25 +25,25 @@ STALE_THRESHOLDS = {
 }
 
 SCANNER_MAX_EXECUTION_SECONDS = {
-    "PERFORMANCE_TRACKER": 7200,      # 120 min
-    "WEALTH_EXIT": 7200,              # 120 min
-    "WEALTH_EXIT_V1": 7200,           # 120 min
-    "WEALTH_EXIT_V2": 7200,           # 120 min
-    "AI Worker": 7200,                # 120 min
-    "Pledge Worker": 7200,            # 120 min
-    "FILING_WATCHER": 7200,           # 120 min
-    "DAILY_BUILDER": 7200,            # 120 min
-    "TECHNICAL": 7200,                # 120 min
-    "FUNDAMENTAL": 7200,              # 120 min
-    "QUALITY_COMPOUNDER": 7200,       # 120 min
-    "QUALITY_VALUE_RECOVERY": 7200,   # 120 min
-    "Wealth Engine": 7200,            # 120 min
-    "REVERSAL": 7200,                 # 120 min
-    "PULLBACK": 7200,                 # 120 min
-    "MULTIBAGGER": 7200,              # 120 min
-    "SHORT_COVERING": 7200,           # 120 min
+    "PERFORMANCE_TRACKER": 21600,     # 360 min (6 hours)
+    "WEALTH_EXIT": 21600,             # 360 min (6 hours)
+    "WEALTH_EXIT_V1": 21600,          # 360 min (6 hours)
+    "WEALTH_EXIT_V2": 21600,          # 360 min (6 hours)
+    "AI Worker": 14400,               # 240 min (4 hours)
+    "Pledge Worker": 14400,           # 240 min (4 hours)
+    "FILING_WATCHER": 21600,          # 360 min (6 hours)
+    "DAILY_BUILDER": 14400,           # 240 min (4 hours)
+    "TECHNICAL": 14400,               # 240 min (4 hours)
+    "FUNDAMENTAL": 14400,             # 240 min (4 hours)
+    "QUALITY_COMPOUNDER": 14400,      # 240 min (4 hours)
+    "QUALITY_VALUE_RECOVERY": 21600,  # 360 min (6 hours)
+    "Wealth Engine": 21600,           # 360 min (6 hours)
+    "REVERSAL": 14400,                # 240 min (4 hours)
+    "PULLBACK": 14400,                # 240 min (4 hours)
+    "MULTIBAGGER": 14400,             # 240 min (4 hours)
+    "SHORT_COVERING": 14400,          # 240 min (4 hours)
 }
-DEFAULT_MAX_EXECUTION_SECONDS = 7200  # 120 min
+DEFAULT_MAX_EXECUTION_SECONDS = 21600  # 360 min (6 hours)
 
 
 class ScannerRunContext:

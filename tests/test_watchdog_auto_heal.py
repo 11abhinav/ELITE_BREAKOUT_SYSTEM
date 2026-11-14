@@ -6,16 +6,18 @@ class TestWatchdogAutoHeal(unittest.TestCase):
     def test_auto_heal_stuck_runs_definition(self):
         from database import auto_heal_stuck_scanner_runs, SCANNER_MAX_RUNTIME_MINUTES
         self.assertIn("PERFORMANCE_TRACKER", SCANNER_MAX_RUNTIME_MINUTES)
-        self.assertLessEqual(SCANNER_MAX_RUNTIME_MINUTES["PERFORMANCE_TRACKER"], 15.0)
+        self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["PERFORMANCE_TRACKER"], 240.0)
         self.assertIn("TECHNICAL", SCANNER_MAX_RUNTIME_MINUTES)
-        self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["TECHNICAL"], 60.0)
+        self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["TECHNICAL"], 240.0)
+        self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["FILING_WATCHER"], 360.0)
 
     def test_scanner_run_context_safety_fuse_configuration(self):
         from scanner_run_context import SCANNER_MAX_EXECUTION_SECONDS, ScannerRunContext
         self.assertIn("PERFORMANCE_TRACKER", SCANNER_MAX_EXECUTION_SECONDS)
-        self.assertLessEqual(SCANNER_MAX_EXECUTION_SECONDS["PERFORMANCE_TRACKER"], 900)
+        self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["PERFORMANCE_TRACKER"], 21600)
         self.assertIn("TECHNICAL", SCANNER_MAX_EXECUTION_SECONDS)
-        self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["TECHNICAL"], 3600)
+        self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["TECHNICAL"], 14400)
+        self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["FILING_WATCHER"], 21600)
 
     @patch("psycopg2.extras.execute_values")
     @patch("database.get_connection")
@@ -34,16 +36,16 @@ class TestWatchdogAutoHeal(unittest.TestCase):
     def test_auto_heal_terminates_stuck_performance_tracker(self, mock_notif, mock_conn):
         from database import auto_heal_stuck_scanner_runs
         
-        # Mock cursor returning a stuck PERFORMANCE_TRACKER run (duration 25 mins > 10 min ceiling)
+        # Mock cursor returning a stuck PERFORMANCE_TRACKER run (duration 250 mins > 240 min ceiling)
         mock_cur = MagicMock()
         mock_cur.fetchall.return_value = [
             {
                 "run_id": "test_stuck_run_123456",
                 "scanner_name": "PERFORMANCE_TRACKER",
-                "started_at": "2026-11-12 15:05:36",
+                "started_at": "2026-11-12 11:05:36",
                 "heartbeat_at": "2026-11-12 15:30:00",
                 "lifecycle_status": "RUNNING",
-                "duration_min": 25.0,
+                "duration_min": 250.0,
                 "silent_min": 0.5
             }
         ]

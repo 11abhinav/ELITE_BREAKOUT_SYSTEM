@@ -13829,25 +13829,25 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
 
 
 SCANNER_MAX_RUNTIME_MINUTES = {
-    "PERFORMANCE_TRACKER": 120.0,
-    "WEALTH_EXIT": 120.0,
-    "WEALTH_EXIT_V1": 120.0,
-    "WEALTH_EXIT_V2": 120.0,
-    "AI Worker": 120.0,
-    "Pledge Worker": 120.0,
-    "FILING_WATCHER": 120.0,
-    "DAILY_BUILDER": 120.0,
-    "TECHNICAL": 120.0,
-    "FUNDAMENTAL": 120.0,
-    "QUALITY_COMPOUNDER": 120.0,
-    "QUALITY_VALUE_RECOVERY": 120.0,
-    "Wealth Engine": 120.0,
-    "REVERSAL": 120.0,
-    "PULLBACK": 120.0,
-    "MULTIBAGGER": 120.0,
-    "SHORT_COVERING": 120.0,
+    "PERFORMANCE_TRACKER": 240.0,    # 4 hours
+    "WEALTH_EXIT": 360.0,             # 6 hours
+    "WEALTH_EXIT_V1": 360.0,          # 6 hours
+    "WEALTH_EXIT_V2": 360.0,          # 6 hours
+    "AI Worker": 240.0,               # 4 hours
+    "Pledge Worker": 240.0,           # 4 hours
+    "FILING_WATCHER": 360.0,          # 6 hours (generous ceiling for full universe backfill & filing sync)
+    "DAILY_BUILDER": 240.0,           # 4 hours
+    "TECHNICAL": 240.0,               # 4 hours
+    "FUNDAMENTAL": 240.0,             # 4 hours
+    "QUALITY_COMPOUNDER": 240.0,      # 4 hours
+    "QUALITY_VALUE_RECOVERY": 360.0,  # 6 hours
+    "Wealth Engine": 360.0,           # 6 hours
+    "REVERSAL": 240.0,                # 4 hours
+    "PULLBACK": 240.0,                # 4 hours
+    "MULTIBAGGER": 240.0,             # 4 hours
+    "SHORT_COVERING": 240.0,          # 4 hours
 }
-DEFAULT_MAX_RUNTIME_MINUTES = 120.0
+DEFAULT_MAX_RUNTIME_MINUTES = 360.0
 
 def auto_heal_stuck_scanner_runs() -> list[dict]:
     """
@@ -13886,9 +13886,9 @@ def auto_heal_stuck_scanner_runs() -> list[dict]:
                     if duration_min > max_runtime:
                         is_stuck = True
                         reason = f"Exceeded maximum allowed runtime ({duration_min:.1f}m > {max_runtime:.0f}m ceiling)"
-                    elif silent_min > 15.0:
+                    elif silent_min > 30.0:
                         is_stuck = True
-                        reason = f"Inactive heartbeat for {silent_min:.1f}m (>15m limit)"
+                        reason = f"Inactive heartbeat for {silent_min:.1f}m (>30m limit)"
                         
                     if is_stuck:
                         # Hard-reset record in scanner_execution_history
