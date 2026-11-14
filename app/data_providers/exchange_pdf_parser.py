@@ -82,6 +82,10 @@ def _clean_token_number(token: str) -> Optional[float]:
     if re.search(r"[a-zA-Z]", token) or "[" in token or "]" in token:
         return None
     is_neg = (token.startswith("(") and token.endswith(")")) or token.startswith("-")
+    # Fix OCR typos where decimal dot is transcribed as comma, semicolon, or equal sign before 2 digits:
+    # e.g. 18,152,02 -> 18,152.02 or 35,278=83 -> 35,278.83
+    if "." not in token:
+        token = re.sub(r"[,=;]([0-9]{2})\)?$", r".\1", token)
     cleaned = re.sub(r"[^\d\.]", "", token)
     if not cleaned or cleaned == ".":
         return None
@@ -121,18 +125,29 @@ class ExchangePdfParser:
         if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
             try:
                 with open(cache_path, "rb") as f_in:
-                    return f_in.read()
+                    content = f_in.read()
+                    if b"%%EOF" in content[-2048:]:
+                        return content
+                    else:
+                        logger.warning(f"[PDF_PARSER] Cached PDF {cache_fn} is truncated (missing %%EOF). Re-downloading...")
+                        try:
+                            os.remove(cache_path)
+                        except Exception:
+                            pass
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
         # 1. Direct fetch from exchange static archives
         try:
-            resp = self.session.get(pdf_url, timeout=15)
+            resp = self.session.get(pdf_url, timeout=30)
             if resp.status_code == 200 and resp.content and resp.content.startswith(b"%PDF"):
-                with open(cache_path, "wb") as f_out:
-                    f_out.write(resp.content)
-                logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(resp.content)} bytes)")
-                return resp.content
+                if b"%%EOF" in resp.content[-2048:]:
+                    with open(cache_path, "wb") as f_out:
+                        f_out.write(resp.content)
+                    logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(resp.content)} bytes)")
+                    return resp.content
+                else:
+                    logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(resp.content)} bytes, missing %%EOF). Falling back...")
         except Exception as direct_err:
             logger.debug(f"[PDF_PARSER] Direct download failed for {base_name}: {direct_err}")
 
@@ -140,12 +155,15 @@ class ExchangePdfParser:
         fetch_via_scraperapi, get_scraper_api_key = _get_scraperapi_fetcher()
         if fetch_via_scraperapi and get_scraper_api_key():
             try:
-                s_resp = fetch_via_scraperapi(pdf_url, timeout=25, country_code="in")
+                s_resp = fetch_via_scraperapi(pdf_url, timeout=35, country_code="in")
                 if s_resp is not None and s_resp.status_code == 200 and s_resp.content and s_resp.content.startswith(b"%PDF"):
-                    with open(cache_path, "wb") as f_out:
-                        f_out.write(s_resp.content)
-                    logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes)")
-                    return s_resp.content
+                    if b"%%EOF" in s_resp.content[-2048:]:
+                        with open(cache_path, "wb") as f_out:
+                            f_out.write(s_resp.content)
+                        logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes)")
+                        return s_resp.content
+                    else:
+                        logger.warning(f"[PDF_PARSER] ScraperAPI download for {base_name} truncated ({len(s_resp.content)} bytes, missing %%EOF).")
             except Exception as s_err:
                 logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
 
@@ -182,7 +200,15 @@ class ExchangePdfParser:
                 logger.warning(f"[PDF_PARSER] PyPDF2 failed to open PDF for {symbol}: {pdf_err}")
                 return []
 
-        for page_idx, page in enumerate(reader.pages):
+        # In SEBI Reg 33 filings, financial statement tables are located in the first 16 pages.
+        # Check at most the first 16 pages to avoid sluggish multi-minute font decoding on legal notes.
+        for page_idx, page in enumerate(reader.pages[:16]):
+            # Early exit if we already extracted both Consolidated and Standalone statements
+            has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
+            has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
+            if has_cons and has_std:
+                break
+
             try:
                 text = page.extract_text() or ""
             except Exception:
@@ -191,14 +217,15 @@ class ExchangePdfParser:
             text_lower = text.lower()
 
             # Must contain SEBI Regulation 33 Statement header keywords
-            if not ("statement of" in text_lower and any(k in text_lower for k in [
-                "financial results", "financial result", "revenue from operations", "net sales", "income from operations"
-            ])):
+            is_stmt_header = any(k in text_lower for k in [
+                "statement of", "financial results", "financial result", "results for the quarter", "results for the period"
+            ])
+            if not is_stmt_header:
                 continue
 
-            # Must contain actual operational revenue indicators
+            # Must contain actual operational revenue indicators (or banking total income / interest earned)
             if not any(k in text_lower for k in [
-                "revenue from operations", "net sales", "total income", "income from operations"
+                "revenue from operations", "net sales", "total income", "income from operations", "interest earned"
             ]):
                 continue
 
@@ -207,25 +234,38 @@ class ExchangePdfParser:
             first_lines = text.split("\n")[:12]
             for line in first_lines:
                 line_low = line.lower()
-                if "statement of" in line_low:
-                    if "consolidated" in line_low:
-                        basis = ConsolidationType.CONSOLIDATED
-                        break
-                    elif "standalone" in line_low or "non-consolidated" in line_low:
-                        basis = ConsolidationType.STANDALONE
-                        break
+                if "consolidated" in line_low:
+                    basis = ConsolidationType.CONSOLIDATED
+                    break
+                elif "standalone" in line_low or "non-consolidated" in line_low:
+                    basis = ConsolidationType.STANDALONE
+                    break
             if basis == ConsolidationType.STANDALONE and "consolidated" in text_lower and "standalone" not in text_lower:
                 basis = ConsolidationType.CONSOLIDATED
 
             # 2. Determine Unit and Multiplier to Crores
             mult = 1.0
             unit = "crore"
-            if re.search(r"in\s*lakhs|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|(?:\([zt\?]?\s*in\s*lnkhs\))", text, re.I):
+            header_text = "\n".join(text.split("\n")[:25])
+            if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", header_text, re.I):
+                mult = 0.1  # 1 Million = 0.1 Crore (10 Lakhs)
+                unit = "million"
+            elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))", header_text, re.I):
                 mult = 0.01  # 1 Lakh = 0.01 Crore
                 unit = "lakh"
-            elif re.search(r"in\s*crores|rs\.?\s*in\s*crores|\(in\s*crores\)", text, re.I):
+            elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)", header_text, re.I):
                 mult = 1.0
                 unit = "crore"
+            else:
+                if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", text, re.I):
+                    mult = 0.1
+                    unit = "million"
+                elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs", text, re.I):
+                    mult = 0.01
+                    unit = "lakh"
+                elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?", text, re.I):
+                    mult = 1.0
+                    unit = "crore"
 
             # 3. Determine Period End Date
             period_end = None
@@ -252,6 +292,21 @@ class ExchangePdfParser:
                             break
                         except ValueError:
                             pass
+                else:
+                    m_header = re.search(
+                        r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
+                        text[:600],
+                        re.I | re.DOTALL,
+                    )
+                    if m_header:
+                        d_str = f"{m_header.group(1)} {m_header.group(2)}".replace(",", "").strip()
+                        clean_d = re.sub(r"\s+", " ", d_str)
+                        for fmt in ["%B %d %Y", "%b %d %Y", "%B %d, %Y", "%b %d, %Y"]:
+                            try:
+                                period_end = datetime.strptime(clean_d, fmt).strftime("%Y-%m-%d")
+                                break
+                            except ValueError:
+                                pass
 
             if not period_end or len(period_end) != 10:
                 continue
@@ -285,26 +340,48 @@ class ExchangePdfParser:
             num_cols = 1
             target_dmy = f"{period_end[8:10]}.{period_end[5:7]}.{period_end[:4]}" if period_end else ""
             for line in text.split("\n"):
-                dm = re.findall(r"(\d{2}[\./-]\d{2}[\./-]202\d)", line)
+                dm = re.findall(r"(\d{2}[\.,/-]\d{2}[\.,/-]202\d)", line)
                 if dm and len(dm) >= 2:
                     num_cols = len(dm)
-                    matched_col = None
-                    for idx, d_str in enumerate(dm):
-                        clean_d = d_str.replace("/", ".").replace("-", ".")
-                        if clean_d == target_dmy:
-                            matched_col = idx
-                            break
-                    if matched_col is not None:
-                        col_idx = matched_col
+                    # Under SEBI LODR Regulation 33 schedule, Col 0 is always the latest reporting quarter
+                    col_idx = 0
+                    break
+
+            # Word date headers check (e.g. "September 30, June 30, September 30, ...")
+            if num_cols == 1:
+                months_pat = r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b"
+                for line in text.split("\n")[:20]:
+                    m_matches = re.findall(months_pat, line, re.I)
+                    if len(m_matches) >= 2:
+                        num_cols = len(m_matches)
+                        col_idx = 0  # In SEBI Reg 33 format, Col 0 is always the latest reporting quarter
                         break
+
+            # If still num_cols == 1, infer from most frequent number of values on key financial rows
+            if num_cols == 1:
+                col_counts = []
+                for line in text.split("\n"):
+                    low = line.lower()
+                    if any(k in low for k in ["revenue from operations", "total income", "profit for the period", "profit after tax"]):
+                        tokens = line.strip().split()
+                        nums = [_clean_token_number(t) for t in tokens if _clean_token_number(t) is not None]
+                        if len(nums) in (3, 4, 5, 6):
+                            col_counts.append(len(nums))
+                if col_counts:
+                    from collections import Counter
+                    num_cols = Counter(col_counts).most_common(1)[0][0]
+                    col_idx = 0
+
             if col_idx is None:
                 col_idx = 0
 
             # Strategy A: Line-by-line inspection (Standard inline tables where numbers are adjacent to row label)
             for line in text.split("\n"):
                 line_str = line.strip()
-                line_lower = line_str.lower()
-                tokens = line_str.split()
+                # Strip formula equations in row labels like (7 -8), (1+2), (3-4), (lll-IV)
+                line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/]\s*[\d\w]+\s*\)", "", line_str)
+                line_lower = line_clean.lower()
+                tokens = line_clean.split()
                 if not tokens:
                     continue
 
@@ -325,11 +402,11 @@ class ExchangePdfParser:
                     # In a multi-column table, a line with fewer numbers than columns is an item label/note, not data
                     continue
                 else:
-                    last_val = nums[-1]
+                    last_val = nums[0]
 
                 if rev is None and any(k in line_lower for k in [
-                    "revenue from operations", "net sales", "income from operations"
-                ]):
+                    "revenue from operations", "net sales", "income from operations", "total income", "interest earned"
+                ]) and not any(k in line_lower for k in ["total comprehensive income", "other comprehensive income", "expenses", "cash flow"]):
                     rev = last_val * mult
 
                 elif pat is None and any(k in line_lower for k in [
@@ -354,8 +431,8 @@ class ExchangePdfParser:
                     finance_costs = last_val * mult
 
                 elif eps is None and any(k in line_lower for k in [
-                    "basic & diluted", "basic (in rupees)", "basic ( ~)", "basic eps", "(1) basic", "basic (", "basic(", "basic "
-                ]) and not any(k in line_lower for k in ["diluted", "share capital", "other equity"]):
+                    "basic and diluted", "basic & diluted", "basic (in rupees)", "basic ( ~)", "basic ( `)", "basic eps", "(1) basic", "basic (", "basic(", "basic ", "earnings per share", "earnings per equity share"
+                ]) and not any(k in line_lower for k in ["share capital", "other equity"]):
                     if 0.0 < last_val < 1000.0:
                         eps = last_val
 
@@ -372,7 +449,7 @@ class ExchangePdfParser:
             # Strategy B: Column Block inspection (Tables where text labels appear in one block and column values appear in another block)
             if rev is None or pat is None:
                 col_m = re.search(
-                    r"(\d{2}\.\d{2}\.202\d)\s*\n\s*\(?unaudited\)?\s*\n([0-9\.\n\s\-\(\)]+)",
+                    r"(?:quarter\s*ended\s*)?(\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*\n\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)\s*\n\s*\(?(?:un[- ]?audited|audited)\)?\s*\n([0-9\.,\n\s\-\(\)]+)",
                     text,
                     re.I,
                 )
@@ -507,7 +584,8 @@ class ExchangePdfParser:
                 continue
 
             att_file = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").strip()
-            if not att_file.lower().endswith(".pdf"):
+            att_lower = att_file.lower()
+            if not (".pdf" in att_lower or "annpdfopen" in att_lower):
                 continue
 
             # Period end
@@ -529,6 +607,16 @@ class ExchangePdfParser:
 
             # Check if this announcement is a financial results / board meeting outcome
             desc_comb = f"{ann.get('desc', '')} {ann.get('attchmntText', '')}".lower()
+            att_lower = att_file.lower()
+
+            # Exclude non-statement attachments (newspaper publications, earnings calls, presentations, transcripts)
+            if any(k in desc_comb or k in att_lower for k in [
+                "newspaper", "clipping", "advertisement", "publication of",
+                "investor presentation", "investor update", "earnings call",
+                "transcript", "audio recording", "concall", "con. call", "press release"
+            ]):
+                continue
+
             if not (ann.get("hasXbrl") or any(k in desc_comb for k in [
                 "financial result", "financial results", "outcome of board meeting",
                 "unaudited financial", "audited financial", "period ended"

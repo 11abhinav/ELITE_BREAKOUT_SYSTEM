@@ -581,24 +581,5 @@
     "exchange": "BSE",
     "filing_id": "BSE_544161_4d4e66f1-634e-4950-b467-9d0cf4fa5d76",
     "source_record_hash": "83141f2ff6dac48a3b4ca04d3042823985df89c7d19eafce54cba858d91f6860"
-  },
-  {
-    "symbol": "DPABHUSHAN",
-    "period_end_date": "2026-09-30",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "2026-09-28",
-    "broadcast_timestamp": "2026-09-28T14:13:53.957",
-    "exchange": "BSE",
-    "filing_id": "BSE_544161_61f9f46b-3a97-4dbc-a4e0-95b009d3e151",
-    "source_record_hash": "bb8661fa4c767011fe40d1e21b7c2850326717347ebdd35dfdd244be53ac860b"
   }
 ]

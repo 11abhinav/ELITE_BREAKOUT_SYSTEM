@@ -1584,39 +1584,21 @@
     "filing_id": "106711976"
   },
   {
-    "symbol": "AAVAS",
-    "period_end_date": "2026-09-30",
-    "statement_type": "ANNUAL",
-    "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "13-Oct-2026",
-    "broadcast_timestamp": "13-Oct-2026 18:41:05",
-    "exchange": "NSE",
-    "filing_id": "106816255"
-  },
-  {
-    "symbol": "AAVAS",
+    "exchange": "BSE",
+    "source": "EXCHANGE_PDF_REG33",
+    "filing_id": "NSE_PDF_AAVAS_1_2026-09-30",
     "period_end_date": "2026-09-30",
     "statement_type": "QUARTERLY",
     "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
+    "revenue": 736.302,
+    "net_profit": 181.5202,
+    "operating_profit": 540.9357,
+    "eps": 22.89,
     "total_debt": null,
     "total_equity": null,
     "operating_cash_flow": null,
     "shares_outstanding": null,
-    "filing_date": "2026-10-07",
-    "broadcast_timestamp": "2026-10-07T15:28:28.18",
-    "exchange": "BSE",
-    "filing_id": "BSE_541988_d7d4f5d9-69f7-4bdd-b98c-4d33ecf81720"
+    "filing_date": "2026-10-26",
+    "broadcast_timestamp": "2026-10-26T17:40:35.07"
   }
 ]

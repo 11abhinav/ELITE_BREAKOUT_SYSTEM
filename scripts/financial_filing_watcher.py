@@ -1034,7 +1034,7 @@ class FinancialFilingWatcher:
                     # Share market sweep announcements with worker threads to prevent worker threads
                     # from executing redundant per-symbol network discovery calls.
                     if market_sweep_ok and market_sweep_filings is not None:
-                        _tls.nse_provider._discovered_cache = dict(market_sweep_filings)
+                        _tls.nse_provider._sweep_announcements_cache = dict(market_sweep_filings)
                 except Exception as e:
                     logger.warning(f"[filling scanner] Could not initialize NseXbrlProvider in worker thread: {e}")
                     _tls.nse_provider = None
@@ -1409,23 +1409,26 @@ class FinancialFilingWatcher:
                 nse_fetch_count = 0
                 nse_disc_count = 0
 
-                # Pre-populate raw_filings_list directly with any newer disclosures discovered in market sweep!
+                # Pre-populate raw_filings_list ONLY with disclosures that carry structured financial facts!
                 if market_sweep_ok and has_newer_sweep_filing:
                     for it in market_sweep_filings.get(sym_u, []):
-                        p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
-                        if p_end and p_end >= min_cutoff:
-                            r_copy = dict(it)
-                            r_copy["exchange"] = "NSE"
-                            r_copy["period_end_date"] = p_end
-                            raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
-                            r_copy["statement_type"] = classify_statement_type(raw_period, period_end_date=p_end)
-                            raw_filings_list.append(r_copy)
+                        if it.get("revenue") is not None or it.get("net_profit") is not None:
+                            p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
+                            if p_end and p_end >= min_cutoff:
+                                r_copy = dict(it)
+                                r_copy["exchange"] = "NSE"
+                                r_copy["period_end_date"] = p_end
+                                raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
+                                r_copy["statement_type"] = classify_statement_type(raw_period, period_end_date=p_end)
+                                raw_filings_list.append(r_copy)
 
                 # 1. Poll NSE XBRL / Corporate Results (Primary Source)
                 if nse_prov:
                     try:
                         if hasattr(nse_prov, "_discovered_cache") and needs_bootstrap:
                             nse_prov._discovered_cache.pop(sym_u, None)
+                        if hasattr(nse_prov, "_sweep_announcements_cache") and needs_bootstrap:
+                            nse_prov._sweep_announcements_cache.pop(sym_u, None)
                         nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_cutoff)
                         if nse_records:
                             nse_fetch_count = len(nse_records)
@@ -1565,7 +1568,9 @@ class FinancialFilingWatcher:
 
                     # Gather candidate exchange announcements with PDF attachments
                     candidate_anns = []
-                    if nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
+                    if nse_prov and hasattr(nse_prov, "_sweep_announcements_cache") and sym_u in nse_prov._sweep_announcements_cache:
+                        candidate_anns.extend(nse_prov._sweep_announcements_cache[sym_u])
+                    elif nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
                         candidate_anns.extend(nse_prov._discovered_cache[sym_u])
                     elif nse_prov and not market_sweep_ok:
                         # Only query network if market sweep failed to execute
@@ -1575,6 +1580,10 @@ class FinancialFilingWatcher:
                                 candidate_anns.extend(nse_disc)
                         except Exception:
                             pass
+
+                    # Also include BSE discovered announcements if BSE was queried
+                    if 'bse_disc_rows' in locals() and bse_disc_rows:
+                        candidate_anns.extend(bse_disc_rows)
 
                     # [RULE 67 CHANGE-RATIONALE: ELIMINATE_DUPLICATE_BSE_SCRAPE_v1.0]
                     # Step 2 is the authoritative BSE polling gate (lines 1350-1425).
@@ -1592,7 +1601,10 @@ class FinancialFilingWatcher:
 
                     uncovered_pdf_anns = [
                         ann for ann in candidate_anns
-                        if isinstance(ann, dict) and str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower().endswith(".pdf")
+                        if isinstance(ann, dict) and (
+                            ".pdf" in str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
+                            or "annpdfopen" in str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
+                        )
                         and _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate")) not in xml_covered_periods
                         and _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate")) not in existing_local_covered
                     ]

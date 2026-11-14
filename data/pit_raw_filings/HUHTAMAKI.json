@@ -1677,21 +1677,21 @@
     "filing_id": "BSE_509820_dbd97af3-25fc-46f8-b60a-e5c3ed1de492"
   },
   {
-    "symbol": "HUHTAMAKI",
+    "exchange": "NSE",
+    "source": "EXCHANGE_PDF_REG33",
+    "filing_id": "NSE_PDF_HUHTAMAKI_106830082_2026-09-30",
     "period_end_date": "2026-09-30",
     "statement_type": "QUARTERLY",
     "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
+    "revenue": 768.84,
+    "net_profit": 29.73,
+    "operating_profit": 42.5,
+    "eps": 3.94,
     "total_debt": null,
     "total_equity": null,
     "operating_cash_flow": null,
     "shares_outstanding": null,
-    "filing_date": "2026-10-14",
-    "broadcast_timestamp": "2026-10-14T21:03:20.99",
-    "exchange": "BSE",
-    "filing_id": "BSE_509820_ed325558-25f5-4521-8501-0f4674ab6357"
+    "filing_date": "2026-10-27",
+    "broadcast_timestamp": "27-Oct-2026 14:27:13"
   }
 ]

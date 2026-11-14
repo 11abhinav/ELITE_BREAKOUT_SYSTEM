@@ -839,58 +839,62 @@ class NseXbrlProvider:
                 all_filings.extend(rows)
 
         # 3. Query NSE Corporate Announcements feed for real-time same-day filings
-        ann_url = f"{_ANN_URL}?index=equities&symbol={symbol}"
-        ann_raw = self._get(ann_url, symbol)
-        if ann_raw:
-            ann_rows = ann_raw if isinstance(ann_raw, list) else (ann_raw.get("data", []) if isinstance(ann_raw, dict) else [])
-            existing_ann_keys = set()
-            for item in ann_rows:
-                desc = str(item.get("desc") or "")
-                txt = str(item.get("attchmntText") or "")
-                has_xbrl = bool(item.get("hasXbrl"))
-                combined = f"{desc} {txt}".lower()
+        if hasattr(self, "_sweep_announcements_cache") and self._sweep_announcements_cache and symbol in self._sweep_announcements_cache:
+            # Re-use pre-sweep announcements for this symbol without redundant per-symbol network call!
+            all_filings.extend(self._sweep_announcements_cache[symbol])
+        else:
+            ann_url = f"{_ANN_URL}?index=equities&symbol={symbol}"
+            ann_raw = self._get(ann_url, symbol)
+            if ann_raw:
+                ann_rows = ann_raw if isinstance(ann_raw, list) else (ann_raw.get("data", []) if isinstance(ann_raw, dict) else [])
+                existing_ann_keys = set()
+                for item in ann_rows:
+                    desc = str(item.get("desc") or "")
+                    txt = str(item.get("attchmntText") or "")
+                    has_xbrl = bool(item.get("hasXbrl"))
+                    combined = f"{desc} {txt}".lower()
 
-                is_fin_ann = (
-                    has_xbrl
-                    or any(k in combined for k in (
-                        "financial result", "financial results", "outcome of board meeting",
-                        "un-audited financial", "unaudited financial", "audited financial",
-                        "quarterly result", "half year", "period ended"
-                    ))
-                )
-                if not is_fin_ann:
-                    continue
+                    is_fin_ann = (
+                        has_xbrl
+                        or any(k in combined for k in (
+                            "financial result", "financial results", "outcome of board meeting",
+                            "un-audited financial", "unaudited financial", "audited financial",
+                            "quarterly result", "half year", "period ended"
+                        ))
+                    )
+                    if not is_fin_ann:
+                        continue
 
-                p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
-                # [RULE 67 CHANGE-RATIONALE: HISTORICAL_LOOKBACK_6Y_v1.0]
-                # Maximum scanner lookback is 5 years + 1 buffer year = 6 years (>= 2020-01-01 in 2026).
-                if not p_end or p_end < "2020-01-01":
-                    continue
-                att_file = str(item.get("attchmntFile") or "")
-                ann_key = (p_end, att_file)
-                if ann_key in existing_ann_keys:
-                    continue
-                existing_ann_keys.add(ann_key)
+                    p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
+                    # [RULE 67 CHANGE-RATIONALE: HISTORICAL_LOOKBACK_6Y_v1.0]
+                    # Maximum scanner lookback is 5 years + 1 buffer year = 6 years (>= 2020-01-01 in 2026).
+                    if not p_end or p_end < "2020-01-01":
+                        continue
+                    att_file = str(item.get("attchmntFile") or "")
+                    ann_key = (p_end, att_file)
+                    if ann_key in existing_ann_keys:
+                        continue
+                    existing_ann_keys.add(ann_key)
 
-                st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
-                basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
+                    st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
+                    basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
 
-                all_filings.append({
-                    "symbol": symbol,
-                    "toDate": p_end,
-                    "period_end_date": p_end,
-                    "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
-                    "statement_type": st_type,
-                    "consolidated": basis,
-                    "seqNumber": str(item.get("seq_id") or ""),
-                    "broadCastDate": str(item.get("an_dt") or item.get("exchdisstime") or item.get("sort_date") or ""),
-                    "filingDate": str(item.get("an_dt") or "")[:11],
-                    "xbrl": item.get("xbrl") or "",
-                    "attchmntFile": item.get("attchmntFile") or "",
-                    "desc": desc,
-                    "attchmntText": txt,
-                    "exchange": "NSE",
-                })
+                    all_filings.append({
+                        "symbol": symbol,
+                        "toDate": p_end,
+                        "period_end_date": p_end,
+                        "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
+                        "statement_type": st_type,
+                        "consolidated": basis,
+                        "seqNumber": str(item.get("seq_id") or ""),
+                        "broadCastDate": str(item.get("an_dt") or item.get("exchdisstime") or item.get("sort_date") or ""),
+                        "filingDate": str(item.get("an_dt") or "")[:11],
+                        "xbrl": item.get("xbrl") or "",
+                        "attchmntFile": item.get("attchmntFile") or "",
+                        "desc": desc,
+                        "attchmntText": txt,
+                        "exchange": "NSE",
+                    })
 
         self.filing_records_discovered += len(all_filings)
         self._discovered_cache[symbol] = all_filings
@@ -1002,41 +1006,11 @@ class NseXbrlProvider:
         except Exception as _e_ann:
             logger.debug(f"[NSE] Market sweep announcements error: {_e_ann}")
 
-        # 2. Fetch market-wide quarterly results (fallback dump for historical baseline)
-        try:
-            q_url = f"{_BASE_URL}?index=equities&period=Quarterly"
-            raw_q = self._get(q_url, "MARKET_QUARTERLY", timeout=35)
-            if raw_q:
-                rows = raw_q if isinstance(raw_q, list) else (raw_q.get("data", []) if isinstance(raw_q, dict) else [])
-                for r in rows:
-                    if isinstance(r, dict):
-                        sym = str(r.get("symbol") or "").strip().upper()
-                        if sym:
-                            r_copy = dict(r)
-                            r_copy["exchange"] = "NSE"
-                            market_filings.setdefault(sym, []).append(r_copy)
-        except Exception as _e_q:
-            logger.debug(f"[NSE] Market sweep quarterly error: {_e_q}")
-
-        # 3. Fetch market-wide annual results (fallback dump for historical baseline)
-        try:
-            a_url = f"{_BASE_URL}?index=equities&period=Annual"
-            raw_a = self._get(a_url, "MARKET_ANNUAL", timeout=35)
-            if raw_a:
-                rows = raw_a if isinstance(raw_a, list) else (raw_a.get("data", []) if isinstance(raw_a, dict) else [])
-                for r in rows:
-                    if isinstance(r, dict):
-                        sym = str(r.get("symbol") or "").strip().upper()
-                        if sym:
-                            r_copy = dict(r)
-                            r_copy["exchange"] = "NSE"
-                            market_filings.setdefault(sym, []).append(r_copy)
-        except Exception as _e_a:
-            logger.debug(f"[NSE] Market sweep annual error: {_e_a}")
-
-        for s, flist in market_filings.items():
-            self._discovered_cache[s] = flist
-            self.filing_records_discovered += len(flist)
+        # Cache market announcements in dedicated sweep cache (do NOT overwrite _discovered_cache so per-symbol XBRL discovery is never blocked)
+        if not hasattr(self, "_sweep_announcements_cache"):
+            self._sweep_announcements_cache = {}
+        self._sweep_announcements_cache.update(market_filings)
+        self.filing_records_discovered += sum(len(flist) for flist in market_filings.values())
 
         return market_filings
 

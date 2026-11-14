@@ -746,21 +746,25 @@ def rebuild_canonical_pit_dataset(
                 sym = str(new_row.get("symbol", "")).strip().upper()
                 if sym in old_dict:
                     old_row = old_dict[sym]
+                    prev_certified = (old_row.get("provenance_status") == "CERTIFIED")
+                    prev_freshness = old_row.get("pit_freshness_status")
+                    prev_gap = old_row.get("filing_gap_detected", False)
+
                     # Update all non-null columns from new row
                     for col, val in new_row.items():
                         if col != "symbol" and pd.notna(val):
                             old_row[col] = val
 
                     # Preserve certification, freshness, and gaps from old unless new is certified/valid
-                    if new_row.get("provenance_status") == "CERTIFIED" or old_row.get("provenance_status") == "CERTIFIED":
+                    if new_row.get("provenance_status") == "CERTIFIED" or prev_certified:
                         old_row["provenance_status"] = "CERTIFIED"
 
                     if new_row.get("pit_freshness_status") in ("VALID", "FRESH"):
                         old_row["pit_freshness_status"] = new_row.get("pit_freshness_status")
-                    elif old_row.get("pit_freshness_status") != "DATA_STALE":
-                        old_row["pit_freshness_status"] = old_row.get("pit_freshness_status", "VALID")
+                    elif prev_freshness != "DATA_STALE":
+                        old_row["pit_freshness_status"] = prev_freshness or "VALID"
 
-                    if not new_row.get("filing_gap_detected", False) or not old_row.get("filing_gap_detected", False):
+                    if not new_row.get("filing_gap_detected", False) or not prev_gap:
                         old_row["filing_gap_detected"] = False
 
                     # Preserve share_dilution_3y from old if new is null

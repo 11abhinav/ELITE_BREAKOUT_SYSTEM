@@ -3,17 +3,17 @@
   "FINANCIAL_SNAPSHOT_STATUS": "SNAPSHOT_READY_FOR_SCANNER",
   "as_of_date": "2026-11-14",
   "total_symbols": 886,
-  "certified_symbols": 647,
+  "certified_symbols": 650,
   "structural_ineligible_symbols": 248,
   "fresh_symbols": 884,
   "stale_symbols": 0,
-  "cash_complete": 836,
+  "cash_complete": 839,
   "shares_complete": 886,
-  "current_ev_ebitda_complete": 829,
+  "current_ev_ebitda_complete": 830,
   "ev_ebitda_3y_median_complete": 879,
   "gaps_detected": 0,
-  "sha256": "4afa515f01a5491f49db8f6bbaabdb318f4dd1c049ee361d8a77639072b0e3aa",
-  "built_at": "2026-11-14T15:17:53.213630",
+  "sha256": "22caf5d322a51567ddd68c2665fe05a487449193372e3cd79ca2f6102e5ec99a",
+  "built_at": "2026-11-14T16:17:03.904898",
   "audit_summary": {},
-  "snapshot_status_updated_at": "2026-11-14T15:17:53.215116"
+  "snapshot_status_updated_at": "2026-11-14T16:17:03.908184"
 }

@@ -2265,39 +2265,21 @@
     "mapping_rule": "REVENUE_DIRECT"
   },
   {
-    "symbol": "HDFCBANK",
+    "exchange": "NSE",
+    "source": "EXCHANGE_PDF_REG33",
+    "filing_id": "NSE_PDF_HDFCBANK_1_2026-09-30",
     "period_end_date": "2026-09-30",
     "statement_type": "QUARTERLY",
     "basis": "STANDALONE",
-    "revenue": null,
-    "net_profit": null,
+    "revenue": 83426.6,
+    "net_profit": 19609.96,
     "operating_profit": null,
     "eps": null,
     "total_debt": null,
     "total_equity": null,
     "operating_cash_flow": null,
-    "shares_outstanding": null,
-    "filing_date": "17-Oct-2026",
-    "broadcast_timestamp": "17-Oct-2026 13:56:22",
-    "exchange": "NSE",
-    "filing_id": "106821066"
-  },
-  {
-    "symbol": "HDFCBANK",
-    "period_end_date": "2026-09-30",
-    "statement_type": "ANNUAL",
-    "basis": "CONSOLIDATED",
-    "revenue": null,
-    "net_profit": null,
-    "operating_profit": null,
-    "eps": null,
-    "total_debt": null,
-    "total_equity": null,
-    "operating_cash_flow": null,
-    "shares_outstanding": null,
+    "shares_outstanding": 1541860000.0,
     "filing_date": "2026-10-17",
-    "broadcast_timestamp": "2026-10-17T22:09:53.187",
-    "exchange": "BSE",
-    "filing_id": "BSE_500180_01894d11-473e-4d23-b680-8ff3a6ae8eb7"
+    "broadcast_timestamp": "2026-10-17T13:56:35.27"
   }
 ]
