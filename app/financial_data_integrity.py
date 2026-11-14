@@ -1980,6 +1980,11 @@ def _mark_update_pending(symbol: str, state_file: str):
         pass
 
 
+import threading
+import tempfile
+_WATERMARK_LOCK = threading.Lock()
+
+
 def record_source_watermark(
     source_name: str,
     last_successful_check_at: Optional[str] = None,
@@ -1987,50 +1992,67 @@ def record_source_watermark(
     symbol: Optional[str] = None,
 ) -> None:
     """
-    Updates or initializes source watermark in data/exchange_watermarks.json.
+    Updates or initializes source watermark in data/exchange_watermarks.json in a thread-safe manner.
     """
     base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     data_dir = os.path.join(base_dir, "data")
     wm_path = os.path.join(data_dir, "exchange_watermarks.json")
     os.makedirs(data_dir, exist_ok=True)
-    data = {}
-    if os.path.exists(wm_path):
+    
+    with _WATERMARK_LOCK:
+        data = {}
+        if os.path.exists(wm_path):
+            try:
+                with open(wm_path, "r") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+
+        src_upper = source_name.strip().upper()
+        if src_upper not in data:
+            data[src_upper] = {
+                "source_name": src_upper,
+                "last_successful_check_at": datetime.now().isoformat(),
+                "latest_filing_timestamp": None,
+                "symbols": {}
+            }
+
+        now_iso = datetime.now().isoformat()
+        check_time = last_successful_check_at or now_iso
+
+        if symbol:
+            sym_clean = symbol.strip().upper()
+            if "symbols" not in data[src_upper]:
+                data[src_upper]["symbols"] = {}
+            sym_entry = data[src_upper]["symbols"].get(sym_clean, {})
+            sym_entry["last_successful_check_at"] = check_time
+            if latest_filing_timestamp:
+                sym_entry["latest_filing_timestamp"] = latest_filing_timestamp
+            data[src_upper]["symbols"][sym_clean] = sym_entry
+        else:
+            data[src_upper]["last_successful_check_at"] = check_time
+            if latest_filing_timestamp:
+                data[src_upper]["latest_filing_timestamp"] = latest_filing_timestamp
+
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            prefix=f"wm_{os.getpid()}_{threading.get_ident()}_",
+            suffix=".tmp",
+            dir=data_dir
+        )
         try:
-            with open(wm_path, "r") as f:
-                data = json.load(f)
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, wm_path)
         except Exception:
-            data = {}
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            raise
 
-    src_upper = source_name.strip().upper()
-    if src_upper not in data:
-        data[src_upper] = {
-            "source_name": src_upper,
-            "last_successful_check_at": datetime.now().isoformat(),
-            "latest_filing_timestamp": None,
-            "symbols": {}
-        }
 
-    now_iso = datetime.now().isoformat()
-    check_time = last_successful_check_at or now_iso
-
-    if symbol:
-        sym_clean = symbol.strip().upper()
-        if "symbols" not in data[src_upper]:
-            data[src_upper]["symbols"] = {}
-        sym_entry = data[src_upper]["symbols"].get(sym_clean, {})
-        sym_entry["last_successful_check_at"] = check_time
-        if latest_filing_timestamp:
-            sym_entry["latest_filing_timestamp"] = latest_filing_timestamp
-        data[src_upper]["symbols"][sym_clean] = sym_entry
-    else:
-        data[src_upper]["last_successful_check_at"] = check_time
-        if latest_filing_timestamp:
-            data[src_upper]["latest_filing_timestamp"] = latest_filing_timestamp
-
-    tmp_path = f"{wm_path}.tmp.{os.getpid()}"
-    with open(tmp_path, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp_path, wm_path)
+record_exchange_watermark = record_source_watermark
 
 
 
