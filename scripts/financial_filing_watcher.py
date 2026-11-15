@@ -1529,7 +1529,9 @@ class FinancialFilingWatcher:
                 # from the in-memory announcement attachment (XBRL XML in 0.5s or SEBI Reg 33 PDF in 1s)
                 # to avoid wasting 45-60s per stock on failing legacy corporates-financial-results calls!
                 direct_sweep_success = False
+                direct_sweep_attempted = False
                 if market_sweep_ok and has_newer_sweep_filing:
+                    direct_sweep_attempted = True
                     sym_sweep_disclosures = market_sweep_filings.get(sym_u, [])
                     # 1. First attempt XBRL XML extraction if available in sweep announcements
                     if nse_prov:
@@ -1632,8 +1634,9 @@ class FinancialFilingWatcher:
                             f"Skipping redundant legacy corporates-financial-results calls."
                         )
 
-                # 1. Poll NSE XBRL / Corporate Results (Primary Source) - only if fast-path direct sweep did not yield facts or if needs_bootstrap
-                if nse_prov and (not direct_sweep_success or needs_bootstrap):
+                # 1. Poll NSE XBRL / Corporate Results (Primary Source) - only if needs_bootstrap or if market sweep was unavailable
+                should_poll_nse_legacy = bool(nse_prov and (needs_bootstrap or (not market_sweep_ok and not direct_sweep_success)))
+                if should_poll_nse_legacy:
                     try:
                         if hasattr(nse_prov, "_discovered_cache") and needs_bootstrap:
                             nse_prov._discovered_cache.pop(sym_u, None)
@@ -1686,33 +1689,15 @@ class FinancialFilingWatcher:
                     except Exception as nse_err:
                         logger.warning(f"[filling scanner] NSE discover/fetch warning for {sym_u}: {nse_err}")
 
-                # 2. Poll BSE: Poll BSE if NSE returned 0 filings OR if symbol has an unresolved annual gap/depth need
+                # 2. Poll BSE: Poll BSE if symbol is genuinely BSE-only, or if needs_bootstrap and market sweep failed
                 bse_count = 0
                 is_bse_only = sym_u.endswith(".BO") or str(sym_u).isdigit()
                 is_nse_primary = (not is_bse_only)
-                has_annual_need = (
-                    has_intermediate_gap
-                    or has_tail_annual_gap
-                    or has_quarterly_gap
-                    or (insufficient_depth and has_missing_cagr)
-                    or local_annual_count < 6
-                )
-                # [RULE 67 CHANGE-RATIONALE: Prevent redundant 20s BSE ScraperAPI calls for dual-listed NSE stocks]
-                # Poll BSE ONLY if:
-                # 1. The stock is BSE-only (e.g. 507526, XYZ.BO), OR
-                # 2. NSE returned 0 filings OR zero structured numeric facts (e.g. unparsed announcement / scanned PDF).
-                # If NSE already returned valid numeric facts, BSE queries are 100% redundant under SEBI LODR Reg 33.
                 has_structured_facts = any(
                     (r.get("revenue") is not None or r.get("net_profit") is not None)
                     for r in raw_filings_list
                 )
-                # For dual-listed stocks where NSE announcements with attachments were already found,
-                # prefer extracting the NSE announcement PDF directly (Step 3) rather than making redundant BSE network calls!
-                has_nse_announcements = bool(
-                    (nse_prov and hasattr(nse_prov, "_sweep_announcements_cache") and sym_u in nse_prov._sweep_announcements_cache)
-                    or (nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache)
-                )
-                should_poll_bse = (bse_prov is not None) and (not direct_sweep_success or needs_bootstrap) and (is_bse_only or (not has_structured_facts and not has_nse_announcements))
+                should_poll_bse = bool((bse_prov is not None) and (is_bse_only or (needs_bootstrap and not has_structured_facts and not market_sweep_ok)))
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
@@ -1772,8 +1757,8 @@ class FinancialFilingWatcher:
                 # 3. Tier-3 Fallback: Official Exchange Announcement PDF Statements (SEBI LODR Reg 33)
                 # STRICT GOVERNANCE INVARIANT:
                 # Activated ONLY IF BOTH NSE and BSE failed to provide structured XML for a given period.
-                # If valid XML exists for a period on NSE or BSE, or if already extracted via direct sweep, the PDF is NEVER touched.
-                should_run_tier3_pdf = not (direct_sweep_success and not needs_bootstrap)
+                # If valid XML exists for a period on NSE or BSE, or if already attempted via direct sweep, do not re-run.
+                should_run_tier3_pdf = bool(not direct_sweep_success and not direct_sweep_attempted and (needs_bootstrap or not market_sweep_ok))
                 if should_run_tier3_pdf:
                     try:
                         already_covered_periods: Set[str] = set()
@@ -2134,17 +2119,21 @@ class FinancialFilingWatcher:
                         # 1. Atomically persist watcher state
                         self._save_state()
 
-                        # 2. Incrementally rebuild snapshot for newly fetched stocks so data is immediately live
+                        # 2. Upload newly ingested raw filings bundle to DB parquet_cache immediately
                         if to_sync_syms_batch:
                             with events_lock:
                                 synced_symbols.update(to_sync_syms_batch)
-                            logger.info(
-                                f"💾 [filling scanner] [BATCH {b_num} SYNC: {sync_reason}] Rebuilding snapshot for {len(to_sync_syms_batch)} newly fetched stocks: {to_sync_syms_batch[:8]}..."
-                            )
                             try:
-                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, as_of_date=as_of_date, run_ctx=run_ctx)
-                            except Exception as _rb_batch_err:
-                                logger.warning(f"[filling scanner] Batch snapshot rebuild note: {_rb_batch_err}")
+                                try:
+                                    from app.database import upload_pit_raw_bundle_to_db
+                                except ImportError:
+                                    from database import upload_pit_raw_bundle_to_db
+                                upload_pit_raw_bundle_to_db()
+                                logger.info(
+                                    f"💾 [filling scanner] [BATCH {b_num} SYNC: {sync_reason}] Persisted {len(to_sync_syms_batch)} raw filings & backed up bundle to Postgres DB: {to_sync_syms_batch[:8]}..."
+                                )
+                            except Exception as _up_batch_err:
+                                logger.warning(f"[filling scanner] Batch raw bundle upload note: {_up_batch_err}")
 
                         # 3. Update DB execution progress & health heartbeat
                         progress_summary = (
@@ -2403,6 +2392,19 @@ class FinancialFilingWatcher:
             json.dump(existing_list, f, indent=2)
         os.replace(tmp_path, raw_path)
         logger.info(f"💾 [filling scanner] Successfully persisted fresh filing for {sym_u} ({norm_period_end} {statement_type}) to {raw_path}.")
+
+        # Invariant: Immediately register newly ingested period in persistent state so restarts never re-poll
+        try:
+            with self._state_lock:
+                from zoneinfo import ZoneInfo
+                now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                if sym_u not in self.state:
+                    self.state[sym_u] = {}
+                self.state[sym_u]["latest_filing_date"] = norm_period_end
+                self.state[sym_u]["last_polled_at"] = now_ist_str
+                self.state[sym_u]["bootstrap_completed"] = True
+        except Exception as _st_err:
+            logger.debug(f"[filling scanner] State update note for {sym_u}: {_st_err}")
 
         # Also persist & merge into data/exchange_financials/<sym_u>/raw/<sym_u>_filings_v1.payload.json and update sha256
         try:

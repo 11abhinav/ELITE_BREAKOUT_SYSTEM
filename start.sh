@@ -13,17 +13,17 @@ export PYTHONPATH="/app:/app/app:$PYTHONPATH"
 sync_seed_data() {
     if [ -d "/app/data_seed" ]; then
         mkdir -p /app/data
-        # 1. Force overwrite canonical rebuilt dataset and metadata from certified image build
-        if [ -f "/app/data_seed/canonical_pit_rebuilt.parquet" ]; then
+        # 1. Seed canonical rebuilt dataset ONLY if not already present on persistent volume
+        if [ ! -f "/app/data/canonical_pit_rebuilt.parquet" ] && [ -f "/app/data_seed/canonical_pit_rebuilt.parquet" ]; then
             cp -f /app/data_seed/canonical_pit_rebuilt.parquet /app/data/
             cp -f /app/data_seed/canonical_pit_rebuilt_meta.json /app/data/ 2>/dev/null || true
-            echo "✅ Certified canonical_pit_rebuilt.parquet synced from image to volume."
+            echo "✅ Certified canonical_pit_rebuilt.parquet seeded from image to volume."
         fi
-        # 2. Force overwrite pit_raw_filings from certified seed so git backfills take effect immediately
+        # 2. Seed pit_raw_filings without clobbering runtime-fetched filings (-n = no-clobber)
         if [ -d "/app/data_seed/pit_raw_filings" ]; then
             mkdir -p /app/data/pit_raw_filings
-            cp -rf /app/data_seed/pit_raw_filings/* /app/data/pit_raw_filings/ 2>/dev/null || true
-            echo "✅ Certified pit_raw_filings backfills synced from image to volume."
+            cp -rn /app/data_seed/pit_raw_filings/* /app/data/pit_raw_filings/ 2>/dev/null || true
+            echo "✅ Certified pit_raw_filings seeded to volume without clobbering runtime filings."
         fi
         # 3. Synchronize other seed files without overwriting dynamic runtime state
         cp -rn /app/data_seed/* /app/data/ 2>/dev/null || cp -r /app/data_seed/* /app/data/ 2>/dev/null || true

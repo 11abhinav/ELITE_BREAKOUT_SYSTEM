@@ -27,6 +27,10 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 
 import requests
 import PyPDF2
+import threading
+
+# Concurrency semaphore to prevent Akamai / NSE CDN connection bandwidth throttling
+_DOWNLOAD_SEMAPHORE = threading.Semaphore(4)
 
 # Suppress verbose PyPDF2 font decoding warnings in production logs
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
@@ -140,51 +144,53 @@ class ExchangePdfParser:
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
-        # 1. Direct fetch from exchange static archives (streamed to enforce 12MB ceiling)
-        try:
-            with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
-                if resp.status_code == 200:
-                    cl = resp.headers.get("Content-Length")
-                    if cl and int(cl) > 8 * 1024 * 1024:
-                        logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds 8MB limit")
-                        return None
-                    chunks = []
-                    tot = 0
-                    for chunk in resp.iter_content(chunk_size=65536):
-                        tot += len(chunk)
-                        if tot > 8 * 1024 * 1024:
-                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded 8MB limit during stream")
-                            return None
-                        chunks.append(chunk)
-                    content = b"".join(chunks)
-                    if content.startswith(b"%PDF"):
-                        if b"%%EOF" in content[-2048:]:
-                            with open(cache_path, "wb") as f_out:
-                                f_out.write(content)
-                            logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes)")
-                            return content
-                        else:
-                            logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
-        except Exception as direct_err:
-            logger.debug(f"[PDF_PARSER] Direct download failed for {base_name}: {direct_err}")
-
-        # 2. Fallback to ScraperAPI if available
-        fetch_via_scraperapi, get_scraper_api_key = _get_scraperapi_fetcher()
-        if fetch_via_scraperapi and get_scraper_api_key():
+        # Limit concurrent network downloads to 4 threads to prevent CDN connection throttling
+        with _DOWNLOAD_SEMAPHORE:
+            # 1. Direct fetch from exchange static archives (streamed to enforce 8MB ceiling)
             try:
-                s_resp = fetch_via_scraperapi(pdf_url, timeout=35, country_code="in")
-                if s_resp is not None and s_resp.status_code == 200 and s_resp.content and s_resp.content.startswith(b"%PDF"):
-                    if b"%%EOF" in s_resp.content[-2048:]:
-                        with open(cache_path, "wb") as f_out:
-                            f_out.write(s_resp.content)
-                        logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes)")
-                        return s_resp.content
-                    else:
-                        logger.warning(f"[PDF_PARSER] ScraperAPI download for {base_name} truncated ({len(s_resp.content)} bytes, missing %%EOF).")
-            except Exception as s_err:
-                logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
+                with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
+                    if resp.status_code == 200:
+                        cl = resp.headers.get("Content-Length")
+                        if cl and int(cl) > 8 * 1024 * 1024:
+                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds 8MB limit")
+                            return None
+                        chunks = []
+                        tot = 0
+                        for chunk in resp.iter_content(chunk_size=65536):
+                            tot += len(chunk)
+                            if tot > 8 * 1024 * 1024:
+                                logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded 8MB limit during stream")
+                                return None
+                            chunks.append(chunk)
+                        content = b"".join(chunks)
+                        if content.startswith(b"%PDF"):
+                            if b"%%EOF" in content[-2048:]:
+                                with open(cache_path, "wb") as f_out:
+                                    f_out.write(content)
+                                logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes)")
+                                return content
+                            else:
+                                logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
+            except Exception as direct_err:
+                logger.debug(f"[PDF_PARSER] Direct download failed for {base_name}: {direct_err}")
 
-        return None
+            # 2. Fallback to ScraperAPI if available
+            fetch_via_scraperapi, get_scraper_api_key = _get_scraperapi_fetcher()
+            if fetch_via_scraperapi and get_scraper_api_key():
+                try:
+                    s_resp = fetch_via_scraperapi(pdf_url, timeout=35, country_code="in")
+                    if s_resp is not None and s_resp.status_code == 200 and s_resp.content and s_resp.content.startswith(b"%PDF"):
+                        if b"%%EOF" in s_resp.content[-2048:]:
+                            with open(cache_path, "wb") as f_out:
+                                f_out.write(s_resp.content)
+                            logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes)")
+                            return s_resp.content
+                        else:
+                            logger.warning(f"[PDF_PARSER] ScraperAPI download for {base_name} truncated ({len(s_resp.content)} bytes, missing %%EOF).")
+                except Exception as s_err:
+                    logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
+
+            return None
 
     def parse_sebi_reg33_pdf(
         self,
@@ -588,14 +594,20 @@ class ExchangePdfParser:
             t = str(ann.get("attchmntText") or "").lower()
             fn = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
             score = 0
+            if "financial result" in d or "financial results" in d or "financial result" in t or "financial results" in t:
+                score += 30
+            if "reg 33" in d or "regulation 33" in d or "reg 33" in t or "regulation 33" in t:
+                score += 25
+            if "unaudited" in d or "unaudited" in t or "audited" in d or "audited" in t:
+                score += 15
             if "outcome of board meeting" in d or "outcome of board meeting" in t:
                 score += 10
-            if "financial result" in d or "financial result" in t:
-                score += 5
             if "standalone" in fn or "consolidated" in fn or "results" in fn:
-                score += 5
-            if "newspaper" in fn or "newspaper" in d or "clarification" in d:
-                score -= 5
+                score += 10
+            if "intimation" in fn or "intimation" in d:
+                score -= 10
+            if any(k in f"{d} {t} {fn}" for k in ("newspaper", "clipping", "clarification", "presentation", "press release", "transcript")):
+                score -= 30
             return score
 
         sorted_announcements = sorted(announcements, key=_score_ann, reverse=True)
@@ -605,8 +617,8 @@ class ExchangePdfParser:
             if not isinstance(ann, dict):
                 continue
 
-            # Per-symbol rate control: limit to top 2 scored announcement attachments
-            if downloaded_pdf_count >= 2:
+            # Per-symbol rate control: limit to top 1 scored announcement attachment
+            if downloaded_pdf_count >= 1:
                 break
 
             # If we already parsed records for the requested cutoff, early exit immediately

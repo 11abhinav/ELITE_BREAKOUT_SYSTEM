@@ -975,6 +975,7 @@ def run_system_scheduler():
     last_wealth_daily_date = None
     last_quality_recovery_date = None
     last_wealth_preclose_date = None
+    last_filing_auto_time = [None]  # Timestamp of last autonomous filing watcher run
 
     def safe_run_daily_builder():
         """Helper to run the builder and update the memory cache."""
@@ -1537,7 +1538,29 @@ def run_system_scheduler():
 
     while True:
         now = datetime.now(IST)
-        
+
+        # ── 7-DAY AUTONOMOUS CORPORATE FILING WATCHER CADENCE ──
+        # Corporate filings under SEBI LODR Regulation 33 are published 7 days a week
+        # (including weekends & holidays). Trigger every 2 hours autonomously on its own.
+        now_ts = time.time()
+        filing_cadence_secs = int(os.getenv("FILING_WATCHER_INTERVAL_SECONDS", "7200"))
+        if (last_filing_auto_time[0] is None or (now_ts - last_filing_auto_time[0]) >= filing_cadence_secs):
+            if not is_scanner_stopped("FILING_WATCHER"):
+                try:
+                    from scripts.financial_filing_watcher import _WATCHER_LOCK
+                    if not _WATCHER_LOCK.locked():
+                        last_filing_auto_time[0] = now_ts
+                        logger.info("🕒 SCHEDULER | [AUTONOMOUS CADENCE] Triggering FILING_WATCHER autonomous sweep cycle (runs 7 days a week)")
+                        import threading
+                        threading.Thread(
+                            target=_trigger_filing_watcher,
+                            kwargs={"trigger_type": "AUTONOMOUS", "scheduler_name": "WATCHDOG_AUTONOMOUS"},
+                            name=f"FilingWatcherAuto-{now.strftime('%H%M')}",
+                            daemon=True
+                        ).start()
+                except Exception as _f_auto_err:
+                    logger.debug(f"Autonomous filing watcher launch note: {_f_auto_err}")
+
         # Weekdays only
         if now.weekday() < 5:  # Mon-Fri
             # 1:00 AM - Daily Builder → then create a fresh SessionContext
