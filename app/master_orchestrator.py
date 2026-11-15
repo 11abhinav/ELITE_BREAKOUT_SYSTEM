@@ -112,9 +112,12 @@ class MasterOrchestratorV2:
             cached = self._cache.get(key)
             if cached and (now - cached["ts"]) < ttl_sec:
                 return cached["data"]
-            res = func()
+        
+        # Execute func() outside cache lock to eliminate lock contention across endpoints
+        res = func()
+        with self._cache_lock:
             self._cache[key] = {"ts": time.time(), "data": res}
-            return res
+        return res
 
     def get_master_summary(self) -> Dict[str, Any]:
         """[RULE 67 CHANGE-RATIONALE]: Returns dynamic master status with 5s TTL cache to eliminate API lag."""

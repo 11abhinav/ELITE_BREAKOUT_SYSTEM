@@ -1,8 +1,8 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-14T17:47:23.243012+05:30",
-    "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
+    "last_successful_check_at": "2026-11-15T11:34:43.594813",
+    "latest_filing_timestamp": "15-Nov-2026 11:32:17",
     "symbols": {
       "CANON_CONT": {
         "last_successful_check_at": "2026-10-21T07:51:48.611763"
@@ -204,12 +204,24 @@
       },
       "GULPOLY": {
         "last_successful_check_at": "2026-10-24T19:13:30.821502"
+      },
+      "BERGEPAINT": {
+        "last_successful_check_at": "2026-11-15T11:34:34.225955",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "3MINDIA": {
+        "last_successful_check_at": "2026-11-15T11:34:34.287041",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AUROPHARMA": {
+        "last_successful_check_at": "2026-11-15T11:34:34.475383",
+        "latest_filing_timestamp": "2026-09-30"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-14T17:47:23.243012+05:30",
+    "last_successful_check_at": "2026-11-15T11:34:43.594813",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

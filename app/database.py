@@ -5456,8 +5456,12 @@ def upsert_scanner_health(
 
 
 
+_LAST_HEALTH_AUTO_HEAL_TS: float = 0.0
+
+
 def get_all_scanner_health() -> list[dict]:
     """Return all scanner health rows, in-memory seeding any missing standard scanners so cards never disappear."""
+    global _LAST_HEALTH_AUTO_HEAL_TS
     init_db()
     # [RULE 67 CHANGE-RATIONALE]: Retain only production-authorized scanners and active workers in schedule_map.
     # Decommissioned scanners (EOD, PULLBACK, ACCUMULATION, REVERSAL) are permanently removed.
@@ -5476,53 +5480,56 @@ def get_all_scanner_health() -> list[dict]:
     }
 
 
-    # Watchdog Auto-Healing: Only mark stuck RUNNING threads as DOWN if global scanner lock is NOT held AND no fresh heartbeat exists
-    try:
+    # Watchdog Auto-Healing: Throttled to at most once every 60s to eliminate read-path write contention
+    now_heal_ts = time.time()
+    if (now_heal_ts - _LAST_HEALTH_AUTO_HEAL_TS) >= 60.0:
+        _LAST_HEALTH_AUTO_HEAL_TS = now_heal_ts
         try:
-            from app.lock_utils import ProcessLock
-        except ImportError:
-            from lock_utils import ProcessLock
-        _g_lock = ProcessLock("global_scanner_lock")
-        if not _g_lock.locked():
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    # Find stuck RUNNING scanners:
-                    # Only mark as DOWN if BOTH:
-                    # 1. scanner_health.updated_at is > 10 minutes old
-                    # 2. AND there is NO active RUNNING/QUEUED execution in scanner_execution_history with a fresh heartbeat (within last 10m)
-                    cur.execute("""
-                        SELECT sh.scanner_name FROM scanner_health sh
-                        WHERE sh.status = 'RUNNING'
-                          AND sh.updated_at < NOW() - INTERVAL '10 minutes'
-                          AND NOT EXISTS (
-                              SELECT 1 FROM scanner_execution_history seh
-                              WHERE seh.scanner_name = sh.scanner_name
-                                AND seh.lifecycle_status IN ('RUNNING', 'QUEUED')
-                                AND (
-                                    (seh.heartbeat_at IS NOT NULL AND seh.heartbeat_at >= NOW() - INTERVAL '10 minutes')
-                                    OR (seh.heartbeat_at IS NULL AND seh.started_at >= NOW() - INTERVAL '10 minutes')
-                                )
-                          );
-                    """)
-                    stuck_rows = cur.fetchall()
-                    for r in stuck_rows:
-                        sc_name = r[0]
+            try:
+                from app.lock_utils import ProcessLock
+            except ImportError:
+                from lock_utils import ProcessLock
+            _g_lock = ProcessLock("global_scanner_lock")
+            if not _g_lock.locked():
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        # Find stuck RUNNING scanners:
+                        # Only mark as DOWN if BOTH:
+                        # 1. scanner_health.updated_at is > 10 minutes old
+                        # 2. AND there is NO active RUNNING/QUEUED execution in scanner_execution_history with a fresh heartbeat (within last 10m)
                         cur.execute("""
-                            UPDATE scanner_health
-                            SET status = 'DOWN',
-                                error_msg = 'Scanner execution timed out: heartbeat lost (>10m) or hard runtime ceiling exceeded (>2h)',
-                                is_acknowledged = FALSE,
-                                updated_at = NOW()
-                            WHERE scanner_name = %s;
-                        """, (sc_name,))
-                        # Insert failure trace record in scan_failures so UI history displays the failure
-                        cur.execute("""
-                            INSERT INTO scan_failures (scan_id, scanner_name, symbol, provider, failure_reason, failed_at)
-                            VALUES (%s, %s, 'SYSTEM', 'WATCHDOG', 'Scanner execution timed out or process was terminated unexpectedly before completion', NOW());
-                        """, (f"TIMEOUT_{sc_name}_{int(time.time())}", sc_name))
-                    conn.commit()
-    except Exception as heal_err:
-        logger.debug(f"Watchdog health auto-heal warning: {heal_err}")
+                            SELECT sh.scanner_name FROM scanner_health sh
+                            WHERE sh.status = 'RUNNING'
+                              AND sh.updated_at < NOW() - INTERVAL '10 minutes'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM scanner_execution_history seh
+                                  WHERE seh.scanner_name = sh.scanner_name
+                                    AND seh.lifecycle_status IN ('RUNNING', 'QUEUED')
+                                    AND (
+                                        (seh.heartbeat_at IS NOT NULL AND seh.heartbeat_at >= NOW() - INTERVAL '10 minutes')
+                                        OR (seh.heartbeat_at IS NULL AND seh.started_at >= NOW() - INTERVAL '10 minutes')
+                                    )
+                              );
+                        """)
+                        stuck_rows = cur.fetchall()
+                        for r in stuck_rows:
+                            sc_name = r[0]
+                            cur.execute("""
+                                UPDATE scanner_health
+                                SET status = 'DOWN',
+                                    error_msg = 'Scanner execution timed out: heartbeat lost (>10m) or hard runtime ceiling exceeded (>2h)',
+                                    is_acknowledged = FALSE,
+                                    updated_at = NOW()
+                                WHERE scanner_name = %s;
+                            """, (sc_name,))
+                            # Insert failure trace record in scan_failures so UI history displays the failure
+                            cur.execute("""
+                                INSERT INTO scan_failures (scan_id, scanner_name, symbol, provider, failure_reason, failed_at)
+                                VALUES (%s, %s, 'SYSTEM', 'WATCHDOG', 'Scanner execution timed out or process was terminated unexpectedly before completion', NOW());
+                            """, (f"TIMEOUT_{sc_name}_{int(time.time())}", sc_name))
+                        conn.commit()
+        except Exception as heal_err:
+            logger.debug(f"Watchdog health auto-heal warning: {heal_err}")
 
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:

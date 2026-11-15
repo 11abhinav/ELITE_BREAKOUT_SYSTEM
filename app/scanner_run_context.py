@@ -97,6 +97,17 @@ class ScannerRunContext:
         self._stopped = False
         self._heartbeat_thread: Optional[threading.Thread] = None
 
+    @property
+    def is_stopped(self) -> bool:
+        with self._lock:
+            return self._stopped
+
+    def stop(self, reason: Optional[str] = None):
+        with self._lock:
+            self._stopped = True
+            if reason:
+                self.stop_reason = reason
+
     def _detect_git_commit(self) -> str:
         # Check common CI/CD and PaaS environment variables (Coolify, Railway, Render, etc.)
         import os

@@ -1082,6 +1082,8 @@ class FinancialFilingWatcher:
         def _process_symbol(sym: str) -> None:
             sym_u = sym.strip().upper()
             try:
+                if run_ctx and getattr(run_ctx, "is_stopped", False):
+                    return
                 nse_prov, bse_prov = _get_thread_providers()
                 snap_row = snap_lookup.get(sym_u)
                 snap_annual = str(snap_row.get("latest_annual_period") or "")[:10] if snap_row is not None else ""
@@ -1525,7 +1527,13 @@ class FinancialFilingWatcher:
                     (r.get("revenue") is not None or r.get("net_profit") is not None)
                     for r in raw_filings_list
                 )
-                should_poll_bse = (bse_prov is not None) and (is_bse_only or not has_structured_facts)
+                # For dual-listed stocks where NSE announcements with attachments were already found,
+                # prefer extracting the NSE announcement PDF directly (Step 3) rather than making redundant BSE network calls!
+                has_nse_announcements = bool(
+                    (nse_prov and hasattr(nse_prov, "_sweep_announcements_cache") and sym_u in nse_prov._sweep_announcements_cache)
+                    or (nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache)
+                )
+                should_poll_bse = (bse_prov is not None) and (is_bse_only or (not has_structured_facts and not has_nse_announcements))
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
@@ -1628,15 +1636,38 @@ class FinancialFilingWatcher:
                                 if _lp:
                                     existing_local_covered.add(_lp)
 
-                    uncovered_pdf_anns = [
-                        ann for ann in candidate_anns
-                        if isinstance(ann, dict) and (
-                            ".pdf" in str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
-                            or "annpdfopen" in str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
-                        )
-                        and _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate")) not in xml_covered_periods
-                        and _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate")) not in existing_local_covered
-                    ]
+                    uncovered_pdf_anns = []
+                    for ann in candidate_anns:
+                        if not isinstance(ann, dict):
+                            continue
+                        att_f = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
+                        if not (".pdf" in att_f or "annpdfopen" in att_f):
+                            continue
+                        p_cand = _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate"))
+                        if not p_cand:
+                            desc_comb = f"{ann.get('desc', '')} {ann.get('attchmntText', '')}"
+                            try:
+                                try:
+                                    from app.data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+                                except ImportError:
+                                    from data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+                                p_cand = _parse_period_end_from_announcement_text(desc_comb)
+                            except Exception:
+                                p_cand = None
+
+                        if p_cand:
+                            if p_cand in xml_covered_periods:
+                                continue
+                            if p_cand in existing_local_covered:
+                                continue
+                            if min_cutoff and p_cand < min_cutoff:
+                                continue
+                            ann["period_end_date"] = p_cand
+                        else:
+                            desc_low = f"{ann.get('desc', '')} {ann.get('attchmntText', '')}".lower()
+                            if not any(k in desc_low for k in ("financial result", "financial results", "outcome of board meeting")):
+                                continue
+                        uncovered_pdf_anns.append(ann)
 
                     if uncovered_pdf_anns:
                         try:
@@ -1920,13 +1951,17 @@ class FinancialFilingWatcher:
                         # 1. Atomically persist watcher state
                         self._save_state()
 
-                        # 2. Accumulate newly fetched stocks for single consolidated rebuild at end of scan
+                        # 2. Incrementally rebuild snapshot for newly fetched stocks so data is immediately live
                         if to_sync_syms_batch:
                             with events_lock:
                                 synced_symbols.update(to_sync_syms_batch)
                             logger.info(
-                                f"💾 [filling scanner] [BATCH {b_num} SYNC: {sync_reason}] Queued {len(to_sync_syms_batch)} newly fetched stocks for final snapshot rebuild: {to_sync_syms_batch[:8]}..."
+                                f"💾 [filling scanner] [BATCH {b_num} SYNC: {sync_reason}] Rebuilding snapshot for {len(to_sync_syms_batch)} newly fetched stocks: {to_sync_syms_batch[:8]}..."
                             )
+                            try:
+                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, as_of_date=as_of_date, run_ctx=run_ctx)
+                            except Exception as _rb_batch_err:
+                                logger.warning(f"[filling scanner] Batch snapshot rebuild note: {_rb_batch_err}")
 
                         # 3. Update DB execution progress & health heartbeat
                         progress_summary = (
@@ -1966,14 +2001,15 @@ class FinancialFilingWatcher:
                                     }
                                 )
 
-                            upsert_scanner_health(
-                                scanner_name="FILING_WATCHER",
-                                status="RUNNING",
-                                processed_count=curr_c,
-                                total_count=total_syms,
-                                error_msg=progress_summary,
-                                run_id=run_ctx.run_id if run_ctx else None,
-                            )
+                            if not (run_ctx and getattr(run_ctx, "is_stopped", False)):
+                                upsert_scanner_health(
+                                    scanner_name="FILING_WATCHER",
+                                    status="RUNNING",
+                                    processed_count=curr_c,
+                                    total_count=total_syms,
+                                    error_msg=progress_summary,
+                                    run_id=run_ctx.run_id if run_ctx else None,
+                                )
                         except Exception as prog_err:
                             logger.debug(f"[filling scanner] Progress update error: {prog_err}")
 
@@ -1984,7 +2020,15 @@ class FinancialFilingWatcher:
                         )
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="FilingPoll") as executor:
-            list(executor.map(_process_symbol, symbols))
+            from concurrent.futures import as_completed
+            futures = {executor.submit(_process_symbol, s): s for s in symbols}
+            for fut in as_completed(futures):
+                if run_ctx and getattr(run_ctx, "is_stopped", False):
+                    logger.critical("🛑 [filling scanner] Context stopped / watchdog safety fuse active. Cancelling remaining queued tasks.")
+                    for f in futures:
+                        if not f.done():
+                            f.cancel()
+                    break
 
         # Atomically persist updated watcher state (including bootstrap_completed markers)
         self._save_state()

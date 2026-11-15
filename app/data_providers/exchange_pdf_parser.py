@@ -28,6 +28,9 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 import requests
 import PyPDF2
 
+# Suppress verbose PyPDF2 font decoding warnings in production logs
+logging.getLogger("PyPDF2").setLevel(logging.ERROR)
+
 try:
     from app.data_providers.fundamental_models import (
         ConsolidationType,
@@ -137,17 +140,31 @@ class ExchangePdfParser:
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
-        # 1. Direct fetch from exchange static archives
+        # 1. Direct fetch from exchange static archives (streamed to enforce 12MB ceiling)
         try:
-            resp = self.session.get(pdf_url, timeout=30)
-            if resp.status_code == 200 and resp.content and resp.content.startswith(b"%PDF"):
-                if b"%%EOF" in resp.content[-2048:]:
-                    with open(cache_path, "wb") as f_out:
-                        f_out.write(resp.content)
-                    logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(resp.content)} bytes)")
-                    return resp.content
-                else:
-                    logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(resp.content)} bytes, missing %%EOF). Falling back...")
+            with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
+                if resp.status_code == 200:
+                    cl = resp.headers.get("Content-Length")
+                    if cl and int(cl) > 12 * 1024 * 1024:
+                        logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds 12MB limit")
+                        return None
+                    chunks = []
+                    tot = 0
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        tot += len(chunk)
+                        if tot > 12 * 1024 * 1024:
+                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded 12MB limit during stream")
+                            return None
+                        chunks.append(chunk)
+                    content = b"".join(chunks)
+                    if content.startswith(b"%PDF"):
+                        if b"%%EOF" in content[-2048:]:
+                            with open(cache_path, "wb") as f_out:
+                                f_out.write(content)
+                            logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes)")
+                            return content
+                        else:
+                            logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
         except Exception as direct_err:
             logger.debug(f"[PDF_PARSER] Direct download failed for {base_name}: {direct_err}")
 
@@ -200,9 +217,9 @@ class ExchangePdfParser:
                 logger.warning(f"[PDF_PARSER] PyPDF2 failed to open PDF for {symbol}: {pdf_err}")
                 return []
 
-        # In SEBI Reg 33 filings, financial statement tables are located in the first 16 pages.
-        # Check at most the first 16 pages to avoid sluggish multi-minute font decoding on legal notes.
-        for page_idx, page in enumerate(reader.pages[:16]):
+        # In SEBI Reg 33 filings, financial statement tables are located in the first 8 pages.
+        # Check at most the first 8 pages to avoid sluggish multi-minute font decoding on legal notes.
+        for page_idx, page in enumerate(reader.pages[:8]):
             # Early exit if we already extracted both Consolidated and Standalone statements
             has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
             has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
@@ -582,10 +599,19 @@ class ExchangePdfParser:
             return score
 
         sorted_announcements = sorted(announcements, key=_score_ann, reverse=True)
+        downloaded_pdf_count = 0
 
         for ann in sorted_announcements:
             if not isinstance(ann, dict):
                 continue
+
+            # Per-symbol rate control: limit to top 2 scored announcement attachments
+            if downloaded_pdf_count >= 2:
+                break
+
+            # If we already parsed records for the requested cutoff, early exit immediately
+            if pdf_records and any(r.period_end_date >= (min_cutoff or "") for r in pdf_records):
+                break
 
             att_file = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").strip()
             att_lower = att_file.lower()
@@ -632,6 +658,7 @@ class ExchangePdfParser:
                 f"(XML missing on NSE & BSE). Downloading {os.path.basename(att_file)}..."
             )
 
+            downloaded_pdf_count += 1
             pdf_bytes = self.download_pdf(att_file)
             if not pdf_bytes:
                 continue
@@ -646,5 +673,9 @@ class ExchangePdfParser:
                     )
                     pdf_records.append(rec)
                     existing_xml_periods.add(rec.period_end_date)
+
+            # If desired period was successfully parsed, early exit to avoid downloading more PDFs
+            if pdf_records and any(r.period_end_date >= (min_cutoff or "") for r in pdf_records):
+                break
 
         return pdf_records
