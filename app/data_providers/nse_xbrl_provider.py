@@ -823,27 +823,33 @@ class NseXbrlProvider:
             return self._discovered_cache[symbol]
 
         all_filings = []
-        # In incremental runs (min_period_end_date >= 2024), skip redundant Annual requests to cut network traffic by 50%
-        periods_to_query = ("Quarterly",) if (min_period_end_date and str(min_period_end_date) >= "2024-01-01") else ("Annual", "Quarterly")
-        for period_param in periods_to_query:
-            url = f"{_BASE_URL}?index=equities&symbol={symbol}&period={period_param}"
-            raw = self._get(url, symbol)
-            if raw:
-                rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
-                all_filings.extend(rows)
-
-        # Fallback to plain query if period-filtered returned 0
-        if not all_filings:
-            plain_url = f"{_BASE_URL}?index=equities&symbol={symbol}"
-            raw = self._get(plain_url, symbol)
-            if raw:
-                rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
-                all_filings.extend(rows)
-
-        # 3. Query NSE Corporate Announcements feed for real-time same-day filings
+        # Check sweep announcements cache first for incremental runs to eliminate redundant 30s legacy _BASE_URL queries
         if hasattr(self, "_sweep_announcements_cache") and self._sweep_announcements_cache and symbol in self._sweep_announcements_cache:
-            # Re-use pre-sweep announcements for this symbol without redundant per-symbol network call!
             all_filings.extend(self._sweep_announcements_cache[symbol])
+
+        # If incremental run already found filings in sweep cache, avoid slow legacy _BASE_URL requests
+        should_query_base_url = not (min_period_end_date and str(min_period_end_date) >= "2024-01-01" and all_filings)
+        if should_query_base_url:
+            # In incremental runs (min_period_end_date >= 2024), skip redundant Annual requests to cut network traffic by 50%
+            periods_to_query = ("Quarterly",) if (min_period_end_date and str(min_period_end_date) >= "2024-01-01") else ("Annual", "Quarterly")
+            for period_param in periods_to_query:
+                url = f"{_BASE_URL}?index=equities&symbol={symbol}&period={period_param}"
+                raw = self._get(url, symbol)
+                if raw:
+                    rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
+                    all_filings.extend(rows)
+
+            # Fallback to plain query if period-filtered returned 0
+            if not all_filings:
+                plain_url = f"{_BASE_URL}?index=equities&symbol={symbol}"
+                raw = self._get(plain_url, symbol)
+                if raw:
+                    rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
+                    all_filings.extend(rows)
+
+        # 3. Query NSE Corporate Announcements feed for real-time same-day filings if not already in sweep cache
+        if hasattr(self, "_sweep_announcements_cache") and self._sweep_announcements_cache and symbol in self._sweep_announcements_cache:
+            pass  # Already extended above
         else:
             ann_url = f"{_ANN_URL}?index=equities&symbol={symbol}"
             ann_raw = self._get(ann_url, symbol)

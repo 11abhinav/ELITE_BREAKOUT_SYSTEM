@@ -122,6 +122,44 @@ def get_historical_cutoff_date(reference_date: Optional[date] = None) -> str:
     return f"{cutoff_year}-01-01"
 
 
+def get_latest_concluded_quarter(reference_date: Optional[Union[date, str]] = None) -> str:
+    """
+    Dynamically returns the ISO period end date (YYYY-MM-DD) of the latest closed
+    fiscal quarter in the Indian market relative to reference_date.
+    
+    Indian quarters end on March 31 (-03-31), June 30 (-06-30), September 30 (-09-30),
+    and December 31 (-12-31). A quarter cannot have official earnings filings until that
+    quarter has officially concluded.
+    """
+    if reference_date is None:
+        try:
+            from zoneinfo import ZoneInfo
+            dt = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        except Exception:
+            dt = date.today()
+    elif isinstance(reference_date, str):
+        try:
+            dt = datetime.strptime(reference_date[:10], "%Y-%m-%d").date()
+        except Exception:
+            dt = date.today()
+    elif isinstance(reference_date, datetime):
+        dt = reference_date.date()
+    else:
+        dt = reference_date
+
+    y = dt.year
+    m = dt.month
+
+    if m in (1, 2, 3):
+        return f"{y - 1}-12-31"
+    elif m in (4, 5, 6):
+        return f"{y}-03-31"
+    elif m in (7, 8, 9):
+        return f"{y}-06-30"
+    else:
+        return f"{y}-09-30"
+
+
 class FilingEventType(str, Enum):
     NEW_FILING             = "NEW_FILING"
     AMENDED_FILING         = "AMENDED_FILING"
@@ -1152,6 +1190,52 @@ class FinancialFilingWatcher:
                 else:
                     has_corrupt_or_empty_raw = True
 
+                # ── DYNAMIC ABSOLUTE 0ms FAST PATH: LATEST CONCLUDED QUARTER ALREADY IN LOCAL ──
+                latest_concluded_qtr = get_latest_concluded_quarter(as_of_date)
+                has_latest_concluded_quarter = any(
+                    (_normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or "")) >= latest_concluded_qtr)
+                    and (_r.get("revenue") is not None or _r.get("net_profit") is not None)
+                    for _r in _ldata if isinstance(_r, dict)
+                )
+
+                if (
+                    not force_backfill
+                    and not has_corrupt_or_empty_raw
+                    and has_latest_concluded_quarter
+                    and (snap_row is not None)
+                    and not snap_gap_flag
+                ):
+                    with self._state_lock:
+                        from zoneinfo import ZoneInfo
+                        now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+                        latest_ann_p = str(latest_annual_rec.get("period_end_date")) if latest_annual_rec else None
+                        if latest_ann_p and not latest_ann_p.endswith(("-03-31", "-12-31")):
+                            latest_ann_p = None
+                        if sym_u not in self.state:
+                            self.state[sym_u] = {
+                                "filings": {},
+                                "latest_filing_date": latest_local_period,
+                                "latest_annual_date": latest_ann_p,
+                                "snapshot_status": freshness,
+                                "bootstrap_completed": True,
+                                "last_polled_at": now_ist_str,
+                            }
+                        else:
+                            self.state[sym_u]["bootstrap_completed"] = True
+                            self.state[sym_u]["last_polled_at"] = now_ist_str
+                            if latest_local_period:
+                                self.state[sym_u]["latest_filing_date"] = latest_local_period
+                            if latest_ann_p:
+                                self.state[sym_u]["latest_annual_date"] = latest_ann_p
+                    with counter_lock:
+                        skipped_complete_count[0] += 1
+                    logger.info(
+                        f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"LATEST CONCLUDED QUARTER IN LOCAL ({latest_concluded_qtr} present, latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                        f"Skipping in 0ms."
+                    )
+                    return
+
                 # 1. Intermediate Annual Gap Detection (y[i+1] - y[i] > 1) within required lookback window
                 # [RULE 67 CHANGE-RATIONALE: Filter to required lookback window so ancient gaps before 2020 do not trigger false heals]
                 min_gap_check_year = (as_of_date or date.today()).year - HISTORICAL_LOOKBACK_YEARS
@@ -1440,21 +1524,113 @@ class FinancialFilingWatcher:
                 nse_fetch_count = 0
                 nse_disc_count = 0
 
-                # Pre-populate raw_filings_list ONLY with disclosures that carry structured financial facts!
+                # ── FAST-PATH DIRECT SWEEP ATTACHMENT INGESTION ──
+                # If market sweep discovered a newer filing for this symbol, extract it directly
+                # from the in-memory announcement attachment (XBRL XML in 0.5s or SEBI Reg 33 PDF in 1s)
+                # to avoid wasting 45-60s per stock on failing legacy corporates-financial-results calls!
+                direct_sweep_success = False
                 if market_sweep_ok and has_newer_sweep_filing:
-                    for it in market_sweep_filings.get(sym_u, []):
-                        if it.get("revenue") is not None or it.get("net_profit") is not None:
-                            p_end = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
-                            if p_end and p_end >= min_cutoff:
-                                r_copy = dict(it)
-                                r_copy["exchange"] = "NSE"
-                                r_copy["period_end_date"] = p_end
-                                raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
-                                r_copy["statement_type"] = classify_statement_type(raw_period, period_end_date=p_end)
-                                raw_filings_list.append(r_copy)
+                    sym_sweep_disclosures = market_sweep_filings.get(sym_u, [])
+                    # 1. First attempt XBRL XML extraction if available in sweep announcements
+                    if nse_prov:
+                        for it in sym_sweep_disclosures:
+                            xbrl_url = it.get("xbrl")
+                            if xbrl_url:
+                                try:
+                                    xml_path = nse_prov.download_xbrl_file(xbrl_url)
+                                    if xml_path:
+                                        bcast = str(it.get("broadCastDate") or it.get("filingDate") or "")
+                                        fdate = _normalize_iso_date(str(it.get("filingDate") or ""))
+                                        seq_num = str(it.get("seqNumber") or "")
+                                        recs = nse_prov.parse_xbrl_document(
+                                            xml_path=xml_path,
+                                            symbol=sym_u,
+                                            broadcast_timestamp=bcast,
+                                            filing_date=fdate,
+                                            filing_id=seq_num,
+                                        )
+                                        for r in recs:
+                                            norm_p = _normalize_iso_date(r.period_end_date)
+                                            if norm_p and norm_p >= min_cutoff:
+                                                raw_filings_list.append({
+                                                    "exchange": "NSE",
+                                                    "filing_id": getattr(r, "filing_id", None) or f"NSE_{sym_u}_{norm_p}",
+                                                    "period_end_date": norm_p,
+                                                    "statement_type": r.period_type,
+                                                    "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                                                    "revenue": r.revenue,
+                                                    "net_profit": r.net_profit,
+                                                    "operating_profit": r.ebit,
+                                                    "eps": r.eps,
+                                                    "total_debt": r.total_debt,
+                                                    "total_equity": r.total_equity,
+                                                    "operating_cash_flow": getattr(r, "operating_cash_flow", None),
+                                                    "shares_outstanding": r.shares_outstanding,
+                                                    "filing_date": r.availability_date or f"{norm_p}T00:00:00",
+                                                    "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
+                                                })
+                                except Exception as _xbrl_fast_err:
+                                    logger.debug(f"[filling scanner] Fast-path sweep XBRL error for {sym_u}: {_xbrl_fast_err}")
 
-                # 1. Poll NSE XBRL / Corporate Results (Primary Source)
-                if nse_prov:
+                    # 2. Second attempt SEBI Reg 33 PDF extraction directly from sweep announcements
+                    has_sweep_facts = any(
+                        (r.get("revenue") is not None or r.get("net_profit") is not None)
+                        for r in raw_filings_list
+                    )
+                    if not has_sweep_facts:
+                        cand_pdf_anns = [
+                            it for it in sym_sweep_disclosures
+                            if (".pdf" in str(it.get("attchmntFile") or "").lower() or "annpdfopen" in str(it.get("attchmntFile") or "").lower())
+                        ]
+                        if cand_pdf_anns:
+                            try:
+                                try:
+                                    from app.data_providers.exchange_pdf_parser import ExchangePdfParser
+                                except ImportError:
+                                    from data_providers.exchange_pdf_parser import ExchangePdfParser
+                                pdf_parser = ExchangePdfParser()
+                                pdf_recs = pdf_parser.fetch_pdf_fallback_records(
+                                    symbol=sym_u,
+                                    announcements=cand_pdf_anns,
+                                    existing_xml_periods=set(),
+                                    min_cutoff=min_cutoff,
+                                )
+                                for r in pdf_recs:
+                                    norm_p = _normalize_iso_date(r.period_end_date)
+                                    if norm_p and norm_p >= min_cutoff:
+                                        raw_filings_list.append({
+                                            "exchange": "NSE",
+                                            "source": "NSE_ANNOUNCEMENT_PDF",
+                                            "filing_id": getattr(r, "filing_id", None) or f"NSE_PDF_{sym_u}_{norm_p}",
+                                            "period_end_date": norm_p,
+                                            "statement_type": r.period_type,
+                                            "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                                            "revenue": r.revenue,
+                                            "net_profit": r.net_profit,
+                                            "operating_profit": r.ebit,
+                                            "eps": r.eps,
+                                            "total_debt": r.total_debt,
+                                            "total_equity": r.total_equity,
+                                            "operating_cash_flow": getattr(r, "operating_cash_flow", None),
+                                            "shares_outstanding": r.shares_outstanding,
+                                            "filing_date": _normalize_iso_date(r.availability_date) or r.availability_date or f"{norm_p}T00:00:00",
+                                            "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
+                                        })
+                            except Exception as _pdf_fast_err:
+                                logger.debug(f"[filling scanner] Fast-path sweep PDF error for {sym_u}: {_pdf_fast_err}")
+
+                    direct_sweep_success = any(
+                        (r.get("revenue") is not None or r.get("net_profit") is not None)
+                        for r in raw_filings_list
+                    )
+                    if direct_sweep_success:
+                        logger.info(
+                            f"⚡ [filling scanner] {sym_u}: Direct sweep attachment ingestion succeeded in ~1s! "
+                            f"Skipping redundant legacy corporates-financial-results calls."
+                        )
+
+                # 1. Poll NSE XBRL / Corporate Results (Primary Source) - only if fast-path direct sweep did not yield facts or if needs_bootstrap
+                if nse_prov and (not direct_sweep_success or needs_bootstrap):
                     try:
                         if hasattr(nse_prov, "_discovered_cache") and needs_bootstrap:
                             nse_prov._discovered_cache.pop(sym_u, None)
@@ -1533,7 +1709,7 @@ class FinancialFilingWatcher:
                     (nse_prov and hasattr(nse_prov, "_sweep_announcements_cache") and sym_u in nse_prov._sweep_announcements_cache)
                     or (nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache)
                 )
-                should_poll_bse = (bse_prov is not None) and (is_bse_only or (not has_structured_facts and not has_nse_announcements))
+                should_poll_bse = (bse_prov is not None) and (not direct_sweep_success or needs_bootstrap) and (is_bse_only or (not has_structured_facts and not has_nse_announcements))
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
