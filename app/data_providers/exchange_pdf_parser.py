@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import os
 import re
+import time
 import hashlib
 import logging
 from datetime import datetime
@@ -29,13 +30,11 @@ import requests
 import PyPDF2
 import threading
 
-# Concurrency semaphore to prevent Akamai / NSE CDN connection bandwidth throttling
-_DOWNLOAD_SEMAPHORE = threading.Semaphore(4)
+# Concurrency semaphore for exchange PDF downloads: allow up to 15 concurrent network downloads
+_DOWNLOAD_SEMAPHORE = threading.Semaphore(15)
 
-# Separate parse semaphore to prevent PyPDF2 GIL saturation: max 2 threads may parse PDF simultaneously.
-# Without this, 20 worker threads parsing large PDFs concurrently serialize on Python GIL and cause
-# 10-15 minute stalls even on a fast machine.
-_PARSE_SEMAPHORE = threading.Semaphore(2)
+# Full concurrency parse semaphore: permits all 30 worker threads to parse PDFs concurrently without queuing
+_PARSE_SEMAPHORE = threading.Semaphore(30)
 
 # Size limits:
 # If announcement subject confirms it is a SEBI Reg 33 Financial Result, allow up to 50MB
@@ -43,7 +42,7 @@ _PARSE_SEMAPHORE = threading.Semaphore(2)
 # For non-result documents (general circulars, intimation notices), keep the tight 4MB ceiling.
 _PDF_MAX_RESULT_BYTES = 50 * 1024 * 1024  # 50 MB for confirmed Financial Results
 _PDF_MAX_NON_RESULT_BYTES = 4 * 1024 * 1024  # 4 MB for non-result announcements
-_PDF_MAX_PAGES_SCAN = 20  # Inspect at most first 20 pages (financial tables are always in first 15 pages)
+_PDF_MAX_PAGES_SCAN = 8  # Financial tables under SEBI Reg 33 are strictly on pages 2-5; inspect at most 8 pages to eliminate wasteful CPU time
 _PDF_MAX_BOOKLET_PAGES = 150  # Only skip if entire document is >150 pages (annual report booklets)
 
 # Suppress verbose PyPDF2 font decoding warnings in production logs
@@ -202,8 +201,11 @@ class ExchangePdfParser:
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
-        # Limit concurrent network downloads to 4 threads to prevent CDN connection throttling
-        with _DOWNLOAD_SEMAPHORE:
+        # Limit concurrent network downloads (supports up to 15 concurrent threads, timeout=10s to prevent hang)
+        if not _DOWNLOAD_SEMAPHORE.acquire(timeout=10.0):
+            logger.warning(f"[PDF_PARSER] Download semaphore acquire timeout for {base_name}. Skipping to keep worker thread moving.")
+            return None
+        try:
             # 1. Direct fetch from exchange static archives (streamed to enforce ceiling_bytes)
             try:
                 with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
@@ -255,6 +257,8 @@ class ExchangePdfParser:
                     logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
 
             return None
+        finally:
+            _DOWNLOAD_SEMAPHORE.release()
 
     def parse_sebi_reg33_pdf(
         self,
@@ -272,11 +276,14 @@ class ExchangePdfParser:
         ann_meta = announcement_metadata or {}
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-        # Acquire parse semaphore: limits concurrent PyPDF2 CPU usage to prevent GIL saturation.
-        # Without this, 20 worker threads parsing large PDFs simultaneously serialize on the GIL
-        # and produce 10-15 minute stalls. Max 2 threads may parse at the same time.
-        with _PARSE_SEMAPHORE:
+        # Acquire parse semaphore with 5-second timeout (supports all 30 threads concurrently)
+        if not _PARSE_SEMAPHORE.acquire(timeout=5.0):
+            logger.warning(f"[PDF_PARSER] Parse semaphore busy for {symbol}. Skipping to keep worker thread moving.")
+            return []
+        try:
             return self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
+        finally:
+            _PARSE_SEMAPHORE.release()
 
     def _parse_sebi_reg33_pdf_inner(
         self,
@@ -287,6 +294,7 @@ class ExchangePdfParser:
     ) -> List["RawFinancialRecord"]:
         """Inner parse logic, runs under _PARSE_SEMAPHORE — do not call directly."""
         records: List["RawFinancialRecord"] = []
+        t_start = time.time()
 
         try:
             # Strip trailing garbage bytes after %%EOF to prevent PyPDF2 'negative seek value -1'
@@ -313,9 +321,16 @@ class ExchangePdfParser:
             )
             return []
 
-        # In SEBI Reg 33 filings, financial statement tables are located in the first 20 pages.
+        # In SEBI Reg 33 filings, financial statement tables are located in the first 2-5 pages.
         # Check at most the first _PDF_MAX_PAGES_SCAN pages to avoid sluggish font decoding on subsequent pages.
         for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
+            # Strict per-PDF timeout guard: never allow a complex/scanned PDF to block worker thread >15s
+            if time.time() - t_start > 15.0:
+                logger.warning(
+                    f"[PDF_PARSER] Parse timeout (15s exceeded) on page {page_idx+1} for {symbol}. "
+                    f"Returning {len(records)} records extracted so far."
+                )
+                break
             # Early exit if we already extracted both Consolidated and Standalone statements
             has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
             has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
@@ -528,7 +543,8 @@ class ExchangePdfParser:
 
                 elif pat is None and any(k in line_lower for k in [
                     "profit for the period", "profit / (loss) for the period", "profit/(loss) for the period",
-                    "profit/ (loss) for the period", "profit/ (loss)", "profit/(loss)", "profit/ {loss)",
+                    "profit/ (loss) for the period", "profit i (loss) for the period", "profit | (loss) for the period",
+                    "profit/ (loss)", "profit/(loss)", "profit i (loss)", "profit | (loss)", "profit/ {loss)",
                     "profit/{loss)", "profit (loss)", "net profit for the period", "profit after tax",
                     "net profit / (loss)", "net profit/(loss)", "net profit/ (loss)", "net profit"
                 ]) and not any(k in line_lower for k in ["other comprehensive", "total comprehensive", "before", "operating"]):

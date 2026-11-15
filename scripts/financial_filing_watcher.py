@@ -1090,9 +1090,13 @@ class FinancialFilingWatcher:
                         except ImportError:
                             from data_providers.nse_xbrl_provider import NseXbrlProvider
                         _tls.nse_provider = NseXbrlProvider()
-                        # [FIX-4] Copy the pre-warmed authenticated session to skip homepage handshake
+                        # [FIX-4] Thread-safe isolated session: copy cookies & headers from pre-warmed session to avoid urllib3 socket deadlocks
                         if _shared_nse_provider is not None and hasattr(_shared_nse_provider, "session"):
-                            _tls.nse_provider.session = _shared_nse_provider.session
+                            import requests as _req
+                            th_session = _req.Session()
+                            th_session.cookies.update(_shared_nse_provider.session.cookies)
+                            th_session.headers.update(_shared_nse_provider.session.headers)
+                            _tls.nse_provider.session = th_session
                             _tls.nse_provider._initialized = True
                     # [RULE 67 CHANGE-RATIONALE: THREAD_SWEEP_CACHE_SHARING_v1.0]
                     # Share market sweep announcements with worker threads to prevent worker threads
