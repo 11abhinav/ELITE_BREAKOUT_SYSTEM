@@ -878,7 +878,8 @@ class MasterOrchestratorV2:
                         "error_msg": r.get("error_msg"),
                         "last_run": r.get("last_success", datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")),
                         "duration_sec": r.get("duration_seconds", 0.0),
-                        "symbols_evaluated": r.get("symbols_evaluated", 1174),
+                        "symbols_evaluated": r.get("processed_count") if r.get("processed_count") is not None else r.get("symbols_evaluated", 0),
+                        "total_count": r.get("total_count", 0),
                         "watch_count": r.get("watch_count", 0),
                         "confirmed_count": r.get("confirmed_count", 0)
                     })

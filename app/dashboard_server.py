@@ -2307,35 +2307,67 @@ def get_v2_confluence_breakdown(symbol: str = None):
     return jsonify(orchestrator_v2.get_confluence_breakdown(symbol))
 
 _V2_SCANNER_HEALTH_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+_V2_SCANNER_HEALTH_BG_REFRESHING = False
+
+def _compute_v2_scanner_health_payload_sync():
+    """Fetches latest v2 scanner health from orchestrator and serializes to JSON."""
+    from master_orchestrator import orchestrator_v2
+    data = orchestrator_v2.get_scanner_health()
+    return json.dumps(data, default=str)
 
 @app.route("/api/v2/scanner_health")
 def get_v2_scanner_health():
-    """Serves v2 scanner health telemetry with 5s in-memory micro-cache, ETag 304, and precompressed gzip."""
-    global _V2_SCANNER_HEALTH_CACHE
+    """Serves v2 scanner health telemetry with non-blocking SWR micro-cache, ETag 304, and precompressed gzip."""
+    global _V2_SCANNER_HEALTH_CACHE, _V2_SCANNER_HEALTH_BG_REFRESHING
     now_ts = time.time()
-    if _V2_SCANNER_HEALTH_CACHE["payload"] is not None and (now_ts - _V2_SCANNER_HEALTH_CACHE["ts"]) < 5.0:
-        return _make_json_response(
-            _V2_SCANNER_HEALTH_CACHE["payload"],
-            etag=_V2_SCANNER_HEALTH_CACHE["etag"],
-            max_age=5,
-            precompressed_gzip=_V2_SCANNER_HEALTH_CACHE["gzip"]
-        )
+    force_refresh = request.args.get("force", "").lower() == "true"
+
+    with _dashboard_cache_lock:
+        cached_p = _V2_SCANNER_HEALTH_CACHE.get("payload")
+        cached_etag = _V2_SCANNER_HEALTH_CACHE.get("etag")
+        cached_gz = _V2_SCANNER_HEALTH_CACHE.get("gzip")
+        cached_ts = _V2_SCANNER_HEALTH_CACHE.get("ts", 0.0)
+
+    if not force_refresh and cached_p is not None:
+        if (now_ts - cached_ts) >= 5.0 and not _V2_SCANNER_HEALTH_BG_REFRESHING:
+            def _bg_swr_health():
+                global _V2_SCANNER_HEALTH_CACHE, _V2_SCANNER_HEALTH_BG_REFRESHING
+                try:
+                    _V2_SCANNER_HEALTH_BG_REFRESHING = True
+                    payload = _compute_v2_scanner_health_payload_sync()
+                    if payload:
+                        import hashlib
+                        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+                        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                        with _dashboard_cache_lock:
+                            _V2_SCANNER_HEALTH_CACHE["payload"] = payload
+                            _V2_SCANNER_HEALTH_CACHE["etag"] = etag
+                            _V2_SCANNER_HEALTH_CACHE["gzip"] = gz
+                            _V2_SCANNER_HEALTH_CACHE["ts"] = time.time()
+                except Exception as bg_e:
+                    logger.debug(f"Background scanner health refresh notice: {bg_e}")
+                finally:
+                    _V2_SCANNER_HEALTH_BG_REFRESHING = False
+
+            threading.Thread(target=_bg_swr_health, daemon=True, name="ScannerHealthSWR").start()
+
+        return _make_json_response(cached_p, etag=cached_etag, max_age=5, precompressed_gzip=cached_gz)
+
     try:
-        from master_orchestrator import orchestrator_v2
-        data = orchestrator_v2.get_scanner_health()
-        payload = json.dumps(data, default=str)
+        payload = _compute_v2_scanner_health_payload_sync()
         import hashlib
         etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
         gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
-        _V2_SCANNER_HEALTH_CACHE["ts"] = now_ts
-        _V2_SCANNER_HEALTH_CACHE["payload"] = payload
-        _V2_SCANNER_HEALTH_CACHE["gzip"] = gz
-        _V2_SCANNER_HEALTH_CACHE["etag"] = etag
+        with _dashboard_cache_lock:
+            _V2_SCANNER_HEALTH_CACHE["payload"] = payload
+            _V2_SCANNER_HEALTH_CACHE["etag"] = etag
+            _V2_SCANNER_HEALTH_CACHE["gzip"] = gz
+            _V2_SCANNER_HEALTH_CACHE["ts"] = now_ts
         return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
     except Exception as e:
         logger.exception(f"❌ Failed to get v2 scanner health: {e}")
-        if _V2_SCANNER_HEALTH_CACHE["payload"]:
-            return _make_json_response(_V2_SCANNER_HEALTH_CACHE["payload"], etag=_V2_SCANNER_HEALTH_CACHE["etag"], max_age=5, precompressed_gzip=_V2_SCANNER_HEALTH_CACHE["gzip"])
+        if cached_p:
+            return _make_json_response(cached_p, etag=cached_etag, max_age=5, precompressed_gzip=cached_gz)
         return jsonify([])
 
 
@@ -5686,13 +5718,17 @@ def route_wealth():
     """Redirect decommissioned wealth page to admin dashboard."""
     return redirect("/admin", code=302)
 
-_SCANNER_STATUS_CACHE = {"ts": 0, "payload": None}
+_SCANNER_STATUS_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+_SCANNER_STATUS_BG_REFRESHING = False
 
 def invalidate_scanner_status_cache():
     """Immediately invalidate scanner status and health cache so UI polls see live DB state."""
     global _SCANNER_STATUS_CACHE
-    _SCANNER_STATUS_CACHE["ts"] = 0
-    _SCANNER_STATUS_CACHE["payload"] = None
+    with _dashboard_cache_lock:
+        _SCANNER_STATUS_CACHE["ts"] = 0.0
+        _SCANNER_STATUS_CACHE["payload"] = None
+        _SCANNER_STATUS_CACHE["gzip"] = None
+        _SCANNER_STATUS_CACHE["etag"] = None
 
 
 @app.route("/api/download_shortlist")
@@ -5728,169 +5764,202 @@ _WORKER_STATS_CACHE = {"ts": 0.0, "processed_count": 0, "total_count": 0}
 
 _WEALTH_TODAY_TRADES_CACHE = {"trades": [], "ts": 0.0}
 
+def _compute_scanner_status_payload_sync():
+    """Fetches per-scanner health stats and today's trades from DB and serializes to JSON."""
+    global _WEALTH_TODAY_TRADES_CACHE
+    import os
+    from database import get_all_scanner_health, get_all_scanners_today_trades
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    now_ts = time.time()
+    today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
+
+    health_rows = get_all_scanner_health()
+    all_today_trades = get_all_scanners_today_trades(today_str)
+
+    result = {}
+    for row in health_rows:
+        sc = row["scanner_name"]
+        today_trades = all_today_trades.get(sc, [])
+        
+        if sc == "Wealth Engine":
+            # [RULE 67 CHANGE-RATIONALE]: Cache Wealth Engine parquet parse for 30 seconds to prevent blocking Flask request threads
+            if (now_ts - _WEALTH_TODAY_TRADES_CACHE["ts"]) < 30.0 and _WEALTH_TODAY_TRADES_CACHE["trades"]:
+                today_trades = _WEALTH_TODAY_TRADES_CACHE["trades"]
+            else:
+                try:
+                    import os, pandas as pd
+                    from config import DATA_DIR
+                    wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+                    if os.path.exists(wealth_path):
+                        wdf = pd.read_parquet(wealth_path)
+                        if not wdf.empty and "Alert Date" in wdf.columns:
+                            wdf["Alert Date"] = pd.to_datetime(wdf["Alert Date"]).dt.strftime('%Y-%m-%d')
+                            today_w = wdf[wdf["Alert Date"] == today_str]
+                            today_trades = [
+                                {
+                                    "symbol": r.get("Stock", ""),
+                                    "category": "WEALTH",
+                                    "signals": "Wealth Engine Selection",
+                                    "entry_price": float(r.get("Entry Price", 0)) if r.get("Entry Price") else None,
+                                    "alert_time": r.get("Alert Date", ""),
+                                    "stop_loss": float(r.get("SL", 0)) if r.get("SL") else None,
+                                    "target_price": float(r.get("Target", 0)) if r.get("Target") else None,
+                                    "status": "OPEN",
+                                    "score": float(r.get("Score", 0)) if r.get("Score") else None,
+                                    "closed_at": None,
+                                    "pnl_pct": None,
+                                }
+                                for _, r in today_w.iterrows()
+                            ]
+                            _WEALTH_TODAY_TRADES_CACHE["trades"] = today_trades
+                            _WEALTH_TODAY_TRADES_CACHE["ts"] = now_ts
+                except Exception as _we_err:
+                    logger.debug(f"Wealth trades parse warning: {_we_err}")
+
+        processed_count = row.get("processed_count")
+        total_count = row.get("total_count")
+
+        result[sc] = {
+                "status":        row.get("status", "IDLE"),
+                "last_success":  row.get("last_success"),
+                "last_run":      row.get("last_run") or row.get("last_success") or row.get("updated_at"),
+                "today_alerts":  len(today_trades),
+                "error":         row.get("error_msg"),
+                "updated_at":    row.get("updated_at"),
+                "is_acknowledged": row.get("is_acknowledged", False),
+                "processed_count": processed_count,
+                "total_count":   total_count,
+                "scheduled_for": row.get("scheduled_for"),
+                "outcome":       row.get("outcome"),
+                "provider_stats": row.get("provider_stats"),
+                "duration_seconds": row.get("duration_seconds"),
+                "duration_formatted": f"{(row.get('duration_seconds') / 60):.2f} min" if row.get("duration_seconds") is not None else None,
+                "scanner": row.get("scanner", sc),
+                "lifecycle_state": row.get("lifecycle_state"),
+                "supported_regime": row.get("supported_regime"),
+                "evidence_supported_regimes": row.get("evidence_supported_regimes"),
+                "current_production_active_regime": row.get("current_production_active_regime"),
+                "current_macro_regime": row.get("current_macro_regime"),
+                "production_active_now": row.get("production_active_now"),
+                "is_production_active": row.get("is_production_active", False),
+                "production_authorization_state": row.get("production_authorization_state"),
+                "temporal_evidence_status": row.get("temporal_evidence_status"),
+                "last_evidence_release": row.get("last_evidence_release"),
+                "last_study_date": row.get("last_study_date"),
+                "evidence_warnings": row.get("evidence_warnings"),
+                "version_identity": row.get("version_identity"),
+                "suppression_reason": row.get("suppression_reason"),
+                "display_message": row.get("display_message"),
+                "regime_status_message": row.get("regime_status_message"),
+                "regime_warning": row.get("regime_warning"),
+                "temporal_evidence": row.get("temporal_evidence"),
+                "pending_condition": row.get("pending_condition"),
+                "fail_closed_note": row.get("fail_closed_note"),
+                "today_trades":  [
+                    {
+                        "symbol":       t["symbol"],
+                        "category":     t["category"] or "",
+                        "signals":      t["signals"] or "",
+                        "entry_price":  float(t["entry_price"]) if t["entry_price"] else None,
+                        "entry_time":   t["alert_time"] or "",
+                        "stop_loss":    float(t["stop_loss"]) if t["stop_loss"] else None,
+                        "initial_stop_loss": float(t.get("initial_stop_loss", 0)) if t.get("initial_stop_loss") else None,
+                        "target_1":     float(t.get("target_1", 0)) if t.get("target_1") else None,
+                        "target_2":     float(t.get("target_2", 0)) if t.get("target_2") else None,
+                        "target_3":     float(t.get("target_3", 0)) if t.get("target_3") else None,
+                        "target_price": float(t["target_price"]) if t["target_price"] else None,
+                        "exit_price":   float(t.get("exit_price", 0)) if t.get("exit_price") else None,
+                        "closed_at":    t["closed_at"],
+                        "pnl_pct":      float(t["pnl_pct"]) if t["pnl_pct"] is not None else None,
+                        "status":       t["status"] or "OPEN",
+                        "score":        t["score"],
+                        "exit_signal":  t.get("exit_signal") or t.get("exit_reason") or "",
+                    }
+                    for t in today_trades
+                ],
+            }
+            
+    # Dynamic sliding queue number calculation
+    # [VERSION: QUEUE_UI_DYNAMIC_SLIDER_v1.1]
+    queued_scanners = []
+    for sc, data in result.items():
+        st = str(data.get("status") or "")
+        if st.startswith("QUEUED"):
+            init_idx = 999
+            if "-" in st:
+                try:
+                    init_idx = int(st.split("-")[1])
+                except Exception:
+                    init_idx = 999
+            queued_scanners.append((init_idx, str(data.get("updated_at") or ""), sc))
+    
+    # Sort by initial queue index first, then updated_at ascending
+    queued_scanners.sort(key=lambda x: (x[0], x[1]))
+    
+    # Override the status string returned to the UI with a sliding dynamic number
+    for i, (_, _, sc) in enumerate(queued_scanners):
+        result[sc]["status"] = f"QUEUED-{i + 1}"
+        
+    return json.dumps(serialize_datetimes(result), default=str)
+
 @app.route("/api/scanner_status")
 @app.route("/api/scanner_health")
 @login_required
 def api_scanner_status():
     """
-    Return per-scanner health stats and today's trades (10s TTL cache to protect DB connection pool).
+    Return per-scanner health stats and today's trades (SWR non-blocking cache with 10s TTL).
     """
-    global _SCANNER_STATUS_CACHE, _WORKER_STATS_CACHE, _WEALTH_TODAY_TRADES_CACHE
+    global _SCANNER_STATUS_CACHE, _SCANNER_STATUS_BG_REFRESHING
     now_ts = time.time()
-    if _SCANNER_STATUS_CACHE.get("payload") is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
-        return _make_json_response(
-            _SCANNER_STATUS_CACHE["payload"],
-            etag=_SCANNER_STATUS_CACHE.get("etag"),
-            max_age=5,
-            precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip")
-        )
+    force_refresh = request.args.get("force", "").lower() == "true"
+
+    with _dashboard_cache_lock:
+        cached_p = _SCANNER_STATUS_CACHE.get("payload")
+        cached_etag = _SCANNER_STATUS_CACHE.get("etag")
+        cached_gz = _SCANNER_STATUS_CACHE.get("gzip")
+        cached_ts = _SCANNER_STATUS_CACHE.get("ts", 0.0)
+
+    if not force_refresh and cached_p is not None:
+        if (now_ts - cached_ts) >= 10.0 and not _SCANNER_STATUS_BG_REFRESHING:
+            def _bg_swr_status():
+                global _SCANNER_STATUS_CACHE, _SCANNER_STATUS_BG_REFRESHING
+                try:
+                    _SCANNER_STATUS_BG_REFRESHING = True
+                    payload = _compute_scanner_status_payload_sync()
+                    if payload:
+                        import hashlib
+                        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+                        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                        with _dashboard_cache_lock:
+                            _SCANNER_STATUS_CACHE["payload"] = payload
+                            _SCANNER_STATUS_CACHE["etag"] = etag
+                            _SCANNER_STATUS_CACHE["gzip"] = gz
+                            _SCANNER_STATUS_CACHE["ts"] = time.time()
+                except Exception as bg_e:
+                    logger.debug(f"Background scanner status refresh notice: {bg_e}")
+                finally:
+                    _SCANNER_STATUS_BG_REFRESHING = False
+
+            threading.Thread(target=_bg_swr_status, daemon=True, name="ScannerStatusSWR").start()
+
+        return _make_json_response(cached_p, etag=cached_etag, max_age=5, precompressed_gzip=cached_gz)
+
     try:
-        import os
-        from database import get_all_scanner_health, get_all_scanners_today_trades
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-        today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
-
-        health_rows = get_all_scanner_health()
-        all_today_trades = get_all_scanners_today_trades(today_str)
-
-        result = {}
-        for row in health_rows:
-            sc = row["scanner_name"]
-            today_trades = all_today_trades.get(sc, [])
-            
-            if sc == "Wealth Engine":
-                # [RULE 67 CHANGE-RATIONALE]: Cache Wealth Engine parquet parse for 30 seconds to prevent blocking Flask request threads
-                if (now_ts - _WEALTH_TODAY_TRADES_CACHE["ts"]) < 30.0 and _WEALTH_TODAY_TRADES_CACHE["trades"]:
-                    today_trades = _WEALTH_TODAY_TRADES_CACHE["trades"]
-                else:
-                    try:
-                        import os, pandas as pd
-                        from config import DATA_DIR
-                        wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-                        if os.path.exists(wealth_path):
-                            wdf = pd.read_parquet(wealth_path)
-                            if not wdf.empty and "Alert Date" in wdf.columns:
-                                wdf["Alert Date"] = pd.to_datetime(wdf["Alert Date"]).dt.strftime('%Y-%m-%d')
-                                today_w = wdf[wdf["Alert Date"] == today_str]
-                                today_trades = [
-                                    {
-                                        "symbol": r.get("Stock", ""),
-                                        "category": "WEALTH",
-                                        "signals": "Wealth Engine Selection",
-                                        "entry_price": float(r.get("Entry Price", 0)) if r.get("Entry Price") else None,
-                                        "alert_time": r.get("Alert Date", ""),
-                                        "stop_loss": float(r.get("SL", 0)) if r.get("SL") else None,
-                                        "target_price": float(r.get("Target", 0)) if r.get("Target") else None,
-                                        "status": "OPEN",
-                                        "score": float(r.get("Score", 0)) if r.get("Score") else None,
-                                        "closed_at": None,
-                                        "pnl_pct": None,
-                                    }
-                                    for _, r in today_w.iterrows()
-                                ]
-                                _WEALTH_TODAY_TRADES_CACHE["trades"] = today_trades
-                                _WEALTH_TODAY_TRADES_CACHE["ts"] = now_ts
-                    except Exception as _we_err:
-                        logger.debug(f"Wealth trades parse warning: {_we_err}")
-
-            processed_count = row.get("processed_count")
-            total_count = row.get("total_count")
-
-            result[sc] = {
-                    "status":        row.get("status", "IDLE"),
-                    "last_success":  row.get("last_success"),
-                    "last_run":      row.get("last_run") or row.get("last_success") or row.get("updated_at"),
-                    "today_alerts":  len(today_trades),
-                    "error":         row.get("error_msg"),
-                    "updated_at":    row.get("updated_at"),
-                    "is_acknowledged": row.get("is_acknowledged", False),
-                    "processed_count": processed_count,
-                    "total_count":   total_count,
-                    "scheduled_for": row.get("scheduled_for"),
-                    "outcome":       row.get("outcome"),
-                    "provider_stats": row.get("provider_stats"),
-                    "duration_seconds": row.get("duration_seconds"),
-                    "duration_formatted": f"{(row.get('duration_seconds') / 60):.2f} min" if row.get("duration_seconds") is not None else None,
-                    "scanner": row.get("scanner", sc),
-                    "lifecycle_state": row.get("lifecycle_state"),
-                    "supported_regime": row.get("supported_regime"),
-                    "evidence_supported_regimes": row.get("evidence_supported_regimes"),
-                    "current_production_active_regime": row.get("current_production_active_regime"),
-                    "current_macro_regime": row.get("current_macro_regime"),
-                    "production_active_now": row.get("production_active_now"),
-                    "is_production_active": row.get("is_production_active", False),
-                    "production_authorization_state": row.get("production_authorization_state"),
-                    "temporal_evidence_status": row.get("temporal_evidence_status"),
-                    "last_evidence_release": row.get("last_evidence_release"),
-                    "last_study_date": row.get("last_study_date"),
-                    "evidence_warnings": row.get("evidence_warnings"),
-                    "version_identity": row.get("version_identity"),
-                    "suppression_reason": row.get("suppression_reason"),
-                    "display_message": row.get("display_message"),
-                    "regime_status_message": row.get("regime_status_message"),
-                    "regime_warning": row.get("regime_warning"),
-                    "temporal_evidence": row.get("temporal_evidence"),
-                    "pending_condition": row.get("pending_condition"),
-                    "fail_closed_note": row.get("fail_closed_note"),
-                    "today_trades":  [
-                        {
-                            "symbol":       t["symbol"],
-                            "category":     t["category"] or "",
-                            "signals":      t["signals"] or "",
-                            "entry_price":  float(t["entry_price"]) if t["entry_price"] else None,
-                            "entry_time":   t["alert_time"] or "",
-                            "stop_loss":    float(t["stop_loss"]) if t["stop_loss"] else None,
-                            "initial_stop_loss": float(t.get("initial_stop_loss", 0)) if t.get("initial_stop_loss") else None,
-                            "target_1":     float(t.get("target_1", 0)) if t.get("target_1") else None,
-                            "target_2":     float(t.get("target_2", 0)) if t.get("target_2") else None,
-                            "target_3":     float(t.get("target_3", 0)) if t.get("target_3") else None,
-                            "target_price": float(t["target_price"]) if t["target_price"] else None,
-                            "exit_price":   float(t.get("exit_price", 0)) if t.get("exit_price") else None,
-                            "closed_at":    t["closed_at"],
-                            "pnl_pct":      float(t["pnl_pct"]) if t["pnl_pct"] is not None else None,
-                            "status":       t["status"] or "OPEN",
-                            "score":        t["score"],
-                            "exit_signal":  t.get("exit_signal") or t.get("exit_reason") or "",
-                        }
-                        for t in today_trades
-                    ],
-                }
-                
-        # Dynamic sliding queue number calculation
-        # [VERSION: QUEUE_UI_DYNAMIC_SLIDER_v1.1]
-        queued_scanners = []
-        for sc, data in result.items():
-            st = str(data.get("status") or "")
-            if st.startswith("QUEUED"):
-                init_idx = 999
-                if "-" in st:
-                    try:
-                        init_idx = int(st.split("-")[1])
-                    except Exception:
-                        init_idx = 999
-                queued_scanners.append((init_idx, str(data.get("updated_at") or ""), sc))
-        
-        # Sort by initial queue index first, then updated_at ascending
-        queued_scanners.sort(key=lambda x: (x[0], x[1]))
-        
-        # Override the status string returned to the UI with a sliding dynamic number
-        for i, (_, _, sc) in enumerate(queued_scanners):
-            result[sc]["status"] = f"QUEUED-{i + 1}"
-            
-        res_payload = json.dumps(serialize_datetimes(result), default=str)
-        gz_status = _gzip.compress(res_payload.encode("utf-8"), compresslevel=1)
+        payload = _compute_scanner_status_payload_sync()
         import hashlib
-        etag_status = f'"{hashlib.md5(res_payload.encode("utf-8")).hexdigest()}"'
-        _SCANNER_STATUS_CACHE["ts"] = now_ts
-        _SCANNER_STATUS_CACHE["payload"] = res_payload
-        _SCANNER_STATUS_CACHE["gzip"] = gz_status
-        _SCANNER_STATUS_CACHE["etag"] = etag_status
-        return _make_json_response(res_payload, etag=etag_status, max_age=5, precompressed_gzip=gz_status)
+        etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+        gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+        with _dashboard_cache_lock:
+            _SCANNER_STATUS_CACHE["payload"] = payload
+            _SCANNER_STATUS_CACHE["etag"] = etag
+            _SCANNER_STATUS_CACHE["gzip"] = gz
+            _SCANNER_STATUS_CACHE["ts"] = now_ts
+        return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
     except Exception as exc:
         logger.warning(f"❌ /api/scanner_status warning: {exc}")
-        if _SCANNER_STATUS_CACHE.get("payload") is not None:
-            return _make_json_response(_SCANNER_STATUS_CACHE["payload"], etag=_SCANNER_STATUS_CACHE.get("etag"), max_age=5, precompressed_gzip=_SCANNER_STATUS_CACHE.get("gzip"))
+        if cached_p is not None:
+            return _make_json_response(cached_p, etag=cached_etag, max_age=5, precompressed_gzip=cached_gz)
         return jsonify({}), 200
 
 
