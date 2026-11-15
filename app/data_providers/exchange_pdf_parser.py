@@ -32,6 +32,15 @@ import threading
 # Concurrency semaphore to prevent Akamai / NSE CDN connection bandwidth throttling
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(4)
 
+# Separate parse semaphore to prevent PyPDF2 GIL saturation: max 2 threads may parse PDF simultaneously.
+# Without this, 20 worker threads parsing large PDFs concurrently serialize on Python GIL and cause
+# 10-15 minute stalls even on a fast machine.
+_PARSE_SEMAPHORE = threading.Semaphore(2)
+
+# Hard limits to prevent catastrophic slowdowns from oversized/multi-page legal documents
+_PDF_MAX_BYTES = 4 * 1024 * 1024    # 4 MB: financial results PDFs fit in 4MB; 8MB PDFs are 90-page legal notices
+_PDF_MAX_PAGES = 15                  # SEBI Reg 33 financial tables are in first 1-3 pages; >15 pages = legal doc
+
 # Suppress verbose PyPDF2 font decoding warnings in production logs
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 
@@ -146,20 +155,20 @@ class ExchangePdfParser:
 
         # Limit concurrent network downloads to 4 threads to prevent CDN connection throttling
         with _DOWNLOAD_SEMAPHORE:
-            # 1. Direct fetch from exchange static archives (streamed to enforce 8MB ceiling)
+            # 1. Direct fetch from exchange static archives (streamed to enforce _PDF_MAX_BYTES ceiling)
             try:
                 with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
                     if resp.status_code == 200:
                         cl = resp.headers.get("Content-Length")
-                        if cl and int(cl) > 8 * 1024 * 1024:
-                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds 8MB limit")
+                        if cl and int(cl) > _PDF_MAX_BYTES:
+                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds {_PDF_MAX_BYTES//1024//1024}MB limit")
                             return None
                         chunks = []
                         tot = 0
                         for chunk in resp.iter_content(chunk_size=65536):
                             tot += len(chunk)
-                            if tot > 8 * 1024 * 1024:
-                                logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded 8MB limit during stream")
+                            if tot > _PDF_MAX_BYTES:
+                                logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded {_PDF_MAX_BYTES//1024//1024}MB limit during stream")
                                 return None
                             chunks.append(chunk)
                         content = b"".join(chunks)
@@ -205,9 +214,21 @@ class ExchangePdfParser:
         if not pdf_bytes or not pdf_bytes.startswith(b"%PDF"):
             return []
 
-        ann_meta = announcement_metadata or {}
-        pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
-        records: List[RawFinancialRecord] = []
+        # Acquire parse semaphore: limits concurrent PyPDF2 CPU usage to prevent GIL saturation.
+        # Without this, 20 worker threads parsing large PDFs simultaneously serialize on the GIL
+        # and produce 10-15 minute stalls. Max 2 threads may parse at the same time.
+        with _PARSE_SEMAPHORE:
+            return self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
+
+    def _parse_sebi_reg33_pdf_inner(
+        self,
+        pdf_bytes: bytes,
+        pdf_hash: str,
+        ann_meta: Dict[str, Any],
+        symbol: str,
+    ) -> List["RawFinancialRecord"]:
+        """Inner parse logic, runs under _PARSE_SEMAPHORE — do not call directly."""
+        records: List["RawFinancialRecord"] = []
 
         try:
             # Strip trailing garbage bytes after %%EOF to prevent PyPDF2 'negative seek value -1'
@@ -222,6 +243,16 @@ class ExchangePdfParser:
             except Exception as pdf_err:
                 logger.warning(f"[PDF_PARSER] PyPDF2 failed to open PDF for {symbol}: {pdf_err}")
                 return []
+
+        # Hard page-count guard: >15 pages = legal outcome notice / full annual report, NOT a Reg 33 results table.
+        # ASHOKLEY (8MB, ~90 pages) blocked all 20 worker threads for 12+ min without this check.
+        total_pages = len(reader.pages)
+        if total_pages > _PDF_MAX_PAGES:
+            logger.warning(
+                f"[PDF_PARSER] Skipping {symbol}: PDF has {total_pages} pages (limit={_PDF_MAX_PAGES}). "
+                f"Reg 33 financial results fit in 1-3 pages; this is likely a legal/AGM document."
+            )
+            return []
 
         # In SEBI Reg 33 filings, financial statement tables are located in the first 8 pages.
         # Check at most the first 8 pages to avoid sluggish multi-minute font decoding on legal notes.

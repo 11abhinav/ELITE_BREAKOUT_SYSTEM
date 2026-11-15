@@ -979,8 +979,8 @@ class FinancialFilingWatcher:
             symbols = symbols[:max_symbols]
 
         if max_workers is None:
-            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "20"))
-        max_workers = max(1, min(max_workers, 24))
+            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "30"))
+        max_workers = max(1, min(max_workers, 40))
 
 
         logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str} (concurrency={max_workers})...")
@@ -1117,6 +1117,12 @@ class FinancialFilingWatcher:
         BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Save to DB after every 25 completed stocks
         FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "10"))  # Or whenever 10 stocks ingested fresh filings
 
+        # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
+        _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
+
+        # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
+        _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
+
         def _process_symbol(sym: str) -> None:
             sym_u = sym.strip().upper()
             try:
@@ -1191,7 +1197,7 @@ class FinancialFilingWatcher:
                     has_corrupt_or_empty_raw = True
 
                 # ── DYNAMIC ABSOLUTE 0ms FAST PATH: LATEST CONCLUDED QUARTER ALREADY IN LOCAL ──
-                latest_concluded_qtr = get_latest_concluded_quarter(as_of_date)
+                latest_concluded_qtr = _run_latest_concluded_qtr  # cached once per run to avoid 861 recomputations
                 has_latest_concluded_quarter = any(
                     (_normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or "")) >= latest_concluded_qtr)
                     and (_r.get("revenue") is not None or _r.get("net_profit") is not None)
@@ -1635,7 +1641,13 @@ class FinancialFilingWatcher:
                         )
 
                 # 1. Poll NSE XBRL / Corporate Results (Primary Source) - only if needs_bootstrap or if market sweep was unavailable
-                should_poll_nse_legacy = bool(nse_prov and (needs_bootstrap or (not market_sweep_ok and not direct_sweep_success)))
+                # KEY OPTIMIZATION: If direct_sweep_success=True AND we had a new filing, the XBRL data was already
+                # ingested from the sweep attachment. Skip redundant 45-60s NSE legacy API round-trips.
+                should_poll_nse_legacy = bool(
+                    nse_prov
+                    and not direct_sweep_success  # <-- Early exit: skip if sweep already ingested new data
+                    and (needs_bootstrap or not market_sweep_ok)
+                )
                 if should_poll_nse_legacy:
                     try:
                         if hasattr(nse_prov, "_discovered_cache") and needs_bootstrap:
