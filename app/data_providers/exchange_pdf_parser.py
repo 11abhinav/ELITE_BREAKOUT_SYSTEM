@@ -37,9 +37,14 @@ _DOWNLOAD_SEMAPHORE = threading.Semaphore(4)
 # 10-15 minute stalls even on a fast machine.
 _PARSE_SEMAPHORE = threading.Semaphore(2)
 
-# Hard limits to prevent catastrophic slowdowns from oversized/multi-page legal documents
-_PDF_MAX_BYTES = 4 * 1024 * 1024    # 4 MB: financial results PDFs fit in 4MB; 8MB PDFs are 90-page legal notices
-_PDF_MAX_PAGES = 15                  # SEBI Reg 33 financial tables are in first 1-3 pages; >15 pages = legal doc
+# Size limits:
+# If announcement subject confirms it is a SEBI Reg 33 Financial Result, allow up to 50MB
+# (because legitimate scanned auditor reports with rubber stamps/signatures frequently range from 5MB to 25MB).
+# For non-result documents (general circulars, intimation notices), keep the tight 4MB ceiling.
+_PDF_MAX_RESULT_BYTES = 50 * 1024 * 1024  # 50 MB for confirmed Financial Results
+_PDF_MAX_NON_RESULT_BYTES = 4 * 1024 * 1024  # 4 MB for non-result announcements
+_PDF_MAX_PAGES_SCAN = 20  # Inspect at most first 20 pages (financial tables are always in first 15 pages)
+_PDF_MAX_BOOKLET_PAGES = 150  # Only skip if entire document is >150 pages (annual report booklets)
 
 # Suppress verbose PyPDF2 font decoding warnings in production logs
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
@@ -112,6 +117,35 @@ def _clean_token_number(token: str) -> Optional[float]:
         return None
 
 
+def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str = "") -> bool:
+    """
+    Checks announcement subject, description, and file metadata to determine if the document
+    is an official SEBI LODR Regulation 33 Financial Results / Board Meeting Outcome statement.
+    """
+    desc = str((ann.get("desc") if ann else "") or "").lower()
+    text = str((ann.get("attchmntText") if ann else "") or "").lower()
+    fn = str((ann.get("attchmntFile") or ann.get("attachmentUrl") if ann else "") or "").lower()
+    url_fn = os.path.basename(str(pdf_url).split("?")[0]).lower()
+    combined = f"{desc} {text} {fn} {url_fn}"
+
+    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper)
+    if any(k in combined for k in [
+        "newspaper", "clipping", "advertisement", "publication of",
+        "investor presentation", "investor update", "earnings call",
+        "transcript", "audio recording", "concall", "con. call", "press release"
+    ]):
+        return False
+
+    # Positive check: subject / description / filename indicates financial results
+    return any(k in combined for k in [
+        "financial result", "financial results", "reg 33", "regulation 33",
+        "outcome of board meeting", "board meeting outcome", "unaudited financial",
+        "audited financial", "results for the quarter", "results for the period",
+        "quarter ended", "period ended", "quick results", "quickresult",
+        "ufr", "afr", "fr_dsc", "results", "statement of financial"
+    ]) or bool(ann and ann.get("hasXbrl"))
+
+
 class ExchangePdfParser:
     """
     Parser for official signed SEBI Regulation 33 financial statement PDFs
@@ -124,13 +158,28 @@ class ExchangePdfParser:
         self.session = requests.Session()
         self.session.headers.update(_HEADERS)
 
-    def download_pdf(self, pdf_url: str) -> Optional[bytes]:
+    def download_pdf(
+        self,
+        pdf_url: str,
+        announcement_metadata: Optional[Dict[str, Any]] = None,
+        max_bytes: Optional[int] = None,
+    ) -> Optional[bytes]:
         """
         Downloads the PDF from exchange archives (or loads from local cache).
         Tries direct download first; falls back to ScraperAPI if direct is blocked.
+
+        DYNAMIC CEILING PROTOCOL:
+        If the announcement subject/metadata indicates it is an official SEBI Reg 33
+        Financial Result / Board Meeting Outcome statement, allow up to 50MB
+        (scanned signed auditor reports with high-DPI stamps frequently reach 5MB-25MB).
+        If not confirmed as financial results, cap at 4MB to prevent downloading
+        unrelated large documents.
         """
         if not pdf_url or not str(pdf_url).lower().endswith(".pdf"):
             return None
+
+        is_result = is_financial_result_announcement(announcement_metadata, pdf_url)
+        ceiling_bytes = max_bytes or (_PDF_MAX_RESULT_BYTES if is_result else _PDF_MAX_NON_RESULT_BYTES)
 
         # Build cache filename
         url_hash = hashlib.sha256(pdf_url.encode("utf-8")).hexdigest()[:16]
@@ -155,20 +204,26 @@ class ExchangePdfParser:
 
         # Limit concurrent network downloads to 4 threads to prevent CDN connection throttling
         with _DOWNLOAD_SEMAPHORE:
-            # 1. Direct fetch from exchange static archives (streamed to enforce _PDF_MAX_BYTES ceiling)
+            # 1. Direct fetch from exchange static archives (streamed to enforce ceiling_bytes)
             try:
                 with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
                     if resp.status_code == 200:
                         cl = resp.headers.get("Content-Length")
-                        if cl and int(cl) > _PDF_MAX_BYTES:
-                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds {_PDF_MAX_BYTES//1024//1024}MB limit")
+                        if cl and int(cl) > ceiling_bytes:
+                            logger.warning(
+                                f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds "
+                                f"{ceiling_bytes//1024//1024}MB limit (is_result={is_result})"
+                            )
                             return None
                         chunks = []
                         tot = 0
                         for chunk in resp.iter_content(chunk_size=65536):
                             tot += len(chunk)
-                            if tot > _PDF_MAX_BYTES:
-                                logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded {_PDF_MAX_BYTES//1024//1024}MB limit during stream")
+                            if tot > ceiling_bytes:
+                                logger.warning(
+                                    f"[PDF_PARSER] Skipping PDF {base_name}: exceeded "
+                                    f"{ceiling_bytes//1024//1024}MB limit during stream (is_result={is_result})"
+                                )
                                 return None
                             chunks.append(chunk)
                         content = b"".join(chunks)
@@ -176,7 +231,7 @@ class ExchangePdfParser:
                             if b"%%EOF" in content[-2048:]:
                                 with open(cache_path, "wb") as f_out:
                                     f_out.write(content)
-                                logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes)")
+                                logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes, is_result={is_result})")
                                 return content
                             else:
                                 logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
@@ -192,7 +247,7 @@ class ExchangePdfParser:
                         if b"%%EOF" in s_resp.content[-2048:]:
                             with open(cache_path, "wb") as f_out:
                                 f_out.write(s_resp.content)
-                            logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes)")
+                            logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes, is_result={is_result})")
                             return s_resp.content
                         else:
                             logger.warning(f"[PDF_PARSER] ScraperAPI download for {base_name} truncated ({len(s_resp.content)} bytes, missing %%EOF).")
@@ -213,6 +268,9 @@ class ExchangePdfParser:
         """
         if not pdf_bytes or not pdf_bytes.startswith(b"%PDF"):
             return []
+
+        ann_meta = announcement_metadata or {}
+        pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
         # Acquire parse semaphore: limits concurrent PyPDF2 CPU usage to prevent GIL saturation.
         # Without this, 20 worker threads parsing large PDFs simultaneously serialize on the GIL
@@ -244,19 +302,20 @@ class ExchangePdfParser:
                 logger.warning(f"[PDF_PARSER] PyPDF2 failed to open PDF for {symbol}: {pdf_err}")
                 return []
 
-        # Hard page-count guard: >15 pages = legal outcome notice / full annual report, NOT a Reg 33 results table.
-        # ASHOKLEY (8MB, ~90 pages) blocked all 20 worker threads for 12+ min without this check.
+        # Only skip if the document is an oversized booklet (>150 pages, e.g. 300-page annual report book).
+        # Legitimate board outcomes with detailed financials, auditor reviews, and presentations
+        # are parsed without skipping because we limit page scanning to the first _PDF_MAX_PAGES_SCAN pages.
         total_pages = len(reader.pages)
-        if total_pages > _PDF_MAX_PAGES:
+        if total_pages > _PDF_MAX_BOOKLET_PAGES:
             logger.warning(
-                f"[PDF_PARSER] Skipping {symbol}: PDF has {total_pages} pages (limit={_PDF_MAX_PAGES}). "
-                f"Reg 33 financial results fit in 1-3 pages; this is likely a legal/AGM document."
+                f"[PDF_PARSER] Skipping {symbol}: PDF has {total_pages} pages (exceeds {_PDF_MAX_BOOKLET_PAGES}). "
+                f"Reg 33 quarterly financial statements are board meeting outcomes, not full annual report books."
             )
             return []
 
-        # In SEBI Reg 33 filings, financial statement tables are located in the first 8 pages.
-        # Check at most the first 8 pages to avoid sluggish multi-minute font decoding on legal notes.
-        for page_idx, page in enumerate(reader.pages[:8]):
+        # In SEBI Reg 33 filings, financial statement tables are located in the first 20 pages.
+        # Check at most the first _PDF_MAX_PAGES_SCAN pages to avoid sluggish font decoding on subsequent pages.
+        for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
             # Early exit if we already extracted both Consolidated and Standalone statements
             has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
             has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
@@ -702,7 +761,7 @@ class ExchangePdfParser:
             )
 
             downloaded_pdf_count += 1
-            pdf_bytes = self.download_pdf(att_file)
+            pdf_bytes = self.download_pdf(att_file, announcement_metadata=ann)
             if not pdf_bytes:
                 continue
 

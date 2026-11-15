@@ -1069,14 +1069,31 @@ class FinancialFilingWatcher:
 
         _tls = threading.local()
 
+        # [FIX-4] Pre-warmed shared NSE provider from market sweep — reuse across worker threads.
+        # Without this, every NseXbrlProvider() construction hits NSE homepage for Akamai cookies
+        # (30 workers × homepage handshake = 30 simultaneous NSE homepage requests at startup).
+        # _sweep_prov already has an authenticated session from discover_market_filings_sweep above.
+        _shared_nse_provider = _sweep_prov if market_sweep_ok and '_sweep_prov' in dir() else None
+
         def _get_thread_providers():
             if not hasattr(_tls, "nse_provider"):
                 try:
-                    try:
-                        from app.data_providers.nse_xbrl_provider import NseXbrlProvider
-                    except ImportError:
-                        from data_providers.nse_xbrl_provider import NseXbrlProvider
-                    _tls.nse_provider = NseXbrlProvider()
+                    # [FIX-4] Reuse pre-warmed _sweep_prov for the first thread to grab it.
+                    # For subsequent threads, create a lightweight NseXbrlProvider but skip _init_session
+                    # by copying the authenticated session from the shared provider.
+                    if _shared_nse_provider is not None and not hasattr(_get_thread_providers, "_primary_assigned"):
+                        _get_thread_providers._primary_assigned = True
+                        _tls.nse_provider = _shared_nse_provider
+                    else:
+                        try:
+                            from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+                        except ImportError:
+                            from data_providers.nse_xbrl_provider import NseXbrlProvider
+                        _tls.nse_provider = NseXbrlProvider()
+                        # [FIX-4] Copy the pre-warmed authenticated session to skip homepage handshake
+                        if _shared_nse_provider is not None and hasattr(_shared_nse_provider, "session"):
+                            _tls.nse_provider.session = _shared_nse_provider.session
+                            _tls.nse_provider._initialized = True
                     # [RULE 67 CHANGE-RATIONALE: THREAD_SWEEP_CACHE_SHARING_v1.0]
                     # Share market sweep announcements with worker threads to prevent worker threads
                     # from executing redundant per-symbol network discovery calls.
@@ -1097,6 +1114,17 @@ class FinancialFilingWatcher:
                     logger.warning(f"[filling scanner] Could not initialize BseCorporateProvider in worker thread: {e}")
                     _tls.bse_provider = None
 
+            # [FIX-D] Reuse ExchangePdfParser per thread — avoids re-instantiating on every symbol
+            if not hasattr(_tls, "pdf_parser"):
+                try:
+                    try:
+                        from app.data_providers.exchange_pdf_parser import ExchangePdfParser
+                    except ImportError:
+                        from data_providers.exchange_pdf_parser import ExchangePdfParser
+                    _tls.pdf_parser = ExchangePdfParser()
+                except Exception:
+                    _tls.pdf_parser = None
+
             return _tls.nse_provider, _tls.bse_provider
 
         completed_count = [0]
@@ -1116,9 +1144,6 @@ class FinancialFilingWatcher:
         TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "300.0"))  # 5 minutes (300 seconds)
         BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Save to DB after every 25 completed stocks
         FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "10"))  # Or whenever 10 stocks ingested fresh filings
-
-        # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
-        _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
 
         # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
         _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
@@ -1599,7 +1624,7 @@ class FinancialFilingWatcher:
                                     from app.data_providers.exchange_pdf_parser import ExchangePdfParser
                                 except ImportError:
                                     from data_providers.exchange_pdf_parser import ExchangePdfParser
-                                pdf_parser = ExchangePdfParser()
+                                pdf_parser = getattr(_tls, "pdf_parser", None) or ExchangePdfParser()
                                 pdf_recs = pdf_parser.fetch_pdf_fallback_records(
                                     symbol=sym_u,
                                     announcements=cand_pdf_anns,
@@ -1855,7 +1880,7 @@ class FinancialFilingWatcher:
                             except ImportError:
                                 from data_providers.exchange_pdf_parser import ExchangePdfParser
 
-                            pdf_parser = ExchangePdfParser()
+                            pdf_parser = getattr(_tls, "pdf_parser", None) or ExchangePdfParser()
                             pdf_recs = pdf_parser.fetch_pdf_fallback_records(
                                 symbol=sym_u,
                                 announcements=uncovered_pdf_anns,
