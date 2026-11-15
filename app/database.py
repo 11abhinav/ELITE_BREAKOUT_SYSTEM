@@ -316,7 +316,7 @@ def get_connection(timeout: int = 5):
         return
 
     conn = None
-    acquired = False
+    acquired_sem = None
     try:
         global _conn_semaphore
         max_cap = getattr(p, 'maxconn', 50)
@@ -326,15 +326,19 @@ def get_connection(timeout: int = 5):
                 _conn_semaphore = threading.BoundedSemaphore(value=max_cap)
             except Exception:
                 _conn_semaphore = None
-        if _conn_semaphore is not None:
+        sem = _conn_semaphore
+        if sem is not None:
             wait_timeout = max(1.0, min(float(timeout), 5.0))
-            acquired = _conn_semaphore.acquire(timeout=wait_timeout)
-            if not acquired:
+            if sem.acquire(timeout=wait_timeout):
+                acquired_sem = sem
+            else:
                 pruned = _prune_stale_pool_connections(p)
-                if pruned > 0:
+                sem = _conn_semaphore
+                if pruned > 0 and sem is not None:
                     logger.info(f"🧹 Pruned {pruned} dead connections from saturated pool. Retrying acquire...")
-                    acquired = _conn_semaphore.acquire(timeout=1.0)
-                if not acquired:
+                    if sem.acquire(timeout=1.0):
+                        acquired_sem = sem
+                if acquired_sem is None:
                     logger.warning("⚠️ Semaphore checkout timeout — attempting pool checkout fallback")
 
         # Retry checkout up to 3 times
@@ -439,9 +443,9 @@ def get_connection(timeout: int = 5):
                 _safe_putconn(p, conn, close=True)
             conn = None
         # Release semaphore if we acquired it
-        if _conn_semaphore is not None and acquired:
+        if acquired_sem is not None:
             try:
-                _conn_semaphore.release()
+                acquired_sem.release()
             except Exception:
                 pass
 
