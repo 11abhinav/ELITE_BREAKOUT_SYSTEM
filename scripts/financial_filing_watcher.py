@@ -1581,6 +1581,9 @@ class FinancialFilingWatcher:
                         cand_pdf_anns = [
                             it for it in sym_sweep_disclosures
                             if (".pdf" in str(it.get("attchmntFile") or "").lower() or "annpdfopen" in str(it.get("attchmntFile") or "").lower())
+                            and not any(k in f"{it.get('desc', '')} {it.get('attchmntText', '')} {it.get('attchmntFile', '')}".lower() for k in (
+                                "newspaper", "clipping", "advertisement", "publication of", "press release", "investor presentation", "transcript"
+                            ))
                         ]
                         if cand_pdf_anns:
                             try:
@@ -1769,123 +1772,127 @@ class FinancialFilingWatcher:
                 # 3. Tier-3 Fallback: Official Exchange Announcement PDF Statements (SEBI LODR Reg 33)
                 # STRICT GOVERNANCE INVARIANT:
                 # Activated ONLY IF BOTH NSE and BSE failed to provide structured XML for a given period.
-                # If valid XML exists for a period on NSE or BSE, the PDF is NEVER touched.
-                try:
-                    xml_covered_periods: Set[str] = set()
-                    for it in raw_filings_list:
-                        src = str(it.get("source") or it.get("source_provider") or it.get("exchange") or "").upper()
-                        if (it.get("revenue") is not None or it.get("net_profit") is not None) and "PDF" not in src:
-                            p_e = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
-                            if p_e:
-                                xml_covered_periods.add(p_e)
+                # If valid XML exists for a period on NSE or BSE, or if already extracted via direct sweep, the PDF is NEVER touched.
+                should_run_tier3_pdf = not (direct_sweep_success and not needs_bootstrap)
+                if should_run_tier3_pdf:
+                    try:
+                        already_covered_periods: Set[str] = set()
+                        for it in raw_filings_list:
+                            if it.get("revenue") is not None or it.get("net_profit") is not None:
+                                p_e = _normalize_iso_date(it.get("period_end_date") or it.get("toDate"))
+                                if p_e:
+                                    already_covered_periods.add(p_e)
 
-                    # Gather candidate exchange announcements with PDF attachments
-                    candidate_anns = []
-                    if nse_prov and hasattr(nse_prov, "_sweep_announcements_cache") and sym_u in nse_prov._sweep_announcements_cache:
-                        candidate_anns.extend(nse_prov._sweep_announcements_cache[sym_u])
-                    elif nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
-                        candidate_anns.extend(nse_prov._discovered_cache[sym_u])
-                    elif nse_prov and not market_sweep_ok:
-                        # Only query network if market sweep failed to execute
-                        try:
-                            nse_disc = nse_prov.discover_filings(sym_u)
-                            if nse_disc:
-                                candidate_anns.extend(nse_disc)
-                        except Exception:
-                            pass
-
-                    # Also include BSE discovered announcements if BSE was queried
-                    if 'bse_disc_rows' in locals() and bse_disc_rows:
-                        candidate_anns.extend(bse_disc_rows)
-
-                    # [RULE 67 CHANGE-RATIONALE: ELIMINATE_DUPLICATE_BSE_SCRAPE_v1.0]
-                    # Step 2 is the authoritative BSE polling gate (lines 1350-1425).
-                    # If should_poll_bse was True, BSE financials and announcements were already queried.
-                    # If should_poll_bse was False, the stock is 100% complete and healthy with contiguous
-                    # NSE XML filings and has zero missing periods.
-                    # Check existing local raw filings so previously fetched PDF or XML statements are NEVER re-downloaded
-                    existing_local_covered: Set[str] = set()
-                    if isinstance(_ldata, list):
-                        for _loc in _ldata:
-                            if _loc.get("revenue") is not None or _loc.get("net_profit") is not None:
-                                _lp = _normalize_iso_date(_loc.get("period_end_date") or _loc.get("toDate") or _loc.get("date"))
-                                if _lp:
-                                    existing_local_covered.add(_lp)
-
-                    uncovered_pdf_anns = []
-                    for ann in candidate_anns:
-                        if not isinstance(ann, dict):
-                            continue
-                        att_f = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
-                        if not (".pdf" in att_f or "annpdfopen" in att_f):
-                            continue
-                        p_cand = _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate"))
-                        if not p_cand:
-                            desc_comb = f"{ann.get('desc', '')} {ann.get('attchmntText', '')}"
+                        # Gather candidate exchange announcements with PDF attachments
+                        candidate_anns = []
+                        if nse_prov and hasattr(nse_prov, "_sweep_announcements_cache") and sym_u in nse_prov._sweep_announcements_cache:
+                            candidate_anns.extend(nse_prov._sweep_announcements_cache[sym_u])
+                        elif nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
+                            candidate_anns.extend(nse_prov._discovered_cache[sym_u])
+                        elif nse_prov and not market_sweep_ok:
+                            # Only query network if market sweep failed to execute
                             try:
-                                try:
-                                    from app.data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
-                                except ImportError:
-                                    from data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
-                                p_cand = _parse_period_end_from_announcement_text(desc_comb)
+                                nse_disc = nse_prov.discover_filings(sym_u)
+                                if nse_disc:
+                                    candidate_anns.extend(nse_disc)
                             except Exception:
-                                p_cand = None
+                                pass
 
-                        if p_cand:
-                            if p_cand in xml_covered_periods:
-                                continue
-                            if p_cand in existing_local_covered:
-                                continue
-                            if min_cutoff and p_cand < min_cutoff:
-                                continue
-                            ann["period_end_date"] = p_cand
-                        else:
-                            desc_low = f"{ann.get('desc', '')} {ann.get('attchmntText', '')}".lower()
-                            if not any(k in desc_low for k in ("financial result", "financial results", "outcome of board meeting")):
-                                continue
-                        uncovered_pdf_anns.append(ann)
+                        # Also include BSE discovered announcements if BSE was queried
+                        if 'bse_disc_rows' in locals() and bse_disc_rows:
+                            candidate_anns.extend(bse_disc_rows)
 
-                    if uncovered_pdf_anns:
-                        try:
-                            from app.data_providers.exchange_pdf_parser import ExchangePdfParser
-                        except ImportError:
-                            from data_providers.exchange_pdf_parser import ExchangePdfParser
+                        # [RULE 67 CHANGE-RATIONALE: ELIMINATE_DUPLICATE_BSE_SCRAPE_v1.0]
+                        # Step 2 is the authoritative BSE polling gate (lines 1350-1425).
+                        # If should_poll_bse was True, BSE financials and announcements were already queried.
+                        # If should_poll_bse was False, the stock is 100% complete and healthy with contiguous
+                        # NSE XML filings and has zero missing periods.
+                        # Check existing local raw filings so previously fetched PDF or XML statements are NEVER re-downloaded
+                        existing_local_covered: Set[str] = set()
+                        if isinstance(_ldata, list):
+                            for _loc in _ldata:
+                                if _loc.get("revenue") is not None or _loc.get("net_profit") is not None:
+                                    _lp = _normalize_iso_date(_loc.get("period_end_date") or _loc.get("toDate") or _loc.get("date"))
+                                    if _lp:
+                                        existing_local_covered.add(_lp)
 
-                        pdf_parser = ExchangePdfParser()
-                        pdf_recs = pdf_parser.fetch_pdf_fallback_records(
-                            symbol=sym_u,
-                            announcements=uncovered_pdf_anns,
-                            existing_xml_periods=set(xml_covered_periods),
-                            min_cutoff=min_cutoff,
-                        )
-                        for r in pdf_recs:
-                            norm_p = _normalize_iso_date(r.period_end_date)
-                            if not norm_p or norm_p < min_cutoff:
+                        uncovered_pdf_anns = []
+                        for ann in candidate_anns:
+                            if not isinstance(ann, dict):
                                 continue
-                            raw_filings_list.append({
-                                "exchange": "NSE",
-                                "source": "NSE_ANNOUNCEMENT_PDF",
-                                "filing_id": getattr(r, "filing_id", None) or f"NSE_PDF_{sym_u}_{norm_p}",
-                                "period_end_date": norm_p,
-                                "statement_type": r.period_type,
-                                "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
-                                "revenue": r.revenue,
-                                "net_profit": r.net_profit,
-                                "operating_profit": r.ebit,
-                                "eps": r.eps,
-                                "total_debt": r.total_debt,
-                                "total_equity": r.total_equity,
-                                "operating_cash_flow": getattr(r, "operating_cash_flow", None),
-                                "shares_outstanding": r.shares_outstanding,
-                                "filing_date": _normalize_iso_date(r.availability_date) or r.availability_date or f"{norm_p}T00:00:00",
-                                "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
-                            })
-                            logger.info(
-                                f"📑 [filling scanner] {sym_u}: Ingested SEBI Reg 33 PDF statement for {norm_p} ({r.period_type}): "
-                                f"Revenue = {r.revenue} Cr, PAT = {r.net_profit} Cr (source=NSE_ANNOUNCEMENT_PDF)"
+                            att_f = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
+                            if not (".pdf" in att_f or "annpdfopen" in att_f):
+                                continue
+                            desc_comb = f"{ann.get('desc', '')} {ann.get('attchmntText', '')} {att_f}".lower()
+                            if any(k in desc_comb for k in (
+                                "newspaper", "clipping", "advertisement", "publication of", "press release", "investor presentation", "transcript"
+                            )):
+                                continue
+                            p_cand = _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate"))
+                            if not p_cand:
+                                try:
+                                    try:
+                                        from app.data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+                                    except ImportError:
+                                        from data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
+                                    p_cand = _parse_period_end_from_announcement_text(desc_comb)
+                                except Exception:
+                                    p_cand = None
+
+                            if p_cand:
+                                if p_cand in already_covered_periods:
+                                    continue
+                                if p_cand in existing_local_covered:
+                                    continue
+                                if min_cutoff and p_cand < min_cutoff:
+                                    continue
+                                ann["period_end_date"] = p_cand
+                            else:
+                                if not any(k in desc_comb for k in ("financial result", "financial results", "outcome of board meeting")):
+                                    continue
+                            uncovered_pdf_anns.append(ann)
+
+                        if uncovered_pdf_anns:
+                            try:
+                                from app.data_providers.exchange_pdf_parser import ExchangePdfParser
+                            except ImportError:
+                                from data_providers.exchange_pdf_parser import ExchangePdfParser
+
+                            pdf_parser = ExchangePdfParser()
+                            pdf_recs = pdf_parser.fetch_pdf_fallback_records(
+                                symbol=sym_u,
+                                announcements=uncovered_pdf_anns,
+                                existing_xml_periods=set(already_covered_periods),
+                                min_cutoff=min_cutoff,
                             )
-                except Exception as pdf_fallback_err:
-                    logger.warning(f"[filling scanner] Tier-3 PDF fallback notice for {sym_u}: {pdf_fallback_err}")
+                            for r in pdf_recs:
+                                norm_p = _normalize_iso_date(r.period_end_date)
+                                if not norm_p or norm_p < min_cutoff:
+                                    continue
+                                raw_filings_list.append({
+                                    "exchange": "NSE",
+                                    "source": "NSE_ANNOUNCEMENT_PDF",
+                                    "filing_id": getattr(r, "filing_id", None) or f"NSE_PDF_{sym_u}_{norm_p}",
+                                    "period_end_date": norm_p,
+                                    "statement_type": r.period_type,
+                                    "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
+                                    "revenue": r.revenue,
+                                    "net_profit": r.net_profit,
+                                    "operating_profit": r.ebit,
+                                    "eps": r.eps,
+                                    "total_debt": r.total_debt,
+                                    "total_equity": r.total_equity,
+                                    "operating_cash_flow": getattr(r, "operating_cash_flow", None),
+                                    "shares_outstanding": r.shares_outstanding,
+                                    "filing_date": _normalize_iso_date(r.availability_date) or r.availability_date or f"{norm_p}T00:00:00",
+                                    "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
+                                })
+                                logger.info(
+                                    f"📑 [filling scanner] {sym_u}: Ingested SEBI Reg 33 PDF statement for {norm_p} ({r.period_type}): "
+                                    f"Revenue = {r.revenue} Cr, PAT = {r.net_profit} Cr (source=NSE_ANNOUNCEMENT_PDF)"
+                                )
+                    except Exception as pdf_fallback_err:
+                        logger.warning(f"[filling scanner] Tier-3 PDF fallback notice for {sym_u}: {pdf_fallback_err}")
 
                 if not raw_filings_list or not any(raw_filings_list):
                     logger.debug(f"[filling scanner] {sym_u}: 0 filings retrieved from exchanges.")
@@ -2108,7 +2115,7 @@ class FinancialFilingWatcher:
 
                     # Detailed progress log to track where we are
                     pct = round((curr_c / total_syms) * 100, 1)
-                    if curr_c % 5 == 0 or curr_c == total_syms or pending_c <= 10 or should_batch_sync:
+                    if curr_c % 2 == 0 or curr_c == total_syms or pending_c <= 10 or should_batch_sync:
                         logger.info(
                             f"📊 [filling scanner] [{curr_c}/{total_syms}] ({pct}%) | "
                             f"Done: {curr_c} | Pending: {pending_c} (ETA: {eta_str}) | "

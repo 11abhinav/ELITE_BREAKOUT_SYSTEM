@@ -145,15 +145,15 @@ class ExchangePdfParser:
             with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
                 if resp.status_code == 200:
                     cl = resp.headers.get("Content-Length")
-                    if cl and int(cl) > 12 * 1024 * 1024:
-                        logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds 12MB limit")
+                    if cl and int(cl) > 8 * 1024 * 1024:
+                        logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds 8MB limit")
                         return None
                     chunks = []
                     tot = 0
                     for chunk in resp.iter_content(chunk_size=65536):
                         tot += len(chunk)
-                        if tot > 12 * 1024 * 1024:
-                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded 12MB limit during stream")
+                        if tot > 8 * 1024 * 1024:
+                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: exceeded 8MB limit during stream")
                             return None
                         chunks.append(chunk)
                     content = b"".join(chunks)
