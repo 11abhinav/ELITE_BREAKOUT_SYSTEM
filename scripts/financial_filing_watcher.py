@@ -1037,7 +1037,8 @@ class FinancialFilingWatcher:
             except ImportError:
                 from data_providers.nse_xbrl_provider import NseXbrlProvider
             _sweep_prov = NseXbrlProvider()
-            market_sweep_filings = _sweep_prov.discover_market_filings_sweep(as_of_date=as_of, lookback_days=14)
+            sweep_lookback = int(os.getenv("FILING_WATCHER_SWEEP_LOOKBACK_DAYS", "45"))
+            market_sweep_filings = _sweep_prov.discover_market_filings_sweep(as_of_date=as_of, lookback_days=sweep_lookback)
             if market_sweep_filings:
                 market_sweep_ok = True
                 total_market_disclosures = sum(len(v) for v in market_sweep_filings.values())
@@ -1073,7 +1074,7 @@ class FinancialFilingWatcher:
         # Without this, every NseXbrlProvider() construction hits NSE homepage for Akamai cookies
         # (30 workers × homepage handshake = 30 simultaneous NSE homepage requests at startup).
         # _sweep_prov already has an authenticated session from discover_market_filings_sweep above.
-        _shared_nse_provider = _sweep_prov if market_sweep_ok and '_sweep_prov' in dir() else None
+        _shared_nse_provider = _sweep_prov if market_sweep_ok and '_sweep_prov' in locals() else None
 
         def _get_thread_providers():
             if not hasattr(_tls, "nse_provider"):
@@ -1442,9 +1443,9 @@ class FinancialFilingWatcher:
                             break
 
                 # ── RULE 67 / RESOURCE CONSERVATION INVARIANT: ZERO REDUNDANT SCRAPING ──
-                # 1. If history is complete (not needs_bootstrap) and market sweep verified no new filing:
-                #    SKIP in 0ms!
-                if not needs_bootstrap and market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
+                # 1. If history is complete (not needs_bootstrap), latest concluded quarter is ALREADY PRESENT,
+                #    and market sweep verified no new filing: SKIP in 0ms!
+                if not needs_bootstrap and has_latest_concluded_quarter and market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
                     with self._state_lock:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
@@ -1545,6 +1546,14 @@ class FinancialFilingWatcher:
                         f"🚀 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
                         f"BOOTSTRAP / HEAL NEEDED ({reason_desc}, local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
                         f"Ingesting complete history from {min_cutoff} to ensure 100% complete data."
+                    )
+                elif not has_latest_concluded_quarter:
+                    # Stock is missing recent mandatory filings: query from last available local observation to today!
+                    min_cutoff = latest_local_period or "2024-01-01"
+                    logger.info(
+                        f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"MISSING LATEST CONCLUDED QUARTER (latest_local={latest_local_period} < {latest_concluded_qtr}). "
+                        f"Fetching missing filings from {min_cutoff} through today."
                     )
                 else:
                     # In incremental run with new filing: ONLY check for new filings!
@@ -1675,7 +1684,7 @@ class FinancialFilingWatcher:
                 should_poll_nse_legacy = bool(
                     nse_prov
                     and not direct_sweep_success  # <-- Early exit: skip if sweep already ingested new data
-                    and (needs_bootstrap or not market_sweep_ok)
+                    and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok or has_newer_sweep_filing)
                 )
                 if should_poll_nse_legacy:
                     try:
@@ -1738,7 +1747,11 @@ class FinancialFilingWatcher:
                     (r.get("revenue") is not None or r.get("net_profit") is not None)
                     for r in raw_filings_list
                 )
-                should_poll_bse = bool((bse_prov is not None) and (is_bse_only or (needs_bootstrap and not has_structured_facts and not market_sweep_ok)))
+                should_poll_bse = bool(
+                    (bse_prov is not None)
+                    and not direct_sweep_success
+                    and (is_bse_only or (not has_structured_facts and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok or has_newer_sweep_filing)))
+                )
                 if should_poll_bse:
                     try:
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)

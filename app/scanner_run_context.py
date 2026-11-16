@@ -31,7 +31,7 @@ SCANNER_MAX_EXECUTION_SECONDS = {
     "WEALTH_EXIT_V2": 21600,          # 360 min (6 hours)
     "AI Worker": 14400,               # 240 min (4 hours)
     "Pledge Worker": 14400,           # 240 min (4 hours)
-    "FILING_WATCHER": 21600,          # 360 min (6 hours)
+    "FILING_WATCHER": None,           # None = Unlimited execution (no timeout ceiling)
     "DAILY_BUILDER": 14400,           # 240 min (4 hours)
     "TECHNICAL": 14400,               # 240 min (4 hours)
     "FUNDAMENTAL": 14400,             # 240 min (4 hours)
@@ -155,9 +155,10 @@ class ScannerRunContext:
 
                     # SAFETY FUSE: If this context has been running longer than its max allowed duration,
                     # stop pulsing heartbeats, auto-complete the run as TIMED_OUT, and alert admin!
+                    # Note: Scanners configured with max_duration=None or 0 (such as FILING_WATCHER) run with no timeout ceiling.
                     max_duration = SCANNER_MAX_EXECUTION_SECONDS.get(self.scanner_name, DEFAULT_MAX_EXECUTION_SECONDS)
                     elapsed = time.time() - self.start_time
-                    if elapsed > max_duration:
+                    if max_duration and max_duration > 0 and elapsed > max_duration:
                         logger.critical(
                             f"🛑 [WATCHDOG SAFETY FUSE] Scanner '{self.scanner_name}' run {self.run_id[:8]} "
                             f"exceeded maximum allowed duration ({int(elapsed/60)}m > {int(max_duration/60)}m). "

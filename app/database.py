@@ -11444,12 +11444,19 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             else:
                 raw_count = raw_info.get("count", 0)
                 raw_period = raw_info.get("latest", "None")
+                raw_qtr = str(raw_info.get("latest_quarterly") or "")
+                snap_qtr = str(row.get("latest_quarterly_period") or "")
+                eff_qtr = max(raw_qtr, snap_qtr) if (raw_qtr and snap_qtr) else (raw_qtr or snap_qtr)
+
                 if raw_count == 0 or raw_period in ("None", "Empty", "Error"):
                     raw_stale = True
                 elif raw_period < sym_mand_period:
-                    ann_p = str(row.get("latest_annual_period") or "")
-                    if not ann_p or (ann_p < "2026-03-31" and staleness_years > 1.0):
-                        raw_stale = True
+                    # [SEBI LODR REG 33 INVARIANT]: If latest filed period is older than the statutory mandatory period,
+                    # the company is overdue on its exchange disclosures and MUST be classified as stale.
+                    raw_stale = True
+                elif not is_half_y and sym_mand_period.endswith(("-06-30", "-09-30", "-12-31")) and eff_qtr < sym_mand_period:
+                    # [SEBI LODR REG 33 INVARIANT]: Standard quarterly filers must submit quarterly results for each concluded quarter.
+                    raw_stale = True
 
             if raw_stale:
                 comp_name = sec_master.get(sym, {}).get("company_name", sym)
@@ -11921,15 +11928,17 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
         raw_p_latest = checks.get("latest_raw_period") or checks.get("latest_annual_period")
         ann_p = checks.get("latest_annual_period") or ""
         st_years = checks.get("staleness_years") if checks.get("staleness_years") is not None else 99.0
+        eff_qtr = max(str(checks.get("latest_quarterly_period") or ""), str(checks.get("latest_raw_period") or ""))
         if not raw_p_latest or str(raw_p_latest) in ("None", "Empty", "Error", "No local file"):
             checks["missing_metrics"].append(
                 f"SEBI LODR Reg 33 filing missing ({sym_label}): Required period {sym_mand_period} (statutory deadline {sym_deadline}), no local disclosures"
             )
-        elif str(raw_p_latest) < sym_mand_period:
-            if not ann_p or (ann_p < "2026-03-31" and st_years > 1.0):
-                checks["missing_metrics"].append(
-                    f"SEBI LODR Reg 33 filing overdue ({sym_label}): Required period {sym_mand_period} (statutory deadline {sym_deadline}), but latest available is {raw_p_latest or 'None'}"
-                )
+        elif str(raw_p_latest) < sym_mand_period or (not is_half_y and sym_mand_period.endswith(("-06-30", "-09-30", "-12-31")) and eff_qtr < sym_mand_period):
+            # [SEBI LODR REG 33 INVARIANT]: If latest filed period or latest quarterly is older than mandatory filing period,
+            # statutory filing is overdue.
+            checks["missing_metrics"].append(
+                f"SEBI LODR Reg 33 filing overdue ({sym_label}): Required period {sym_mand_period} (statutory deadline {sym_deadline}), but latest available is {raw_p_latest or 'None'}"
+            )
     except Exception as _sebi_err:
         logger.debug(f"[VALIDATE_STOCK] SEBI LODR check note for {sym_u}: {_sebi_err}")
 
@@ -13452,26 +13461,35 @@ def sync_master_symbols(symbol_rows: list) -> bool:
         args = [deduped[sym] for sym in sorted(deduped.keys())]
 
         from psycopg2.extras import execute_values
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                execute_values(
-                    cur,
-                    """
-                    INSERT INTO master_symbols (symbol, company_name, exchange, sector, is_active, last_updated)
-                    VALUES %s
-                    ON CONFLICT (symbol) DO UPDATE
-                    SET company_name = EXCLUDED.company_name,
-                        exchange = EXCLUDED.exchange,
-                        sector = EXCLUDED.sector,
-                        is_active = TRUE,
-                        last_updated = CURRENT_TIMESTAMP
-                    """,
-                    args,
-                    template="(%s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP)",
-                    page_size=500
-                )
-            conn.commit()
-            return True
+        for attempt in range(3):
+            try:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        execute_values(
+                            cur,
+                            """
+                            INSERT INTO master_symbols (symbol, company_name, exchange, sector, is_active, last_updated)
+                            VALUES %s
+                            ON CONFLICT (symbol) DO UPDATE
+                            SET company_name = EXCLUDED.company_name,
+                                exchange = EXCLUDED.exchange,
+                                sector = EXCLUDED.sector,
+                                is_active = TRUE,
+                                last_updated = CURRENT_TIMESTAMP
+                            """,
+                            args,
+                            template="(%s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP)",
+                            page_size=500
+                        )
+                    conn.commit()
+                    return True
+            except Exception as conn_err:
+                err_str = str(conn_err).lower()
+                if attempt < 2 and any(k in err_str for k in ("closed", "terminated", "connection", "broken")):
+                    logger.warning(f"⚠️ [sync_master_symbols] Connection dropped (attempt {attempt+1}/3), retrying: {conn_err}")
+                    time.sleep(1)
+                    continue
+                raise
     except Exception as e:
         logger.error(f"Failed to sync master symbols: {e}")
         return False

@@ -102,7 +102,7 @@ def _clean_token_number(token: str) -> Optional[float]:
     """Parses a numerical token from a table line, handling (negative) and comma separators."""
     if not token:
         return None
-    token = token.strip()
+    token = token.strip().lstrip("·•₹t#@~_`*")
     # Filter out tokens containing alphabetical letters or bracket equations like [5-6]
     if re.search(r"[a-zA-Z]", token) or "[" in token or "]" in token:
         return None
@@ -476,7 +476,7 @@ class ExchangePdfParser:
             num_cols = 1
             target_dmy = f"{period_end[8:10]}.{period_end[5:7]}.{period_end[:4]}" if period_end else ""
             for line in text.split("\n"):
-                dm = re.findall(r"(\d{2}[\.,/-]\d{2}[\.,/-]202\d)", line)
+                dm = re.findall(r"(\d{2}[\.,/-](?:[A-Za-z]{3}|\d{2})[\.,/-](?:20)?\d{2})", line)
                 if dm and len(dm) >= 2:
                     num_cols = len(dm)
                     # Under SEBI LODR Regulation 33 schedule, Col 0 is always the latest reporting quarter
@@ -493,16 +493,28 @@ class ExchangePdfParser:
                         col_idx = 0  # In SEBI Reg 33 format, Col 0 is always the latest reporting quarter
                         break
 
+            # Expand lines if multiple table rows were concatenated without newlines
+            raw_lines = []
+            for l in text.split("\n"):
+                sub_lines = re.split(r'\s+(?=(?:[A-Z0-9]+[\.\)]|\b[A-Z]\b)\s+[A-Za-z])', l.strip())
+                for sl in sub_lines:
+                    if sl:
+                        raw_lines.append(sl)
+
             # If still num_cols == 1, infer from most frequent number of values on key financial rows
             if num_cols == 1:
                 col_counts = []
-                for line in text.split("\n"):
-                    line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/]\s*[\d\w]+\s*\)", "", line.strip())
+                for line in raw_lines:
+                    line_clean = re.sub(r'pro\s+fit', 'profit', line, flags=re.I)
+                    line_clean = re.sub(r'[·•]', '', line_clean)
+                    line_clean = re.sub(r'(\d+)\s*[\.,]\s*(\d{2})\b', r'\1.\2', line_clean)
+                    line_clean = re.sub(r'(\d{1,3}(?:,\d{3})+)\s+(\d{2})\b', r'\1.\2', line_clean)
+                    line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/\s]\s*[\d\w]+\s*\)", "", line_clean.strip())
                     low = re.sub(r"\s+", " ", line_clean.lower())
                     if any(k in low for k in ["revenue from operations", "total revenue", "total income", "profit for the period", "profit after tax", "net profit"]):
                         tokens = line_clean.split()
                         nums = [_clean_token_number(t) for t in tokens if _clean_token_number(t) is not None]
-                        if len(nums) in (3, 4, 5, 6, 7, 8):
+                        if len(nums) in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
                             col_counts.append(len(nums))
                 if col_counts:
                     from collections import Counter
@@ -513,10 +525,14 @@ class ExchangePdfParser:
                 col_idx = 0
 
             # Strategy A: Line-by-line inspection (Standard inline tables where numbers are adjacent to row label)
-            for line in text.split("\n"):
+            for line in raw_lines:
                 line_str = line.strip()
-                # Strip formula equations in row labels like (7 -8), (1+2), (3-4), (lll-IV)
-                line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/]\s*[\d\w]+\s*\)", "", line_str)
+                # Strip formula equations in row labels like (7 -8), (1+2), (3-4), (3  4), (lll-IV)
+                line_clean = re.sub(r'pro\s+fit', 'profit', line_str, flags=re.I)
+                line_clean = re.sub(r'[·•]', '', line_clean)
+                line_clean = re.sub(r'(\d+)\s*[\.,]\s*(\d{2})\b', r'\1.\2', line_clean)
+                line_clean = re.sub(r'(\d{1,3}(?:,\d{3})+)\s+(\d{2})\b', r'\1.\2', line_clean)
+                line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/\s]\s*[\d\w]+\s*\)", "", line_clean)
                 line_lower = line_clean.lower()
                 tokens = line_clean.split()
                 if not tokens:

@@ -78,7 +78,7 @@ KNOWN_ALIASES: Dict[str, str] = {
 }
 
 
-_BSE_MASTER_LOCK = threading.Lock()
+_BSE_MASTER_LOCK = threading.RLock()
 _BSE_MASTER_DB_SYNCED = False
 
 

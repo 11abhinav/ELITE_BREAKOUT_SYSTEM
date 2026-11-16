@@ -828,7 +828,11 @@ class NseXbrlProvider:
             all_filings.extend(self._sweep_announcements_cache[symbol])
 
         # If incremental run already found filings in sweep cache, avoid slow legacy _BASE_URL requests
-        should_query_base_url = not (min_period_end_date and str(min_period_end_date) >= "2024-01-01" and all_filings)
+        has_financial_filings = any(
+            it.get("xbrl") or any(k in f"{it.get('desc', '')} {it.get('attchmntText', '')}".lower() for k in ("financial", "result", "outcome of board meeting", "audited", "unaudited"))
+            for it in all_filings
+        )
+        should_query_base_url = not (min_period_end_date and str(min_period_end_date) >= "2024-01-01" and has_financial_filings)
         if should_query_base_url:
             # In incremental runs (min_period_end_date >= 2024), skip redundant Annual requests to cut network traffic by 50%
             periods_to_query = ("Quarterly",) if (min_period_end_date and str(min_period_end_date) >= "2024-01-01") else ("Annual", "Quarterly")
