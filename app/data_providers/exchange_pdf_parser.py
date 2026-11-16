@@ -37,12 +37,13 @@ except ImportError:
     logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 import threading
 
-# Concurrency semaphore for exchange PDF downloads: allow up to 15 concurrent network downloads
-_DOWNLOAD_SEMAPHORE = threading.Semaphore(15)
+# Concurrency semaphore for exchange PDF downloads: allow up to 4 concurrent network downloads
+# (4 permits prevents high concurrent RSS allocation on container memory)
+_DOWNLOAD_SEMAPHORE = threading.Semaphore(4)
 
-# Optimal concurrency parse semaphore: 6 concurrent workers for CPU-bound PDF text parsing
-# (6 permits provides optimal throughput for 30 worker threads while preventing CPU starvation)
-_PARSE_SEMAPHORE = threading.Semaphore(6)
+# Optimal concurrency parse semaphore: 4 concurrent workers for CPU-bound PDF text parsing
+# (4 permits provides optimal throughput without RAM/CPU contention on containers)
+_PARSE_SEMAPHORE = threading.Semaphore(4)
 
 # Size limits:
 # If announcement subject confirms it is a SEBI Reg 33 Financial Result, allow up to 50MB
@@ -281,14 +282,16 @@ class ExchangePdfParser:
         ann_meta = announcement_metadata or {}
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-        # Acquire parse semaphore with 300-second timeout (ensures queue drains without prematurely aborting data parsing)
-        if not _PARSE_SEMAPHORE.acquire(timeout=300.0):
-            logger.warning(f"[PDF_PARSER] Parse semaphore busy after 300s for {symbol}. Skipping to keep worker thread moving.")
+        # Acquire parse semaphore with 60-second timeout (ensures queue drains without holding up worker threads)
+        if not _PARSE_SEMAPHORE.acquire(timeout=60.0):
+            logger.info(f"⏳ [PDF_PARSER] Parse queue busy after 60s for {symbol}. Moving forward.")
             return []
         try:
             records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
             if records:
                 logger.info(f"📄 [PDF_PARSER] {symbol}: Successfully extracted {len(records)} record(s) from PDF ({len(pdf_bytes)} bytes)")
+            else:
+                logger.debug(f"ℹ️ [PDF_PARSER] {symbol}: 0 structured statement records extracted from PDF ({len(pdf_bytes)} bytes).")
             return records
         finally:
             _PARSE_SEMAPHORE.release()

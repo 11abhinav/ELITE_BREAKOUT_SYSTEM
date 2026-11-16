@@ -1679,12 +1679,14 @@ class FinancialFilingWatcher:
                         )
 
                 # 1. Poll NSE XBRL / Corporate Results (Primary Source) - only if needs_bootstrap or if market sweep was unavailable
-                # KEY OPTIMIZATION: If direct_sweep_success=True AND we had a new filing, the XBRL data was already
-                # ingested from the sweep attachment. Skip redundant 45-60s NSE legacy API round-trips.
+                # KEY OPTIMIZATION: If market sweep executed cleanly, recent disclosures were already examined in memory.
+                # Only fall back to slow per-symbol legacy API round-trips if:
+                #   - We need full historical bootstrapping (needs_bootstrap=True), OR
+                #   - Market sweep was unavailable/failed (not market_sweep_ok)
                 should_poll_nse_legacy = bool(
                     nse_prov
                     and not direct_sweep_success  # <-- Early exit: skip if sweep already ingested new data
-                    and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok or has_newer_sweep_filing)
+                    and (needs_bootstrap or not market_sweep_ok)
                 )
                 if should_poll_nse_legacy:
                     try:
@@ -1750,7 +1752,7 @@ class FinancialFilingWatcher:
                 should_poll_bse = bool(
                     (bse_prov is not None)
                     and not direct_sweep_success
-                    and (is_bse_only or (not has_structured_facts and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok or has_newer_sweep_filing)))
+                    and (is_bse_only or (not has_structured_facts and (needs_bootstrap or not market_sweep_ok)))
                 )
                 if should_poll_bse:
                     try:
