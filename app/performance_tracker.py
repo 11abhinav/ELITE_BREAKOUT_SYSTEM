@@ -1892,7 +1892,14 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                         df_req = pd.DataFrame({"Stock": open_syms})
                         tier2_batch = fetch_watchlist_data(df_req, interval="1h", period="7d", requester="performance_tracker_tier2")
                         if tier2_batch:
-                            tier2_prefetch.update(tier2_batch)
+                            from trading_calendar import enforce_trading_day_candles
+                            cleaned_tier2 = {}
+                            for s_k, df_bars in tier2_batch.items():
+                                if df_bars is not None and not df_bars.empty:
+                                    cleaned_tier2[s_k] = enforce_trading_day_candles(df_bars, s_k)
+                                else:
+                                    cleaned_tier2[s_k] = df_bars
+                            tier2_prefetch.update(cleaned_tier2)
                             # Populate module-level TTL cache
                             _tier2_prefetch_cache.clear()
                             _tier2_prefetch_cache.update(tier2_prefetch)
@@ -1902,9 +1909,13 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                         logger.warning(f"⚠️ [TIER2] Batch prefetch failed (will fall back to cur_p only): {_t2_err}")
 
 
+    from corporate_actions import adjust_trade_for_corporate_actions
+    from market_utils import is_market_open
+
     alert_cmp_updates = []
     step3_loop_start = time.monotonic()
     total_trades_count = len(trades)
+    _is_mkt_open = is_market_open()
     for idx, t in enumerate(trades):
         # [PERF] Micro-yield the GIL periodically without adding dozens of seconds of dead sleep
         if idx % 20 == 0:
@@ -1914,7 +1925,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             step3_elapsed = time.monotonic() - step3_loop_start
             logger.info(f"⚡ [PERF_TRACKER] Step 3 progress: evaluated {idx + 1}/{total_trades_count} trades ({step3_elapsed:.1f}s)...")
 
-        from corporate_actions import adjust_trade_for_corporate_actions
         adjust_trade_for_corporate_actions(t)
 
         sym        = t["symbol"]
@@ -1941,8 +1951,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 # entry_price MUST be synchronized to cur_p (latest market close) so that
                 # a freshly raised alert starts with 0.00% P&L rather than an artificial loss.
                 try:
-                    from market_utils import is_market_open
-                    _is_mkt_open = is_market_open()
                     _is_day0 = (t.get("days_held", 0) == 0) or (str(t.get("entry_date", ""))[:10] == now_ist.strftime('%Y-%m-%d'))
                     if not _is_mkt_open and _is_day0 and ep and cur_p and ep != cur_p and not _is_partial:
                         ep = cur_p

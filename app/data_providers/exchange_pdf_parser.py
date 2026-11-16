@@ -40,9 +40,9 @@ import threading
 # Concurrency semaphore for exchange PDF downloads: allow up to 15 concurrent network downloads
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(15)
 
-# Optimal concurrency parse semaphore: 8 concurrent workers for CPU-bound PDF text parsing
-# (prevents Python GIL thrashing and CPU core saturation while allowing 30 concurrent network discovery workers)
-_PARSE_SEMAPHORE = threading.Semaphore(8)
+# Optimal concurrency parse semaphore: 3 concurrent workers for CPU-bound PDF text parsing
+# (3 permits eliminates Python GIL thrashing and CPU core saturation so each PDF parses in 1-2s instead of 60s+)
+_PARSE_SEMAPHORE = threading.Semaphore(3)
 
 # Size limits:
 # If announcement subject confirms it is a SEBI Reg 33 Financial Result, allow up to 50MB
@@ -206,8 +206,8 @@ class ExchangePdfParser:
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
-        # Limit concurrent network downloads (supports up to 15 concurrent threads, timeout=45s to prevent hang)
-        if not _DOWNLOAD_SEMAPHORE.acquire(timeout=45.0):
+        # Limit concurrent network downloads (supports up to 15 concurrent threads, timeout=120s to prevent hang)
+        if not _DOWNLOAD_SEMAPHORE.acquire(timeout=120.0):
             logger.warning(f"[PDF_PARSER] Download semaphore acquire timeout for {base_name}. Skipping to keep worker thread moving.")
             return None
         try:
@@ -281,9 +281,9 @@ class ExchangePdfParser:
         ann_meta = announcement_metadata or {}
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-        # Acquire parse semaphore with 60-second timeout (supports all 30 threads concurrently without dropping)
-        if not _PARSE_SEMAPHORE.acquire(timeout=60.0):
-            logger.warning(f"[PDF_PARSER] Parse semaphore busy after 60s for {symbol}. Skipping to keep worker thread moving.")
+        # Acquire parse semaphore with 300-second timeout (ensures queue drains without prematurely aborting data parsing)
+        if not _PARSE_SEMAPHORE.acquire(timeout=300.0):
+            logger.warning(f"[PDF_PARSER] Parse semaphore busy after 300s for {symbol}. Skipping to keep worker thread moving.")
             return []
         try:
             return self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)

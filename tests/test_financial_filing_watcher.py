@@ -529,9 +529,9 @@ def test_incremental_sweep_uses_latest_period_cutoff(temp_watcher):
     raw_dir.mkdir(parents=True, exist_ok=True)
     watcher.pit_raw_dir = raw_dir
 
-    # Full annuals 2018-2026 and quarterly filings
+    # Full annuals 2018-2025, and quarterly filings through 2026-06-30 (missing 2026-09-30)
     filings = []
-    for y in range(2018, 2027):
+    for y in range(2018, 2026):
         filings.append({
             "period_end_date": f"{y}-03-31",
             "statement_type": "ANNUAL",
@@ -551,6 +551,25 @@ def test_incremental_sweep_uses_latest_period_cutoff(temp_watcher):
                 "total_debt": 50,
                 "total_equity": 500,
             })
+    # 2026 FY: Annual 2026-03-31 and Q1 2026-06-30 (leaving 2026-09-30 missing to trigger incremental fetch from 2026-06-30)
+    filings.append({
+        "period_end_date": "2026-03-31",
+        "statement_type": "ANNUAL",
+        "revenue": 9000,
+        "net_profit": 900,
+        "ebit": 1350,
+        "total_debt": 50,
+        "total_equity": 500,
+    })
+    filings.append({
+        "period_end_date": "2026-06-30",
+        "statement_type": "QUARTERLY",
+        "revenue": 250,
+        "net_profit": 25,
+        "ebit": 40,
+        "total_debt": 50,
+        "total_equity": 500,
+    })
     with open(raw_dir / f"{sym}.json", "w") as f:
         json.dump(filings, f)
 
@@ -571,11 +590,11 @@ def test_incremental_sweep_uses_latest_period_cutoff(temp_watcher):
             }])
             with patch("app.data_providers.nse_xbrl_provider.NseXbrlProvider", return_value=MockNSE()):
                 with patch("app.data_providers.bse_corporate_provider.BseCorporateProvider", return_value=None):
-                    # Run 1: Not polled recently, should fetch with min_period_end_date = "2026-12-31" (latest local period)
+                    # Run 1: Not polled recently and missing 2026-09-30 -> fetch with min_period_end_date = "2026-06-30" (latest local period)
                     watcher.poll_exchange_filings(target_symbols=[sym], max_workers=1)
 
     assert len(requested_cutoffs) == 1
-    assert requested_cutoffs[0] == "2026-12-31", f"Expected incremental cutoff 2026-12-31, got {requested_cutoffs[0]}"
+    assert requested_cutoffs[0] == "2026-06-30", f"Expected incremental cutoff 2026-06-30, got {requested_cutoffs[0]}"
 
     # State now has last_polled_at set
     assert sym in watcher.state
@@ -676,6 +695,9 @@ def test_calendar_year_tail_gap_not_flagged(temp_watcher, monkeypatch):
         {"period_end_date": f"{y}-12-31", "statement_type": "ANNUAL", "revenue": 1000 + y, "net_profit": 100 + y, "exchange": "NSE"}
         for y in range(2020, 2026)
     ]
+    # Add calendar-year completed quarters for 2026 (Q1 March, Q2 June, Q3 Sept)
+    for q_month in ["03-31", "06-30", "09-30"]:
+        abb_filings.append({"period_end_date": f"2026-{q_month}", "statement_type": "QUARTERLY", "revenue": 300, "net_profit": 30, "exchange": "NSE"})
     with open(raw_dir / f"{sym}.json", "w") as f:
         json.dump(abb_filings, f)
 
