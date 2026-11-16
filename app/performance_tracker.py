@@ -176,6 +176,16 @@ def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
     return prices
 
 
+# ── Module-level TTL cache for the Tier-2 batch prefetch ──────────────────────
+# Prevents sequential watchdog re-triggers (every 15–40 min) from re-fetching the
+# same 1h/7d bars for every open trade. Cache is keyed by frozen symbol set and
+# expires after TIER2_CACHE_TTL_SECONDS (35 min = just under the 40-min watchdog gap).
+_tier2_prefetch_cache: dict = {}          # sym -> pd.DataFrame
+_tier2_prefetch_cache_ts: float = 0.0    # monotonic time of last fill
+_tier2_prefetch_cache_lock = threading.Lock()
+TIER2_CACHE_TTL_SECONDS: float = 35 * 60   # 35 minutes
+
+
 def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], prefetched_hist: pd.DataFrame = None) -> Optional[pd.DataFrame]:
     """
     Fetch 5m bars for *symbol* from the alert date to today using DataFetcher.
@@ -1851,28 +1861,45 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     # may need recent 1h bars to detect missed breaches during broker/offline downtime.
     tier2_prefetch: dict = {}
     if is_open and not do_tick_replay:
+        # Collect ALL open, non-closed, non-compounding swing trades that need bar data.
+        # This includes both "full target" rows AND legacy "SL-only" rows so the latter
+        # never fall through to per-symbol _fetch_post_alert_bars calls in the loop below.
         open_syms = list({
             t["symbol"] for t in trades
             if not t["_db_closed"]
             and t["symbol"] not in fast_evaluated_syms
             and t["entry_price"] is not None
             and t["stop_loss"]
-            and (t.get("target_1") or t.get("target_price"))
             and t["alert_time"]
             and not is_long_term_compounder_trade(t)
             and not t.get("is_rejected")
         })
         if open_syms:
-            try:
-                syms_preview = ",".join(open_syms[:5]) + ("..." if len(open_syms) > 5 else "")
-                logger.info(f"📦 [TIER2] Batch-fetching 7d/1h bars for {len(open_syms)} OPEN trades [{syms_preview}] to catch missed SL breaches...")
-                df_req = pd.DataFrame({"Stock": open_syms})
-                tier2_batch = fetch_watchlist_data(df_req, interval="1h", period="7d", requester="performance_tracker_tier2")
-                if tier2_batch:
-                    tier2_prefetch.update(tier2_batch)
-                    logger.info(f"✅ [TIER2] Got bars for {len(tier2_prefetch)}/{len(open_syms)} symbols")
-            except Exception as _t2_err:
-                logger.warning(f"⚠️ [TIER2] Batch prefetch failed (will fall back to cur_p only): {_t2_err}")
+            # ── TTL cache check: reuse last batch if still fresh ───────────────
+            with _tier2_prefetch_cache_lock:
+                _cache_age = time.monotonic() - _tier2_prefetch_cache_ts
+                if _tier2_prefetch_cache and _cache_age < TIER2_CACHE_TTL_SECONDS:
+                    tier2_prefetch = dict(_tier2_prefetch_cache)
+                    logger.info(
+                        f"⚡ [TIER2] Reusing cached 1h bars for {len(tier2_prefetch)} symbols "
+                        f"(cache age {_cache_age:.0f}s < TTL {TIER2_CACHE_TTL_SECONDS:.0f}s) — skipping re-fetch"
+                    )
+                else:
+                    try:
+                        syms_preview = ",".join(open_syms[:5]) + ("..." if len(open_syms) > 5 else "")
+                        logger.info(f"📦 [TIER2] Batch-fetching 7d/1h bars for {len(open_syms)} OPEN trades [{syms_preview}] to catch missed SL breaches...")
+                        df_req = pd.DataFrame({"Stock": open_syms})
+                        tier2_batch = fetch_watchlist_data(df_req, interval="1h", period="7d", requester="performance_tracker_tier2")
+                        if tier2_batch:
+                            tier2_prefetch.update(tier2_batch)
+                            # Populate module-level TTL cache
+                            _tier2_prefetch_cache.clear()
+                            _tier2_prefetch_cache.update(tier2_prefetch)
+                            globals()["_tier2_prefetch_cache_ts"] = time.monotonic()
+                            logger.info(f"✅ [TIER2] Got bars for {len(tier2_prefetch)}/{len(open_syms)} symbols (cached for {TIER2_CACHE_TTL_SECONDS/60:.0f}min)")
+                    except Exception as _t2_err:
+                        logger.warning(f"⚠️ [TIER2] Batch prefetch failed (will fall back to cur_p only): {_t2_err}")
+
 
     alert_cmp_updates = []
     step3_loop_start = time.monotonic()
@@ -2006,9 +2033,16 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)
+            # [FIX: PERF_TRACKER_LEGACY_SL_BATCH_v1.0]
+            # Previously: fell through to per-symbol _fetch_post_alert_bars() — the 30-min killer.
+            # Now: use tier2_prefetch (batch-fetched above) first; only fall back to individual
+            # _fetch_post_alert_bars during explicit tick-replay recalculation.
             hist = None
             if do_tick_replay and (t["id"] in recalc_ids):
                 hist = _fetch_post_alert_bars(sym, alert_time)
+            elif is_open and not do_tick_replay:
+                # Use the batch-prefetched bars (same 7d/1h window); no individual API call needed.
+                hist = tier2_prefetch.get(sym) if tier2_prefetch else None
             if hist is not None and not hist.empty:
                 lowest_low = float(hist["Low"].min())
                 if lowest_low <= sl:

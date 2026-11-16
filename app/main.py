@@ -498,7 +498,7 @@ def _run_performance_tracker_single():
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Every 5min (market hours)",
+            scheduled_for="Every 40min (market hours)",
             duration_seconds=duration_sec
         )
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
@@ -516,7 +516,7 @@ def _run_performance_tracker_single():
             upsert_scanner_health(
                 "PERFORMANCE_TRACKER", status="DOWN",
                 error_msg=str(e)[:500],
-                scheduled_for="Every 5min (market hours)"
+                scheduled_for="Every 40min (market hours)"
             )
         except Exception:
             pass
@@ -545,7 +545,7 @@ def run_performance_tracker():
         upsert_scanner_health(
             "PERFORMANCE_TRACKER", status="OK",
             last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Every 5min (market hours)",
+            scheduled_for="Every 40min (market hours)",
             duration_seconds=dur_pt_boot
         )
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
@@ -557,7 +557,7 @@ def run_performance_tracker():
             upsert_scanner_health(
                 "PERFORMANCE_TRACKER", status="DOWN",
             error_msg="Boot refresh failed",
-            scheduled_for="Every 5min (market hours)"
+            scheduled_for="Every 40min (market hours)"
         )
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_FAILED", error=str(e))
         
@@ -574,7 +574,7 @@ def run_performance_tracker():
                 upsert_scanner_health(
                     "PERFORMANCE_TRACKER", status="OK",
                     last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Every 5min (market hours)",
+                    scheduled_for="Every 40min (market hours)",
                     duration_seconds=dur_pt_loop
                 )
                 telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
@@ -588,12 +588,12 @@ def run_performance_tracker():
                     upsert_scanner_health(
                         "PERFORMANCE_TRACKER", status="DOWN",
                         error_msg=str(e)[:500],
-                        scheduled_for="Every 5min (market hours)"
+                        scheduled_for="Every 40min (market hours)"
                     )
                 except Exception:
                     pass
         
-        time.sleep(900)  # [ARCHITECTURAL FIX] Reduced from 5m (300) to 15m (900) to lower API strain
+        time.sleep(2400)  # [ARCHITECTURAL FIX v2] Increased from 15m (900) to 40m (2400) to match actual PT run duration (~30 min). Prevents trigger storm where watchdog fires again before the previous run finishes.
 
 _watchlist_build_lock = threading.Lock()
 
@@ -1806,7 +1806,7 @@ def check_scanner_staleness(now):
     # Expected max gap (in minutes) for each scanner before it's considered stale
     SCANNER_CADENCE = {
         "TECHNICAL":                          "DAILY",  # runs full scan once daily post-close at 18:15 IST
-        "PERFORMANCE_TRACKER":                15,       # runs every 5 min
+        "PERFORMANCE_TRACKER":                45,       # runs every 40min (actual run takes ~30min)
         "WEALTH_EXIT":                        15,       # runs every 5 min during market hours
         "Wealth Engine":                      "DAILY",  # runs full scan once daily at 17:00 IST
         "QUALITY_COMPOUNDER":                 "DAILY",  # runs full scan once daily at 17:00 IST
