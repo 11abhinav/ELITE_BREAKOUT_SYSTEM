@@ -206,14 +206,14 @@ class ExchangePdfParser:
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
-        # Limit concurrent network downloads (supports up to 15 concurrent threads, timeout=10s to prevent hang)
-        if not _DOWNLOAD_SEMAPHORE.acquire(timeout=10.0):
+        # Limit concurrent network downloads (supports up to 15 concurrent threads, timeout=45s to prevent hang)
+        if not _DOWNLOAD_SEMAPHORE.acquire(timeout=45.0):
             logger.warning(f"[PDF_PARSER] Download semaphore acquire timeout for {base_name}. Skipping to keep worker thread moving.")
             return None
         try:
             # 1. Direct fetch from exchange static archives (streamed to enforce ceiling_bytes)
             try:
-                with self.session.get(pdf_url, headers=_HEADERS, timeout=15, stream=True) as resp:
+                with self.session.get(pdf_url, headers=_HEADERS, timeout=35, stream=True) as resp:
                     if resp.status_code == 200:
                         cl = resp.headers.get("Content-Length")
                         if cl and int(cl) > ceiling_bytes:
@@ -281,9 +281,9 @@ class ExchangePdfParser:
         ann_meta = announcement_metadata or {}
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-        # Acquire parse semaphore with 5-second timeout (supports all 30 threads concurrently)
-        if not _PARSE_SEMAPHORE.acquire(timeout=5.0):
-            logger.warning(f"[PDF_PARSER] Parse semaphore busy for {symbol}. Skipping to keep worker thread moving.")
+        # Acquire parse semaphore with 60-second timeout (supports all 30 threads concurrently without dropping)
+        if not _PARSE_SEMAPHORE.acquire(timeout=60.0):
+            logger.warning(f"[PDF_PARSER] Parse semaphore busy after 60s for {symbol}. Skipping to keep worker thread moving.")
             return []
         try:
             return self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
@@ -327,15 +327,9 @@ class ExchangePdfParser:
             return []
 
         # In SEBI Reg 33 filings, financial statement tables are located in the first 2-5 pages.
-        # Check at most the first _PDF_MAX_PAGES_SCAN pages to avoid sluggish font decoding on subsequent pages.
+        # Check at most the first _PDF_MAX_PAGES_SCAN pages without premature 15s timeout,
+        # ensuring financial statements located on pages 2-5 are fully extracted as required.
         for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
-            # Strict per-PDF timeout guard: never allow a complex/scanned PDF to block worker thread >15s
-            if time.time() - t_start > 15.0:
-                logger.warning(
-                    f"[PDF_PARSER] Parse timeout (15s exceeded) on page {page_idx+1} for {symbol}. "
-                    f"Returning {len(records)} records extracted so far."
-                )
-                break
             # Early exit if we already extracted both Consolidated and Standalone statements
             has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
             has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)

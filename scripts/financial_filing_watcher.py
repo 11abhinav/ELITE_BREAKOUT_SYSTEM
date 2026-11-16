@@ -1146,9 +1146,9 @@ class FinancialFilingWatcher:
         last_synced_count = [0]
         synced_batch_num = [0]
         last_synced_time = [time.time()]
-        TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "300.0"))  # 5 minutes (300 seconds)
-        BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Save to DB after every 25 completed stocks
-        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "10"))  # Or whenever 10 stocks ingested fresh filings
+        TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "60.0"))  # 1 minute (reduced from 300s to ensure fast DB sync)
+        BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "20"))  # Save to DB after every 20 completed stocks
+        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "1"))  # Immediate sync as soon as ANY new filing is ingested (preserves work across restarts)
 
         # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
         _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
@@ -2188,6 +2188,16 @@ class FinancialFilingWatcher:
                                 )
                             except Exception as _up_batch_err:
                                 logger.warning(f"[filling scanner] Batch raw bundle upload note: {_up_batch_err}")
+
+                            # 2b. [RESTART RESILIENCE] Rebuild and upload canonical snapshot delta immediately
+                            # so container restarts/redeployments retain certified snapshot records in DB without data loss.
+                            try:
+                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, run_ctx=run_ctx)
+                                logger.info(
+                                    f"💾 [filling scanner] [BATCH {b_num} SYNC] Rebuilt & uploaded canonical snapshot delta to DB for {to_sync_syms_batch[:8]}..."
+                                )
+                            except Exception as _snap_rebuild_err:
+                                logger.warning(f"[filling scanner] Batch snapshot rebuild note: {_snap_rebuild_err}")
 
                         # 3. Update DB execution progress & health heartbeat
                         progress_summary = (
