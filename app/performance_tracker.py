@@ -24,6 +24,7 @@ import math
 import json
 import logging
 import time
+import threading
 import pandas as pd
 from typing import Union, Optional, Tuple, List
 from datetime import datetime, date, timedelta, time as time_cls
@@ -2384,7 +2385,6 @@ def _write_empty():
 # previous logic dropped calls inside the 45s cooldown on the floor with no trailing execution.
 # This implementation adds a trailing-edge timer so that any alert batch is guaranteed to trigger
 # a final rebuild as soon as the batch finishes, ensuring 100% of newly generated alerts are reflected.
-import threading
 _perf_rebuild_lock = threading.Lock()
 _last_perf_rebuild_ts = 0.0
 _perf_rebuild_cooldown = 15.0
