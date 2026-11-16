@@ -40,9 +40,9 @@ import threading
 # Concurrency semaphore for exchange PDF downloads: allow up to 15 concurrent network downloads
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(15)
 
-# Optimal concurrency parse semaphore: 3 concurrent workers for CPU-bound PDF text parsing
-# (3 permits eliminates Python GIL thrashing and CPU core saturation so each PDF parses in 1-2s instead of 60s+)
-_PARSE_SEMAPHORE = threading.Semaphore(3)
+# Optimal concurrency parse semaphore: 6 concurrent workers for CPU-bound PDF text parsing
+# (6 permits provides optimal throughput for 30 worker threads while preventing CPU starvation)
+_PARSE_SEMAPHORE = threading.Semaphore(6)
 
 # Size limits:
 # If announcement subject confirms it is a SEBI Reg 33 Financial Result, allow up to 50MB
@@ -50,7 +50,7 @@ _PARSE_SEMAPHORE = threading.Semaphore(3)
 # For non-result documents (general circulars, intimation notices), keep the tight 4MB ceiling.
 _PDF_MAX_RESULT_BYTES = 50 * 1024 * 1024  # 50 MB for confirmed Financial Results
 _PDF_MAX_NON_RESULT_BYTES = 4 * 1024 * 1024  # 4 MB for non-result announcements
-_PDF_MAX_PAGES_SCAN = 8  # Financial tables under SEBI Reg 33 are strictly on pages 2-5; inspect at most 8 pages to eliminate wasteful CPU time
+_PDF_MAX_PAGES_SCAN = 4  # Financial tables under SEBI Reg 33 are strictly on pages 1-3; inspect at most 4 pages to eliminate wasteful CPU time
 _PDF_MAX_BOOKLET_PAGES = 150  # Only skip if entire document is >150 pages (annual report booklets)
 
 try:
@@ -286,7 +286,10 @@ class ExchangePdfParser:
             logger.warning(f"[PDF_PARSER] Parse semaphore busy after 300s for {symbol}. Skipping to keep worker thread moving.")
             return []
         try:
-            return self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
+            records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
+            if records:
+                logger.info(f"📄 [PDF_PARSER] {symbol}: Successfully extracted {len(records)} record(s) from PDF ({len(pdf_bytes)} bytes)")
+            return records
         finally:
             _PARSE_SEMAPHORE.release()
 
@@ -326,18 +329,23 @@ class ExchangePdfParser:
             )
             return []
 
-        # In SEBI Reg 33 filings, financial statement tables are located in the first 2-5 pages.
+        # In SEBI Reg 33 filings, financial statement tables are located in the first 2-3 pages.
         # Check at most the first _PDF_MAX_PAGES_SCAN pages without premature 15s timeout,
-        # ensuring financial statements located on pages 2-5 are fully extracted as required.
+        # ensuring financial statements located on pages 2-3 are fully extracted as required.
         for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
-            # Early exit if we already extracted both Consolidated and Standalone statements
+            # Smart early exit: if we already extracted a valid financial statement (Revenue + Net Profit)
+            # or if both Consolidated and Standalone statements were extracted, finish immediately!
+            has_valid_rec = any(r.revenue is not None and r.net_profit is not None for r in records)
             has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
             has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
-            if has_cons and has_std:
+            if has_valid_rec or (has_cons and has_std):
                 break
 
             try:
-                text = page.extract_text() or ""
+                try:
+                    text = page.extract_text(orientations=0) or ""
+                except TypeError:
+                    text = page.extract_text() or ""
             except Exception:
                 continue
 
