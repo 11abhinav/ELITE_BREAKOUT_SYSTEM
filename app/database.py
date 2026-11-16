@@ -180,7 +180,7 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
             maxconn=maxconn,
             dsn=db_url,
             connect_timeout=10,  # 10s connection timeout for Contabo VPS / Coolify Postgres
-            options="-c timezone=Asia/Kolkata -c statement_timeout=60000 -c idle_in_transaction_session_timeout=10000",
+            options="-c timezone=Asia/Kolkata -c statement_timeout=60000 -c idle_in_transaction_session_timeout=60000",
             keepalives=1,
             keepalives_idle=30,
             keepalives_interval=10,
@@ -354,6 +354,9 @@ def get_connection(timeout: int = 5):
                     try:
                         if not conn.closed and conn.info.transaction_status != 0:
                             conn.rollback()
+                        # Active pre-ping: guarantee TCP socket was not silently closed by server
+                        with conn.cursor() as _ping_cur:
+                            _ping_cur.execute("/* pool_ping */ SELECT 1;")
                     except Exception:
                         _safe_putconn(p, conn, close=True)
                         conn = None
@@ -396,7 +399,7 @@ def get_connection(timeout: int = 5):
                 direct_conn = psycopg2.connect(
                     dsn=db_url,
                     connect_timeout=3,
-                    options="-c timezone=Asia/Kolkata -c statement_timeout=30000 -c idle_in_transaction_session_timeout=10000"
+                    options="-c timezone=Asia/Kolkata -c statement_timeout=30000 -c idle_in_transaction_session_timeout=60000"
                 )
                 direct_conn.autocommit = True
                 yield direct_conn
@@ -415,9 +418,9 @@ def get_connection(timeout: int = 5):
         raise
     except Exception as e:
         is_conn_drop = False
-        if isinstance(e, OperationalError):
+        if isinstance(e, (OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError)):
             err_msg = str(e).lower()
-            if any(k in err_msg for k in ("closed the connection", "connection reset", "broken pipe", "terminating connection", "server terminated abnormally")):
+            if any(k in err_msg for k in ("closed the connection", "connection reset", "broken pipe", "terminating connection", "server terminated abnormally", "connection already closed")):
                 is_conn_drop = True
 
         if is_conn_drop:
@@ -7941,23 +7944,7 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                             date_col = db_cols[candidate]
                             break
 
-                    # 3. If there is old date data, delete it first
-                    if date_col:
-                        date_col_safe = date_col.replace("%", "%%")
-                        table_name_safe = table_name.replace("%", "%%")
-                        # [VERSION: DB_PATCH_v1.4] [RULE 67 CHANGE-RATIONALE]
-                        # Delete NULL dates, exact date matches, and timestamp prefix matches (e.g. '2026-08-29%')
-                        # to ensure idempotency across date/timestamp column formats.
-                        cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL')
-                        cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
-                        try:
-                            cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}"::text LIKE %s', (f"{today_str}%",))
-                        except Exception:
-                            pass
-                    else:
-                        cur.execute(f"TRUNCATE TABLE {table_name}")
-
-                    # 4. Map DataFrame columns to DB columns (case-insensitive)
+                    # 3. Map DataFrame columns to DB columns (in-memory, before touching DB)
                     df_cols_mapped = {}
                     for col in df.columns:
                         col_lower = col.lower().replace(" ", "_").replace("%", "pct").replace("yoy", "yoy").replace("qoq", "qoq")
@@ -7979,7 +7966,8 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                         logger.warning(f"⚠️ No matching columns found between DataFrame and table '{table_name}'.")
                         return
 
-                    # 5. Insert rows in batch with ON CONFLICT DO NOTHING for absolute idempotency & speed
+                    # 4. Prepare data tuples in-memory BEFORE opening delete transaction
+                    # This prevents idle-in-transaction timeout when iterating large DataFrames
                     col_list_str = ", ".join(f'"{c.replace("%", "%%")}"' for c in insert_cols)
                     table_name_safe = table_name.replace("%", "%%")
                     
@@ -7989,6 +7977,18 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                         if add_date_val:
                             row_list.append(today_str)
                         data_tuples.append(tuple(row_list))
+
+                    # 5. Fast Atomic Write: Delete old rows and insert new batch back-to-back (<100ms transaction window)
+                    if date_col:
+                        date_col_safe = date_col.replace("%", "%%")
+                        cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL')
+                        cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
+                        try:
+                            cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}"::text LIKE %s', (f"{today_str}%",))
+                        except Exception:
+                            pass
+                    else:
+                        cur.execute(f"TRUNCATE TABLE {table_name}")
 
                     if data_tuples:
                         try:
@@ -8002,7 +8002,11 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                             for vals in data_tuples:
                                 cur.execute(fallback_query, vals)
                         except Exception as insert_err:
-                            conn.rollback()
+                            try:
+                                if conn and not getattr(conn, 'closed', False):
+                                    conn.rollback()
+                            except Exception:
+                                pass
                             raise insert_err
 
                 conn.commit()

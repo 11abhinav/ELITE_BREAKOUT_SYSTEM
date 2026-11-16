@@ -27,14 +27,22 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any, Set
 
 import requests
-import PyPDF2
+try:
+    import pypdf
+    _PDF_READER_CLS = pypdf.PdfReader
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
+except ImportError:
+    import PyPDF2 as pypdf
+    _PDF_READER_CLS = pypdf.PdfReader
+    logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 import threading
 
 # Concurrency semaphore for exchange PDF downloads: allow up to 15 concurrent network downloads
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(15)
 
-# Full concurrency parse semaphore: permits all 30 worker threads to parse PDFs concurrently without queuing
-_PARSE_SEMAPHORE = threading.Semaphore(30)
+# Optimal concurrency parse semaphore: 8 concurrent workers for CPU-bound PDF text parsing
+# (prevents Python GIL thrashing and CPU core saturation while allowing 30 concurrent network discovery workers)
+_PARSE_SEMAPHORE = threading.Semaphore(8)
 
 # Size limits:
 # If announcement subject confirms it is a SEBI Reg 33 Financial Result, allow up to 50MB
@@ -44,9 +52,6 @@ _PDF_MAX_RESULT_BYTES = 50 * 1024 * 1024  # 50 MB for confirmed Financial Result
 _PDF_MAX_NON_RESULT_BYTES = 4 * 1024 * 1024  # 4 MB for non-result announcements
 _PDF_MAX_PAGES_SCAN = 8  # Financial tables under SEBI Reg 33 are strictly on pages 2-5; inspect at most 8 pages to eliminate wasteful CPU time
 _PDF_MAX_BOOKLET_PAGES = 150  # Only skip if entire document is >150 pages (annual report booklets)
-
-# Suppress verbose PyPDF2 font decoding warnings in production logs
-logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 
 try:
     from app.data_providers.fundamental_models import (
@@ -297,17 +302,17 @@ class ExchangePdfParser:
         t_start = time.time()
 
         try:
-            # Strip trailing garbage bytes after %%EOF to prevent PyPDF2 'negative seek value -1'
+            # Strip trailing garbage bytes after %%EOF to prevent 'negative seek value -1'
             clean_bytes = pdf_bytes
             eof_pos = clean_bytes.rfind(b"%%EOF")
             if eof_pos != -1:
                 clean_bytes = clean_bytes[:eof_pos + 5]
-            reader = PyPDF2.PdfReader(io.BytesIO(clean_bytes), strict=False)
+            reader = _PDF_READER_CLS(io.BytesIO(clean_bytes), strict=False)
         except Exception:
             try:
-                reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes), strict=False)
+                reader = _PDF_READER_CLS(io.BytesIO(pdf_bytes), strict=False)
             except Exception as pdf_err:
-                logger.warning(f"[PDF_PARSER] PyPDF2 failed to open PDF for {symbol}: {pdf_err}")
+                logger.warning(f"[PDF_PARSER] Failed to open PDF for {symbol}: {pdf_err}")
                 return []
 
         # Only skip if the document is an oversized booklet (>150 pages, e.g. 300-page annual report book).

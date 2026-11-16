@@ -98,18 +98,19 @@ class BseSecurityMasterResolver:
         return cls._instance
 
     def __init__(self):
-        if self._initialized:
-            return
+        with _BSE_MASTER_LOCK:
+            if self._initialized:
+                return
 
-        self._by_canonical: Dict[str, BseSecurityEntry] = {}
-        self._by_scrip_code: Dict[str, BseSecurityEntry] = {}
-        self._by_security_id: Dict[str, BseSecurityEntry] = {}
-        self._by_isin: Dict[str, BseSecurityEntry] = {}
-        self._alias_map: Dict[str, str] = dict(KNOWN_ALIASES)
+            self._by_canonical: Dict[str, BseSecurityEntry] = {}
+            self._by_scrip_code: Dict[str, BseSecurityEntry] = {}
+            self._by_security_id: Dict[str, BseSecurityEntry] = {}
+            self._by_isin: Dict[str, BseSecurityEntry] = {}
+            self._alias_map: Dict[str, str] = dict(KNOWN_ALIASES)
 
-        self._available = True
-        self._load_master()
-        self._initialized = True
+            self._available = True
+            self._load_master()
+            self._initialized = True
 
     def _load_master(self) -> None:
         """Loads master from data/bse_security_master.json if present, with DB cache recovery & fallback reconstruction."""
