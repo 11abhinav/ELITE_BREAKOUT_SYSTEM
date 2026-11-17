@@ -14553,6 +14553,11 @@ async function fetchStockDataHealth(force = false) {
       return;
     }
 
+    if (res.status === 304) {
+      // 304 Not Modified: client cache is current
+      return;
+    }
+
     let data = {};
     try { data = await res.json(); } catch (_) {}
 

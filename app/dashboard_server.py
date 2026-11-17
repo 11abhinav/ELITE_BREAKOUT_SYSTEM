@@ -3466,7 +3466,7 @@ def api_admin_stock_data_health():
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-        if not force and cached_payload:
+        if not force and cached_payload and (now_t - cached_ts <= 180.0):
             # Check 304 Not Modified
             if req_etag and cached_etag and req_etag == cached_etag:
                 resp = Response(status=304)

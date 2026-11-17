@@ -10912,6 +10912,12 @@ def clear_unified_stock_data_health_cache() -> None:
         _WATCHER_STATE_CACHE = {}
         _WATCHER_STATE_MTIME = 0.0
     try:
+        manifest_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings_manifest.json"
+        if manifest_p.exists():
+            manifest_p.unlink(missing_ok=True)
+    except Exception:
+        pass
+    try:
         from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
         with _STOCK_DATA_HEALTH_LOCK:
             _STOCK_DATA_HEALTH_CACHE.clear()

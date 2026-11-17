@@ -520,12 +520,19 @@ def publish_canonical_pit(
                 import app.dashboard_server as _app_dash
             except ImportError:
                 import dashboard_server as _app_dash
-            if hasattr(_app_dash, "_STOCK_DATA_HEALTH_CACHE"):
-                with _app_dash._STOCK_DATA_HEALTH_CACHE_LOCK:
+            if hasattr(_app_dash, "_invalidate_all_stock_data_health_caches"):
+                _app_dash._invalidate_all_stock_data_health_caches()
+                logger.info("🧹 [CANONICAL_PUBLISHER] Cleared dashboard stock data health cache via _invalidate_all_stock_data_health_caches")
+            elif hasattr(_app_dash, "_STOCK_DATA_HEALTH_CACHE"):
+                lock = getattr(_app_dash, "_STOCK_DATA_HEALTH_LOCK", None) or getattr(_app_dash, "_STOCK_DATA_HEALTH_CACHE_LOCK", None)
+                if lock:
+                    with lock:
+                        _app_dash._STOCK_DATA_HEALTH_CACHE.clear()
+                else:
                     _app_dash._STOCK_DATA_HEALTH_CACHE.clear()
                 logger.info("🧹 [CANONICAL_PUBLISHER] Cleared dashboard stock data health cache")
-        except Exception:
-            pass
+        except Exception as _e_dash:
+            logger.debug(f"[CANONICAL_PUBLISHER] Dashboard cache clear note: {_e_dash}")
 
         try:
             try:
