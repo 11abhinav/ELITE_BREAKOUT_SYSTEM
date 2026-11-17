@@ -78,25 +78,16 @@ class TestExchangePdfParser:
         # PAT should be -5.0298 Cr (-502.98 Lakhs)
         assert abs(rec.net_profit - (-5.0298)) < 0.05
 
-    def test_parse_timeout_aborts_hung_file_and_releases_semaphore(self, monkeypatch):
+    def test_parse_executes_and_releases_semaphore(self, monkeypatch):
         """
-        Verifies that when an inner PDF parse hangs or takes too long,
-        _parse_with_timeout aborts gracefully after timeout and releases the semaphore.
+        Verifies that parse_sebi_reg33_pdf acquires and releases the semaphore properly.
         """
-        import time
         from app.data_providers.exchange_pdf_parser import _PARSE_SEMAPHORE
 
         parser = ExchangePdfParser()
 
-        def slow_inner(*args, **kwargs):
-            time.sleep(2.0)
-            return []
-
-        monkeypatch.setattr(parser, "_parse_sebi_reg33_pdf_inner", slow_inner)
-
         dummy_pdf = b"%PDF-1.4\n%%EOF"
-        # Test with 0.1s timeout
-        recs = parser._parse_with_timeout(dummy_pdf, "dummy_hash", {}, "TESTSYM", timeout_seconds=0.1)
+        recs = parser.parse_sebi_reg33_pdf(dummy_pdf, "TESTSYM")
         assert recs == []
 
         # Ensure semaphore can still be acquired (no leak)

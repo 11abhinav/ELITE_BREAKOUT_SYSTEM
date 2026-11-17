@@ -37,21 +37,16 @@ except ImportError:
     logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 import threading
 
-# Concurrency semaphore for exchange PDF downloads: allow up to 8 concurrent network downloads
-_DOWNLOAD_SEMAPHORE = threading.Semaphore(8)
+# Concurrency semaphores: allow full concurrency matching the worker pool (up to 30 workers)
+_DOWNLOAD_SEMAPHORE = threading.Semaphore(30)
+_PARSE_SEMAPHORE = threading.Semaphore(30)
 
-# Optimal concurrency parse semaphore: allow up to 12 concurrent workers for parallel PDF text parsing
-# Combined with per-file 20s execution timeout, this eliminates queue starvation across 30 worker threads
-_PARSE_SEMAPHORE = threading.Semaphore(12)
-
-# Size limits:
-# If announcement subject confirms it is a SEBI Reg 33 Financial Result, allow up to 25MB
-# (because legitimate scanned auditor reports with rubber stamps/signatures frequently range from 5MB to 15MB; full books >25MB are skipped).
-# For non-result documents (general circulars, intimation notices), keep the tight 4MB ceiling.
-_PDF_MAX_RESULT_BYTES = 25 * 1024 * 1024  # 25 MB for confirmed Financial Results
-_PDF_MAX_NON_RESULT_BYTES = 4 * 1024 * 1024  # 4 MB for non-result announcements
-_PDF_MAX_PAGES_SCAN = 4  # Financial tables under SEBI Reg 33 are strictly on pages 1-3; inspect at most 4 pages to eliminate wasteful CPU time
-_PDF_MAX_BOOKLET_PAGES = 150  # Only skip if entire document is >150 pages (annual report booklets)
+# Size & scanning parameters:
+# Generous limits so all legitimate exchange documents (scanned reports, multi-page outcomes) are fully read
+_PDF_MAX_RESULT_BYTES = 100 * 1024 * 1024  # 100 MB for confirmed Financial Results
+_PDF_MAX_NON_RESULT_BYTES = 15 * 1024 * 1024  # 15 MB for non-result announcements
+_PDF_MAX_PAGES_SCAN = 25  # Inspect up to 25 pages to find financial tables located beyond cover pages
+_PDF_MAX_BOOKLET_PAGES = 300  # Only skip if entire document is >300 pages (massive annual books)
 
 try:
     from app.data_providers.fundamental_models import (
@@ -206,10 +201,8 @@ class ExchangePdfParser:
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
-        # Limit concurrent network downloads (supports up to 15 concurrent threads, timeout=120s to prevent hang)
-        if not _DOWNLOAD_SEMAPHORE.acquire(timeout=120.0):
-            logger.warning(f"[PDF_PARSER] Download semaphore acquire timeout for {base_name}. Skipping to keep worker thread moving.")
-            return None
+        # Acquire download semaphore without skipping
+        _DOWNLOAD_SEMAPHORE.acquire()
         try:
             # 1. Direct fetch from exchange static archives (streamed to enforce ceiling_bytes)
             try:
@@ -281,61 +274,25 @@ class ExchangePdfParser:
         ann_meta = announcement_metadata or {}
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-        # Immediate guard: PDFs > 25MB are huge booklets / image dumps, skip immediately
+        # Skip only if PDF exceeds 100MB
         if len(pdf_bytes) > _PDF_MAX_RESULT_BYTES:
             logger.info(f"📄 [PDF_PARSER] Skipping {symbol}: PDF exceeds {_PDF_MAX_RESULT_BYTES // (1024*1024)}MB ({len(pdf_bytes)} bytes).")
             return []
 
-        # Acquire parse semaphore with 60-second timeout (ensures queue drains without holding up worker threads)
-        if not _PARSE_SEMAPHORE.acquire(timeout=60.0):
-            logger.info(f"⏳ [PDF_PARSER] Parse queue busy after 60s for {symbol}. Moving forward.")
-            return []
+        # Acquire parse semaphore with full blocking (30 workers supported, never skip due to queue busy)
+        _PARSE_SEMAPHORE.acquire()
         try:
-            # Enforce 20-second hard execution timeout per PDF so no single scanned file can hog the slot
-            records = self._parse_with_timeout(pdf_bytes, pdf_hash, ann_meta, symbol, timeout_seconds=20.0)
+            records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
             if records:
                 logger.info(f"📄 [PDF_PARSER] {symbol}: Successfully extracted {len(records)} record(s) from PDF ({len(pdf_bytes)} bytes)")
             else:
                 logger.debug(f"ℹ️ [PDF_PARSER] {symbol}: 0 structured statement records extracted from PDF ({len(pdf_bytes)} bytes).")
             return records
+        except Exception as e:
+            logger.warning(f"[PDF_PARSER] {symbol}: Error during PDF parsing: {e}")
+            return []
         finally:
             _PARSE_SEMAPHORE.release()
-
-    def _parse_with_timeout(
-        self,
-        pdf_bytes: bytes,
-        pdf_hash: str,
-        ann_meta: Dict[str, Any],
-        symbol: str,
-        timeout_seconds: float = 20.0,
-    ) -> List["RawFinancialRecord"]:
-        """Runs _parse_sebi_reg33_pdf_inner with a strict thread timeout to prevent any single file from blocking the queue."""
-        result_holder: List[Any] = []
-        exc_holder: List[Exception] = []
-
-        def _worker():
-            try:
-                res = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
-                result_holder.append(res)
-            except Exception as e:
-                exc_holder.append(e)
-
-        th = threading.Thread(target=_worker, name=f"PdfWorker_{symbol}", daemon=True)
-        th.start()
-        th.join(timeout=timeout_seconds)
-
-        if th.is_alive():
-            logger.warning(
-                f"⏳ [PDF_PARSER] {symbol}: PDF parse exceeded {timeout_seconds}s limit "
-                f"({len(pdf_bytes)} bytes, likely complex/scanned bitmap). Aborted to unblock queue."
-            )
-            return []
-
-        if exc_holder:
-            logger.debug(f"[PDF_PARSER] {symbol}: Worker raised exception: {exc_holder[0]}")
-            return []
-
-        return result_holder[0] if result_holder else []
 
     def _parse_sebi_reg33_pdf_inner(
         self,
@@ -377,10 +334,6 @@ class ExchangePdfParser:
         # Check at most the first _PDF_MAX_PAGES_SCAN pages without premature 15s timeout,
         # ensuring financial statements located on pages 2-3 are fully extracted as required.
         for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
-            # Internal timer guard: if overall PDF processing exceeded 15 seconds, exit cleanly
-            if time.time() - t_start > 15.0:
-                logger.info(f"⏳ [PDF_PARSER] {symbol}: Parse exceeded 15s limit at page {page_idx+1}. Finishing.")
-                break
 
             # Smart early exit: if we already extracted a valid financial statement (Revenue + Net Profit)
             # or if both Consolidated and Standalone statements were extracted, finish immediately!
@@ -795,8 +748,8 @@ class ExchangePdfParser:
             if not isinstance(ann, dict):
                 continue
 
-            # Per-symbol rate control: limit to top 1 scored announcement attachment
-            if downloaded_pdf_count >= 1:
+            # Check up to top 3 scored announcement attachments (stops early as soon as results are extracted)
+            if downloaded_pdf_count >= 3:
                 break
 
             # If we already parsed records for the requested cutoff, early exit immediately
