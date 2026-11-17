@@ -2611,6 +2611,14 @@ if __name__ == "__main__":
                         shutil.move(tmp_db_canon, canonical_path)
                         logger.info("✅ [BOOT] Adopted authoritative canonical_pit_rebuilt from Postgres DB.")
                         clear_canonical_snapshot_cache()
+                        try:
+                            from app.financial_data_integrity import set_financial_snapshot_status, FinancialSnapshotStatus
+                            set_financial_snapshot_status(FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER, {
+                                "source": "POSTGRES_DB_SNAPSHOT",
+                                "adopted_at": datetime.now(IST).isoformat(),
+                            }, data_dir=DATA_DIR)
+                        except Exception as _meta_e:
+                            logger.debug(f"Meta status write error: {_meta_e}")
 
                 clear_unified_stock_data_health_cache()
             except Exception as _sync_boot_err:
