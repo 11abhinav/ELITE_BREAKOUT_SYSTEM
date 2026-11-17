@@ -101,7 +101,7 @@ app.secret_key = os.getenv("SECRET_KEY", "ELITE_BREAKOUT_SYSTEM_SECURE_PERMANENT
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = os.getenv("FLASK_ENV") == "production"
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)  # 365-day permanent session lifetime
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 86400  # 1-day client cache for static CSS/JS/images
 
 app.config['WTF_CSRF_CHECK_DEFAULT'] = False
@@ -273,7 +273,7 @@ def admin_required(f):
                 }), 401
             return redirect('/login')
             
-        if session.get('role') != 'admin':
+        if session.get('role') not in ('admin', 'superuser'):
             if request.path.startswith('/api/'):
                 return jsonify({
                     'status': 'error',
@@ -286,10 +286,9 @@ def admin_required(f):
 
 @app.before_request
 def check_session_validity():
-    # If the user is logged in, check if must_change_password
+    # If the user is logged in, mark permanent with sliding window
     if 'user_id' in session:
-        # Prevent idle timeout tracking on static files or background api polls if desired, 
-        # but standard Flask sessions just update timestamp on modify.
+        session.permanent = True  # Ensure session cookie uses sliding expiration
         session.modified = True
         
         # Check for profile completion intercept

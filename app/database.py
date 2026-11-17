@@ -9111,11 +9111,15 @@ def cleanup_stale_sessions():
                     WHERE is_online = TRUE
                     AND EXTRACT(EPOCH FROM (now() - logoff_time::timestamptz)) > 120
                 """)
+                # Revoke NON-ADMIN sessions inactive for > 12 hours (Admins NEVER expire on inactivity)
                 cur.execute("""
-                    UPDATE user_sessions
+                    UPDATE user_sessions s
                     SET is_online = FALSE, is_revoked = TRUE
-                    WHERE is_revoked = FALSE
-                    AND EXTRACT(EPOCH FROM (now() - COALESCE(logoff_time, login_time)::timestamptz)) > 43200
+                    FROM users u
+                    WHERE s.user_id = u.user_id
+                    AND s.is_revoked = FALSE
+                    AND LOWER(COALESCE(u.role, 'user')) NOT IN ('admin', 'superuser')
+                    AND EXTRACT(EPOCH FROM (now() - COALESCE(s.logoff_time, s.login_time)::timestamptz)) > 43200
                 """)
                 conn.commit()
     except Exception as e:
@@ -12753,7 +12757,7 @@ def check_session_validity(user_id, session_token: str = None) -> bool:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT u.is_active, s.is_revoked, s.logoff_time, s.login_time
+                    SELECT u.is_active, s.is_revoked, s.logoff_time, s.login_time, u.role
                     FROM users u
                     LEFT JOIN user_sessions s ON u.user_id = s.user_id AND s.session_token = %s
                     WHERE u.user_id = %s
@@ -12762,11 +12766,44 @@ def check_session_validity(user_id, session_token: str = None) -> bool:
                 if not row or not row[0]:
                     return False  # Account deactivated or missing
 
-                is_revoked, logoff_time, login_time = row[1], row[2], row[3]
+                is_revoked, logoff_time, login_time, role = row[1], row[2], row[3], (row[4] or 'user')
+                is_admin = str(role).strip().lower() in ('admin', 'superuser')
+
+                # ── ADMIN & SUPERUSER SESSION POLICY: ZERO INACTIVITY TIMEOUT ──
+                # Admins NEVER get logged out due to inactivity. Session remains valid until explicit /logout.
+                if is_admin:
+                    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+                    last_act = logoff_time if logoff_time is not None else login_time
+                    if last_act is not None and hasattr(last_act, 'tzinfo') and last_act.tzinfo is None:
+                        last_act = last_act.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+
+                    # If an admin session was previously marked revoked by old inactivity cleanup, un-revoke it
+                    if is_revoked is True or is_revoked == 1:
+                        cur.execute("""
+                            UPDATE user_sessions
+                            SET is_online = TRUE, is_revoked = FALSE, logoff_time = NOW()
+                            WHERE user_id = %s AND session_token = %s
+                        """, (user_id_int, str(session_token) if session_token else ''))
+                        conn.commit()
+                        logger.info(f"🔓 Admin session for user {user_id} automatically restored (zero inactivity timeout policy).")
+                        return True
+
+                    # Periodically refresh activity timestamp
+                    if last_act is None or (now_ist - last_act).total_seconds() > 300:
+                        cur.execute("""
+                            UPDATE user_sessions
+                            SET logoff_time = NOW(), is_online = TRUE
+                            WHERE user_id = %s AND session_token = %s
+                        """, (user_id_int, str(session_token) if session_token else ''))
+                        conn.commit()
+
+                    return True  # Valid active admin session indefinitely
+
+                # ── REGULAR USER SESSION POLICY ──
                 if is_revoked is True or is_revoked == 1:
                     return False  # Explicitly logged out / revoked
 
-                # 12-hour inactivity auto-close (12 hours = 43200 seconds)
+                # 12-hour inactivity auto-close for regular users (12 hours = 43200 seconds)
                 last_act = logoff_time if logoff_time is not None else login_time
                 if last_act is not None:
                     if hasattr(last_act, 'tzinfo') and last_act.tzinfo is None:
