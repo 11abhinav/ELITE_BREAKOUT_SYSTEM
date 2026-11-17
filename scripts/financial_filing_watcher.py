@@ -2262,9 +2262,28 @@ class FinancialFilingWatcher:
                             f"Total Completed: {curr_c} | DB heartbeat refreshed."
                         )
 
+        # Prioritize symbols needing filings:
+        # Priority 0: Symbols with active announcements in exchange market sweep
+        # Priority 1: Symbols with filing gaps or missing latest concluded quarter in local cache / snapshot
+        # Priority 2: All other symbols
+        def _sym_poll_priority(s: str) -> int:
+            s_u = s.strip().upper()
+            if s_u in market_sweep_filings:
+                return 0
+            s_snap = snap_lookup.get(s_u)
+            if s_snap:
+                if s_snap.get("filing_gap_detected"):
+                    return 1
+                q_p = str(s_snap.get("latest_quarterly_period") or "")[:10]
+                if q_p < _run_latest_concluded_qtr:
+                    return 2
+            return 3
+
+        ordered_symbols = sorted(symbols, key=_sym_poll_priority)
+
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="FilingPoll") as executor:
             from concurrent.futures import as_completed
-            futures = {executor.submit(_process_symbol, s): s for s in symbols}
+            futures = {executor.submit(_process_symbol, s): s for s in ordered_symbols}
             for fut in as_completed(futures):
                 if run_ctx and getattr(run_ctx, "is_stopped", False):
                     logger.critical("🛑 [filling scanner] Context stopped / watchdog safety fuse active. Cancelling remaining queued tasks.")
@@ -2463,6 +2482,16 @@ class FinancialFilingWatcher:
             json.dump(existing_list, f, indent=2)
         os.replace(tmp_path, raw_path)
         logger.info(f"💾 [filling scanner] Successfully persisted fresh filing for {sym_u} ({norm_period_end} {statement_type}) to {raw_path}.")
+
+        # Invalidate in-memory health audit cache so dashboard sees fresh state immediately
+        try:
+            try:
+                from app.database import clear_unified_stock_data_health_cache
+            except ImportError:
+                from database import clear_unified_stock_data_health_cache
+            clear_unified_stock_data_health_cache()
+        except Exception:
+            pass
 
         # Invariant: Immediately register newly ingested period in persistent state so restarts never re-poll
         try:

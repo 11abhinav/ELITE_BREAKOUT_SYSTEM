@@ -7568,6 +7568,22 @@ def upload_parquet_to_db(name: str, file_path: str) -> bool:
         logger.error(f"❌ [PARQUET DB SYNC FAILURE] Failed to upload '{name}' to DB: {e}", exc_info=True)
         return False
 
+def parquet_exists_in_db(name: str) -> bool:
+    """Check if a valid binary parquet file exists in the database for the given cache name."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT octet_length(data), date FROM parquet_cache WHERE name = %s ORDER BY date DESC LIMIT 1", (name,))
+                row = cur.fetchone()
+                if row and row[0] and row[0] > 0:
+                    return True
+        return False
+    except Exception as e:
+        logger.error(f"❌ Error checking if parquet '{name}' exists in DB: {e}")
+        return False
+
+
 def download_parquet_from_db(name: str, file_path: str) -> bool:
     """Download the latest binary parquet file from the database."""
     init_db()
@@ -7579,10 +7595,13 @@ def download_parquet_from_db(name: str, file_path: str) -> bool:
                 if row and row[0] and isinstance(row[0], (bytes, bytearray, memoryview)):
                     import os
                     os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    binary_bytes = bytes(row[0])
                     with open(file_path, "wb") as f:
-                        f.write(bytes(row[0]))
-                    logger.info(f"⚡ Downloaded {name} from DB parquet_cache (from date: {row[1]})")
+                        f.write(binary_bytes)
+                    logger.info(f"⚡ Downloaded {name} ({len(binary_bytes)/1024.0:.1f} KB) from DB parquet_cache (from date: {row[1]})")
                     return True
+                else:
+                    logger.warning(f"⚠️ No entry found for '{name}' in DB parquet_cache")
         return False
     except Exception as e:
         logger.exception(f"❌ Failed to download {name} from DB")
@@ -7898,16 +7917,49 @@ def restore_pit_raw_bundle_from_db() -> bool:
                 cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'pit_raw_bundle' ORDER BY date DESC LIMIT 1")
                 row = cur.fetchone()
                 if not row or not row[0] or not isinstance(row[0], (bytes, bytearray, memoryview)):
+                    logger.info("ℹ️ [PIT RAW BOOT] No pit_raw_bundle found in DB parquet_cache.")
                     return False
 
                 binary_data = bytes(row[0])
                 bio = io.BytesIO(binary_data)
                 with tarfile.open(fileobj=bio, mode="r:gz") as tar:
+                    members = tar.getmembers()
                     tar.extractall(path=raw_dir)
-                logger.info(f"✅ [PIT RAW BOOT] Restored pit_raw_filings bundle from DB (date: {row[1]})")
+                logger.info(f"✅ [PIT RAW BOOT] Restored pit_raw_filings bundle ({len(members)} files, {len(binary_data)/1024.0:.1f} KB) from DB (date: {row[1]})")
+                clear_unified_stock_data_health_cache()
+                clear_canonical_snapshot_cache()
                 return True
     except Exception as e:
-        logger.debug(f"[PIT RAW BOOT] Restore error: {e}")
+        logger.error(f"❌ [PIT RAW BOOT] Restore error: {e}", exc_info=True)
+        return False
+
+
+def restore_filing_watcher_state_from_db() -> bool:
+    """
+    Restores the latest filing_watcher_state from PostgreSQL parquet_cache into data/filing_watcher_state.json
+    on server boot so health checks and dashboard endpoints have instant access to watcher state.
+    """
+    from pathlib import Path
+    state_file = Path(__file__).resolve().parent.parent / "data" / "filing_watcher_state.json"
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'filing_watcher_state' ORDER BY date DESC LIMIT 1")
+                row = cur.fetchone()
+                if row and row[0] and isinstance(row[0], (bytes, bytearray, memoryview)):
+                    state_bytes = bytes(row[0])
+                    state_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(state_file, "wb") as f:
+                        f.write(state_bytes)
+                    logger.info(f"✅ [WATCHER STATE BOOT] Restored filing_watcher_state.json ({len(state_bytes)/1024.0:.1f} KB) from DB (date: {row[1]})")
+                    clear_unified_stock_data_health_cache()
+                    return True
+                else:
+                    logger.info("ℹ️ [WATCHER STATE BOOT] No filing_watcher_state found in DB parquet_cache.")
+        return False
+    except Exception as e:
+        logger.warning(f"⚠️ [WATCHER STATE BOOT] Failed to restore filing_watcher_state from DB: {e}")
         return False
 
 
@@ -10717,7 +10769,19 @@ def _load_canonical_snapshot_df() -> Optional[Any]:
         except Exception as e:
             logger.warning(f"⚠️ [CANONICAL_LOADER] Primary snapshot corrupted at {snap_path}: {e}. Initiating self-healing...")
 
-    # Try Tier 2: Seed directory (Docker /app/data_seed or local data_seed)
+    # Try Tier 2: Postgres DB cache download (Authoritative over static git seeds)
+    try:
+        tmp_db_path = str(snap_path) + ".db_loader_tmp"
+        if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_path):
+            df_db = pd.read_parquet(tmp_db_path)
+            if df_db is not None and not df_db.empty and "symbol" in df_db.columns:
+                shutil.move(tmp_db_path, str(snap_path))
+                logger.info(f"✅ [CANONICAL_LOADER] Self-healed snapshot from Postgres DB ({len(df_db)} rows)")
+                return df_db
+    except Exception as db_err:
+        logger.debug(f"[CANONICAL_LOADER] DB download attempt note: {db_err}")
+
+    # Try Tier 3: Seed directory fallback (Docker /app/data_seed or local data_seed)
     for seed_cand in [
         base_dir / "data_seed" / "canonical_pit_rebuilt.parquet",
         Path("/app/data_seed/canonical_pit_rebuilt.parquet"),
@@ -10739,18 +10803,6 @@ def _load_canonical_snapshot_df() -> Optional[Any]:
                     return df_seed
             except Exception:
                 pass
-
-    # Try Tier 3: Postgres DB cache download
-    try:
-        tmp_db_path = str(snap_path) + ".db_loader_tmp"
-        if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_path):
-            df_db = pd.read_parquet(tmp_db_path)
-            if df_db is not None and not df_db.empty and "symbol" in df_db.columns:
-                shutil.move(tmp_db_path, str(snap_path))
-                logger.info(f"✅ [CANONICAL_LOADER] Self-healed snapshot from Postgres DB ({len(df_db)} rows)")
-                return df_db
-    except Exception as db_err:
-        logger.debug(f"[CANONICAL_LOADER] DB download attempt note: {db_err}")
 
     # Try Tier 4: Quick rebuild if raw filings exist
     try:

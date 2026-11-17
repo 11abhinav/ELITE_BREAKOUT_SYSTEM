@@ -1282,34 +1282,24 @@ def run_system_scheduler():
             except Exception as _db_chk_err:
                 logger.debug(f"[CANONICAL BOOT] DB pre-check note: {_db_chk_err}")
 
-            if db_has_valid and _df_db is not None:
-                # Compare freshness between DB and local
-                db_fresh_cnt = int(((_df_db["pit_freshness_status"].isin(["VALID", "FRESH"])) & (~_df_db["filing_gap_detected"].fillna(False))).sum()) if "pit_freshness_status" in _df_db.columns else len(_df_db)
-                local_fresh_cnt = int(((_df_local["pit_freshness_status"].isin(["VALID", "FRESH"])) & (~_df_local["filing_gap_detected"].fillna(False))).sum()) if (local_canonical_valid and _df_local is not None and "pit_freshness_status" in _df_local.columns) else 0
+            from database import parquet_exists_in_db, clear_canonical_snapshot_cache
 
-                if not local_canonical_valid or db_fresh_cnt >= local_fresh_cnt:
-                    # Adopt DB snapshot as authoritative
-                    shutil.move(db_cand_path, canonical_path)
-                    logger.info(f"✅ [CANONICAL BOOT] Adopted authoritative DB snapshot ({len(_df_db)} symbols, {db_fresh_cnt} certified fresh vs {local_fresh_cnt} local)")
-                    try:
-                        from app.financial_data_integrity import set_financial_snapshot_status, FinancialSnapshotStatus
-                        set_financial_snapshot_status(FinancialSnapshotStatus.READY, {
-                            "source": "POSTGRES_DB_SNAPSHOT",
-                            "adopted_at": datetime.now(IST).isoformat(),
-                            "total_symbols": len(_df_db),
-                            "fresh_symbols": db_fresh_cnt
-                        }, data_dir=DATA_DIR)
-                    except Exception as _meta_e:
-                        logger.debug(f"Meta status write error: {_meta_e}")
-                else:
-                    # Local snapshot has more fresh rows (e.g. freshly rebuilt locally) -> push to DB
-                    if os.path.exists(db_cand_path):
-                        os.remove(db_cand_path)
-                    try:
-                        upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                        logger.info(f"⚡ [CANONICAL BOOT] Local snapshot is more fresh ({local_fresh_cnt} vs {db_fresh_cnt} DB). Synced to DB.")
-                    except Exception as _c_up_err:
-                        logger.debug(f"Canonical DB upload notice: {_c_up_err}")
+            if db_has_valid and _df_db is not None:
+                # UNCONDITIONALLY ADOPT DB SNAPSHOT ON CONTAINER BOOT!
+                # Ephemeral container images contain static git seed files.
+                # DB contains authoritative, live-evaluated, audited data.
+                shutil.move(db_cand_path, canonical_path)
+                logger.info(f"✅ [CANONICAL BOOT] Adopted authoritative DB snapshot ({len(_df_db)} symbols)")
+                try:
+                    from app.financial_data_integrity import set_financial_snapshot_status, FinancialSnapshotStatus
+                    set_financial_snapshot_status(FinancialSnapshotStatus.READY, {
+                        "source": "POSTGRES_DB_SNAPSHOT",
+                        "adopted_at": datetime.now(IST).isoformat(),
+                        "total_symbols": len(_df_db),
+                    }, data_dir=DATA_DIR)
+                except Exception as _meta_e:
+                    logger.debug(f"Meta status write error: {_meta_e}")
+                clear_canonical_snapshot_cache()
             elif not local_canonical_valid:
                 # Local invalid and DB unavailable -> fallback to seed
                 logger.warning("⚠️ [CANONICAL BOOT] Both local and DB canonical snapshots need seeding...")
@@ -1327,10 +1317,11 @@ def run_system_scheduler():
                                 if os.path.exists(seed_meta):
                                     shutil.copy2(seed_meta, meta_path)
                                 logger.info(f"✅ [CANONICAL BOOT] Seeded certified canonical snapshot ({len(_df_seed)} symbols) from {seed_cand}")
-                                try:
-                                    upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                                except Exception:
-                                    pass
+                                if not parquet_exists_in_db("canonical_pit_rebuilt"):
+                                    try:
+                                        upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                                    except Exception:
+                                        pass
                                 db_restored = True
                                 break
                         except Exception:
@@ -1338,14 +1329,18 @@ def run_system_scheduler():
                 if not db_restored and not os.path.exists(canonical_path):
                     logger.critical("🛑 [CANONICAL BOOT] HARD BLOCK: Both local and DB canonical snapshots unavailable. Fail-closed guaranteed.")
             else:
-                # Local is valid, DB was empty -> initialize DB
+                # Local is valid, but DB download didn't yield valid df.
+                # NEVER clobber the DB if DB already has canonical_pit_rebuilt!
                 if os.path.exists(db_cand_path):
                     os.remove(db_cand_path)
-                try:
-                    upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                    logger.info(f"⚡ [CANONICAL BOOT] Initialized DB snapshot from verified local snapshot ({len(_df_local)} symbols)")
-                except Exception as _c_up_err:
-                    logger.debug(f"Canonical DB upload notice: {_c_up_err}")
+                if not parquet_exists_in_db("canonical_pit_rebuilt"):
+                    try:
+                        upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                        logger.info(f"⚡ [CANONICAL BOOT] Initialized empty DB snapshot from local snapshot ({len(_df_local)} symbols)")
+                    except Exception as _c_up_err:
+                        logger.debug(f"Canonical DB upload notice: {_c_up_err}")
+                else:
+                    logger.warning("⚠️ [CANONICAL BOOT] DB already has canonical_pit_rebuilt. Preserving DB state (zero boot overwrite).")
 
             # Step 0: Ensure pit_raw_filings directory exists and is populated
             pit_raw_dir = os.path.join(DATA_DIR, "pit_raw_filings")
@@ -1368,8 +1363,13 @@ def run_system_scheduler():
                         logger.info(f"⚡ [PIT BOOT] Seeded {len(glob.glob(os.path.join(pit_raw_dir, '*.json')))} raw filings from {seed_cand}")
                         break
 
-            # Step 1: If pit_fundamentals_v1.parquet exists locally → upload to DB so containers can restore it
-            if os.path.exists(pit_parquet_path) and os.path.getsize(pit_parquet_path) > 0:
+            # Step 1: If DB has pit_fundamentals_v1, download it; otherwise initialize if local exists
+            if parquet_exists_in_db("pit_fundamentals_v1"):
+                try:
+                    download_parquet_from_db("pit_fundamentals_v1", pit_parquet_path)
+                except Exception as _pf_dn_err:
+                    logger.debug(f"[PIT BOOT] pit_fundamentals download note: {_pf_dn_err}")
+            elif os.path.exists(pit_parquet_path) and os.path.getsize(pit_parquet_path) > 0:
                 try:
                     upload_parquet_to_db("pit_fundamentals_v1", pit_parquet_path)
                     logger.info("⚡ [PIT BOOT] Uploaded pit_fundamentals_v1.parquet to DB parquet_cache")
@@ -2580,12 +2580,42 @@ if __name__ == "__main__":
     # ensures that main.py does not block the process or GIL for 40-50s during PostgreSQL network handshake.
     # Ports 8000/8080 respond to Coolify health checks in < 1 second on container boot.
     def _bg_boot_sequence():
-        # Single-threaded DB initialization
+        # Single-threaded DB initialization & Authoritative DB Cache Restoration
         try:
-            from database import init_db, reset_all_scanners_on_boot
+            import shutil
+            from database import (
+                init_db,
+                reset_all_scanners_on_boot,
+                restore_filing_watcher_state_from_db,
+                restore_pit_raw_bundle_from_db,
+                download_parquet_from_db,
+                parquet_exists_in_db,
+                clear_unified_stock_data_health_cache,
+                clear_canonical_snapshot_cache,
+            )
             init_db()
             reset_all_scanners_on_boot()
             logger.info("✅ [BOOT] Single-threaded DB schema initialization and scanner health boot reset complete.")
+
+            # [AUTHORITATIVE DB RESTORATION PROTOCOL]
+            # Container disk is ephemeral on restarts/deploys. PostgreSQL contains the authoritative,
+            # continuously processed filings and canonical state. Unconditionally restore DB state first!
+            try:
+                restore_filing_watcher_state_from_db()
+                restore_pit_raw_bundle_from_db()
+
+                canonical_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
+                if parquet_exists_in_db("canonical_pit_rebuilt"):
+                    tmp_db_canon = canonical_path + ".boot_tmp"
+                    if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_canon):
+                        shutil.move(tmp_db_canon, canonical_path)
+                        logger.info("✅ [BOOT] Adopted authoritative canonical_pit_rebuilt from Postgres DB.")
+                        clear_canonical_snapshot_cache()
+
+                clear_unified_stock_data_health_cache()
+            except Exception as _sync_boot_err:
+                logger.warning(f"⚠️ [BOOT] Authoritative DB restore notice: {_sync_boot_err}")
+
             try:
                 from db_logger import install_db_logger
                 install_db_logger()
