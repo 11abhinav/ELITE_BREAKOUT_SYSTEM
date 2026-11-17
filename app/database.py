@@ -13978,7 +13978,7 @@ SCANNER_MAX_RUNTIME_MINUTES = {
     "WEALTH_EXIT_V2": 360.0,          # 6 hours
     "AI Worker": 240.0,               # 4 hours
     "Pledge Worker": 240.0,           # 4 hours
-    "FILING_WATCHER": 360.0,          # 6 hours (generous ceiling for full universe backfill & filing sync)
+    "FILING_WATCHER": None,           # None = Unlimited execution (no timeout ceiling; runs to completion)
     "DAILY_BUILDER": 240.0,           # 4 hours
     "TECHNICAL": 240.0,               # 4 hours
     "FUNDAMENTAL": 240.0,             # 4 hours
@@ -14024,12 +14024,24 @@ def auto_heal_stuck_scanner_runs() -> list[dict]:
                     
                     max_runtime = SCANNER_MAX_RUNTIME_MINUTES.get(sc_name, DEFAULT_MAX_RUNTIME_MINUTES)
                     
+                    # FILING_WATCHER has NO runtime duration ceiling (runs as long as needed to process all filings).
+                    # Only a completely dead heartbeat (>60m) will mark it stuck.
+                    is_filing_scan = sc_name in (
+                        "FILING_WATCHER", "FINANCIAL_FILING_WATCHER", "CORPORATE_FILINGS",
+                        "FILING_SCANNER", "FILLING_SCANNER", "FILLING_WATCHER"
+                    )
+                    if is_filing_scan:
+                        max_runtime = None
+                    
                     is_stuck = False
                     reason = ""
-                    if duration_min > max_runtime:
+                    if max_runtime is not None and duration_min > max_runtime:
                         is_stuck = True
                         reason = f"Exceeded maximum allowed runtime ({duration_min:.1f}m > {max_runtime:.0f}m ceiling)"
-                    elif silent_min > 30.0:
+                    elif is_filing_scan and silent_min > 60.0:
+                        is_stuck = True
+                        reason = f"Inactive heartbeat for {silent_min:.1f}m (>60m limit)"
+                    elif not is_filing_scan and silent_min > 30.0:
                         is_stuck = True
                         reason = f"Inactive heartbeat for {silent_min:.1f}m (>30m limit)"
                         
@@ -14142,12 +14154,19 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'TIMEOUT_STALE',
-                        error_summary = 'Execution timed out: missing heartbeat (>15m)',
-                        error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
+                        error_summary = 'Execution timed out: missing heartbeat',
+                        error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND (
-                          (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
-                          OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
+                          (UPPER(scanner_name) IN ('FILING_WATCHER', 'FINANCIAL_FILING_WATCHER', 'CORPORATE_FILINGS', 'FILING_SCANNER', 'FILLING_SCANNER', 'FILLING_WATCHER') AND (
+                              (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '60 minutes')
+                              OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '60 minutes')
+                          ))
+                          OR
+                          (UPPER(scanner_name) NOT IN ('FILING_WATCHER', 'FINANCIAL_FILING_WATCHER', 'CORPORATE_FILINGS', 'FILING_SCANNER', 'FILLING_SCANNER', 'FILLING_WATCHER') AND (
+                              (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                              OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
+                          ))
                       );
                 """)
                 

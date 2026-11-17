@@ -9,7 +9,7 @@ class TestWatchdogAutoHeal(unittest.TestCase):
         self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["PERFORMANCE_TRACKER"], 240.0)
         self.assertIn("TECHNICAL", SCANNER_MAX_RUNTIME_MINUTES)
         self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["TECHNICAL"], 240.0)
-        self.assertEqual(SCANNER_MAX_RUNTIME_MINUTES["FILING_WATCHER"], 360.0)
+        self.assertIsNone(SCANNER_MAX_RUNTIME_MINUTES["FILING_WATCHER"])
 
     def test_scanner_run_context_safety_fuse_configuration(self):
         from scanner_run_context import SCANNER_MAX_EXECUTION_SECONDS, ScannerRunContext
@@ -17,7 +17,7 @@ class TestWatchdogAutoHeal(unittest.TestCase):
         self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["PERFORMANCE_TRACKER"], 21600)
         self.assertIn("TECHNICAL", SCANNER_MAX_EXECUTION_SECONDS)
         self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["TECHNICAL"], 14400)
-        self.assertEqual(SCANNER_MAX_EXECUTION_SECONDS["FILING_WATCHER"], 21600)
+        self.assertIsNone(SCANNER_MAX_EXECUTION_SECONDS["FILING_WATCHER"])
 
     @patch("psycopg2.extras.execute_values")
     @patch("database.get_connection")
@@ -61,6 +61,33 @@ class TestWatchdogAutoHeal(unittest.TestCase):
         # Verify in-app admin notification called
         mock_notif.assert_called_once()
         self.assertIn("PERFORMANCE_TRACKER", mock_notif.call_args[0][1])
+
+    @patch("database.get_connection")
+    @patch("database.insert_notification")
+    def test_auto_heal_does_not_terminate_long_running_filing_watcher(self, mock_notif, mock_conn):
+        from database import auto_heal_stuck_scanner_runs
+        
+        # Mock cursor returning a FILING_WATCHER run with duration 400m and active heartbeat (silent_min 1.0)
+        mock_cur = MagicMock()
+        mock_cur.fetchall.return_value = [
+            {
+                "run_id": "test_filing_run_999999",
+                "scanner_name": "FILING_WATCHER",
+                "started_at": "2026-11-16 14:00:00",
+                "heartbeat_at": "2026-11-16 20:39:00",
+                "lifecycle_status": "RUNNING",
+                "duration_min": 400.0,
+                "silent_min": 1.0
+            }
+        ]
+        mock_conn.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cur
+        
+        terminated = auto_heal_stuck_scanner_runs()
+        self.assertEqual(len(terminated), 0)
+        # Verify only the initial SELECT was executed, zero UPDATEs/terminations
+        self.assertEqual(mock_cur.execute.call_count, 1)
+        self.assertIn("SELECT run_id", mock_cur.execute.call_args[0][0])
+        self.assertFalse(mock_notif.called)
 
     @patch("database.is_scanner_stopped", return_value=False)
     @patch("database.start_scanner_execution_run")

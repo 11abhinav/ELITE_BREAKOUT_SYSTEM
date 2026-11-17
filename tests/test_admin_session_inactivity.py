@@ -119,3 +119,4 @@ def test_cleanup_stale_sessions_sql_protects_admins():
         for s in revoke_sqls:
             assert "admin" in s.lower() and "superuser" in s.lower(), \
                 "Revocation query must explicitly exclude admin and superuser roles"
+

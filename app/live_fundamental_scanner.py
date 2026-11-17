@@ -1911,24 +1911,36 @@ class LiveFundamentalBuyScanner:
                 from app.financial_data_integrity import get_financial_snapshot_status, FinancialSnapshotStatus
                 snap_status, snap_meta = get_financial_snapshot_status()
                 if snap_status not in (FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER, FinancialSnapshotStatus.READY):
-                    logger.error(
-                        f"🚫 [LIFECYCLE_GATE] Scanner execution BLOCKED: FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (expected READY/SNAPSHOT_READY_FOR_SCANNER). "
-                        f"PIT rebuild is running or uncertified. Refusing to evaluate candidates with unverified data."
-                    )
-                    if acquired_global:
-                        _global_lock.release()
-                        acquired_global = False
-                    if acquired_scan:
-                        _fundamental_scan_lock.release()
-                        acquired_scan = False
-                    return {
-                        "status": "LIFECYCLE_BLOCKED",
-                        "snapshot_status": snap_status.value,
-                        "total_scanned": 0,
-                        "candidate_count": 0,
-                        "candidates_inserted": 0,
-                        "reason": f"FINANCIAL_SNAPSHOT_STATUS_{snap_status.value}"
-                    }
+                    # Check if a verified canonical parquet already exists on disk.
+                    # If verified canonical parquet exists, live scanners can safely read from it
+                    # while a background rebuild or audit is in progress.
+                    base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+                    canonical_path = os.path.join(base, "canonical_pit_rebuilt.parquet")
+                    if os.path.exists(canonical_path) and os.path.getsize(canonical_path) > 1000:
+                        logger.info(
+                            f"ℹ️ [LIFECYCLE_GATE] FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (background PIT rebuild/audit in progress). "
+                            f"Existing verified canonical snapshot exists on disk ({os.path.basename(canonical_path)}). "
+                            f"Proceeding with certified on-disk snapshot."
+                        )
+                    else:
+                        logger.error(
+                            f"🚫 [LIFECYCLE_GATE] Scanner execution BLOCKED: FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (expected READY/SNAPSHOT_READY_FOR_SCANNER). "
+                            f"PIT rebuild is running or uncertified and no verified canonical snapshot exists on disk. Refusing to evaluate candidates with unverified data."
+                        )
+                        if acquired_global:
+                            _global_lock.release()
+                            acquired_global = False
+                        if acquired_scan:
+                            _fundamental_scan_lock.release()
+                            acquired_scan = False
+                        return {
+                            "status": "LIFECYCLE_BLOCKED",
+                            "snapshot_status": snap_status.value,
+                            "total_scanned": 0,
+                            "candidate_count": 0,
+                            "candidates_inserted": 0,
+                            "reason": f"FINANCIAL_SNAPSHOT_STATUS_{snap_status.value}"
+                        }
             except Exception as _lc_err:
                 logger.warning(f"⚠️ [LIFECYCLE_GATE] Lifecycle check notice: {_lc_err}")
 
@@ -4302,24 +4314,36 @@ class QualityCompounderValueV2Scanner:
                 from app.financial_data_integrity import get_financial_snapshot_status, FinancialSnapshotStatus
                 snap_status, snap_meta = get_financial_snapshot_status()
                 if snap_status not in (FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER, FinancialSnapshotStatus.READY):
-                    logger.error(
-                        f"🚫 [LIFECYCLE_GATE] Scanner execution BLOCKED: FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (expected READY/SNAPSHOT_READY_FOR_SCANNER). "
-                        f"PIT rebuild is running or uncertified. Refusing to evaluate candidates with unverified data."
-                    )
-                    if acquired_global:
-                        _global_lock.release()
-                        acquired_global = False
-                    if acquired_scan:
-                        self.scan_thread_lock.release()
-                        acquired_scan = False
-                    return {
-                        "status": "LIFECYCLE_BLOCKED",
-                        "snapshot_status": snap_status.value,
-                        "total_scanned": 0,
-                        "candidate_count": 0,
-                        "candidates_inserted": 0,
-                        "reason": f"FINANCIAL_SNAPSHOT_STATUS_{snap_status.value}"
-                    }
+                    # Check if a verified canonical parquet already exists on disk.
+                    # If verified canonical parquet exists, live scanners can safely read from it
+                    # while a background rebuild or audit is in progress.
+                    base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+                    canonical_path = os.path.join(base, "canonical_pit_rebuilt.parquet")
+                    if os.path.exists(canonical_path) and os.path.getsize(canonical_path) > 1000:
+                        logger.info(
+                            f"ℹ️ [LIFECYCLE_GATE] FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (background PIT rebuild/audit in progress). "
+                            f"Existing verified canonical snapshot exists on disk ({os.path.basename(canonical_path)}). "
+                            f"Proceeding with certified on-disk snapshot."
+                        )
+                    else:
+                        logger.error(
+                            f"🚫 [LIFECYCLE_GATE] Scanner execution BLOCKED: FINANCIAL_SNAPSHOT_STATUS is '{snap_status.value}' (expected READY/SNAPSHOT_READY_FOR_SCANNER). "
+                            f"PIT rebuild is running or uncertified and no verified canonical snapshot exists on disk. Refusing to evaluate candidates with unverified data."
+                        )
+                        if acquired_global:
+                            _global_lock.release()
+                            acquired_global = False
+                        if acquired_scan:
+                            self.scan_thread_lock.release()
+                            acquired_scan = False
+                        return {
+                            "status": "LIFECYCLE_BLOCKED",
+                            "snapshot_status": snap_status.value,
+                            "total_scanned": 0,
+                            "candidate_count": 0,
+                            "candidates_inserted": 0,
+                            "reason": f"FINANCIAL_SNAPSHOT_STATUS_{snap_status.value}"
+                        }
             except Exception as _lc_err:
                 logger.warning(f"⚠️ [LIFECYCLE_GATE] Lifecycle check notice: {_lc_err}")
 

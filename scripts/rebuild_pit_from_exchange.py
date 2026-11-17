@@ -678,15 +678,28 @@ def rebuild_canonical_pit_dataset(
         f"(delta_mode={is_delta}) -> {out_file}"
     )
 
-    # Set lifecycle status to BUILDING: prevents scanners from reading old/half-written snapshot
-    set_financial_snapshot_status(
-        FinancialSnapshotStatus.BUILDING,
-        meta_updates={
-            "as_of_date": as_of.isoformat(),
-            "target_symbols_count": total_symbols,
-            "rebuild_started_at": datetime.now().isoformat(),
-        }
-    )
+    # Set lifecycle status: If no canonical file exists on disk yet, mark BUILDING.
+    # If canonical file already exists, it remains published and valid for active scanners
+    # while the background candidate is compiled.
+    if not os.path.exists(out_file):
+        set_financial_snapshot_status(
+            FinancialSnapshotStatus.BUILDING,
+            meta_updates={
+                "as_of_date": as_of.isoformat(),
+                "target_symbols_count": total_symbols,
+                "rebuild_started_at": datetime.now().isoformat(),
+            }
+        )
+    else:
+        set_financial_snapshot_status(
+            FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER,
+            meta_updates={
+                "rebuild_in_progress": True,
+                "as_of_date": as_of.isoformat(),
+                "target_symbols_count": total_symbols,
+                "rebuild_started_at": datetime.now().isoformat(),
+            }
+        )
 
     # Warmup shared cache once before thread pool
     _get_pit_filings("INFY", allow_live_refresh=False)
@@ -891,13 +904,16 @@ def rebuild_canonical_pit_dataset(
     with open(hash_target, "rb") as f:
         file_hash = hashlib.sha256(f.read()).hexdigest()
 
-    # Transition lifecycle status to AUDITING
+    # Transition lifecycle status: only set AUDITING if no canonical snapshot exists on disk yet.
+    # If out_file exists on disk, it remains SNAPSHOT_READY_FOR_SCANNER while the new candidate is audited.
+    audit_status = FinancialSnapshotStatus.AUDITING if not os.path.exists(out_file) else FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER
     set_financial_snapshot_status(
-        FinancialSnapshotStatus.AUDITING,
+        audit_status,
         meta_updates={
             "total_symbols": len(df_final),
             "sha256": file_hash,
             "rebuild_completed_at": datetime.now().isoformat(),
+            "candidate_auditing": True,
         }
     )
 

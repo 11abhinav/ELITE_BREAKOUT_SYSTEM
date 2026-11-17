@@ -108,6 +108,42 @@ def test_fresh_building_snapshot_status_not_auto_healed():
         assert status == FinancialSnapshotStatus.BUILDING
 
 
+def test_fundamental_scanner_lifecycle_fallback_to_on_disk_parquet():
+    """
+    Verifies that when FINANCIAL_SNAPSHOT_STATUS is BUILDING or AUDITING,
+    LiveFundamentalBuyScanner does NOT abort with LIFECYCLE_BLOCKED
+    if a valid canonical_pit_rebuilt.parquet exists on disk (>1KB).
+    Conversely, if canonical parquet does NOT exist, it properly blocks with LIFECYCLE_BLOCKED.
+    """
+    from unittest.mock import MagicMock, patch
+    from app.live_fundamental_scanner import LiveFundamentalBuyScanner
+
+    scanner = LiveFundamentalBuyScanner()
+    
+    # 1. Fallback case: canonical parquet exists on disk -> does NOT block with LIFECYCLE_BLOCKED
+    with patch("app.financial_data_integrity.get_financial_snapshot_status") as mock_status, \
+         patch("os.path.exists", return_value=True), \
+         patch("os.path.getsize", return_value=500000), \
+         patch("app.database.create_scanner_execution_run", return_value=MagicMock()), \
+         patch("app.database.complete_scanner_execution_run"), \
+         patch("app.database.upsert_scanner_health"):
+        
+        mock_status.return_value = (FinancialSnapshotStatus.BUILDING, {"FINANCIAL_SNAPSHOT_STATUS": "BUILDING"})
+        
+        result = scanner.scan_universe(market_data_map={})
+        assert result.get("status") != "LIFECYCLE_BLOCKED"
+
+    # 2. Blocked case: canonical parquet does NOT exist on disk -> BLOCKS with LIFECYCLE_BLOCKED
+    with patch("app.financial_data_integrity.get_financial_snapshot_status") as mock_status, \
+         patch("os.path.exists", return_value=False), \
+         patch("os.path.getsize", return_value=0):
+        
+        mock_status.return_value = (FinancialSnapshotStatus.BUILDING, {"FINANCIAL_SNAPSHOT_STATUS": "BUILDING"})
+        
+        result = scanner.scan_universe(market_data_map={})
+        assert result.get("status") == "LIFECYCLE_BLOCKED"
+
+
 def test_quality_value_recovery_coalesce_lock_safety():
     """
     Verifies that QualityValueRecoveryScanner.scan_universe when coalescing
