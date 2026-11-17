@@ -3226,6 +3226,9 @@ def api_get_corporate_filings():
             up_to_date = min(tot_scanned, int(sel_run.get("already_up_to_date", tot_scanned)))
             attempted = min(tot_scanned, int(sel_run.get("fetch_attempted", 0)))
             success = int(sel_run.get("fetch_success", 0))
+            if success == 0 and filings:
+                success = len(filings)
+                sel_run["fetch_success"] = success
             failed = int(sel_run.get("fetch_failed", 0))
             cur_run_id = sel_run.get("run_id")
         else:

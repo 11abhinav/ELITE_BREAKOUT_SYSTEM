@@ -16972,7 +16972,15 @@ def get_corporate_filing_execution_runs(target_date: Optional[str] = None) -> Li
                                 tot_stocks = 861
                             up_to_date = int(m_json.get("already_up_to_date") or d.get("fresh_data_count") or d.get("cache_hits") or (tot_stocks - (d.get("cache_misses") or 0)))
                             attempted = int(m_json.get("fetch_attempted") or d.get("cache_misses") or d.get("api_calls") or (tot_stocks - up_to_date if tot_stocks >= up_to_date else 0))
-                            success = int(m_json.get("fetch_success") or m_json.get("filings_found") or 0)
+                            success = int(m_json.get("fetch_success") or m_json.get("filings_found") or m_json.get("discovered") or 0)
+                            if success == 0 and run_id:
+                                try:
+                                    cur.execute("SELECT COUNT(*) FROM corporate_filings_log WHERE run_id = %s", (run_id,))
+                                    c_row = cur.fetchone()
+                                    if c_row and c_row[0]:
+                                        success = int(c_row[0])
+                                except Exception:
+                                    pass
                             failed = int(m_json.get("fetch_failed") or (d.get("data_insufficient_count", 0) + d.get("provider_failure_count", 0)))
 
                             # Invariant clamp: attempted + up_to_date cannot exceed tot_stocks
