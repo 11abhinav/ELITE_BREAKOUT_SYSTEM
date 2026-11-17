@@ -702,6 +702,13 @@ class ExchangePdfParser:
             is_valid, _ = validate_semantic_record(record)
             if is_valid:
                 records.append(record)
+                # Early stop: immediately halt processing further pages if valid results (Revenue & Net Profit) are captured
+                has_valid_rec = any(r.revenue is not None and r.net_profit is not None for r in records)
+                has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
+                has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
+                if has_valid_rec or (has_cons and has_std):
+                    logger.debug(f"🎯 [PDF_PARSER] {symbol}: Valid financial statement extracted on page {page_idx + 1}. Halting further page extraction.")
+                    break
 
         return records
 
