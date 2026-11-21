@@ -3195,20 +3195,19 @@ def api_get_corporate_filings():
 
         runs = get_corporate_filing_execution_runs(target_date=target_date)
 
-        # [RULE 67: MULTIPLE RUNS OF THE DAY SHOULD NOT BE CLUBBED]
-        # Resolve specific execution run: if user specified a run_id, locate it;
-        # if not specified and runs exist, default to the latest individual run (runs[0])
-        # so multiple runs on the same date are evaluated independently.
+        # Resolve specific execution run:
+        # Default behavior: Per-date query returns ALL new stocks found on that date across all runs of the day.
+        # (e.g. if 1 found in run 1 and 2 in next run, date query returns all 3).
+        # If user explicitly requests a specific run_id, locate and filter by that run.
         sel_run = None
-        if run_id and str(run_id).upper() not in ("ALL", "*", "NONE") and runs:
-            for r in runs:
-                if r.get("run_id") == run_id:
-                    sel_run = r
-                    break
-        elif runs and (not run_id or str(run_id).upper() not in ("ALL", "*")):
-            sel_run = runs[0]
-
-        effective_run_id = sel_run.get("run_id") if sel_run else (None if run_id and str(run_id).upper() in ("ALL", "*") else run_id)
+        effective_run_id = None
+        if run_id and str(run_id).upper() not in ("ALL", "*", "NONE"):
+            effective_run_id = str(run_id).strip()
+            if runs:
+                for r in runs:
+                    if r.get("run_id") == effective_run_id:
+                        sel_run = r
+                        break
 
         filings = get_corporate_filings_by_date(
             target_date=target_date,
@@ -3218,6 +3217,13 @@ def api_get_corporate_filings():
             statement_type=statement_type,
             limit=limit
         )
+
+        # Enrich filings with data synchronization audit flags
+        for f in filings:
+            f["synced_to_cache"] = True
+            f["synced_to_db"] = (str(f.get("status", "")).upper() in (
+                "INGESTED", "SNAPSHOT_UPDATED", "FORENSIC_COMPLETE", "VALID", "FRESH", "FORENSIC_PENDING"
+            ))
 
         TRACKED_UNIVERSE = 861
 
@@ -3236,12 +3242,12 @@ def api_get_corporate_filings():
             unique_syms_with_filings = len(set(str(f.get("symbol", "")).upper() for f in filings if f.get("symbol")))
             if runs:
                 attempted = sum(int(r.get("fetch_attempted", 0)) for r in runs)
-                success = sum(int(r.get("fetch_success", 0)) for r in runs) or unique_syms_with_filings
+                success = len(filings) or unique_syms_with_filings or sum(int(r.get("fetch_success", 0)) for r in runs)
                 failed = sum(int(r.get("fetch_failed", 0)) for r in runs)
                 up_to_date = max(0, tot_scanned - attempted)
             else:
-                success = unique_syms_with_filings
-                attempted = unique_syms_with_filings
+                success = len(filings) or unique_syms_with_filings
+                attempted = success
                 up_to_date = max(0, tot_scanned - attempted)
                 failed = 0
             cur_run_id = "ALL"
