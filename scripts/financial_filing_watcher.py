@@ -1764,10 +1764,19 @@ class FinancialFilingWatcher:
                     (r.get("revenue") is not None or r.get("net_profit") is not None)
                     for r in raw_filings_list
                 )
+                has_latest_concluded_facts = any(
+                    (_normalize_iso_date(r.get("period_end_date")) == latest_concluded_qtr)
+                    and (r.get("revenue") is not None or r.get("net_profit") is not None)
+                    for r in raw_filings_list
+                )
                 should_poll_bse = bool(
                     (bse_prov is not None)
                     and not direct_sweep_success
-                    and (is_bse_only or (not has_structured_facts and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok)))
+                    and (
+                        is_bse_only
+                        or (nse_count == 0 and (not has_latest_concluded_facts or not has_latest_concluded_quarter))
+                        or (not has_structured_facts and (needs_bootstrap or not market_sweep_ok))
+                    )
                 )
                 if should_poll_bse:
                     try:
@@ -1834,8 +1843,10 @@ class FinancialFilingWatcher:
                 # If valid XML exists for a period on NSE or BSE, or if already attempted via direct sweep, do not re-run.
                 should_run_tier3_pdf = bool(
                     not direct_sweep_success
-                    and not has_structured_facts
-                    and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok)
+                    and (
+                        (not has_latest_concluded_facts and not has_latest_concluded_quarter)
+                        or (not has_structured_facts and (needs_bootstrap or not market_sweep_ok))
+                    )
                 )
                 if should_run_tier3_pdf:
                     try:

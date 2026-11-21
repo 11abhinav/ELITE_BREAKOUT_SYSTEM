@@ -117,6 +117,29 @@ def _clean_token_number(token: str) -> Optional[float]:
         return None
 
 
+def _normalize_ocr_text(text: str) -> str:
+    """Normalizes common OCR font kerning splits and letter confusions in exchange PDFs."""
+    if not text:
+        return ""
+    text = re.sub(r"\bre[yv]cnue\b", "revenue", text, flags=re.I)
+    text = re.sub(r"\bre[yv]enue\b", "revenue", text, flags=re.I)
+    text = re.sub(r"\btota\s+l\b", "total", text, flags=re.I)
+    text = re.sub(r"\bincom\s+e\b", "income", text, flags=re.I)
+    text = re.sub(r"\bopera\s+tions\b", "operations", text, flags=re.I)
+    text = re.sub(r"\boper[--\.\d]+tions\b", "operations", text, flags=re.I)
+    text = re.sub(r"\bfinan\s+cial\b", "financial", text, flags=re.I)
+    text = re.sub(r"\bunaudit\s+ed\b", "unaudited", text, flags=re.I)
+    text = re.sub(r"\bpro\s*fit\b", "profit", text, flags=re.I)
+    text = re.sub(r"\(lo\s*ss\)", "(loss)", text, flags=re.I)
+    text = re.sub(r"\bth\s+e\b", "the", text, flags=re.I)
+    text = re.sub(r"\byea\s+r\b", "year", text, flags=re.I)
+    text = re.sub(r"\bparti\s+culars\b", "particulars", text, flags=re.I)
+    text = re.sub(r"\bstanda\s*lone\b", "standalone", text, flags=re.I)
+    text = re.sub(r"\bconsoli\s*dated\b", "consolidated", text, flags=re.I)
+    text = re.sub(r",-1(\d{2})\b", r",4\1", text)
+    return text
+
+
 def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str = "") -> bool:
     """
     Checks announcement subject, description, and file metadata to determine if the document
@@ -325,12 +348,10 @@ class ExchangePdfParser:
         # while CPU time is strictly bounded. With smart early-exit, scanning halts as soon as statements are found.
         for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
 
-            # Smart early exit: if we already extracted a valid financial statement (Revenue + Net Profit)
-            # or if both Consolidated and Standalone statements were extracted, finish immediately!
-            has_valid_rec = any(r.revenue is not None and r.net_profit is not None for r in records)
+            # Smart early exit: finish immediately if both Consolidated and Standalone statements were extracted
             has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
             has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
-            if has_valid_rec or (has_cons and has_std):
+            if has_cons and has_std:
                 break
 
             try:
@@ -341,6 +362,7 @@ class ExchangePdfParser:
             except Exception:
                 continue
 
+            text = _normalize_ocr_text(text)
             text_lower = text.lower()
             norm_text_lower = re.sub(r"\s+", " ", text_lower)
 
@@ -443,16 +465,20 @@ class ExchangePdfParser:
 
             # 4. Determine Statement Type (QUARTERLY vs ANNUAL)
             # In India, March 31 filings represent the completed financial year audited results under Reg 33.
-            st_type = "ANNUAL" if period_end.endswith("-03-31") and ("year ended" in text_lower or "audited" in text_lower) else "QUARTERLY"
-            for line in first_lines:
-                line_low = line.lower()
-                if "statement of" in line_low:
-                    if any(k in line_low for k in ["year ended", "audited annual", "annual financial", "full year"]) and "quarter" not in line_low:
-                        st_type = "ANNUAL"
-                    elif "quarter" in line_low or "half year" in line_low or "half-year" in line_low or "halfyear" in line_low:
-                        if not (period_end.endswith("-03-31") and "year ended" in text_lower):
-                            st_type = "QUARTERLY"
-                    break
+            # June 30 and September 30 are strictly Q1 and Q2/H1, NEVER annual full-year statements.
+            if period_end.endswith(("-06-30", "-09-30")):
+                st_type = "QUARTERLY"
+            else:
+                st_type = "ANNUAL" if period_end.endswith("-03-31") and ("year ended" in text_lower or "audited" in text_lower) else "QUARTERLY"
+                for line in first_lines:
+                    line_low = line.lower()
+                    if "statement of" in line_low:
+                        if any(k in line_low for k in ["year ended", "audited annual", "annual financial", "full year"]) and "quarter" not in line_low:
+                            st_type = "ANNUAL"
+                        elif "quarter" in line_low or "half year" in line_low or "half-year" in line_low or "halfyear" in line_low:
+                            if not (period_end.endswith("-03-31") and "year ended" in text_lower):
+                                st_type = "QUARTERLY"
+                        break
 
             # 5. Extract Financial Metrics
             rev: Optional[float] = None
@@ -479,12 +505,17 @@ class ExchangePdfParser:
 
             # Word date headers check (e.g. "September 30, June 30, September 30, ...")
             if num_cols == 1:
-                months_pat = r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b"
+                months_pat = r"\b(?:jan[a-z]*|feb[a-z]*|mar[a-z]*|apr[a-z]*|may|june?|july?|aug[a-z]*|sep[a-z]*|oct[a-z]*|nov[a-z]*|dec[a-z]*)\b"
                 for line in text.split("\n")[:20]:
                     m_matches = re.findall(months_pat, line, re.I)
                     if len(m_matches) >= 2:
                         num_cols = len(m_matches)
                         col_idx = 0  # In SEBI Reg 33 format, Col 0 is always the latest reporting quarter
+                        break
+                    y_matches = re.findall(r"\b202\d\b", line)
+                    if len(y_matches) >= 2:
+                        num_cols = len(y_matches)
+                        col_idx = 0
                         break
 
             # Expand lines if multiple table rows were concatenated without newlines
@@ -501,8 +532,6 @@ class ExchangePdfParser:
                 for line in raw_lines:
                     line_clean = re.sub(r'pro\s+fit', 'profit', line, flags=re.I)
                     line_clean = re.sub(r'[·•]', '', line_clean)
-                    line_clean = re.sub(r'(\d+)\s*[\.,]\s*(\d{2})\b', r'\1.\2', line_clean)
-                    line_clean = re.sub(r'(\d{1,3}(?:,\d{3})+)\s+(\d{2})\b', r'\1.\2', line_clean)
                     line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/\s]\s*[\d\w]+\s*\)", "", line_clean.strip())
                     low = re.sub(r"\s+", " ", line_clean.lower())
                     if any(k in low for k in ["revenue from operations", "total revenue", "total income", "profit for the period", "profit after tax", "net profit"]):
@@ -524,8 +553,6 @@ class ExchangePdfParser:
                 # Strip formula equations in row labels like (7 -8), (1+2), (3-4), (3  4), (lll-IV)
                 line_clean = re.sub(r'pro\s+fit', 'profit', line_str, flags=re.I)
                 line_clean = re.sub(r'[·•]', '', line_clean)
-                line_clean = re.sub(r'(\d+)\s*[\.,]\s*(\d{2})\b', r'\1.\2', line_clean)
-                line_clean = re.sub(r'(\d{1,3}(?:,\d{3})+)\s+(\d{2})\b', r'\1.\2', line_clean)
                 line_clean = re.sub(r"\(\s*[\d\w]+\s*[-+*/\s]\s*[\d\w]+\s*\)", "", line_clean)
                 line_lower = line_clean.lower()
                 tokens = line_clean.split()
@@ -692,12 +719,11 @@ class ExchangePdfParser:
             is_valid, _ = validate_semantic_record(record)
             if is_valid:
                 records.append(record)
-                # Early stop: immediately halt processing further pages if valid results (Revenue & Net Profit) are captured
-                has_valid_rec = any(r.revenue is not None and r.net_profit is not None for r in records)
+                # Early stop: halt processing once Consolidated results (or both Consolidated and Standalone) are captured
                 has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
                 has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
-                if has_valid_rec or (has_cons and has_std):
-                    logger.debug(f"🎯 [PDF_PARSER] {symbol}: Valid financial statement extracted on page {page_idx + 1}. Halting further page extraction.")
+                if has_cons:
+                    logger.debug(f"🎯 [PDF_PARSER] {symbol}: Consolidated financial statement extracted on page {page_idx + 1}. Halting further page extraction.")
                     break
 
         return records
@@ -804,15 +830,16 @@ class ExchangePdfParser:
                 continue
 
             parsed = self.parse_sebi_reg33_pdf(pdf_bytes, sym_u, announcement_metadata=ann)
+            existing_scopes = {(r.period_end_date, r.consolidation) for r in pdf_records}
             for rec in parsed:
-                # Ensure we don't duplicate
-                if rec.period_end_date not in existing_xml_periods:
+                rec_scope = (rec.period_end_date, rec.consolidation)
+                if rec_scope not in existing_scopes:
                     logger.info(
-                        f"✨ [PDF_FALLBACK: SUCCESS] {sym_u} {rec.period_end_date} ({rec.period_type}): "
+                        f"✨ [PDF_FALLBACK: SUCCESS] {sym_u} {rec.period_end_date} ({rec.period_type} {rec.consolidation}): "
                         f"Revenue = {rec.revenue} Cr, Net Profit = {rec.net_profit} Cr, EPS = {rec.eps}"
                     )
                     pdf_records.append(rec)
-                    existing_xml_periods.add(rec.period_end_date)
+                    existing_scopes.add(rec_scope)
 
             # If desired period was successfully parsed, early exit to avoid downloading more PDFs
             if pdf_records and any(r.period_end_date >= (min_cutoff or "") for r in pdf_records):
