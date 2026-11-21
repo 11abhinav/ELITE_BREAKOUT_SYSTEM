@@ -43,12 +43,11 @@ _DOWNLOAD_SEMAPHORE = threading.Semaphore(30)
 _PARSE_SEMAPHORE = threading.Semaphore(4)
 
 # Size & scanning parameters:
-# Official SEBI Reg 33 outcome statements are typically 1-5MB. Documents > 12MB are almost always
-# glossy marketing presentations or full multi-hundred page annual booklets.
-_PDF_MAX_RESULT_BYTES = 12 * 1024 * 1024  # 12 MB for confirmed Financial Results (covers high-DPI scans)
-_PDF_MAX_NON_RESULT_BYTES = 4 * 1024 * 1024  # 4 MB for non-result announcements
-_PDF_MAX_PAGES_SCAN = 8  # Inspect up to 8 pages (SEBI Reg 33 tables are always on pages 1-5)
-_PDF_MAX_BOOKLET_PAGES = 50  # Skip if document exceeds 50 pages (annual report booklets/prospectuses)
+# Official SEBI Reg 33 outcome statements are typically 1-5MB, but high-DPI scans can reach 15-20MB.
+# We set a generous 25MB ceiling for results to ensure zero valid disclosures are dropped.
+_PDF_MAX_RESULT_BYTES = 25 * 1024 * 1024  # 25 MB for confirmed Financial Results (covers high-DPI scans)
+_PDF_MAX_NON_RESULT_BYTES = 8 * 1024 * 1024  # 8 MB for non-result announcements
+_PDF_MAX_PAGES_SCAN = 15  # Inspect up to first 15 pages (guarantees results are captured even with long board preambles)
 
 try:
     from app.data_providers.fundamental_models import (
@@ -321,20 +320,9 @@ class ExchangePdfParser:
                 logger.warning(f"[PDF_PARSER] Failed to open PDF for {symbol}: {pdf_err}")
                 return []
 
-        # Only skip if the document is an oversized booklet (>150 pages, e.g. 300-page annual report book).
-        # Legitimate board outcomes with detailed financials, auditor reviews, and presentations
-        # are parsed without skipping because we limit page scanning to the first _PDF_MAX_PAGES_SCAN pages.
-        total_pages = len(reader.pages)
-        if total_pages > _PDF_MAX_BOOKLET_PAGES:
-            logger.warning(
-                f"[PDF_PARSER] Skipping {symbol}: PDF has {total_pages} pages (exceeds {_PDF_MAX_BOOKLET_PAGES}). "
-                f"Reg 33 quarterly financial statements are board meeting outcomes, not full annual report books."
-            )
-            return []
-
-        # In SEBI Reg 33 filings, financial statement tables are located in the first 2-3 pages.
-        # Check at most the first _PDF_MAX_PAGES_SCAN pages without premature 15s timeout,
-        # ensuring financial statements located on pages 2-3 are fully extracted as required.
+        # We scan only the first _PDF_MAX_PAGES_SCAN pages (up to 15 pages), so documents of any length
+        # (e.g. results combined with an amalgamation scheme or investor presentation) are never skipped,
+        # while CPU time is strictly bounded. With smart early-exit, scanning halts as soon as statements are found.
         for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
 
             # Smart early exit: if we already extracted a valid financial statement (Revenue + Net Profit)
