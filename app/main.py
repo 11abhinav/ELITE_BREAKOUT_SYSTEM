@@ -2626,6 +2626,14 @@ if __name__ == "__main__":
                             logger.debug(f"Meta status write error: {_meta_e}")
 
                 clear_unified_stock_data_health_cache()
+
+                # [CRASH-RECOVERY INVARIANT]: Reconcile Authoritative DB Outbox with Alerts Parquet on Boot
+                try:
+                    from app.financial_data_integrity import reconcile_alerts_outbox_materialization
+                    rec_res = reconcile_alerts_outbox_materialization()
+                    logger.info(f"✅ [BOOT] Buy alerts outbox reconciled ({rec_res.get('materialized', 0)} materialized, {rec_res.get('pruned', 0)} pruned).")
+                except Exception as _rec_err:
+                    logger.debug(f"[BOOT] Notice during alerts outbox reconciliation: {_rec_err}")
             except Exception as _sync_boot_err:
                 logger.warning(f"⚠️ [BOOT] Authoritative DB restore notice: {_sync_boot_err}")
 
