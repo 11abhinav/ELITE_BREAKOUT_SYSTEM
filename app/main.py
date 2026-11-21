@@ -2521,6 +2521,11 @@ def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON"):
             pass
 
     try:
+        # Suppress false completion notification if watcher was skipped or was already actively executing
+        if isinstance(res, dict) and res.get("status") in ("ALREADY_RUNNING", "SKIPPED", "ERROR"):
+            logger.info(f"⏭️ [filling scanner] Watcher cycle ({trigger_type}) was skipped/already running ({res.get('status')}). Skipping completion notification.")
+            return res
+
         from database import insert_notification
         today_str = datetime.now(IST).strftime('%Y-%m-%d')
         filings_count = res.get("filings_found", 0) if isinstance(res, dict) else 0
