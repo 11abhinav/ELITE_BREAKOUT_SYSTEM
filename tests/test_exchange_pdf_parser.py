@@ -93,3 +93,51 @@ class TestExchangePdfParser:
         # Ensure semaphore can still be acquired (no leak)
         assert _PARSE_SEMAPHORE.acquire(blocking=False) is True
         _PARSE_SEMAPHORE.release()
+
+    def test_month_first_date_and_decoupled_layout_ahfl(self):
+        """
+        Verifies parsing of Month-First date format ('September 30, 2026')
+        and decoupled column table layout for Aadhar Housing Finance (AHFL).
+        """
+        pdf_path = os.path.join("data", "pdf_cache", "f1f102bd391438bb_AHFL2021_05112026162550_Final_Combined_resultssd.pdf")
+        if not os.path.exists(pdf_path):
+            pytest.skip("Cached AHFL PDF not available")
+
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        parser = ExchangePdfParser()
+        records = parser.parse_sebi_reg33_pdf(pdf_bytes, symbol="AHFL")
+        assert len(records) >= 1
+        rec = records[0]
+        assert rec.period_end_date == "2026-09-30"
+        assert rec.revenue is not None and rec.revenue > 900.0
+        assert rec.net_profit is not None and rec.net_profit > 250.0
+
+    def test_typo_date_and_decoupled_layout_aartiind(self):
+        """
+        Verifies parsing of dates with typographical errors ('30TH SEPTERMBER, 2026'),
+        filtering out line-item index numbers from row labels, and resolving PAT
+        via accounting equation (PBT - Tax = PAT) in decoupled columnar layouts.
+        """
+        pdf_path = os.path.join("data", "pdf_cache", "a8f44d09f1a50541_AARTIIND_30102026190215_AARTIIND_Results.pdf")
+        if not os.path.exists(pdf_path):
+            pytest.skip("Cached AARTIIND PDF not available")
+
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        parser = ExchangePdfParser()
+        records = parser.parse_sebi_reg33_pdf(pdf_bytes, symbol="AARTIIND")
+        assert len(records) >= 2
+        # Standalone record
+        sa = [r for r in records if r.consolidation == ConsolidationType.STANDALONE][0]
+        assert sa.period_end_date == "2026-09-30"
+        assert abs(sa.revenue - 3942.0) < 1.0
+        assert abs(sa.net_profit - 186.0) < 1.0
+
+        # Consolidated record
+        con = [r for r in records if r.consolidation == ConsolidationType.CONSOLIDATED][0]
+        assert con.period_end_date == "2026-09-30"
+        assert abs(con.revenue - 3668.0) < 1.0
+        assert abs(con.net_profit - 170.0) < 1.0

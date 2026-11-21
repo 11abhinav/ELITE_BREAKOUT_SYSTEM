@@ -427,9 +427,13 @@ class ExchangePdfParser:
                 period_end = _parse_date_to_iso(ann_meta.get("period_end_date"))
 
             if not period_end or len(period_end) != 10:
+                clean_text = re.sub(r"(?i)septermber", "september", text)
+                clean_text = re.sub(r"(?i)feburary", "february", clean_text)
+                clean_text = re.sub(r"(?i)janurary", "january", clean_text)
+                # Universal regex matching Day-First ("30th September 2026") AND Month-First ("September 30, 2026")
                 dm = re.search(
-                    r"(?:quarter|half\s*year|year)\s*ended\s*(?:on\s*)?(\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
-                    text,
+                    r"(?:quarter|half\s*year|year)\s*ended\s*(?:on\s*)?([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
+                    clean_text,
                     re.I,
                 )
                 if dm:
@@ -438,16 +442,26 @@ class ExchangePdfParser:
                     clean_d = re.sub(r"(\d+)([a-zA-Z]+)", r"\1 \2", clean_d)
                     clean_d = re.sub(r",", ", ", clean_d)
                     clean_d = re.sub(r"\s+", " ", clean_d)
-                    for fmt in ["%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"]:
+                    for fmt in [
+                        "%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y",
+                        "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y",
+                        "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"
+                    ]:
                         try:
                             period_end = datetime.strptime(clean_d, fmt).strftime("%Y-%m-%d")
                             break
                         except ValueError:
                             pass
+                    if not period_end:
+                        try:
+                            from dateutil import parser as _dt_p
+                            period_end = _dt_p.parse(clean_d, fuzzy=True).strftime("%Y-%m-%d")
+                        except Exception:
+                            pass
                 else:
                     m_header = re.search(
                         r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
-                        text[:600],
+                        clean_text[:600],
                         re.I | re.DOTALL,
                     )
                     if m_header:
@@ -459,6 +473,37 @@ class ExchangePdfParser:
                                 break
                             except ValueError:
                                 pass
+
+            # Fallback to announcement subject / description if in-text regex did not resolve date
+            if not period_end or len(period_end) != 10:
+                ann_desc = f"{ann_meta.get('desc', '')} {ann_meta.get('attchmntText', '')} {ann_meta.get('sub', '')} {ann_meta.get('subject', '')}"
+                dm_ann = re.search(
+                    r"(?:quarter|half\s*year|year)\s*ended\s*(?:on\s*)?([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
+                    ann_desc,
+                    re.I,
+                )
+                if dm_ann:
+                    raw_ann_d = dm_ann.group(1).strip()
+                    clean_ann_d = re.sub(r"(?i)(st|nd|rd|th)", "", raw_ann_d).strip()
+                    clean_ann_d = re.sub(r"(\d+)([a-zA-Z]+)", r"\1 \2", clean_ann_d)
+                    clean_ann_d = re.sub(r",", ", ", clean_ann_d)
+                    clean_ann_d = re.sub(r"\s+", " ", clean_ann_d)
+                    for fmt in [
+                        "%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y",
+                        "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y",
+                        "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"
+                    ]:
+                        try:
+                            period_end = datetime.strptime(clean_ann_d, fmt).strftime("%Y-%m-%d")
+                            break
+                        except ValueError:
+                            pass
+                    if not period_end:
+                        try:
+                            from dateutil import parser as _dt_p
+                            period_end = _dt_p.parse(clean_ann_d, fuzzy=True).strftime("%Y-%m-%d")
+                        except Exception:
+                            pass
 
             if not period_end or len(period_end) != 10:
                 continue
@@ -568,10 +613,18 @@ class ExchangePdfParser:
                 if not nums:
                     continue
 
+                first_t = tokens[0].strip(".)][(")
+                if first_t.isdigit():
+                    if len(nums) == 1:
+                        # A line with only a leading item number (e.g. '7 Net Profit...') is a row label, not data
+                        continue
+                    else:
+                        # Strip the leading item number so nums contains only table data columns
+                        nums = nums[1:]
+
                 # Multi-column table: The table data columns are the LAST num_cols on the line
-                # (preceding numbers on the line are item numbering like '1', '7', notes like [5-6])
                 if len(nums) >= num_cols:
-                    last_val = nums[-num_cols + col_idx]
+                    last_val = nums[-num_cols + col_idx] if len(nums) >= num_cols else nums[-1]
                 elif num_cols >= 2:
                     # In a multi-column table, a line with fewer numbers than columns is an item label/note, not data
                     continue
@@ -623,38 +676,69 @@ class ExchangePdfParser:
 
             # Strategy B: Column Block inspection (Tables where text labels appear in one block and column values appear in another block)
             if rev is None or pat is None:
+                # Match both multi-date horizontal header rows AND single-date header rows
                 col_m = re.search(
-                    r"(?:quarter\s*ended\s*)?(\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*\n\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)\s*\n\s*\(?(?:un[- ]?audited|audited)\)?\s*\n([0-9\.,\n\s\-\(\)]+)",
+                    r"(?:(?:30th|31st|30|31)\s*(?:Sep|September|Jun|June|Mar|March|Dec|December)[^\n]*|September\s*30[^\n]*|June\s*30[^\n]*|March\s*31[^\n]*|December\s*31[^\n]*)\n[^\n]*\(?(?:un[- ]?audited|audited)\)?[^\n]*\n([0-9\.,\n\s\-\(\)]+)",
                     text,
                     re.I,
                 )
+                if not col_m:
+                    col_m = re.search(
+                        r"(?:quarter\s*ended\s*)?(\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*\n\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)\s*\n\s*\(?(?:un[- ]?audited|audited)\)?\s*\n([0-9\.,\n\s\-\(\)]+)",
+                        text,
+                        re.I,
+                    )
+                if not col_m:
+                    col_m = re.search(
+                        r"\(?(?:un[- ]?audited|audited)\)?\s*\n([0-9\.,\n\s\-\(\)]+)",
+                        text,
+                        re.I,
+                    )
                 if col_m:
-                    raw_lines = [s.strip() for s in col_m.group(2).split("\n") if s.strip()]
-                    parsed_nums = [_clean_token_number(s) for s in raw_lines if _clean_token_number(s) is not None]
+                    num_block = col_m.group(col_m.lastindex)
+                    tokens = re.findall(r'-?\(?\d[\d,]*\.?\d*\)?', num_block)
+                    parsed_nums = [_clean_token_number(s) for s in tokens if _clean_token_number(s) is not None]
                     if len(parsed_nums) >= 15:
-                        if rev is None:
-                            rev = parsed_nums[0] * mult
-                        if pat is None:
-                            # Universal accounting equation cross-check: PBT - Tax = PAT
-                            found_pat = None
-                            for i in range(10, min(15, len(parsed_nums))):
-                                cand_pbt = parsed_nums[i]
-                                for j in range(i + 1, min(i + 5, len(parsed_nums))):
-                                    cand_tax = parsed_nums[j]
-                                    diff = round(cand_pbt - cand_tax, 2)
-                                    for k in range(j + 1, min(j + 4, len(parsed_nums))):
-                                        if abs(parsed_nums[k] - diff) < 0.15:
-                                            found_pat = parsed_nums[k]
-                                            pbt = cand_pbt * mult
-                                            break
-                                    if found_pat is not None:
+                        # Universal accounting equation cross-check: PBT - Tax = PAT
+                        found_pat = None
+                        found_pbt = None
+                        for i in range(8, min(25, len(parsed_nums))):
+                            cand_pbt = parsed_nums[i]
+                            for j in range(i + 1, min(i + 8, len(parsed_nums))):
+                                cand_tax = parsed_nums[j]
+                                diff = round(cand_pbt - cand_tax, 2)
+                                for k in range(j + 1, min(j + 6, len(parsed_nums))):
+                                    if abs(parsed_nums[k] - diff) < 0.15:
+                                        found_pat = parsed_nums[k]
+                                        found_pbt = cand_pbt
                                         break
                                 if found_pat is not None:
                                     break
                             if found_pat is not None:
-                                pat = found_pat * mult
+                                break
+
+                        if found_pat is not None:
+                            # Mathematically verified PBT - Tax = PAT is authoritative
+                            pat = found_pat * mult
+                        elif pat is None:
+                            if len(parsed_nums) >= 22:
+                                pat = parsed_nums[21] * mult
                             elif len(parsed_nums) >= 18:
                                 pat = parsed_nums[16] * mult
+
+                        if pbt is None and found_pbt is not None:
+                            pbt = found_pbt * mult
+
+                        if rev is None:
+                            # Standard SEBI schedule: Row 0 is Gross and Row 2 is Net if GST row exists
+                            if len(parsed_nums) >= 3 and parsed_nums[0] > parsed_nums[2] and parsed_nums[1] < parsed_nums[0] and parsed_nums[2] > parsed_nums[1]:
+                                rev = parsed_nums[2] * mult
+                            else:
+                                cand_revs = [n for n in parsed_nums[:8] if n > 0]
+                                if cand_revs:
+                                    rev = max(cand_revs) * mult
+                                else:
+                                    rev = parsed_nums[0] * mult
 
                         if eps is None and len(parsed_nums) >= 23:
                             eps = parsed_nums[-2]
