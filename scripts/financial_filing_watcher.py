@@ -1232,9 +1232,16 @@ class FinancialFilingWatcher:
 
                 # ── DYNAMIC ABSOLUTE 0ms FAST PATH: LATEST CONCLUDED QUARTER ALREADY IN LOCAL ──
                 latest_concluded_qtr = _run_latest_concluded_qtr  # cached once per run to avoid 861 recomputations
+                def _has_metric_fact(val: Any) -> bool:
+                    if val is None:
+                        return False
+                    if isinstance(val, float) and pd.isna(val):
+                        return False
+                    return True
+
                 has_latest_concluded_quarter = any(
-                    (_normalize_iso_date(str(_r.get("period_end_date") or _r.get("date") or "")) >= latest_concluded_qtr)
-                    and (_r.get("revenue") is not None or _r.get("net_profit") is not None)
+                    (_normalize_iso_date(str(_r.get("period_end_date") or _r.get("period_end") or _r.get("date") or "")) >= latest_concluded_qtr)
+                    and (_has_metric_fact(_r.get("revenue")) or _has_metric_fact(_r.get("net_profit")))
                     for _r in _ldata if isinstance(_r, dict)
                 )
 
@@ -1551,9 +1558,13 @@ class FinancialFilingWatcher:
                 elif not has_latest_concluded_quarter:
                     # Stock is missing recent mandatory filings: query from last available local observation to today!
                     min_cutoff = latest_local_period or "2024-01-01"
+                    if not latest_local_period or latest_local_period < latest_concluded_qtr:
+                        status_msg = f"latest_local={latest_local_period or 'NONE'} < target_qtr={latest_concluded_qtr}"
+                    else:
+                        status_msg = f"target_qtr={latest_concluded_qtr} present on disk but financial metrics (revenue/net_profit) are null"
                     logger.info(
                         f"🔍 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                        f"LATEST RESULT MISSING on disk (latest_local={latest_local_period or 'NONE'} < target_qtr={latest_concluded_qtr}). "
+                        f"LATEST RESULT MISSING/INCOMPLETE on disk ({status_msg}). "
                         f"Attempting to fetch missing filings from {min_cutoff} through today across exchanges (Tier-1 NSE XBRL, Tier-2 BSE, Tier-3 PDF)..."
                     )
                 else:
@@ -1679,22 +1690,23 @@ class FinancialFilingWatcher:
                             f"Skipping redundant legacy corporates-financial-results calls."
                         )
 
-                # 1. Poll NSE XBRL / Corporate Results (Primary Source) - only if needs_bootstrap or if market sweep was unavailable
+                # 1. Poll NSE XBRL / Corporate Results (Primary Source) - if needs_bootstrap, missing latest quarter, or market sweep was unavailable
                 # KEY OPTIMIZATION: If market sweep executed cleanly, recent disclosures were already examined in memory.
                 # Only fall back to slow per-symbol legacy API round-trips if:
                 #   - We need full historical bootstrapping (needs_bootstrap=True), OR
+                #   - We are missing the latest concluded quarter (not has_latest_concluded_quarter), OR
                 #   - Market sweep was unavailable/failed (not market_sweep_ok)
                 should_poll_nse_legacy = bool(
                     nse_prov
                     and not direct_sweep_success  # <-- Early exit: skip if sweep already ingested new data
-                    and (needs_bootstrap or not market_sweep_ok)
+                    and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok)
                 )
                 if should_poll_nse_legacy:
                     try:
                         logger.info(f"🔍 [filling scanner] {sym_u}: Polling Tier-1 NSE XBRL results (cutoff={min_cutoff})...")
-                        if hasattr(nse_prov, "_discovered_cache") and needs_bootstrap:
+                        if hasattr(nse_prov, "_discovered_cache") and (needs_bootstrap or not has_latest_concluded_quarter):
                             nse_prov._discovered_cache.pop(sym_u, None)
-                        if hasattr(nse_prov, "_sweep_announcements_cache") and needs_bootstrap:
+                        if hasattr(nse_prov, "_sweep_announcements_cache") and (needs_bootstrap or not has_latest_concluded_quarter):
                             nse_prov._sweep_announcements_cache.pop(sym_u, None)
                         nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_cutoff)
                         if nse_records:
@@ -1755,7 +1767,7 @@ class FinancialFilingWatcher:
                 should_poll_bse = bool(
                     (bse_prov is not None)
                     and not direct_sweep_success
-                    and (is_bse_only or (not has_structured_facts and (needs_bootstrap or not market_sweep_ok)))
+                    and (is_bse_only or (not has_structured_facts and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok)))
                 )
                 if should_poll_bse:
                     try:
@@ -1820,7 +1832,11 @@ class FinancialFilingWatcher:
                 # STRICT GOVERNANCE INVARIANT:
                 # Activated ONLY IF BOTH NSE and BSE failed to provide structured XML for a given period.
                 # If valid XML exists for a period on NSE or BSE, or if already attempted via direct sweep, do not re-run.
-                should_run_tier3_pdf = bool(not direct_sweep_success and not direct_sweep_attempted and (needs_bootstrap or not market_sweep_ok))
+                should_run_tier3_pdf = bool(
+                    not direct_sweep_success
+                    and not has_structured_facts
+                    and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok)
+                )
                 if should_run_tier3_pdf:
                     try:
                         logger.info(f"📑 [filling scanner] {sym_u}: Running Tier-3 fallback: searching official SEBI Reg 33 announcement PDFs...")
@@ -1837,18 +1853,27 @@ class FinancialFilingWatcher:
                             candidate_anns.extend(nse_prov._sweep_announcements_cache[sym_u])
                         elif nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
                             candidate_anns.extend(nse_prov._discovered_cache[sym_u])
-                        elif nse_prov and not market_sweep_ok:
-                            # Only query network if market sweep failed to execute
-                            try:
-                                nse_disc = nse_prov.discover_filings(sym_u)
-                                if nse_disc:
-                                    candidate_anns.extend(nse_disc)
-                            except Exception:
-                                pass
 
                         # Also include BSE discovered announcements if BSE was queried
                         if 'bse_disc_rows' in locals() and bse_disc_rows:
                             candidate_anns.extend(bse_disc_rows)
+
+                        # If candidate announcements are empty and stock is missing latest quarter or needs bootstrap, actively discover from exchanges
+                        if not candidate_anns and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok):
+                            if nse_prov:
+                                try:
+                                    nse_disc = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)
+                                    if nse_disc:
+                                        candidate_anns.extend(nse_disc)
+                                except Exception as _nse_disc_err:
+                                    logger.debug(f"[filling scanner] Tier-3 NSE announcement discovery error for {sym_u}: {_nse_disc_err}")
+                            if bse_prov and not candidate_anns:
+                                try:
+                                    bse_disc = bse_prov.discover_filings(sym_u)
+                                    if bse_disc:
+                                        candidate_anns.extend(bse_disc)
+                                except Exception as _bse_disc_err:
+                                    logger.debug(f"[filling scanner] Tier-3 BSE announcement discovery error for {sym_u}: {_bse_disc_err}")
 
                         # [RULE 67 CHANGE-RATIONALE: ELIMINATE_DUPLICATE_BSE_SCRAPE_v1.0]
                         # Step 2 is the authoritative BSE polling gate (lines 1350-1425).
@@ -2432,7 +2457,7 @@ class FinancialFilingWatcher:
         # Find if this period, statement_type and basis already exists
         matched_idx = None
         for i, row in enumerate(existing_list):
-            r_period = _normalize_iso_date(row.get("period_end_date"))
+            r_period = _normalize_iso_date(row.get("period_end_date") or row.get("period_end") or row.get("date"))
             r_type = str(row.get("statement_type") or "").upper()
             r_basis = str(row.get("basis") or ("STANDALONE" if "standalone" in str(row.get("source", "")).lower() else "CONSOLIDATED")).upper()
             if r_period and r_period == norm_period_end and r_type == statement_type and r_basis == basis:

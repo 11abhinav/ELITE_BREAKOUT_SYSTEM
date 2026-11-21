@@ -7901,10 +7901,14 @@ def upload_pit_raw_bundle_to_db() -> bool:
 
 def restore_pit_raw_bundle_from_db() -> bool:
     """
-    Restores the latest pit_raw_bundle from PostgreSQL parquet_cache into data/pit_raw_filings/
-    on server boot if local files are missing or incomplete.
+    Restores or merges the latest pit_raw_bundle from PostgreSQL parquet_cache into data/pit_raw_filings/
+    on server boot.
+    CRITICAL ARCHITECTURAL INVARIANT:
+    Never blindly overwrite a newer, more complete, or non-null local JSON file on disk
+    with an older tar archive entry from the database.
     """
     import io
+    import json
     import tarfile
     from pathlib import Path
 
@@ -7922,10 +7926,102 @@ def restore_pit_raw_bundle_from_db() -> bool:
 
                 binary_data = bytes(row[0])
                 bio = io.BytesIO(binary_data)
+                restored_count = 0
+                merged_count = 0
+                skipped_count = 0
+
                 with tarfile.open(fileobj=bio, mode="r:gz") as tar:
-                    members = tar.getmembers()
-                    tar.extractall(path=raw_dir)
-                logger.info(f"✅ [PIT RAW BOOT] Restored pit_raw_filings bundle ({len(members)} files, {len(binary_data)/1024.0:.1f} KB) from DB (date: {row[1]})")
+                    for member in tar.getmembers():
+                        if not member.name.endswith(".json"):
+                            continue
+                        safe_name = os.path.basename(member.name)
+                        dest_path = raw_dir / safe_name
+
+                        f_in_tar = tar.extractfile(member)
+                        if not f_in_tar:
+                            continue
+                        tar_bytes = f_in_tar.read()
+
+                        if not dest_path.exists() or dest_path.stat().st_size == 0:
+                            with open(dest_path, "wb") as out_f:
+                                out_f.write(tar_bytes)
+                            restored_count += 1
+                            continue
+
+                        try:
+                            tar_data = json.loads(tar_bytes.decode("utf-8"))
+                            with open(dest_path, "r", encoding="utf-8") as local_f:
+                                local_data = json.load(local_f)
+
+                            if not isinstance(local_data, list) or len(local_data) == 0:
+                                with open(dest_path, "wb") as out_f:
+                                    out_f.write(tar_bytes)
+                                restored_count += 1
+                                continue
+
+                            if not isinstance(tar_data, list) or len(tar_data) == 0:
+                                skipped_count += 1
+                                continue
+
+                            def _latest_fact_period(recs):
+                                best_p = ""
+                                for r in recs:
+                                    if not isinstance(r, dict):
+                                        continue
+                                    p = str(r.get("period_end_date") or r.get("period_end") or r.get("date") or "")[:10]
+                                    has_facts = (r.get("revenue") is not None or r.get("net_profit") is not None)
+                                    if has_facts and p > best_p:
+                                        best_p = p
+                                return best_p
+
+                            local_best = _latest_fact_period(local_data)
+                            tar_best = _latest_fact_period(tar_data)
+
+                            if local_best >= tar_best and len(local_data) >= len(tar_data):
+                                skipped_count += 1
+                                continue
+
+                            local_keys = {
+                                (str(r.get("period_end_date") or r.get("period_end") or r.get("date") or "")[:10],
+                                 str(r.get("statement_type") or r.get("period") or "").upper(),
+                                 str(r.get("basis") or "").upper()): idx
+                                for idx, r in enumerate(local_data) if isinstance(r, dict)
+                            }
+
+                            modified = False
+                            for tr in tar_data:
+                                if not isinstance(tr, dict):
+                                    continue
+                                tk = (str(tr.get("period_end_date") or tr.get("period_end") or tr.get("date") or "")[:10],
+                                      str(tr.get("statement_type") or tr.get("period") or "").upper(),
+                                      str(tr.get("basis") or "").upper())
+                                if tk[0] and tk not in local_keys:
+                                    local_data.append(tr)
+                                    modified = True
+                                elif tk in local_keys:
+                                    loc_r = local_data[local_keys[tk]]
+                                    if loc_r.get("revenue") is None and tr.get("revenue") is not None:
+                                        loc_r["revenue"] = tr.get("revenue")
+                                        modified = True
+                                    if loc_r.get("net_profit") is None and tr.get("net_profit") is not None:
+                                        loc_r["net_profit"] = tr.get("net_profit")
+                                        modified = True
+
+                            if modified:
+                                with open(dest_path, "w", encoding="utf-8") as out_f:
+                                    json.dump(local_data, out_f, indent=2)
+                                merged_count += 1
+                            else:
+                                skipped_count += 1
+
+                        except Exception as parse_err:
+                            logger.debug(f"[PIT RAW BOOT] Merge error for {safe_name}: {parse_err}")
+                            skipped_count += 1
+
+                logger.info(
+                    f"✅ [PIT RAW BOOT] Processed DB bundle (date: {row[1]}): "
+                    f"{restored_count} extracted, {merged_count} merged, {skipped_count} local files preserved."
+                )
                 clear_unified_stock_data_health_cache()
                 clear_canonical_snapshot_cache()
                 return True
@@ -10526,12 +10622,12 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                     with open(p, "rb") as f:
                         data = json.loads(f.read())
                     if isinstance(data, list) and len(data) > 0:
-                        valid_p = [str(stmt.get("period_end_date") or "")[:10] for stmt in data if stmt.get("period_end_date")]
+                        valid_p = [str(stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date") or "")[:10] for stmt in data if (stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date"))]
                         latest = max(valid_p) if valid_p else "None"
                         recent = []
                         for stmt in data[-5:]:
-                            pend = str(stmt.get("period_end_date") or "")
-                            stt = str(stmt.get("statement_type") or "A")[:1]
+                            pend = str(stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date") or "")
+                            stt = str(stmt.get("statement_type") or stmt.get("period") or "A")[:1]
                             if pend:
                                 recent.append(f"{pend} ({stt})")
 
@@ -10543,13 +10639,15 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                         latest_quarterly_p = None
 
                         for stmt in data:
-                            p_end = str(stmt.get("period_end_date") or "")[:10]
+                            p_end = str(stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date") or "")[:10]
                             stt = str(stmt.get("statement_type") or stmt.get("period") or "").upper()
                             try:
                                 from app.financial_data_integrity import classify_statement_type
                                 is_ann = (classify_statement_type(stt, period_end_date=p_end) == "ANNUAL")
                             except Exception:
                                 is_ann = (("ANNUAL" in stt or "FY" in stt or (p_end.endswith("-03-31") and "QUARTER" not in stt and "Q" not in stt)) and not any(k in stt for k in ("HALF", "H1", "H2", "6M")))
+                            
+                            has_facts = (stmt.get("revenue") is not None or stmt.get("net_profit") is not None)
                             if is_ann and len(p_end) >= 4:
                                 if latest_annual_p is None or p_end > latest_annual_p:
                                     latest_annual_p = p_end
@@ -10559,9 +10657,9 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                                         annual_years.append(yr)
                                 except Exception:
                                     pass
-                                if latest_annual is None or p_end > str(latest_annual.get("period_end_date", "")):
+                                if latest_annual is None or p_end > str(latest_annual.get("period_end_date") or latest_annual.get("period_end") or ""):
                                     latest_annual = stmt
-                            elif not is_ann:
+                            elif not is_ann and has_facts:
                                 if latest_quarterly_p is None or p_end > latest_quarterly_p:
                                     latest_quarterly_p = p_end
 
@@ -11509,10 +11607,11 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                 raw_qtr = str(raw_info.get("latest_quarterly") or "")
                 snap_qtr = str(row.get("latest_quarterly_period") or "")
                 eff_qtr = max(raw_qtr, snap_qtr) if (raw_qtr and snap_qtr) else (raw_qtr or snap_qtr)
+                eff_latest = max(raw_period, eff_qtr) if (raw_period not in ("None", "Empty", "Error") and eff_qtr) else (eff_qtr or raw_period)
 
                 if raw_count == 0 or raw_period in ("None", "Empty", "Error"):
                     raw_stale = True
-                elif raw_period < sym_mand_period:
+                elif eff_latest < sym_mand_period:
                     # [SEBI LODR REG 33 INVARIANT]: If latest filed period is older than the statutory mandatory period,
                     # the company is overdue on its exchange disclosures and MUST be classified as stale.
                     raw_stale = True
@@ -11527,7 +11626,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     missing_summary = f"No raw disclosures on disk. Backfill pending for mandatory period {sym_mand_period}."
                     status_code = "STALE_RAW_DATA"
                 else:
-                    reason = f"LOCAL_CACHE_BACKFILL_PENDING ({raw_period} < {sym_mand_period})"
+                    reason = f"LOCAL_CACHE_BACKFILL_PENDING ({eff_latest} < {sym_mand_period})"
                     status_code = "STALE_LOCAL_CACHE"
                     missing_summary = _format_missing_data(reason, "", sym, raw_info=raw_info, snap_item=row)
                     if not missing_summary or missing_summary == reason or "not met" in missing_summary.lower():
