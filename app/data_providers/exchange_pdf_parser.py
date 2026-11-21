@@ -37,16 +37,18 @@ except ImportError:
     logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 import threading
 
-# Concurrency semaphores: allow full concurrency matching the worker pool (up to 30 workers)
+# Concurrency semaphores: allow up to 30 concurrent downloads, but limit CPU-bound PDF parsing to 4
+# to prevent GIL starvation and thread lock contention across worker threads
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(30)
-_PARSE_SEMAPHORE = threading.Semaphore(30)
+_PARSE_SEMAPHORE = threading.Semaphore(4)
 
 # Size & scanning parameters:
-# Generous limits so all legitimate exchange documents (scanned reports, multi-page outcomes) are fully read
-_PDF_MAX_RESULT_BYTES = 100 * 1024 * 1024  # 100 MB for confirmed Financial Results
-_PDF_MAX_NON_RESULT_BYTES = 15 * 1024 * 1024  # 15 MB for non-result announcements
-_PDF_MAX_PAGES_SCAN = 25  # Inspect up to 25 pages to find financial tables located beyond cover pages
-_PDF_MAX_BOOKLET_PAGES = 300  # Only skip if entire document is >300 pages (massive annual books)
+# Official SEBI Reg 33 outcome statements are typically 1-5MB. Documents > 12MB are almost always
+# glossy marketing presentations or full multi-hundred page annual booklets.
+_PDF_MAX_RESULT_BYTES = 12 * 1024 * 1024  # 12 MB for confirmed Financial Results (covers high-DPI scans)
+_PDF_MAX_NON_RESULT_BYTES = 4 * 1024 * 1024  # 4 MB for non-result announcements
+_PDF_MAX_PAGES_SCAN = 8  # Inspect up to 8 pages (SEBI Reg 33 tables are always on pages 1-5)
+_PDF_MAX_BOOKLET_PAGES = 50  # Skip if document exceeds 50 pages (annual report booklets/prospectuses)
 
 try:
     from app.data_providers.fundamental_models import (

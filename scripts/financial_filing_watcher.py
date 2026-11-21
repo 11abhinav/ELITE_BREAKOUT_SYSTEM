@@ -1146,9 +1146,9 @@ class FinancialFilingWatcher:
         last_synced_count = [0]
         synced_batch_num = [0]
         last_synced_time = [time.time()]
-        TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "60.0"))  # 1 minute (reduced from 300s to ensure fast DB sync)
-        BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "20"))  # Save to DB after every 20 completed stocks
-        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "1"))  # Immediate sync as soon as ANY new filing is ingested (preserves work across restarts)
+        TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "300.0"))  # 5 minutes periodic heartbeat sync
+        BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Progress sync after every 25 completed stocks
+        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "25"))  # Batch rebuild after 25 newly ingested stocks (prevents serial lock contention)
 
         # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
         _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
@@ -1226,6 +1226,10 @@ class FinancialFilingWatcher:
                 else:
                     has_corrupt_or_empty_raw = True
 
+                # ── STATE & FAST PATH INITIALIZATION ──
+                prev_sym_state = self.state.get(sym_u, {})
+                already_bootstrapped = bool(prev_sym_state.get("bootstrap_completed", False))
+
                 # ── DYNAMIC ABSOLUTE 0ms FAST PATH: LATEST CONCLUDED QUARTER ALREADY IN LOCAL ──
                 latest_concluded_qtr = _run_latest_concluded_qtr  # cached once per run to avoid 861 recomputations
                 has_latest_concluded_quarter = any(
@@ -1238,8 +1242,7 @@ class FinancialFilingWatcher:
                     not force_backfill
                     and not has_corrupt_or_empty_raw
                     and has_latest_concluded_quarter
-                    and (snap_row is not None)
-                    and not snap_gap_flag
+                    and (not snap_gap_flag or already_bootstrapped or local_annual_count >= 5)
                 ):
                     with self._state_lock:
                         from zoneinfo import ZoneInfo
@@ -1267,7 +1270,7 @@ class FinancialFilingWatcher:
                         skipped_complete_count[0] += 1
                     logger.info(
                         f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                        f"LATEST CONCLUDED QUARTER IN LOCAL ({latest_concluded_qtr} present, latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                        f"HAS LATEST RESULT ({latest_concluded_qtr} present in local DB/cache | latest_period={latest_local_period} | annual_count={local_annual_count}). "
                         f"Skipping in 0ms."
                     )
                     return
@@ -1358,21 +1361,18 @@ class FinancialFilingWatcher:
                         missing_metric_reason = "Missing 5Y ROCE average in canonical snapshot"
 
                 # ── CONSOLIDATED BOOTSTRAP DECISION ──
-                # If a symbol previously attempted bootstrap and local raw data has >= 6 annual filings,
+                # If a symbol previously attempted bootstrap and local raw data has valid filings,
                 # do not infinitely re-attempt full backfill on every run for unresolvable exchange gaps.
-                prev_sym_state = self.state.get(sym_u, {})
-                already_bootstrapped = bool(prev_sym_state.get("bootstrap_completed", False))
-
                 needs_bootstrap = (
                     force_backfill
                     or has_corrupt_or_empty_raw
-                    or (len(sorted_annual_years) == 0)
-                    or (freshness not in ("FRESH", "VALID"))
-                    or snap_gap_flag
-                    or not snap_annual
+                    or (len(sorted_annual_years) == 0 and not is_struct_ineligible)
+                    or (freshness not in ("FRESH", "VALID") and not already_bootstrapped)
                     or not latest_local_period
                     or (not already_bootstrapped and (
-                        has_intermediate_gap
+                        snap_gap_flag
+                        or not snap_annual
+                        or has_intermediate_gap
                         or has_tail_annual_gap
                         or has_quarterly_gap
                         or (depth_reason is not None)
@@ -1544,16 +1544,17 @@ class FinancialFilingWatcher:
                         bootstrap_ingested_count[0] += 1
                     logger.info(
                         f"🚀 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                        f"BOOTSTRAP / HEAL NEEDED ({reason_desc}, local_annual={local_annual_count}, snap_annual={snap_annual or 'NONE'}). "
-                        f"Ingesting complete history from {min_cutoff} to ensure 100% complete data."
+                        f"LATEST RESULT MISSING / HEAL NEEDED on disk (latest_local={latest_local_period or 'NONE'}, target_qtr={latest_concluded_qtr}). "
+                        f"Reason: {reason_desc} | local_annual={local_annual_count}. "
+                        f"Attempting to fetch from exchanges from {min_cutoff} (Tier-1 NSE XBRL, Tier-2 BSE, Tier-3 PDF)..."
                     )
                 elif not has_latest_concluded_quarter:
                     # Stock is missing recent mandatory filings: query from last available local observation to today!
                     min_cutoff = latest_local_period or "2024-01-01"
                     logger.info(
-                        f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                        f"MISSING LATEST CONCLUDED QUARTER (latest_local={latest_local_period} < {latest_concluded_qtr}). "
-                        f"Fetching missing filings from {min_cutoff} through today."
+                        f"🔍 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"LATEST RESULT MISSING on disk (latest_local={latest_local_period or 'NONE'} < target_qtr={latest_concluded_qtr}). "
+                        f"Attempting to fetch missing filings from {min_cutoff} through today across exchanges (Tier-1 NSE XBRL, Tier-2 BSE, Tier-3 PDF)..."
                     )
                 else:
                     # In incremental run with new filing: ONLY check for new filings!
@@ -1690,6 +1691,7 @@ class FinancialFilingWatcher:
                 )
                 if should_poll_nse_legacy:
                     try:
+                        logger.info(f"🔍 [filling scanner] {sym_u}: Polling Tier-1 NSE XBRL results (cutoff={min_cutoff})...")
                         if hasattr(nse_prov, "_discovered_cache") and needs_bootstrap:
                             nse_prov._discovered_cache.pop(sym_u, None)
                         if hasattr(nse_prov, "_sweep_announcements_cache") and needs_bootstrap:
@@ -1697,6 +1699,7 @@ class FinancialFilingWatcher:
                         nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_cutoff)
                         if nse_records:
                             nse_fetch_count = len(nse_records)
+                            logger.info(f"📥 [filling scanner] {sym_u}: Tier-1 NSE XBRL returned {nse_fetch_count} statements.")
                             for r in nse_records:
                                 norm_p = _normalize_iso_date(r.period_end_date)
                                 if not norm_p or norm_p < min_cutoff:
@@ -1756,6 +1759,7 @@ class FinancialFilingWatcher:
                 )
                 if should_poll_bse:
                     try:
+                        logger.info(f"🔍 [filling scanner] {sym_u}: Polling Tier-2 BSE financials & announcements...")
                         scrip = bse_prov.resolve_bse_scrip_code(sym_u)
                         if scrip:
                             # 3a. BSE Financial Results
@@ -1807,6 +1811,8 @@ class FinancialFilingWatcher:
                                                     raw_filings_list.append(r_copy)
                             except Exception as bse_disc_err:
                                 logger.warning(f"[filling scanner] BSE discover_filings warning for {sym_u}: {bse_disc_err}")
+                            if bse_count > 0:
+                                logger.info(f"📥 [filling scanner] {sym_u}: Tier-2 BSE returned {bse_count} statements.")
                     except Exception as bse_err:
                         logger.warning(f"[filling scanner] BSE discover warning for {sym_u}: {bse_err}")
 
@@ -1817,6 +1823,7 @@ class FinancialFilingWatcher:
                 should_run_tier3_pdf = bool(not direct_sweep_success and not direct_sweep_attempted and (needs_bootstrap or not market_sweep_ok))
                 if should_run_tier3_pdf:
                     try:
+                        logger.info(f"📑 [filling scanner] {sym_u}: Running Tier-3 fallback: searching official SEBI Reg 33 announcement PDFs...")
                         already_covered_periods: Set[str] = set()
                         for it in raw_filings_list:
                             if it.get("revenue") is not None or it.get("net_profit") is not None:
@@ -1936,7 +1943,10 @@ class FinancialFilingWatcher:
                         logger.warning(f"[filling scanner] Tier-3 PDF fallback notice for {sym_u}: {pdf_fallback_err}")
 
                 if not raw_filings_list or not any(raw_filings_list):
-                    logger.debug(f"[filling scanner] {sym_u}: 0 filings retrieved from exchanges.")
+                    logger.info(
+                        f"⚠️ [filling scanner] {sym_u}: Attempted exchange search (Tier 1/2/3) but 0 new filings found on NSE/BSE "
+                        f"(company may not have released results yet). Retaining existing local data (latest_period={latest_local_period or 'NONE'})."
+                    )
                     with self._state_lock:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
@@ -2047,6 +2057,13 @@ class FinancialFilingWatcher:
                             self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
                         with events_lock:
                             discovered_events.append(event.to_dict())
+                        rev_str = f"₹{item.get('revenue')} Cr" if item.get('revenue') is not None else "N/A"
+                        pat_str = f"₹{item.get('net_profit')} Cr" if item.get('net_profit') is not None else "N/A"
+                        logger.info(
+                            f"✨ [filling scanner] {sym_u}: Fetched new disclosure for {period_end} ({basis} {st_type}) | "
+                            f"Revenue = {rev_str} | PAT = {pat_str} | Source: {item.get('source', item.get('exchange', 'NSE'))} | "
+                            f"Saved to local raw cache data/pit_raw/{sym_u}.json & queued for DB sync"
+                        )
 
                 if sym_new_events > 0:
                     with events_lock:
@@ -2175,31 +2192,28 @@ class FinancialFilingWatcher:
                         # 1. Atomically persist watcher state
                         self._save_state()
 
-                        # 2. Upload newly ingested raw filings bundle to DB parquet_cache immediately
+                        # 2. Upload newly ingested raw filings bundle to DB and rebuild snapshot delta
                         if to_sync_syms_batch:
                             with events_lock:
                                 synced_symbols.update(to_sync_syms_batch)
-                            try:
-                                try:
-                                    from app.database import upload_pit_raw_bundle_to_db
-                                except ImportError:
-                                    from database import upload_pit_raw_bundle_to_db
-                                upload_pit_raw_bundle_to_db()
-                                logger.info(
-                                    f"💾 [filling scanner] [BATCH {b_num} SYNC: {sync_reason}] Persisted {len(to_sync_syms_batch)} raw filings & backed up bundle to Postgres DB: {to_sync_syms_batch[:8]}..."
-                                )
-                            except Exception as _up_batch_err:
-                                logger.warning(f"[filling scanner] Batch raw bundle upload note: {_up_batch_err}")
-
-                            # 2b. [RESTART RESILIENCE] Rebuild and upload canonical snapshot delta immediately
-                            # so container restarts/redeployments retain certified snapshot records in DB without data loss.
+                            # Rebuild canonical snapshot delta and upload bundle + parquet to Postgres DB
+                            # (invalidate_and_rebuild_snapshot automatically persists canonical_pit_rebuilt & pit_raw bundle)
                             try:
                                 self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, run_ctx=run_ctx)
                                 logger.info(
-                                    f"💾 [filling scanner] [BATCH {b_num} SYNC] Rebuilt & uploaded canonical snapshot delta to DB for {to_sync_syms_batch[:8]}..."
+                                    f"💾 [filling scanner] [BATCH {b_num} DB SYNC: {sync_reason}] Persisted {len(to_sync_syms_batch)} stocks to Postgres DB: "
+                                    f"Rebuilt canonical snapshot delta & uploaded raw bundle. Stocks: {to_sync_syms_batch[:8]}..."
                                 )
                             except Exception as _snap_rebuild_err:
                                 logger.warning(f"[filling scanner] Batch snapshot rebuild note: {_snap_rebuild_err}")
+                                try:
+                                    try:
+                                        from app.database import upload_pit_raw_bundle_to_db
+                                    except ImportError:
+                                        from database import upload_pit_raw_bundle_to_db
+                                    upload_pit_raw_bundle_to_db()
+                                except Exception as _up_batch_err:
+                                    logger.warning(f"[filling scanner] Batch raw bundle fallback upload note: {_up_batch_err}")
 
                         # 3. Update DB execution progress & health heartbeat
                         progress_summary = (
