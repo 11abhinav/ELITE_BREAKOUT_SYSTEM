@@ -3266,9 +3266,18 @@ def api_get_corporate_filings():
 
         success_rate = round((success / attempted * 100), 1) if attempted > 0 else 100.0
 
+        run_lifecycle = (sel_run.get("status") if sel_run else "").upper()
+        if run_lifecycle == "RUNNING" and sel_run:
+            pending_count = int(sel_run.get("pending") or max(0, tot_scanned - (up_to_date + success + failed)))
+        else:
+            pending_count = 0
+
         telemetry = {
             "total_scanned": tot_scanned,
             "already_up_to_date": up_to_date,
+            "skipped": up_to_date,
+            "pending": pending_count,
+            "actually_fetched": success,
             "fetch_attempted": attempted,
             "fetch_success": success,
             "fetch_failed": failed,

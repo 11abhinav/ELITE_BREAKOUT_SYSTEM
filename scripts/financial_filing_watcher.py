@@ -1142,13 +1142,14 @@ class FinancialFilingWatcher:
         batch_sync_lock = threading.Lock()
         discovered_events: List[Dict[str, Any]] = []
         pending_rebuild_syms: Set[str] = set()
+        actually_fetched_syms: Set[str] = set()
         synced_symbols: Set[str] = set()
         last_synced_count = [0]
         synced_batch_num = [0]
         last_synced_time = [time.time()]
         TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "300.0"))  # 5 minutes periodic heartbeat sync
         BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Progress sync after every 25 completed stocks
-        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "25"))  # Batch rebuild after 25 newly ingested stocks (prevents serial lock contention)
+        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "25"))  # Strict 25-stock batch DB sync for newly fetched stocks
 
         # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
         _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
@@ -2101,6 +2102,7 @@ class FinancialFilingWatcher:
                 if sym_new_events > 0:
                     with events_lock:
                         pending_rebuild_syms.add(sym_u)
+                        actually_fetched_syms.add(sym_u)
                     try:
                         try:
                             from app.financial_data_integrity import record_exchange_watermark
@@ -2125,6 +2127,7 @@ class FinancialFilingWatcher:
                     elif needs_bootstrap and valid_items and (not snap_annual or snap_gap_flag or freshness != "FRESH"):
                         with events_lock:
                             pending_rebuild_syms.add(sym_u)
+                            actually_fetched_syms.add(sym_u)
 
                 # Record polling completion and state for the symbol
                 with self._state_lock:
@@ -2157,6 +2160,7 @@ class FinancialFilingWatcher:
             finally:
                 should_batch_sync = False
                 sync_reason = ""
+                to_sync_syms_batch: List[str] = []
                 with counter_lock:
                     completed_count[0] += 1
                     curr_c = completed_count[0]
@@ -2176,47 +2180,48 @@ class FinancialFilingWatcher:
                     else:
                         eta_str = "0s"
 
-                    elapsed_since_sync = time.time() - last_synced_time[0]
-                    time_triggered = (elapsed_since_sync >= TIME_SYNC_INTERVAL)
-                    count_triggered = (curr_c - last_synced_count[0] >= BATCH_SYNC_SIZE)
-                    final_triggered = (curr_c == total_syms)
-
-                    to_sync_syms_batch: List[str] = []
                     with events_lock:
+                        actually_fetched_c = len(actually_fetched_syms)
                         pending_syms_len = len(pending_rebuild_syms)
                         disc_len = len(discovered_events)
+                        # DB Sync Trigger Invariant:
+                        # 1. Sync to DB when 25 stocks are actually fetched and processed (len(pending_rebuild_syms) >= 25)
+                        # 2. OR when all processing is done (curr_c == total_syms), even if count is less than 25 (pending_syms_len > 0)
                         fetched_triggered = (pending_syms_len >= FETCHED_SYNC_THRESHOLD)
-                        if time_triggered or count_triggered or fetched_triggered or final_triggered:
+                        final_triggered = (curr_c == total_syms and pending_syms_len > 0)
+                        if fetched_triggered or final_triggered:
                             should_batch_sync = True
                             to_sync_syms_batch = sorted(list(pending_rebuild_syms))
                             pending_rebuild_syms.clear()
+                            if fetched_triggered:
+                                sync_reason = f"FETCHED_25_STOCKS ({len(to_sync_syms_batch)} stocks)"
+                            else:
+                                sync_reason = f"FINAL_COMPLETION ({len(to_sync_syms_batch)} stocks)"
 
-                    if should_batch_sync:
-                        if fetched_triggered:
-                            sync_reason = f"FETCHED_THRESHOLD ({len(to_sync_syms_batch)} newly fetched stocks)"
-                        elif time_triggered:
-                            sync_reason = f"5-MINUTE_TIMER ({int(elapsed_since_sync)}s elapsed)"
-                        elif count_triggered:
-                            sync_reason = f"BATCH_COUNT ({curr_c - last_synced_count[0]} stocks completed)"
-                        else:
-                            sync_reason = "FINAL_COMPLETION"
+                            last_synced_count[0] = curr_c
+                            last_synced_time[0] = time.time()
 
-                        last_synced_count[0] = curr_c
-                        last_synced_time[0] = time.time()
+                    elapsed_since_sync = time.time() - last_synced_time[0]
+                    should_update_progress = (
+                        should_batch_sync
+                        or (curr_c % 5 == 0)
+                        or (curr_c == total_syms)
+                        or (elapsed_since_sync >= 10.0 and curr_c - last_synced_count[0] >= 5)
+                    )
 
-                    # Detailed progress log to track where we are
+                    # Detailed progress log displaying Skipped, Pending, and Actually Fetched
                     pct = round((curr_c / total_syms) * 100, 1)
                     if curr_c % 2 == 0 or curr_c == total_syms or pending_c <= 10 or should_batch_sync:
                         logger.info(
                             f"📊 [filling scanner] [{curr_c}/{total_syms}] ({pct}%) | "
                             f"Done: {curr_c} | Pending: {pending_c} (ETA: {eta_str}) | "
-                            f"Complete Skipped: {skipped_c} | Ingested/Healed: {bootstrapped_c} | "
-                            f"Discovered: {disc_len} | Errors: {errs_c} | "
+                            f"Skipped (Up-to-Date): {skipped_c} | Actually Fetched: {actually_fetched_c} | "
+                            f"Discovered Events: {disc_len} | Errors: {errs_c} | "
                             f"Rate: {rate_per_min}/min | Last: {sym_u}"
                         )
 
                 # Batch DB synchronization outside counter_lock
-                if should_batch_sync:
+                if should_batch_sync and to_sync_syms_batch:
                     with batch_sync_lock:
                         synced_batch_num[0] += 1
                         b_num = synced_batch_num[0]
@@ -2226,88 +2231,87 @@ class FinancialFilingWatcher:
                         self._save_state()
 
                         # 2. Upload newly ingested raw filings bundle to DB and rebuild snapshot delta
-                        if to_sync_syms_batch:
-                            with events_lock:
-                                synced_symbols.update(to_sync_syms_batch)
-                            # Rebuild canonical snapshot delta and upload bundle + parquet to Postgres DB
-                            # (invalidate_and_rebuild_snapshot automatically persists canonical_pit_rebuilt & pit_raw bundle)
-                            try:
-                                self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, run_ctx=run_ctx)
-                                logger.info(
-                                    f"💾 [filling scanner] [BATCH {b_num} DB SYNC: {sync_reason}] Persisted {len(to_sync_syms_batch)} stocks to Postgres DB: "
-                                    f"Rebuilt canonical snapshot delta & uploaded raw bundle. Stocks: {to_sync_syms_batch[:8]}..."
-                                )
-                            except Exception as _snap_rebuild_err:
-                                logger.warning(f"[filling scanner] Batch snapshot rebuild note: {_snap_rebuild_err}")
-                                try:
-                                    try:
-                                        from app.database import upload_pit_raw_bundle_to_db
-                                    except ImportError:
-                                        from database import upload_pit_raw_bundle_to_db
-                                    upload_pit_raw_bundle_to_db()
-                                except Exception as _up_batch_err:
-                                    logger.warning(f"[filling scanner] Batch raw bundle fallback upload note: {_up_batch_err}")
-
-                        # 3. Update DB execution progress & health heartbeat
-                        progress_summary = (
-                            f"Processed {curr_c}/{total_syms} ({pct}%) | "
-                            f"Pending: {pending_c} (ETA: {eta_str}) | "
-                            f"Complete Skipped: {skipped_c} | Backfilled: {bootstrapped_c} | "
-                            f"Discovered: {disc_len} | Synced Batch {b_num} ({sync_reason}) to DB"
-                        )
+                        with events_lock:
+                            synced_symbols.update(to_sync_syms_batch)
+                        # Rebuild canonical snapshot delta and upload bundle + parquet to Postgres DB
                         try:
+                            self.invalidate_and_rebuild_snapshot(symbol=to_sync_syms_batch, run_ctx=run_ctx)
+                            logger.info(
+                                f"💾 [filling scanner] [BATCH {b_num} DB SYNC: {sync_reason}] Persisted {len(to_sync_syms_batch)} stocks to Postgres DB: "
+                                f"Rebuilt canonical snapshot delta & uploaded raw bundle. Stocks: {to_sync_syms_batch[:8]}..."
+                            )
+                        except Exception as _snap_rebuild_err:
+                            logger.warning(f"[filling scanner] Batch snapshot rebuild note: {_snap_rebuild_err}")
                             try:
-                                from app.database import update_scanner_run_heartbeat, upsert_scanner_health, update_scanner_run_progress
-                            except ImportError:
-                                from database import update_scanner_run_heartbeat, upsert_scanner_health, update_scanner_run_progress
-
-                            if run_ctx and getattr(run_ctx, "run_id", None):
-                                update_scanner_run_heartbeat(run_ctx.run_id)
-                                update_scanner_run_progress(
-                                    run_id=run_ctx.run_id,
-                                    processed_count=curr_c,
-                                    total_count=total_syms,
-                                    summary_notes=progress_summary,
-                                    metrics_json={
-                                        "processed": curr_c,
-                                        "processed_count": curr_c,
-                                        "total": total_syms,
-                                        "total_count": total_syms,
-                                        "total_scanned": total_syms,
-                                        "pending": pending_c,
-                                        "pending_count": pending_c,
-                                        "pct": pct,
-                                        "eta": eta_str,
-                                        "skipped_complete": skipped_c,
-                                        "already_up_to_date": skipped_c,
-                                        "fetch_attempted": max(0, curr_c - skipped_c),
-                                        "fetch_success": disc_len,
-                                        "fetch_failed": errs_c,
-                                        "bootstrapped": bootstrapped_c,
-                                        "discovered": disc_len,
-                                        "errors": errs_c,
-                                        "batch_num": b_num,
-                                        "sync_reason": sync_reason,
-                                    }
-                                )
-
-                            if not (run_ctx and getattr(run_ctx, "is_stopped", False)):
-                                upsert_scanner_health(
-                                    scanner_name="FILING_WATCHER",
-                                    status="RUNNING",
-                                    processed_count=curr_c,
-                                    total_count=total_syms,
-                                    error_msg=progress_summary,
-                                    run_id=run_ctx.run_id if run_ctx else None,
-                                )
-                        except Exception as prog_err:
-                            logger.debug(f"[filling scanner] Progress update error: {prog_err}")
+                                try:
+                                    from app.database import upload_pit_raw_bundle_to_db
+                                except ImportError:
+                                    from database import upload_pit_raw_bundle_to_db
+                                upload_pit_raw_bundle_to_db()
+                            except Exception as _up_batch_err:
+                                logger.warning(f"[filling scanner] Batch raw bundle fallback upload note: {_up_batch_err}")
 
                         logger.info(
                             f"💾 [filling scanner] [BATCH {b_num} DB SYNC COMPLETE: {sync_reason}] [{curr_c}/{total_syms}] ({pct}%) | "
                             f"Pending: {pending_c} (ETA: {eta_str}) | Newly Ingested Batch: {len(to_sync_syms_batch)} | "
-                            f"Total Completed: {curr_c} | DB heartbeat refreshed."
+                            f"Actually Fetched Total: {actually_fetched_c} | DB heartbeat refreshed."
                         )
+
+                # Lightweight progress update to DB
+                if should_update_progress:
+                    progress_summary = (
+                        f"Done: {curr_c}/{total_syms} ({pct}%) | Pending: {pending_c} | "
+                        f"Skipped: {skipped_c} | Actually Fetched: {actually_fetched_c} | "
+                        f"Discovered: {disc_len}"
+                    )
+                    try:
+                        try:
+                            from app.database import update_scanner_run_heartbeat, upsert_scanner_health, update_scanner_run_progress
+                        except ImportError:
+                            from database import update_scanner_run_heartbeat, upsert_scanner_health, update_scanner_run_progress
+
+                        if run_ctx and getattr(run_ctx, "run_id", None):
+                            update_scanner_run_heartbeat(run_ctx.run_id)
+                            update_scanner_run_progress(
+                                run_id=run_ctx.run_id,
+                                processed_count=curr_c,
+                                total_count=total_syms,
+                                summary_notes=progress_summary,
+                                metrics_json={
+                                    "processed": curr_c,
+                                    "processed_count": curr_c,
+                                    "total": total_syms,
+                                    "total_count": total_syms,
+                                    "total_scanned": total_syms,
+                                    "pending": pending_c,
+                                    "pending_count": pending_c,
+                                    "actually_fetched": actually_fetched_c,
+                                    "actually_fetched_count": actually_fetched_c,
+                                    "fetch_success": actually_fetched_c,
+                                    "skipped": skipped_c,
+                                    "skipped_complete": skipped_c,
+                                    "already_up_to_date": skipped_c,
+                                    "pct": pct,
+                                    "eta": eta_str,
+                                    "bootstrapped": bootstrapped_c,
+                                    "discovered": disc_len,
+                                    "errors": errs_c,
+                                    "batch_num": synced_batch_num[0],
+                                    "sync_reason": sync_reason or "PROGRESS_UPDATE",
+                                }
+                            )
+
+                        if not (run_ctx and getattr(run_ctx, "is_stopped", False)):
+                            upsert_scanner_health(
+                                scanner_name="FILING_WATCHER",
+                                status="RUNNING",
+                                processed_count=curr_c,
+                                total_count=total_syms,
+                                error_msg=progress_summary,
+                                run_id=run_ctx.run_id if run_ctx else None,
+                            )
+                    except Exception as prog_err:
+                        logger.debug(f"[filling scanner] Progress update error: {prog_err}")
 
         # Prioritize symbols needing filings:
         # Priority 0: Symbols with active announcements in exchange market sweep
@@ -2343,24 +2347,29 @@ class FinancialFilingWatcher:
         self._save_state()
 
         total_elapsed = time.time() - start_poll_time
+        actually_fetched_final = len(actually_fetched_syms)
         # [RULE 67 CHANGE-RATIONALE: Expose exact execution metrics for dashboard telemetry and auditability]
         self.last_poll_stats = {
             "total_scanned": len(symbols),
             "already_up_to_date": skipped_complete_count[0],
             "fetch_attempted": max(0, len(symbols) - skipped_complete_count[0]),
-            "fetch_success": len(discovered_events),
+            "fetch_success": actually_fetched_final,
+            "actually_fetched": actually_fetched_final,
+            "skipped": skipped_complete_count[0],
+            "pending": 0,
             "fetch_failed": error_count[0],
             "duration_seconds": round(total_elapsed, 2),
         }
         logger.info(
             f"🏁 [filling scanner] Polling cycle complete in {total_elapsed:.1f}s | "
-            f"Universe: {len(symbols)} | Complete Skipped: {skipped_complete_count[0]} | "
+            f"Universe: {len(symbols)} | Skipped (Up-to-Date): {skipped_complete_count[0]} | "
+            f"Actually Fetched: {actually_fetched_final} | "
             f"Backfilled: {bootstrap_ingested_count[0]} | Events Discovered: {len(discovered_events)} | "
             f"Errors: {error_count[0]}"
         )
 
         # Invariant: Upload updated pit_raw_bundle to DB so newly discovered/healed filings survive container restarts
-        if bootstrap_ingested_count[0] > 0 or len(discovered_events) > 0 or len(synced_symbols) > 0:
+        if bootstrap_ingested_count[0] > 0 or len(discovered_events) > 0 or len(synced_symbols) > 0 or actually_fetched_final > 0:
             try:
                 try:
                     from app.database import upload_pit_raw_bundle_to_db
@@ -2370,22 +2379,22 @@ class FinancialFilingWatcher:
             except Exception as bundle_err:
                 logger.debug(f"[filling scanner] Raw filings bundle upload note: {bundle_err}")
 
-        # Consolidated single-pass snapshot rebuild for all newly discovered/fetched symbols
+        # Consolidated single-pass snapshot rebuild for any remaining unrebuilt symbols
         with events_lock:
             remaining_syms = sorted(list(pending_rebuild_syms))
             pending_rebuild_syms.clear()
 
         all_disc_syms = {str(e.get("symbol")).strip().upper() for e in discovered_events if e.get("symbol")}
-        unrebuilt = sorted(list(all_disc_syms | set(remaining_syms) | synced_symbols))
+        unrebuilt = sorted(list((all_disc_syms | set(remaining_syms) | actually_fetched_syms) - synced_symbols))
 
         if unrebuilt:
-            logger.info(f"🔄 [filling scanner] Running single consolidated snapshot rebuild for {len(unrebuilt)} newly fetched/discovered symbols: {unrebuilt[:10]}...")
+            logger.info(f"🔄 [filling scanner] Running final snapshot rebuild for {len(unrebuilt)} remaining fetched symbols: {unrebuilt[:10]}...")
             try:
                 self.invalidate_and_rebuild_snapshot(symbol=unrebuilt, as_of_date=as_of_date, run_ctx=run_ctx)
             except Exception as auto_rb_err:
                 logger.warning(f"[filling scanner] Final snapshot rebuild error: {auto_rb_err}")
         else:
-            logger.info("✅ [filling scanner] All symbols are already up-to-date. Skipping snapshot rebuild.")
+            logger.info(f"✅ [filling scanner] All {actually_fetched_final} fetched stocks are fully synced and rebuilt in DB.")
 
         # Update final exchange watermarks for both NSE and BSE to guarantee FEED_HEARTBEAT_SLA freshness
         try:

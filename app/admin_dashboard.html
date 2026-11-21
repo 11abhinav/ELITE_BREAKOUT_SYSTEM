@@ -4082,27 +4082,51 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
-          <!-- SUMMARY STATUS BANNER: CLEAN, CRISP & PRECISE (REPLACES BLOATED CARDS) -->
+          <!-- LIVE PROGRESS BANNER: ACTIVE DURING CORPORATE FILING SWEEPS -->
+          <div id="filingSweepProgressBanner" style="display:none; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:14px; padding:12px 18px; background:rgba(37,99,235,0.1); border:1px solid rgba(59,130,246,0.35); border-radius:10px; font-size:13px;">
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+              <span class="pulse-dot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#3b82f6; box-shadow:0 0 8px #3b82f6;"></span>
+              <strong id="filingSweepProgressText" style="color:#93c5fd;">⏳ Filing Scan in progress: 0 / 861 processed (0%)</strong>
+              <span style="color:var(--border);">|</span>
+              <span id="filingSweepFetchedText" style="color:var(--accent); font-weight:700;">0 Actually Fetched</span>
+              <span style="color:var(--border);">|</span>
+              <span id="filingSweepSkippedText" style="color:#10b981; font-weight:700;">0 Skipped</span>
+              <span style="color:var(--border);">|</span>
+              <span id="filingSweepPendingText" style="color:#f59e0b; font-weight:700;">861 Pending</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span id="filingSweepSyncRuleText" style="font-size:11px; color:var(--muted); background:var(--card2); padding:3px 8px; border-radius:6px; border:1px solid var(--border);">⚡ Syncs DB every 25 fetched stocks</span>
+              <span id="filingSweepEtaText" style="font-size:12px; font-weight:700; color:#60a5fa;">Progress: 0%</span>
+            </div>
+          </div>
+
+          <!-- SUMMARY STATUS BANNER: CLEAN, CRISP & PRECISE (DISPLAYS FETCHED, SKIPPED, PENDING & UNIVERSE) -->
           <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; padding:12px 18px; background:var(--card2); border:1px solid var(--border); border-radius:10px; font-size:13px;">
             <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
               <div>
-                <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Newly Found on Date:</span>
+                <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Actually Fetched:</span>
                 <strong id="kpi-filings-success" style="color:var(--accent); font-size:16px; margin-left:6px;">0 Stocks</strong>
+              </div>
+              <div style="color:var(--border);">|</div>
+              <div>
+                <span style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase;">Skipped (Up-to-Date):</span>
+                <strong id="kpi-filings-up-to-date" style="color:#10b981; font-size:14px; margin-left:6px;">0</strong>
+              </div>
+              <div style="color:var(--border);">|</div>
+              <div>
+                <span style="font-size:11px; font-weight:700; color:#f59e0b; text-transform:uppercase;">Pending:</span>
+                <strong id="kpi-filings-pending" style="color:#f59e0b; font-size:14px; margin-left:6px;">0</strong>
               </div>
               <div style="color:var(--border);">|</div>
               <div>
                 <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Universe Scanned:</span>
                 <strong id="kpi-filings-total-scanned" style="color:var(--text); font-size:14px; margin-left:6px;">885</strong>
               </div>
-              <div style="color:var(--border);">|</div>
-              <div>
-                <span style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase;">Already Up-to-Date (Skipped):</span>
-                <strong id="kpi-filings-up-to-date" style="color:#10b981; font-size:14px; margin-left:6px;">0</strong>
-              </div>
             </div>
 
-            <!-- SYNC STATUS BADGE -->
+            <!-- SYNC STATUS BADGE & BATCH RULE -->
             <div id="filingSyncStatusBadge" style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); background:rgba(255,255,255,0.04); padding:3px 8px; border-radius:6px; border:1px solid var(--border);">⚡ Syncs on 25 Fetched or Completion</span>
               <span style="font-size:12px; font-weight:800; background:rgba(16,185,129,0.15); color:#10b981; padding:4px 12px; border-radius:20px; border:1px solid rgba(16,185,129,0.35);">
                 ✅ Synced to Raw Cache &amp; DB
               </span>
@@ -5958,13 +5982,23 @@ function changeAdminPage(type, delta) {
             if (banner) {
               if (isRunning && data.processed_count != null && data.total_count != null && data.total_count > 0) {
                 banner.style.display = 'flex';
-                const pText = document.getElementById('filingSweepProgressText');
                 const progPct = Math.round((data.processed_count / data.total_count) * 100);
-                if (pText) pText.textContent = `⏳ Corporate Filing Sweep in progress: ${data.processed_count} / ${data.total_count} stocks processed (${progPct}%)`;
+                const pText = document.getElementById('filingSweepProgressText');
+                if (pText) pText.textContent = `⏳ Filing Scan in progress: ${data.processed_count} / ${data.total_count} processed (${progPct}%)`;
+
+                const fText = document.getElementById('filingSweepFetchedText');
+                const fetchedCount = data.actually_fetched != null ? data.actually_fetched : (data.fetch_success || 0);
+                if (fText) fText.textContent = `${Number(fetchedCount).toLocaleString('en-IN')} Actually Fetched`;
+
+                const sText = document.getElementById('filingSweepSkippedText');
+                const skippedCount = data.skipped != null ? data.skipped : (data.already_up_to_date || 0);
+                if (sText) sText.textContent = `${Number(skippedCount).toLocaleString('en-IN')} Skipped`;
+
                 const pendText = document.getElementById('filingSweepPendingText');
-                if (pendText) pendText.textContent = `${itemPending} pending`;
+                if (pendText) pendText.textContent = `${Number(itemPending).toLocaleString('en-IN')} Pending`;
+
                 const etaText = document.getElementById('filingSweepEtaText');
-                if (etaText) etaText.textContent = `Progress: ${progPct}%`;
+                if (etaText) etaText.textContent = data.eta ? `ETA: ${data.eta} (${progPct}%)` : `Progress: ${progPct}%`;
               } else {
                 banner.style.display = 'none';
               }
@@ -13321,7 +13355,7 @@ function _applyCorporateFilingsData(data) {
   const telem = data.telemetry || {};
   const elSuccess = document.getElementById('kpi-filings-success');
   if (elSuccess) {
-    const totalFound = data.total_count != null ? data.total_count : (telem.fetch_success || 0);
+    const totalFound = data.total_count != null ? data.total_count : (telem.actually_fetched != null ? telem.actually_fetched : (telem.fetch_success || 0));
     elSuccess.textContent = `${Number(totalFound).toLocaleString('en-IN')} Stocks`;
   }
 
@@ -13332,7 +13366,13 @@ function _applyCorporateFilingsData(data) {
 
   const elUpToDate = document.getElementById('kpi-filings-up-to-date');
   if (elUpToDate) {
-    elUpToDate.textContent = Number(telem.already_up_to_date || 0).toLocaleString('en-IN');
+    const skippedCnt = telem.skipped != null ? telem.skipped : (telem.already_up_to_date || 0);
+    elUpToDate.textContent = Number(skippedCnt).toLocaleString('en-IN');
+  }
+
+  const elPending = document.getElementById('kpi-filings-pending');
+  if (elPending) {
+    elPending.textContent = Number(telem.pending || 0).toLocaleString('en-IN');
   }
 
   const syncBadge = document.getElementById('filingSyncStatusBadge');
