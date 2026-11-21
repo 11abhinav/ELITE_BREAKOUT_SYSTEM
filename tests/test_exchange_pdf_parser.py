@@ -141,3 +141,85 @@ class TestExchangePdfParser:
         assert con.period_end_date == "2026-09-30"
         assert abs(con.revenue - 3668.0) < 1.0
         assert abs(con.net_profit - 170.0) < 1.0
+
+    def test_advait_ocr_newline_column_block(self):
+        """
+        Verifies parsing of decoupled column blocks with OCR artifacts
+        and accounting equation resolution for Advait Energy.
+        """
+        pdf_path = os.path.join("data", "pdf_cache", "6d1ccd41b3d61fd1_ADVAITENERGY_30102026172032_Outcome.pdf")
+        if not os.path.exists(pdf_path):
+            pytest.skip("Cached ADVAIT PDF not available")
+
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        parser = ExchangePdfParser()
+        records = parser.parse_sebi_reg33_pdf(pdf_bytes, symbol="ADVAIT")
+        assert len(records) >= 1
+        rec = records[0]
+        assert rec.period_end_date == "2026-09-30"
+        assert rec.revenue is not None and rec.revenue > 100.0
+        assert rec.net_profit is not None and rec.net_profit > 10.0
+
+    def test_aeroflex_ocr_artifacts_and_unit_discovery(self):
+        """
+        Verifies OCR artifact normalization, document-wide unit discovery (INR in lakhs),
+        and date resolution for Aeroflex Industries.
+        """
+        pdf_path = os.path.join("data", "pdf_cache", "3a18481a2f703e7d_AEROFLEXINDIA_28102026175516_BMOutcomesigned.pdf")
+        if not os.path.exists(pdf_path):
+            pytest.skip("Cached AEROFLEX PDF not available")
+
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        parser = ExchangePdfParser()
+        records = parser.parse_sebi_reg33_pdf(pdf_bytes, symbol="AEROFLEX")
+        assert len(records) >= 1
+        rec = records[0]
+        assert rec.period_end_date == "2026-09-30"
+        assert rec.revenue is not None and rec.revenue > 150.0
+        assert rec.net_profit is not None and rec.net_profit > 10.0
+
+    def test_abcapital_press_release_fallback(self):
+        """
+        Verifies Strategy C (Press Release / Outcome Fallback) when statement
+        pages are scanned raster images for Aditya Birla Capital.
+        """
+        pdf_path = os.path.join("data", "pdf_cache", "cdd4978e4453e715_ABCAPITAL_30102026134807_BM_Outcome_Financial_results_30102026_Signedd.pdf")
+        if not os.path.exists(pdf_path):
+            pytest.skip("Cached ABCAPITAL PDF not available")
+
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        parser = ExchangePdfParser()
+        records = parser.parse_sebi_reg33_pdf(pdf_bytes, symbol="ABCAPITAL")
+        assert len(records) >= 1
+        rec = records[0]
+        assert rec.period_end_date == "2026-09-30"
+        assert rec.revenue is not None and rec.revenue > 10000.0
+        assert rec.net_profit is not None and rec.net_profit > 1000.0
+
+    def test_aartidrugs_auditor_report_exclusion(self):
+        """
+        Verifies exclusion of auditor review reports and extraction of real
+        financial statement tables for Aarti Drugs.
+        """
+        pdf_path = os.path.join("data", "pdf_cache", "60346cdf5ba0d67b_AARTIDRUGS_03112026190146_ADL.pdf")
+        if not os.path.exists(pdf_path):
+            pdf_path = os.path.join("data", "pdf_cache", "5612f6fb9b18b319_AARTIDRUGS_03112026190146_ADL.pdf")
+        if not os.path.exists(pdf_path):
+            pytest.skip("Cached AARTIDRUGS PDF not available")
+
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        parser = ExchangePdfParser()
+        records = parser.parse_sebi_reg33_pdf(pdf_bytes, symbol="AARTIDRUGS")
+        assert len(records) >= 1
+        rec = records[0]
+        assert rec.period_end_date == "2026-09-30"
+        assert rec.revenue is not None and rec.revenue > 500.0
+        assert rec.net_profit is not None and rec.net_profit > 30.0

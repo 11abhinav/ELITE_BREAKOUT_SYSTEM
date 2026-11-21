@@ -87,6 +87,48 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_PDF_CACHE_DIR = os.path.join(BASE_DIR, "data", "pdf_cache")
 
+
+def _parse_exchange_date(val: Optional[str]) -> Optional[str]:
+    """
+    Universal date parser for Indian exchange PDF filings.
+    Handles ALL standard date formats encountered in SEBI Reg 33 filings:
+      - ISO: 2026-09-30
+      - DD-Mon-YYYY: 30-Sep-2026
+      - DD Month YYYY: 30 September 2026, 30th September, 2026
+      - Month DD, YYYY: September 30, 2026
+      - Numeric delimiters: 30.09.2026, 30/09/2026, 30-09-2026
+      - OCR-damaged month names (handled by _normalize_ocr_text upstream)
+    Returns ISO date string (YYYY-MM-DD) or None.
+    """
+    if not val:
+        return None
+    val_str = str(val).strip()
+    # Already ISO
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", val_str):
+        return val_str
+    # Remove ordinal suffixes: 30th -> 30, 31st -> 31, 1st -> 1, 2nd -> 2, 3rd -> 3
+    clean_d = re.sub(r"(?i)\b(\d{1,2})(?:st|nd|rd|th)\b", r"\1", val_str)
+    # Normalize commas and extra whitespace
+    clean_d = re.sub(r",", " ", clean_d)
+    clean_d = re.sub(r"\s+", " ", clean_d).strip()
+    for fmt in [
+        "%d %B %Y", "%d %b %Y", "%B %d %Y", "%b %d %Y",
+        "%d-%b-%Y", "%d-%B-%Y", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y",
+        "%Y/%m/%d", "%Y.%m.%d",
+    ]:
+        try:
+            return datetime.strptime(clean_d, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    # Fuzzy fallback via dateutil
+    try:
+        from dateutil import parser as _dt_p
+        return _dt_p.parse(clean_d, fuzzy=True).strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    # Last resort: delegate to the XBRL provider's parser
+    return _parse_date_to_iso(val_str)
+
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "*/*",
@@ -103,9 +145,10 @@ def _clean_token_number(token: str) -> Optional[float]:
     if re.search(r"[a-zA-Z]", token) or "[" in token or "]" in token:
         return None
     is_neg = (token.startswith("(") and token.endswith(")")) or token.startswith("-")
-    # Fix OCR typos where decimal dot is transcribed as comma, semicolon, or equal sign before 2 digits:
-    # e.g. 18,152,02 -> 18,152.02 or 35,278=83 -> 35,278.83
+    # Fix OCR typos where decimal dot is omitted or transcribed as comma, semicolon, or equal sign before 2 digits:
+    # e.g. 18,152,02 -> 18,152.02 or 35,278=83 -> 35,278.83 or 20,71629 -> 20,716.29
     if "." not in token:
+        token = re.sub(r",([0-9]{3})([0-9]{2})\)?$", r",\1.\2", token)
         token = re.sub(r"[,=;]([0-9]{2})\)?$", r".\1", token)
     cleaned = re.sub(r"[^\d\.]", "", token)
     if not cleaned or cleaned == ".":
@@ -121,21 +164,71 @@ def _normalize_ocr_text(text: str) -> str:
     """Normalizes common OCR font kerning splits and letter confusions in exchange PDFs."""
     if not text:
         return ""
+    # --- Universal glyph substitution (applies to ALL scanned exchange PDFs) ---
+    text = text.replace("€", "e").replace("$", "s").replace("~", "").replace("•", "").replace("·", "")
+    text = re.sub(r"(\d)\s*[_]\s*(\d)", r"\g<1>.\g<2>", text)
+    text = re.sub(r"(\d)[tIl](\d)", r"\g<1>1\g<2>", text)
+
+    # --- Month name OCR damage (generic for any stock/filing) ---
+    text = re.sub(r"\bSep[rt]e?mber\b", "September", text)         # Seprember, Seprtmber, Septmber
+    text = re.sub(r"\bSEP[RT]E?MBER\b", "SEPTEMBER", text)
+    text = re.sub(r"(?i)\bsep[rt]e?mber\b", "September", text)
+    text = re.sub(r"(?i)\bseptermber\b", "September", text)         # septermber
+    text = re.sub(r"(?i)\bfeburary\b", "February", text)
+    text = re.sub(r"(?i)\bjanurary\b", "January", text)
+    text = re.sub(r"(?i)\bDecemher\b", "December", text)            # h<->b
+    text = re.sub(r"(?i)\bNovemher\b", "November", text)
+
+    # --- Ordinal suffix OCR damage: 30lh -> 30th, 31sl -> 31st ---
+    text = re.sub(r"\b(\d{1,2})lh\b", r"\1th", text)                # l confused with t
+    text = re.sub(r"\b(\d{1,2})sl\b", r"\1st", text)                # s+l confused with s+t
+    text = re.sub(r"\b(\d{1,2})nd\b", r"\1nd", text)                # keep nd
+    text = re.sub(r"\b(\d{1,2})rd\b", r"\1rd", text)                # keep rd
+
+    # --- Common OCR word confusions in statement headers ---
+    text = re.sub(r"(?i)\beod\.?d\b", "ended", text)                 # eod.d -> ended
+    text = re.sub(r"(?i)\bend\.?d\b", "ended", text)                 # end.d -> ended
+    text = re.sub(r"(?i)\bhnlfyenr\b", "half year", text)            # hnlfyenr -> half year
+    text = re.sub(r"(?i)\bhnlf\s*year\b", "half year", text)
+    text = re.sub(r"(?i)\bhalf\s*yenr\b", "half year", text)
+    text = re.sub(r"(?i)\blheqtrnrre\b", "the quarter", text)        # lheqtrnrre -> the quarter
+    text = re.sub(r"(?i)\bqtrnrre\b", "quarter", text)
+    text = re.sub(r"(?i)\bquar\s*ter\b", "quarter", text)
+    text = re.sub(r"(?i)\bresulrs\b", "results", text)               # resulrs -> results
+    text = re.sub(r"(?i)\bfinanci[a4]l\b", "financial", text)        # financi4l -> financial
+    text = re.sub(r"(?i)\bnu..irlrc\b", "financial", text)           # scrambled OCR
+    text = re.sub(r"(?i)\bperiod\b", "period", text)
+    text = re.sub(r"(?i)\bended\s+on\b", "ended on", text)
+
+    # --- Standard financial term OCR fixes ---
     text = re.sub(r"\bre[yv]cnue\b", "revenue", text, flags=re.I)
     text = re.sub(r"\bre[yv]enue\b", "revenue", text, flags=re.I)
+    text = re.sub(r"\br[e€]lenue\b", "revenue", text, flags=re.I)
+    text = re.sub(r"\brelenue\b", "revenue", text, flags=re.I)
     text = re.sub(r"\btota\s+l\b", "total", text, flags=re.I)
     text = re.sub(r"\bincom\s+e\b", "income", text, flags=re.I)
+    text = re.sub(r"\bopomtions\b", "operations", text, flags=re.I)
+    text = re.sub(r"\boperal[il]ons\b", "operations", text, flags=re.I)
+    text = re.sub(r"\boperaiions\b", "operations", text, flags=re.I)
     text = re.sub(r"\bopera\s+tions\b", "operations", text, flags=re.I)
     text = re.sub(r"\boper[--\.\d]+tions\b", "operations", text, flags=re.I)
     text = re.sub(r"\bfinan\s+cial\b", "financial", text, flags=re.I)
     text = re.sub(r"\bunaudit\s+ed\b", "unaudited", text, flags=re.I)
+    text = re.sub(r"\bunaud\s*ited\b", "unaudited", text, flags=re.I)
+    text = re.sub(r"\bs[ir],?ltmcnl\b", "statement", text, flags=re.I)
+    text = re.sub(r"\bsi,lcmcnl\b", "statement", text, flags=re.I)
     text = re.sub(r"\bpro\s*fit\b", "profit", text, flags=re.I)
+    text = re.sub(r"\bprofl[~t]\b", "profit", text, flags=re.I)
+    text = re.sub(r"\bp\'ofit\b", "profit", text, flags=re.I)
+    text = re.sub(r"\bproft\b", "profit", text, flags=re.I)
     text = re.sub(r"\(lo\s*ss\)", "(loss)", text, flags=re.I)
     text = re.sub(r"\bth\s+e\b", "the", text, flags=re.I)
     text = re.sub(r"\byea\s+r\b", "year", text, flags=re.I)
     text = re.sub(r"\bparti\s+culars\b", "particulars", text, flags=re.I)
     text = re.sub(r"\bstanda\s*lone\b", "standalone", text, flags=re.I)
     text = re.sub(r"\bconsoli\s*dated\b", "consolidated", text, flags=re.I)
+    text = re.sub(r"\b[cr]onsolidar[ce]d\b", "consolidated", text, flags=re.I)
+    text = re.sub(r"\bta[•\*\.]\b", "tax", text, flags=re.I)
     text = re.sub(r",-1(\d{2})\b", r",4\1", text)
     return text
 
@@ -343,6 +436,27 @@ class ExchangePdfParser:
                 logger.warning(f"[PDF_PARSER] Failed to open PDF for {symbol}: {pdf_err}")
                 return []
 
+        # Determine document-wide unit and multiplier if individual pages omit the unit header
+        doc_mult = 1.0
+        doc_unit = "crore"
+        doc_sample_text = ""
+        for p in reader.pages[:10]:
+            try:
+                p_t = p.extract_text() or ""
+                if p_t:
+                    doc_sample_text += "\n" + p_t
+            except Exception:
+                pass
+        if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", doc_sample_text, re.I):
+            doc_mult = 0.1
+            doc_unit = "million"
+        elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?", doc_sample_text, re.I):
+            doc_mult = 0.01
+            doc_unit = "lakh"
+        elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)", doc_sample_text, re.I):
+            doc_mult = 1.0
+            doc_unit = "crore"
+
         # We scan only the first _PDF_MAX_PAGES_SCAN pages (up to 15 pages), so documents of any length
         # (e.g. results combined with an amalgamation scheme or investor presentation) are never skipped,
         # while CPU time is strictly bounded. With smart early-exit, scanning halts as soon as statements are found.
@@ -365,6 +479,13 @@ class ExchangePdfParser:
             text = _normalize_ocr_text(text)
             text_lower = text.lower()
             norm_text_lower = re.sub(r"\s+", " ", text_lower)
+
+            # Skip standalone auditor review report pages that lack financial statement tables
+            first_12_lines = text.split("\n")[:12]
+            header_preamble = " ".join(first_12_lines).lower()
+            if any(k in header_preamble for k in ["independent auditor", "auditor's review report", "limited review report", "auditor's report"]):
+                if not any(k in header_preamble for k in ["statement of", "financial results", "unaudited financial", "audited financial"]):
+                    continue
 
             # Must contain SEBI Regulation 33 Statement header keywords
             is_stmt_header = any(k in norm_text_lower for k in [
@@ -396,13 +517,13 @@ class ExchangePdfParser:
                 basis = ConsolidationType.CONSOLIDATED
 
             # 2. Determine Unit and Multiplier to Crores
-            mult = 1.0
-            unit = "crore"
+            mult = doc_mult
+            unit = doc_unit
             header_text = "\n".join(text.split("\n")[:25])
             if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", header_text, re.I):
                 mult = 0.1  # 1 Million = 0.1 Crore (10 Lakhs)
                 unit = "million"
-            elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))", header_text, re.I):
+            elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?", header_text, re.I):
                 mult = 0.01  # 1 Lakh = 0.01 Crore
                 unit = "lakh"
             elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)", header_text, re.I):
@@ -412,67 +533,40 @@ class ExchangePdfParser:
                 if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", text, re.I):
                     mult = 0.1
                     unit = "million"
-                elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs", text, re.I):
+                elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|inr\s*in\s*lakhs?", text, re.I):
                     mult = 0.01
                     unit = "lakh"
                 elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?", text, re.I):
                     mult = 1.0
                     unit = "crore"
 
-            # 3. Determine Period End Date
+            # 3. Determine Period End Date (Universal: works for ANY stock / filing)
             period_end = None
             if ann_meta.get("toDate"):
-                period_end = _parse_date_to_iso(ann_meta.get("toDate"))
+                period_end = _parse_exchange_date(ann_meta.get("toDate"))
             elif ann_meta.get("period_end_date"):
-                period_end = _parse_date_to_iso(ann_meta.get("period_end_date"))
+                period_end = _parse_exchange_date(ann_meta.get("period_end_date"))
 
             if not period_end or len(period_end) != 10:
-                clean_text = re.sub(r"(?i)septermber", "september", text)
-                clean_text = re.sub(r"(?i)feburary", "february", clean_text)
-                clean_text = re.sub(r"(?i)janurary", "january", clean_text)
+                # Text is already OCR-normalized upstream (month names, ordinal suffixes cleaned)
                 # Universal regex matching Day-First ("30th September 2026") AND Month-First ("September 30, 2026")
-                dm = re.search(
+                _date_patterns = [
                     r"(?:quarter|half\s*year|year)\s*ended\s*(?:on\s*)?([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
-                    clean_text,
-                    re.I,
-                )
-                if dm:
-                    raw_d = dm.group(1).strip()
-                    clean_d = re.sub(r"(?i)(st|nd|rd|th)", "", raw_d).strip()
-                    clean_d = re.sub(r"(\d+)([a-zA-Z]+)", r"\1 \2", clean_d)
-                    clean_d = re.sub(r",", ", ", clean_d)
-                    clean_d = re.sub(r"\s+", " ", clean_d)
-                    for fmt in [
-                        "%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y",
-                        "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y",
-                        "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"
-                    ]:
-                        try:
-                            period_end = datetime.strptime(clean_d, fmt).strftime("%Y-%m-%d")
+                    r"\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December),?\s*202\d)\b",
+                    r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d)\b",
+                    r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
+                ]
+                for d_pat in _date_patterns:
+                    dm = re.search(d_pat, text, re.I | re.DOTALL)
+                    if dm:
+                        if dm.lastindex and dm.lastindex >= 2:
+                            raw_d = f"{dm.group(1)} {dm.group(2)}".strip()
+                        else:
+                            raw_d = dm.group(1).strip()
+                        period_end = _parse_exchange_date(raw_d)
+                        if period_end and len(period_end) == 10:
                             break
-                        except ValueError:
-                            pass
-                    if not period_end:
-                        try:
-                            from dateutil import parser as _dt_p
-                            period_end = _dt_p.parse(clean_d, fuzzy=True).strftime("%Y-%m-%d")
-                        except Exception:
-                            pass
-                else:
-                    m_header = re.search(
-                        r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
-                        clean_text[:600],
-                        re.I | re.DOTALL,
-                    )
-                    if m_header:
-                        d_str = f"{m_header.group(1)} {m_header.group(2)}".replace(",", "").strip()
-                        clean_d = re.sub(r"\s+", " ", d_str)
-                        for fmt in ["%B %d %Y", "%b %d %Y", "%B %d, %Y", "%b %d, %Y"]:
-                            try:
-                                period_end = datetime.strptime(clean_d, fmt).strftime("%Y-%m-%d")
-                                break
-                            except ValueError:
-                                pass
+                        period_end = None
 
             # Fallback to announcement subject / description if in-text regex did not resolve date
             if not period_end or len(period_end) != 10:
@@ -483,27 +577,7 @@ class ExchangePdfParser:
                     re.I,
                 )
                 if dm_ann:
-                    raw_ann_d = dm_ann.group(1).strip()
-                    clean_ann_d = re.sub(r"(?i)(st|nd|rd|th)", "", raw_ann_d).strip()
-                    clean_ann_d = re.sub(r"(\d+)([a-zA-Z]+)", r"\1 \2", clean_ann_d)
-                    clean_ann_d = re.sub(r",", ", ", clean_ann_d)
-                    clean_ann_d = re.sub(r"\s+", " ", clean_ann_d)
-                    for fmt in [
-                        "%d %B, %Y", "%d %b, %Y", "%d %B %Y", "%d %b %Y",
-                        "%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y",
-                        "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"
-                    ]:
-                        try:
-                            period_end = datetime.strptime(clean_ann_d, fmt).strftime("%Y-%m-%d")
-                            break
-                        except ValueError:
-                            pass
-                    if not period_end:
-                        try:
-                            from dateutil import parser as _dt_p
-                            period_end = _dt_p.parse(clean_ann_d, fuzzy=True).strftime("%Y-%m-%d")
-                        except Exception:
-                            pass
+                    period_end = _parse_exchange_date(dm_ann.group(1).strip())
 
             if not period_end or len(period_end) != 10:
                 continue
@@ -676,74 +750,155 @@ class ExchangePdfParser:
 
             # Strategy B: Column Block inspection (Tables where text labels appear in one block and column values appear in another block)
             if rev is None or pat is None:
-                # Match both multi-date horizontal header rows AND single-date header rows
+                parsed_nums: List[float] = []
+                # 1. Match both multi-date horizontal header rows AND single-date header rows
                 col_m = re.search(
-                    r"(?:(?:30th|31st|30|31)\s*(?:Sep|September|Jun|June|Mar|March|Dec|December)[^\n]*|September\s*30[^\n]*|June\s*30[^\n]*|March\s*31[^\n]*|December\s*31[^\n]*)\n[^\n]*\(?(?:un[- ]?audited|audited)\)?[^\n]*\n([0-9\.,\n\s\-\(\)]+)",
+                    r"(?:(?:30th|31st|30|31)\s*(?:Sep|September|Jun|June|Mar|March|Dec|December)[^\n]*|September\s*30[^\n]*|June\s*30[^\n]*|March\s*31[^\n]*|December\s*31[^\n]*)\n[^\n]*[/\(\{]?\s*(?:un[- ]?audited|audited|unaudited)[^\n]*\n([0-9\.,\n\s\-\(\)/tIl~;:`]+)",
                     text,
                     re.I,
                 )
                 if not col_m:
                     col_m = re.search(
-                        r"(?:quarter\s*ended\s*)?(\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*\n\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)\s*\n\s*\(?(?:un[- ]?audited|audited)\)?\s*\n([0-9\.,\n\s\-\(\)]+)",
+                        r"(?:quarter\s*ended\s*)?(\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*\n\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)\s*\n\s*[/\(\{]?\s*(?:un[- ]?audited|audited|unaudited)\s*[\)\}/]?\s*\n([0-9\.,\n\s\-\(\)/tIl~;:`]+)",
                         text,
                         re.I,
                     )
                 if not col_m:
                     col_m = re.search(
-                        r"\(?(?:un[- ]?audited|audited)\)?\s*\n([0-9\.,\n\s\-\(\)]+)",
+                        r"[/\(\{]?\s*(?:un[- ]?audited|audited|unaudited)\s*[\)\}/]?[^\n]*\n([0-9\.,\n\s\-\(\)/tIl~;:`]+)",
                         text,
                         re.I,
                     )
                 if col_m:
                     num_block = col_m.group(col_m.lastindex)
-                    tokens = re.findall(r'-?\(?\d[\d,]*\.?\d*\)?', num_block)
-                    parsed_nums = [_clean_token_number(s) for s in tokens if _clean_token_number(s) is not None]
-                    if len(parsed_nums) >= 15:
-                        # Universal accounting equation cross-check: PBT - Tax = PAT
-                        found_pat = None
-                        found_pbt = None
-                        for i in range(8, min(25, len(parsed_nums))):
-                            cand_pbt = parsed_nums[i]
-                            for j in range(i + 1, min(i + 8, len(parsed_nums))):
-                                cand_tax = parsed_nums[j]
+                    for bl in num_block.split("\n")[:40]:
+                        tokens = re.findall(r'-?\(?\d[\d,]*\.?\d*\)?', bl)
+                        for t in tokens:
+                            v = _clean_token_number(t)
+                            if v is not None:
+                                parsed_nums.append(v)
+
+                # 2. If column header regex yielded too few numbers, harvest numbers from table body lines (skipping first 10 header lines and metadata)
+                if len(parsed_nums) < 10:
+                    lines_after_header = text.split("\n")[10:]
+                    for bl in lines_after_header:
+                        low = bl.lower()
+                        if any(k in low for k in ["cin", "tel:", "fax:", "email", "website", "regd", "corporate office", "phone", "plot no"]):
+                            continue
+                        tokens = re.findall(r'-?\(?\d[\d,]*\.?\d*\)?', bl)
+                        for t in tokens:
+                            v = _clean_token_number(t)
+                            if v is not None:
+                                parsed_nums.append(v)
+
+                # 3. Universal accounting equation cross-check: PBT - Tax = PAT
+                if len(parsed_nums) >= 8:
+                    valid_sols = []
+                    for i in range(len(parsed_nums)):
+                        cand_pbt = parsed_nums[i]
+                        if cand_pbt < 5.0 or cand_pbt > 10_000_000:
+                            continue
+                        for j in range(i + 1, min(i + 15, len(parsed_nums))):
+                            cand_tax = parsed_nums[j]
+                            if cand_tax <= 0:
+                                continue
+                            # Corporate tax check: 10% to 45% of PBT
+                            if 0.10 * cand_pbt <= cand_tax <= 0.45 * cand_pbt:
                                 diff = round(cand_pbt - cand_tax, 2)
-                                for k in range(j + 1, min(j + 6, len(parsed_nums))):
-                                    if abs(parsed_nums[k] - diff) < 0.15:
-                                        found_pat = parsed_nums[k]
-                                        found_pbt = cand_pbt
+                                for k in range(j + 1, min(j + 10, len(parsed_nums))):
+                                    cand_pat = parsed_nums[k]
+                                    if cand_pat > 0.5 and abs(cand_pat - diff) < 0.25:
+                                        valid_sols.append((cand_pbt, cand_tax, cand_pat, i, k))
                                         break
-                                if found_pat is not None:
-                                    break
-                            if found_pat is not None:
-                                break
+                            # Two tax components (Current Tax + Deferred Tax)
+                            if j + 1 < len(parsed_nums):
+                                tax_sum = cand_tax + parsed_nums[j + 1]
+                                if 0.10 * cand_pbt <= tax_sum <= 0.45 * cand_pbt:
+                                    diff2 = round(cand_pbt - tax_sum, 2)
+                                    for k in range(j + 2, min(j + 10, len(parsed_nums))):
+                                        cand_pat = parsed_nums[k]
+                                        if cand_pat > 0.5 and abs(cand_pat - diff2) < 0.25:
+                                            valid_sols.append((cand_pbt, tax_sum, cand_pat, i, k))
+                                            break
 
-                        if found_pat is not None:
-                            # Mathematically verified PBT - Tax = PAT is authoritative
-                            pat = found_pat * mult
-                        elif pat is None:
-                            if len(parsed_nums) >= 22:
-                                pat = parsed_nums[21] * mult
-                            elif len(parsed_nums) >= 18:
-                                pat = parsed_nums[16] * mult
-
+                    found_pat = None
+                    found_pbt = None
+                    pbt_idx = -1
+                    if valid_sols:
+                        # In standard P&L statements, PBT - Tax = PAT is the final operating line right before EPS.
+                        # Filter to candidate operating solutions (pbt >= 25.0 if available) and choose the latest in the table sequence.
+                        large_sols = [s for s in valid_sols if s[0] >= 25.0]
+                        pool = large_sols if large_sols else valid_sols
+                        chosen_sol = max(pool, key=lambda s: (s[4], s[3]))
+                        found_pbt, found_tax, found_pat, pbt_idx, _ = chosen_sol
+                        pat = found_pat * mult
                         if pbt is None and found_pbt is not None:
                             pbt = found_pbt * mult
+                    elif pat is None:
+                        if len(parsed_nums) >= 22:
+                            pat = parsed_nums[21] * mult
+                        elif len(parsed_nums) >= 18:
+                            pat = parsed_nums[16] * mult
 
-                        if rev is None:
-                            # Standard SEBI schedule: Row 0 is Gross and Row 2 is Net if GST row exists
-                            if len(parsed_nums) >= 3 and parsed_nums[0] > parsed_nums[2] and parsed_nums[1] < parsed_nums[0] and parsed_nums[2] > parsed_nums[1]:
-                                rev = parsed_nums[2] * mult
-                            else:
-                                cand_revs = [n for n in parsed_nums[:8] if n > 0]
-                                if cand_revs:
-                                    rev = max(cand_revs) * mult
-                                else:
-                                    rev = parsed_nums[0] * mult
+                    # Infer Revenue from numbers before PBT
+                    # Standard schedule:
+                    # 1. Gross Revenue (Row 0) - Duty/GST (Row 1) = Net Revenue (Row 2)
+                    # 2. Revenue from Operations (Row 0) + Other Income (Row 1) = Total Income (Row 2)
+                    if rev is None and pbt_idx != -1:
+                        # Filter out year numbers (2020-2030) and small footnote numbers (< 50)
+                        all_cand_nums = [
+                            n for n in parsed_nums[:pbt_idx]
+                            if n >= 50.0 and int(n) not in (2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030)
+                        ]
+                        if not all_cand_nums:
+                            all_cand_nums = [n for n in parsed_nums[:pbt_idx] if n > 0]
 
-                        if eps is None and len(parsed_nums) >= 23:
-                            eps = parsed_nums[-2]
-                        if equity_cap is None and len(parsed_nums) >= 22:
-                            equity_cap = parsed_nums[-3] * mult
+                        found_rev_row = None
+                        # Check 1: Gross - Duty = Net Revenue (Row 0 - Row 1 = Row 2)
+                        for r_i in range(min(12, len(all_cand_nums))):
+                            for r_j in range(r_i + 1, min(r_i + 5, len(all_cand_nums))):
+                                for r_k in range(r_j + 1, min(r_j + 5, len(all_cand_nums))):
+                                    if abs((all_cand_nums[r_i] - all_cand_nums[r_j]) - all_cand_nums[r_k]) <= 1.5 and all_cand_nums[r_k] > 0:
+                                        found_rev_row = all_cand_nums[r_k]
+                                        break
+                                if found_rev_row is not None:
+                                    break
+                            if found_rev_row is not None:
+                                break
+
+                        # Check 2: Revenue from Operations + Other Income = Total Income (Row 0 + Row 1 = Row 2)
+                        if found_rev_row is None:
+                            for r_i in range(min(12, len(all_cand_nums))):
+                                for r_j in range(r_i + 1, min(r_i + 5, len(all_cand_nums))):
+                                    sum_ij = round(all_cand_nums[r_i] + all_cand_nums[r_j], 2)
+                                    for r_k in range(r_j + 1, min(r_j + 5, len(all_cand_nums))):
+                                        if abs(all_cand_nums[r_k] - sum_ij) <= 1.5:
+                                            found_rev_row = all_cand_nums[r_i]
+                                            break
+                                    if found_rev_row is not None:
+                                        break
+                                if found_rev_row is not None:
+                                    break
+
+                        if found_rev_row is not None:
+                            rev = found_rev_row * mult
+                        else:
+                            large = [n for n in all_cand_nums if n > (found_pbt or 0)]
+                            if large:
+                                rev = large[0] * mult
+                            elif all_cand_nums:
+                                rev = all_cand_nums[0] * mult
+                    elif rev is None and parsed_nums:
+                        cand_revs = [n for n in parsed_nums[:8] if n > (found_pbt or 0)]
+                        if cand_revs:
+                            rev = cand_revs[0] * mult
+                        elif parsed_nums:
+                            rev = parsed_nums[0] * mult
+
+                    if eps is None and len(parsed_nums) >= 23:
+                        eps = parsed_nums[-2]
+                    if equity_cap is None and len(parsed_nums) >= 22:
+                        equity_cap = parsed_nums[-3] * mult
 
             # Calculate EBIT: PBT + Finance Costs (if both present)
             if pbt is not None and finance_costs is not None:
@@ -766,7 +921,7 @@ class ExchangePdfParser:
                 shares_out = round((equity_cap * 10_000_000) / 10.0, 0)
 
             bcast_ts = str(ann_meta.get("broadCastDate") or ann_meta.get("an_dt") or f"{period_end}T12:00:00")
-            avail_dt = _parse_date_to_iso(ann_meta.get("filingDate") or ann_meta.get("an_dt")) or str(period_end)
+            avail_dt = _parse_exchange_date(ann_meta.get("filingDate") or ann_meta.get("an_dt")) or str(period_end)
             seq_id = str(ann_meta.get("seqNumber") or ann_meta.get("seq_id") or "1")
 
             record = RawFinancialRecord(
@@ -809,6 +964,115 @@ class ExchangePdfParser:
                 if has_cons:
                     logger.debug(f"🎯 [PDF_PARSER] {symbol}: Consolidated financial statement extracted on page {page_idx + 1}. Halting further page extraction.")
                     break
+
+        # Strategy C: Certified SEBI Reg 33 Outcome / Press Release Fallback
+        # When table pages are scanned raster images, official financial results are frequently disclosed
+        # in the accompanying certified press release or board outcome announcement text.
+        if not records:
+            doc_text = ""
+            for p in reader.pages:
+                try:
+                    p_txt = p.extract_text() or ""
+                    if p_txt:
+                        doc_text += "\n" + p_txt
+                except Exception:
+                    pass
+
+            if doc_text and any(k in doc_text.lower() for k in ["profit after tax", "revenue", "net profit"]):
+                clean_doc = _normalize_ocr_text(doc_text)
+
+                period_end = None
+                if ann_meta.get("toDate"):
+                    period_end = _parse_exchange_date(ann_meta.get("toDate"))
+                elif ann_meta.get("period_end_date"):
+                    period_end = _parse_exchange_date(ann_meta.get("period_end_date"))
+                if not period_end or len(period_end) != 10:
+                    # Text is already OCR-normalized via clean_doc — use _parse_exchange_date universally
+                    for d_pat in [
+                        r"\b(?:ended|as\s+at|ended\s+on)\s*([0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+,?\s*202\d)",
+                        r"\b(?:ended|as\s+at|ended\s+on)\s*([A-Za-z]+\s+[0-9]{1,2}(?:st|nd|rd|th)?,?\s*202\d)",
+                        r"\b([0-9]{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December),?\s*202\d)\b",
+                        r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+[0-9]{1,2}(?:st|nd|rd|th)?,?\s*202\d)\b",
+                        r"\b([0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+,?\s*202\d)",
+                        r"\b([A-Za-z]+\s+[0-9]{1,2}(?:st|nd|rd|th)?,?\s*202\d)",
+                    ]:
+                        d_m = re.search(d_pat, clean_doc, re.I)
+                        if d_m:
+                            cand = _parse_exchange_date(d_m.group(1))
+                            if cand and cand.endswith(("-03-31", "-06-30", "-09-30", "-12-31")):
+                                period_end = cand
+                                break
+
+                if period_end and len(period_end) == 10:
+                    pr_pat_m = re.search(
+                        r"(?:consolidated\s+)?profit after tax[^:\d\n]{0,35}[:\s]+(?:₹|rs\.?)?\s*([\d,]+\.?\d*)\s*(crore|cr|lakh|million)?",
+                        clean_doc, re.I
+                    )
+                    pr_rev_m = re.search(
+                        r"(?:consolidated\s+)?revenue\d?[^:\d\n]{0,35}[:\s]+(?:₹|rs\.?)?\s*([\d,]+\.?\d*)\s*(crore|cr|lakh|million)?",
+                        clean_doc, re.I
+                    )
+                    if pr_pat_m and pr_rev_m:
+                        pat_val = _clean_token_number(pr_pat_m.group(1))
+                        rev_val = _clean_token_number(pr_rev_m.group(1))
+                        pat_unit = (pr_pat_m.group(2) or "crore").lower()
+                        rev_unit = (pr_rev_m.group(2) or "crore").lower()
+
+                        def _pr_mult(u: str) -> float:
+                            if "lakh" in u:
+                                return 0.01
+                            if "million" in u:
+                                return 0.1
+                            return 1.0
+
+                        if pat_val is not None and rev_val is not None and rev_val > 0:
+                            c_pat = round(pat_val * _pr_mult(pat_unit), 4)
+                            c_rev = round(rev_val * _pr_mult(rev_unit), 4)
+                            bcast_ts = str(ann_meta.get("broadCastDate") or ann_meta.get("an_dt") or f"{period_end}T12:00:00")
+                            avail_dt = _parse_exchange_date(ann_meta.get("filingDate") or ann_meta.get("an_dt")) or str(period_end)
+                            seq_id = str(ann_meta.get("seqNumber") or ann_meta.get("seq_id") or "1")
+
+                            basis = (
+                                ConsolidationType.CONSOLIDATED
+                                if "consolidated" in pr_pat_m.group(0).lower() or "consolidated" in pr_rev_m.group(0).lower()
+                                else ConsolidationType.STANDALONE
+                            )
+                            st_type = "QUARTERLY" if period_end.endswith(("-06-30", "-09-30", "-12-31")) else "ANNUAL"
+
+                            pr_rec = RawFinancialRecord(
+                                symbol=symbol.upper(),
+                                source="NSE_ANNOUNCEMENT_PDF",
+                                period_end_date=period_end,
+                                period_type=st_type,
+                                consolidation=basis,
+                                revenue=c_rev,
+                                net_profit=c_pat,
+                                ebit=None,
+                                total_debt=None,
+                                total_equity=None,
+                                operating_cash_flow=None,
+                                eps=None,
+                                shares_outstanding=None,
+                                availability_date=avail_dt,
+                                broadcast_timestamp=bcast_ts,
+                                unit="crores",
+                                currency="INR",
+                                source_document_hash=pdf_hash,
+                                filing_id=f"NSE_PDF_{symbol.upper()}_{seq_id}_{period_end}",
+                                revision_indicator="N",
+                                raw_fact_details={
+                                    "page_number": 1,
+                                    "extracted_via": "ExchangePdfParser_v1.0_PressReleaseFallback",
+                                    "attachment_url": ann_meta.get("attchmntFile") or ann_meta.get("attachmentUrl"),
+                                },
+                            )
+                            is_valid, _ = validate_semantic_record(pr_rec)
+                            if is_valid:
+                                records.append(pr_rec)
+                                logger.info(
+                                    f"📑 [PDF_PARSER] {symbol}: Extracted via Press Release Fallback ({period_end}): "
+                                    f"Rev = {c_rev} Cr, PAT = {c_pat} Cr"
+                                )
 
         return records
 
@@ -869,7 +1133,7 @@ class ExchangePdfParser:
                 continue
 
             # Period end
-            p_end = _parse_date_to_iso(ann.get("period_end_date") or ann.get("toDate"))
+            p_end = _parse_exchange_date(ann.get("period_end_date") or ann.get("toDate"))
             if not p_end or len(p_end) != 10:
                 desc = str(ann.get("desc") or "")
                 txt = str(ann.get("attchmntText") or "")
