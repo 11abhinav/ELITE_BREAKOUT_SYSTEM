@@ -1579,6 +1579,7 @@ class FinancialFilingWatcher:
                 raw_filings_list: List[Dict[str, Any]] = []
                 nse_fetch_count = 0
                 nse_disc_count = 0
+                bse_count = 0
 
                 # ── FAST-PATH DIRECT SWEEP ATTACHMENT INGESTION ──
                 # If market sweep discovered a newer filing for this symbol, extract it directly
@@ -1756,10 +1757,13 @@ class FinancialFilingWatcher:
                     except Exception as nse_err:
                         logger.warning(f"[filling scanner] NSE discover/fetch warning for {sym_u}: {nse_err}")
 
-                # 2. Poll BSE: Poll BSE if symbol is genuinely BSE-only, or if needs_bootstrap and market sweep failed
-                bse_count = 0
+                # 2. Poll BSE: Poll BSE if symbol is genuinely BSE-only, or if NSE did not return valid facts
                 is_bse_only = sym_u.endswith(".BO") or str(sym_u).isdigit()
                 is_nse_primary = (not is_bse_only)
+                nse_has_facts = any(
+                    r.get("exchange") == "NSE" and (r.get("revenue") is not None or r.get("net_profit") is not None)
+                    for r in raw_filings_list
+                )
                 has_structured_facts = any(
                     (r.get("revenue") is not None or r.get("net_profit") is not None)
                     for r in raw_filings_list
@@ -1774,7 +1778,7 @@ class FinancialFilingWatcher:
                     and not direct_sweep_success
                     and (
                         is_bse_only
-                        or (nse_count == 0 and (not has_latest_concluded_facts or not has_latest_concluded_quarter))
+                        or (not nse_has_facts and (not has_latest_concluded_facts or not has_latest_concluded_quarter))
                         or (not has_structured_facts and (needs_bootstrap or not market_sweep_ok))
                     )
                 )
@@ -1869,7 +1873,7 @@ class FinancialFilingWatcher:
                         if 'bse_disc_rows' in locals() and bse_disc_rows:
                             candidate_anns.extend(bse_disc_rows)
 
-                        # If candidate announcements are empty and stock is missing latest quarter or needs bootstrap, actively discover from exchanges
+                        # If candidate announcements are empty and stock is missing latest quarter or needs bootstrap, actively discover from NSE
                         if not candidate_anns and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok):
                             if nse_prov:
                                 try:
@@ -1878,13 +1882,6 @@ class FinancialFilingWatcher:
                                         candidate_anns.extend(nse_disc)
                                 except Exception as _nse_disc_err:
                                     logger.debug(f"[filling scanner] Tier-3 NSE announcement discovery error for {sym_u}: {_nse_disc_err}")
-                            if bse_prov and not candidate_anns:
-                                try:
-                                    bse_disc = bse_prov.discover_filings(sym_u)
-                                    if bse_disc:
-                                        candidate_anns.extend(bse_disc)
-                                except Exception as _bse_disc_err:
-                                    logger.debug(f"[filling scanner] Tier-3 BSE announcement discovery error for {sym_u}: {_bse_disc_err}")
 
                         # [RULE 67 CHANGE-RATIONALE: ELIMINATE_DUPLICATE_BSE_SCRAPE_v1.0]
                         # Step 2 is the authoritative BSE polling gate (lines 1350-1425).

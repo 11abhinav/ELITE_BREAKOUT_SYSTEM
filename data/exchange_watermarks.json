@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-21T20:25:01.714342+05:30",
+    "last_successful_check_at": "2026-11-21T20:48:46.987321+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -223,14 +223,62 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "TEST_GAP": {
-        "last_successful_check_at": "2026-11-21T20:24:55.757251",
+        "last_successful_check_at": "2026-11-21T20:48:40.862221",
         "latest_filing_timestamp": "2025-03-31"
+      },
+      "360ONE": {
+        "last_successful_check_at": "2026-11-21T20:37:17.838349",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AARTIDRUGS": {
+        "last_successful_check_at": "2026-11-21T20:37:21.187702",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ACC": {
+        "last_successful_check_at": "2026-11-21T20:37:29.941072",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ABCAPITAL": {
+        "last_successful_check_at": "2026-11-21T20:39:03.361313",
+        "latest_filing_timestamp": "31-Oct-2026 12:29:45"
+      },
+      "ABBOTINDIA": {
+        "last_successful_check_at": "2026-11-21T20:42:48.256141",
+        "latest_filing_timestamp": "2026-11-05T18:55:13.97"
+      },
+      "AADHARHFC": {
+        "last_successful_check_at": "2026-11-21T20:45:50.467910",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AARTIIND": {
+        "last_successful_check_at": "2026-11-21T20:45:50.639408",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ABDL": {
+        "last_successful_check_at": "2026-11-21T20:45:56.623732",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ABFRL": {
+        "last_successful_check_at": "2026-11-21T20:45:56.644070",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ADANIENT": {
+        "last_successful_check_at": "2026-11-21T20:46:03.440660",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ADANIPORTS": {
+        "last_successful_check_at": "2026-11-21T20:46:07.085535",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ACCELYA": {
+        "last_successful_check_at": "2026-11-21T20:46:09.661524",
+        "latest_filing_timestamp": "2024-12-31"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-21T20:25:01.714342+05:30",
+    "last_successful_check_at": "2026-11-21T20:48:46.987321+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
