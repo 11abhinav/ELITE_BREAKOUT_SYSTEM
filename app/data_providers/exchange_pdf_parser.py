@@ -359,7 +359,7 @@ class ExchangePdfParser:
             fetch_via_scraperapi, get_scraper_api_key = _get_scraperapi_fetcher()
             if fetch_via_scraperapi and get_scraper_api_key():
                 try:
-                    s_resp = fetch_via_scraperapi(pdf_url, timeout=35, country_code="in")
+                    s_resp = fetch_via_scraperapi(pdf_url, timeout=12, country_code="in")
                     if s_resp is not None and s_resp.status_code == 200 and s_resp.content and s_resp.content.startswith(b"%PDF"):
                         if b"%%EOF" in s_resp.content[-2048:]:
                             with open(cache_path, "wb") as f_out:

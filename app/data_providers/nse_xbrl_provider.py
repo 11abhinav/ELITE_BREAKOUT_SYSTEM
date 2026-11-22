@@ -688,7 +688,7 @@ class NseXbrlProvider:
 
         is_bulk = symbol.startswith("MARKET_") or "corporate-announcements" in url or "period=" in url
         effective_timeout = timeout or (_BULK_TIMEOUT if is_bulk else _TIMEOUT)
-        scraper_timeout = 45 if is_bulk else 25
+        scraper_timeout = 8  # Fast failover: cap at 8s to prevent worker thread stalling
 
         # 1. DIRECTLY TRY WITH SCRAPER API FIRST
         try:
@@ -1130,7 +1130,7 @@ class NseXbrlProvider:
             except ImportError:
                 from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
             if get_scraper_api_key():
-                s_resp = fetch_via_scraperapi(xbrl_url, timeout=25, country_code="in")
+                s_resp = fetch_via_scraperapi(xbrl_url, timeout=8, country_code="in")
                 if s_resp is not None and s_resp.status_code == 200 and s_resp.content:
                     tmp_p = f"{local_path}.tmp.{os.getpid()}"
                     with open(tmp_p, "wb") as f_out:

@@ -11272,6 +11272,19 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
                     has_depth = len(sorted_ann) >= 6 or (sorted_ann and max(sorted_ann) >= 2026)
                     if not has_gap and null_filings_count == 0 and has_depth:
                         return True
+
+                    # Quarterly & SEBI LODR restoration check:
+                    # If cool-off reason was missing recent quarterly / SEBI LODR 33 results or backfill,
+                    # and the stock now possesses a valid recent quarterly filing on disk with numeric facts:
+                    valid_qtrs = [
+                        str(_stmt.get("period_end_date") or "")[:10]
+                        for _stmt in _rf_data
+                        if (_stmt.get("revenue") is not None or _stmt.get("net_profit") is not None)
+                    ]
+                    latest_qtr_p = max(valid_qtrs) if valid_qtrs else ""
+                    if latest_qtr_p and latest_qtr_p >= "2026-09-30":
+                        if len(sorted_ann) >= 3 and not has_gap and null_filings_count == 0:
+                            return True
             except Exception:
                 pass
 

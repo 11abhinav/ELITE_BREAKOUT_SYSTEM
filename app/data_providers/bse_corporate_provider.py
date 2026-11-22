@@ -421,11 +421,13 @@ class BseCorporateProvider:
         if not scrip_code:
             return []
 
-        # Warm up session on BSE portal
-        try:
-            self.session.get("https://www.bseindia.com/corporates/ann.html", timeout=10)
-        except Exception:
-            pass
+        # Warm up session on BSE portal (once per session to avoid 10s redundant blocking)
+        if not getattr(self, "_warmed_up", False):
+            try:
+                self.session.get("https://www.bseindia.com/corporates/ann.html", timeout=6)
+                self._warmed_up = True
+            except Exception:
+                pass
 
         to_d = date.today().strftime("%Y%m%d")
         from_d = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
@@ -672,7 +674,7 @@ class BseCorporateProvider:
                         from pledge_scraper import fetch_via_scraperapi, get_scraper_api_key
 
                     if get_scraper_api_key():
-                        s_resp = fetch_via_scraperapi(url, timeout=_TIMEOUT * 2, country_code="in")
+                        s_resp = fetch_via_scraperapi(url, timeout=8, country_code="in")
                         if s_resp is not None and s_resp.status_code == 200:
                             try:
                                 data = s_resp.json()

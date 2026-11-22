@@ -882,14 +882,16 @@ class FinancialFilingWatcher:
                 for sym_u in sym_list:
                     try:
                         try:
-                            from app.database import check_and_restore_stale_stock
+                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
                         except ImportError:
-                            from database import check_and_restore_stale_stock
+                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
                         check_and_restore_stale_stock(
                             symbol=sym_u,
                             source="SNAPSHOT_REBUILD",
-                            notify_admin=True
+                            notify_admin=True,
+                            force=True,
                         )
+                        clear_unified_stock_data_health_cache()
                     except Exception:
                         pass
 
@@ -1149,7 +1151,7 @@ class FinancialFilingWatcher:
         last_synced_time = [time.time()]
         TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "300.0"))  # 5 minutes periodic heartbeat sync
         BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Progress sync after every 25 completed stocks
-        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "25"))  # Strict 25-stock batch DB sync for newly fetched stocks
+        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "5"))  # Batch DB sync whenever 5 new stocks are fetched
 
         # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
         _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
@@ -1451,9 +1453,17 @@ class FinancialFilingWatcher:
                             break
 
                 # ── RULE 67 / RESOURCE CONSERVATION INVARIANT: ZERO REDUNDANT SCRAPING ──
-                # 1. If history is complete (not needs_bootstrap), latest concluded quarter is ALREADY PRESENT,
-                #    and market sweep verified no new filing: SKIP in 0ms!
-                if not needs_bootstrap and has_latest_concluded_quarter and market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
+                # 1. Fast Market Sweep Bypass:
+                # NSE publishes a market-wide announcement sweep covering the last 45 days.
+                # If market sweep confirmed ZERO new announcements for this symbol, and the stock already
+                # possesses its historical baseline on disk (e.g. annual filings present and non-empty):
+                # The company simply has not published a newer result on the exchange yet.
+                # Bypass in 0ms to eliminate 45-60s per-symbol ScraperAPI timeouts across the entire market!
+                has_baseline = (
+                    (local_annual_count >= 3 or len(sorted_annual_years) >= 3 or (latest_local_period and not has_corrupt_or_empty_raw))
+                    and not force_backfill
+                )
+                if market_sweep_ok and not has_newer_sweep_filing and has_baseline:
                     with self._state_lock:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
@@ -1488,7 +1498,7 @@ class FinancialFilingWatcher:
                         skipped_complete_count[0] += 1
                     logger.info(
                         f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
-                        f"UP TO DATE (market sweep verified, latest_period={latest_local_period}, annual_count={local_annual_count}). "
+                        f"BASELINE INTACT & 0 NEW FILINGS IN MARKET SWEEP (latest={latest_local_period}, annuals={local_annual_count}). "
                         f"Skipping exchange fetch in 0ms."
                     )
                     return
@@ -2194,7 +2204,7 @@ class FinancialFilingWatcher:
                             to_sync_syms_batch = sorted(list(pending_rebuild_syms))
                             pending_rebuild_syms.clear()
                             if fetched_triggered:
-                                sync_reason = f"FETCHED_25_STOCKS ({len(to_sync_syms_batch)} stocks)"
+                                sync_reason = f"FETCHED_{FETCHED_SYNC_THRESHOLD}_STOCKS ({len(to_sync_syms_batch)} stocks)"
                             else:
                                 sync_reason = f"FINAL_COMPLETION ({len(to_sync_syms_batch)} stocks)"
 
