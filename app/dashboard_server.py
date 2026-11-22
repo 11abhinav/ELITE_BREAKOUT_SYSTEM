@@ -3593,7 +3593,8 @@ def api_admin_batch_validate_stocks():
         if not symbols:
             return jsonify({"status": "error", "error": "Missing 'symbols' list", "message": "Missing 'symbols' list"}), 400
 
-        unique_symbols = list(dict.fromkeys(symbols))
+        MAX_BATCH_SIZE = 30
+        unique_symbols = list(dict.fromkeys(symbols))[:MAX_BATCH_SIZE]
 
         updated_rows: Dict[str, Any] = {}
         row_lock = threading.Lock()
@@ -3680,11 +3681,23 @@ def api_admin_batch_validate_stocks():
             except Exception as _batch_err:
                 logger.warning(f"[BATCH_VALIDATE] Snapshot batch write note: {_batch_err}")
 
+        # Single Source of Truth: load working dataset once for entire batch
+        working_df = None
+        try:
+            try:
+                from app.scanner_data_gateway import ScannerDataGateway
+            except ImportError:
+                from scanner_data_gateway import ScannerDataGateway
+            gateway = ScannerDataGateway()
+            working_df = gateway.get_working_dataset()
+        except Exception:
+            working_df = None
+
         # Now evaluate each symbol against the cleanly updated snapshot
         res_list = []
         for sym in unique_symbols:
             try:
-                res = validate_and_restore_stock(sym)
+                res = validate_and_restore_stock(sym, working_df=working_df)
                 if res.get("restored"):
                     logger.info(f"🎉 [BATCH_VALIDATE] {sym}: RESTORED TO FRESH | Unblocked from cool-off")
                 elif res.get("is_data_perfect"):

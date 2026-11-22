@@ -12041,7 +12041,7 @@ def get_stock_filings_detail(symbol: str) -> Dict[str, Any]:
     }
 
 
-def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
+def validate_and_restore_stock(symbol: str, working_df: Optional[Any] = None) -> Dict[str, Any]:
     """
     Validates a stock's data completeness and staleness status on demand.
     If the stock was in cool-off/stale and its data is now complete, restores it!
@@ -12105,16 +12105,17 @@ def validate_and_restore_stock(symbol: str) -> Dict[str, Any]:
         checks["missing_metrics"].append("1D price history file missing")
 
     # 3. Check canonical snapshot (Single Source of Truth: Base + Layer B Validated Overlay)
-    sdf = None
-    try:
+    sdf = working_df
+    if sdf is None:
         try:
-            from app.scanner_data_gateway import ScannerDataGateway
-        except ImportError:
-            from scanner_data_gateway import ScannerDataGateway
-        gateway = ScannerDataGateway()
-        sdf = gateway.get_working_dataset()
-    except Exception:
-        sdf = _load_canonical_snapshot_df()
+            try:
+                from app.scanner_data_gateway import ScannerDataGateway
+            except ImportError:
+                from scanner_data_gateway import ScannerDataGateway
+            gateway = ScannerDataGateway()
+            sdf = gateway.get_working_dataset()
+        except Exception:
+            sdf = _load_canonical_snapshot_df()
 
     if sdf is not None and not sdf.empty:
         try:
