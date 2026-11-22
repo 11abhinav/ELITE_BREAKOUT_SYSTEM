@@ -4211,7 +4211,7 @@ function changeAdminPage(type, delta) {
                   <button id="btn-sdh-batch-restore" onclick="batchValidateAndRestoreSelected()" style="background:#10b981; color:#000; padding:7px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:800; display:none; align-items:center; gap:6px;" title="Validate data completeness and restore all selected stocks">
                     ⚡ Validate &amp; Restore Selected (<span id="sdh-selected-count">0</span>)
                   </button>
-                  <button onclick="triggerFilingScannerForStale()" style="background:rgba(59, 130, 246, 0.15); border:1px solid #3b82f6; color:#60a5fa; padding:7px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;" title="Scan exchange for newly published filings for STALE or selected stocks">
+                  <button id="btn-sdh-scan-filings" onclick="triggerFilingScannerForStale()" style="background:rgba(59, 130, 246, 0.15); border:1px solid #3b82f6; color:#60a5fa; padding:7px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;" title="Scan exchange for newly published filings for STALE or selected stocks">
                     📡 Scan Filings (Stale/Selected)
                   </button>
                   <button onclick="exportStockDataHealthCSV()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:7px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;" title="Export currently filtered and sorted records to CSV">
@@ -15171,10 +15171,29 @@ function toggleSelectAllSdh(masterEl) {
 function updateSdhBatchButton() {
   const btn = document.getElementById('btn-sdh-batch-restore');
   const countSpan = document.getElementById('sdh-selected-count');
+  const scanBtn = document.getElementById('btn-sdh-scan-filings');
   const count = SDH_SELECTED_SYMBOLS.size;
+
   if (countSpan) countSpan.textContent = count;
   if (btn) {
     btn.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+
+  if (scanBtn) {
+    if (count === 1) {
+      const singleSym = Array.from(SDH_SELECTED_SYMBOLS)[0];
+      scanBtn.innerHTML = `📡 Scan Filings (1 Sel: ${singleSym})`;
+      scanBtn.style.background = 'rgba(59, 130, 246, 0.35)';
+      scanBtn.style.borderColor = '#60a5fa';
+    } else if (count > 1) {
+      scanBtn.innerHTML = `📡 Scan Filings (${count} Selected)`;
+      scanBtn.style.background = 'rgba(59, 130, 246, 0.35)';
+      scanBtn.style.borderColor = '#60a5fa';
+    } else {
+      scanBtn.innerHTML = `📡 Scan Filings (Stale/Selected)`;
+      scanBtn.style.background = 'rgba(59, 130, 246, 0.15)';
+      scanBtn.style.borderColor = '#3b82f6';
+    }
   }
 }
 
@@ -15303,8 +15322,8 @@ async function triggerFilingScannerForStale(limit = 25) {
   let confirmMsg = '';
 
   if (selectedSyms.length > 0) {
-    payload = { symbols: selectedSyms };
-    confirmMsg = `Are you sure you want to run the Filing Scanner on the exchange (NSE/BSE) for ${selectedSyms.length} selected stocks?\n\nThis will actively search for newly published quarterly/annual filings and merge them into local records.`;
+    payload = { symbols: selectedSyms, stale_only: false };
+    confirmMsg = `Are you sure you want to run the Filing Scanner on the exchange (NSE/BSE) for ${selectedSyms.length} selected stocks?\n\nSymbols: ${selectedSyms.slice(0, 15).join(', ')}${selectedSyms.length > 15 ? ' ...' : ''}\n\nThis will actively search for newly published quarterly/annual filings and merge them into local records.`;
   } else {
     payload = { stale_only: true, limit: limit };
     confirmMsg = `No stocks currently selected.\n\nWould you like to run the Filing Scanner on the exchange for the top ${limit} STALE stocks?`;
@@ -15321,6 +15340,11 @@ async function triggerFilingScannerForStale(limit = 25) {
     const data = await res.json();
     if (res.ok && data.status === 'ok') {
       alert(`🚀 ${data.message}\n\nThe scanner is running in the background. Newly found filings will automatically update local records, upload to DB, and restore stocks.`);
+      // Clear selection so subsequent clicks don't accidentally reuse the old selection
+      SDH_SELECTED_SYMBOLS.clear();
+      updateSdhBatchButton();
+      const masterCb = document.getElementById('sdh-select-all');
+      if (masterCb) masterCb.checked = false;
     } else {
       alert(`⚠️ Could not trigger filing scanner: ${data.message || data.error || 'Server error'}`);
     }

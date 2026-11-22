@@ -3593,7 +3593,7 @@ def api_admin_batch_validate_stocks():
         if not symbols:
             return jsonify({"status": "error", "error": "Missing 'symbols' list", "message": "Missing 'symbols' list"}), 400
 
-        MAX_BATCH_SIZE = 30
+        MAX_BATCH_SIZE = 15
         unique_symbols = list(dict.fromkeys(symbols))[:MAX_BATCH_SIZE]
 
         updated_rows: Dict[str, Any] = {}
