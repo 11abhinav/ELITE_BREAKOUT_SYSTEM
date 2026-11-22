@@ -11137,6 +11137,13 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
         return False
 
     import pandas as pd
+    from datetime import datetime
+    now_dt = datetime.now(IST)
+    try:
+        sym_mand_qtr, _, _ = get_sebi_lodr_mandatory_filing_status(now_dt)
+    except Exception:
+        sym_mand_qtr = "2026-09-30"
+
     r_low = str(reason or "").lower()
     sym_u = str(sym or "").strip().upper()
 
@@ -11169,7 +11176,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     stale_yrs = float(snap_item.get("pit_staleness_years") or 99.0)
     has_recent_annual = (stale_yrs <= 1.5) or (str(snap_item.get("latest_annual_period") or "") >= "2025-03-31")
     latest_qtr_val = str(snap_item.get("latest_quarterly_period") or "")
-    has_recent_quarter = (not latest_qtr_val) or (latest_qtr_val >= "2026-06-30")
+    has_recent_quarter = bool(latest_qtr_val and latest_qtr_val >= sym_mand_qtr)
 
     listing_age = float(snap_item.get("listing_age_years") or 99.0)
     has_sales = _is_num_valid(snap_item.get("sales_cagr_5y")) or (listing_age < 5.0)
@@ -11190,7 +11197,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
         "stale", "gap", "backfill", "local_cache", "xbrl", "depth", "lodr", "sebi",
         "pending", "unparsed", "missing intermediate", "local disk files end at", "data_stale", "pit_staleness"
     ))
-    if is_pit_valid and no_filing_gap and has_recent_annual and is_filing_or_staleness_issue:
+    if is_pit_valid and no_filing_gap and has_recent_annual and has_recent_quarter and is_filing_or_staleness_issue:
         return True
 
     # If the failure reason was valuation (EV/EBITDA or PE) and valuation is now present:
@@ -11345,7 +11352,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
                         if (_stmt.get("revenue") is not None or _stmt.get("net_profit") is not None)
                     ]
                     latest_qtr_p = max(valid_qtrs) if valid_qtrs else ""
-                    if latest_qtr_p and latest_qtr_p >= "2026-09-30":
+                    if latest_qtr_p and latest_qtr_p >= sym_mand_qtr:
                         if len(sorted_ann) >= 3 and not has_gap and null_filings_count == 0:
                             return True
             except Exception:
@@ -11689,7 +11696,10 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     raw_stale = True
                 elif eff_latest < "2025-03-31" and float(row.get("pit_staleness_years") or 99.0) > 1.5:
                     raw_stale = True
-                elif eff_qtr and eff_qtr < "2026-06-30":
+                elif not is_half_y and eff_qtr < sym_mand_period:
+                    # [SEBI LODR REG 33 INVARIANT]: Must have latest quarterly results within 45 days of quarter end
+                    raw_stale = True
+                elif is_half_y and eff_latest < sym_mand_period:
                     raw_stale = True
 
             if raw_stale:
@@ -11698,10 +11708,11 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     reason = "MISSING_RAW_FILINGS"
                     missing_summary = "No financial files on disk: Initial download required from exchange."
                     status_code = "STALE_RAW_DATA"
-                elif eff_qtr and eff_qtr < "2026-06-30":
-                    reason = f"QUARTERLY_DISCLOSURES_OUTDATED ({eff_qtr})"
+                elif eff_qtr < sym_mand_period:
+                    reason = f"SEBI_LODR_OVERDUE ({sym_label})"
                     status_code = "STALE_LOCAL_CACHE"
-                    missing_summary = f"Missing recent quarterly results: Latest quarter is {eff_qtr} (scanner requires June 2026 or newer)."
+                    days_due = 45 if not is_half_y else 45
+                    missing_summary = f"Missing {sym_label} results: Due on {sym_deadline} ({days_due} days from quarter end as per SEBI)."
                 else:
                     reason = f"ANNUAL_DISCLOSURES_OUTDATED ({eff_latest})"
                     status_code = "STALE_ANNUAL_DATA"
