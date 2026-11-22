@@ -10947,6 +10947,10 @@ def _format_missing_data(
     raw_info: Optional[Dict[str, Any]] = None,
     snap_item: Optional[Dict[str, Any]] = None,
 ) -> str:
+    """
+    Translates technical scanner rejections into clear, simple, human-friendly terms.
+    Explains exactly what is missing or why the stock is stale in straightforward English.
+    """
     r_upper = str(reason or "").upper()
     pf_str = str(failures or "")
     sym_u = str(symbol or "").strip().upper()
@@ -10959,13 +10963,13 @@ def _format_missing_data(
         or "CAGR_BASE_NON_POSITIVE" in r_upper
     )
     if is_base_year_loss:
-        return "Base year net loss: 5Y PAT CAGR is mathematically undefined from negative base (not missing exchange history)."
+        return "Base-year net loss: 5-year profit growth cannot be calculated from a negative starting year."
 
     # 2. Listing age < 5 years (exchange series incomplete)
     l_age = float(snap_item.get("listing_age_years") or 99.0) if snap_item else 99.0
     ann_c = int(snap_item.get("annual_filing_count") or snap_item.get("annual_count") or snap_item.get("filings_count") or 99) if snap_item else 99
     if (l_age < 5.0 or ann_c < 6) and ("CAGR" in r_upper or "DEPTH" in r_upper):
-        return f"Listing age < 5 years ({l_age:.1f}Y, {ann_c} annual filings): 5Y exchange annual series incomplete."
+        return f"Recent IPO (listed {l_age:.1f} years ago): 5 years of continuous exchange history not yet available."
 
     # 3. Specific raw cache inspections if available
     if raw_info and isinstance(raw_info, dict):
@@ -10979,36 +10983,36 @@ def _format_missing_data(
             last_null = null_filings[-1]
             p_end = last_null.split(":", 1)[0]
             fid = last_null.split(":", 1)[1] if ":" in last_null else ""
-            fid_desc = f" (Filing ID: {fid})" if fid else ""
-            return f"Exchange filing announced for {p_end}{fid_desc}, but machine-readable XBRL facts are unparsed or null (pending XBRL parse)."
+            fid_desc = f" (Filing #{fid})" if fid else ""
+            return f"Waiting for extraction: Exchange filing for {p_end}{fid_desc} published, pending PDF/XBRL facts parsing."
 
         # B. Intermediate annual gap detected (e.g. GUJGASLTD)
         if gaps:
             min_y = min(gaps) - 1
             max_y = max(gaps) + 1
-            return f"Historical filing gap: Missing intermediate FY {gaps} annual filing on disk between FY{min_y} and FY{max_y}."
+            return f"Missing annual report: FY {gaps} is missing between FY{min_y} and FY{max_y} on disk."
 
         # C. Missing balance sheet facts in disclosures (e.g. MANYAVAR, RAILTEL)
         if has_missing_bs and ("RECOVERY_DATA_INSUFFICIENT" in r_upper or "DEBT" in r_upper or "EQUITY" in r_upper or "QUALITY" in r_upper):
-            return "Income statement present, but Balance Sheet Debt/Equity facts missing from latest exchange disclosure."
+            return "Missing balance sheet: Debt and Equity amounts not reported in latest company disclosure."
 
-        # D. Incomplete annual depth (e.g. BFUTILITIE, CERA, VSSL, GULPOLY, HATSUN, JYOTHYLAB)
+        # D. Incomplete annual depth
         if ann_years and max(ann_years) < 2026 and ("STALE" in r_upper or "LOCAL_CACHE" in r_upper or "DEPTH" in r_upper):
-            return f"Local disk files end at FY{max(ann_years)} ({len(ann_years)} annual periods on disk); pending FY26 annual audited exchange backfill."
+            return f"Missing annual report: Local files end at FY{max(ann_years)}, waiting for FY26 audited annual filing."
 
     # 4. Valuation missing
     if "CURRENT_EV_EBITDA_MISSING" in r_upper or "DATA_INSUFFICIENT_VALUATION" in r_upper:
-        return "Valuation missing: EV/EBITDA or PE unpopulated from Upstox key ratios."
+        return "Missing valuation: Both P/E and EV/EBITDA ratios are unavailable."
 
     # 5. Price history
     if "PRICE_HISTORY" in r_upper or "INSUFFICIENT_LOOKBACK" in r_upper:
-        return "1D OHLCV market price history missing or insufficient lookback (<50 bars)."
+        return "Missing price history: Need at least 50 days of daily trading candles from broker."
 
     # 6. Quality Value Recovery data insufficiency
     if "RECOVERY_DATA_INSUFFICIENT" in r_upper:
-        return "Quality Value Recovery metrics missing (drawdown, valuation compression, or debt/equity)."
+        return "Missing recovery metrics: 52-week drawdown or valuation discount cannot be calculated."
 
-    # 7. Other general rules - dynamically inspect exact stock state to explain what is wrong
+    # 7. Dynamically inspect exact stock state to explain what is wrong in simple words
     eff_ann = ""
     eff_qtr = ""
     if snap_item:
@@ -11021,42 +11025,42 @@ def _format_missing_data(
         eff_qtr = max(eff_qtr, r_qtr) if eff_qtr else r_qtr
 
     if eff_qtr and eff_qtr < "2026-06-30":
-        return f"Quarterly disclosures outdated: Latest quarter on disk is {eff_qtr} (scanner baseline requires >= 2026-06-30)."
+        return f"Missing recent quarterly results: Latest quarter is {eff_qtr} (scanner requires June 2026 or newer)."
 
     if eff_ann and eff_ann < "2025-03-31":
-        return f"Annual filings outdated: Latest annual on disk is FY{eff_ann[:4]} (scanner baseline requires >= FY2025)."
+        return f"Missing recent annual report: Latest annual on disk is FY{eff_ann[:4]} (scanner requires FY2025 or newer)."
 
-    # Check missing fundamental metrics on snap_item
+    # Check missing fundamental metrics on snap_item and translate to friendly labels
     if snap_item:
-        missing_fields = []
+        missing_friendly = []
         if snap_item.get("roce_5y_avg") is None and snap_item.get("roce") is None:
-            missing_fields.append("ROCE")
+            missing_friendly.append("ROCE (Return on Capital)")
         if l_age >= 5.0 and snap_item.get("sales_cagr_5y") is None:
-            missing_fields.append("5Y Sales CAGR")
+            missing_friendly.append("5-Year Sales Growth")
         if l_age >= 5.0 and snap_item.get("pat_cagr_5y") is None and not is_base_year_loss:
-            missing_fields.append("5Y PAT CAGR")
+            missing_friendly.append("5-Year Profit Growth")
         if not bool(snap_item.get("is_bfsi", False)) and snap_item.get("debt_to_equity") is None:
-            missing_fields.append("Debt-to-Equity")
+            missing_friendly.append("Debt-to-Equity Ratio")
         if snap_item.get("current_pe") is None and snap_item.get("current_ev_ebitda") is None:
-            missing_fields.append("Valuation (PE/EV-EBITDA)")
+            missing_friendly.append("P/E or EV/EBITDA Valuation")
         if snap_item.get("cmp") is None:
-            missing_fields.append("CMP (Market Price)")
-        if missing_fields:
-            return f"Missing required scanner metrics: {', '.join(missing_fields)}. Continuous 5-year audited series required."
+            missing_friendly.append("Live Market Price (CMP)")
+        if missing_friendly:
+            return f"Missing required metrics: {', '.join(missing_friendly)}."
 
     if "PIT_STALENESS" in r_upper or "PIT_DATA_STALE" in r_upper:
         import re
         m = re.search(r"PIT_STALENESS_([0-9\.]+)Y", r_upper)
         if m:
             y = float(m.group(1))
-            return f"PIT staleness limit exceeded: Latest audited disclosures on disk are {y:.1f} years old (>1.5Y limit). Backfill required."
-        return "PIT series stale: Latest audited filing exceeds 1.5-year freshness window."
+            return f"Financial data is {y:.1f} years old: Exceeds the 1.5-year limit, recent statements required."
+        return "Financial data is outdated: Audited filings exceed 1.5-year freshness window."
 
     if "STALE_PRICE_DATA" in r_upper or "PRICE_DATA" in r_upper:
-        return "Live market quote (CMP) missing from Upstox API or last session market close unavailable."
+        return "Live market price (CMP) is missing from Upstox broker API."
 
     if "FILING_GAP" in r_upper:
-        return "Historical fiscal year gap detected in filing sequence (missing intermediate annual statement)."
+        return "Missing annual report: One or more fiscal years missing in historical filing sequence."
 
     if "PARTIAL_RECOVERY_UNRESOLVED" in r_upper or "RECOVERY_UNAVAILABLE" in r_upper or "DATA_CONFLICT" in r_upper:
         if ":" in str(reason):
@@ -11066,9 +11070,9 @@ def _format_missing_data(
     if failures:
         clean_f = str(failures).strip()
         if clean_f and clean_f not in ("[]", "{}", "None", "''", '""'):
-            return f"Provider verification failure: {clean_f[:120]}"
+            return f"Exchange data check failure: {clean_f[:120]}"
 
-    return reason or "Data quality criteria not met"
+    return reason or "Data requirements not met"
 
 
 _UNIFIED_AUDIT_CACHE: Optional[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]] = None
@@ -11102,6 +11106,15 @@ def clear_unified_stock_data_health_cache() -> None:
             manifest_p.unlink(missing_ok=True)
     except Exception:
         pass
+    try:
+        from app.scanner_data_gateway import clear_gateway_cache
+        clear_gateway_cache()
+    except Exception:
+        try:
+            from scanner_data_gateway import clear_gateway_cache
+            clear_gateway_cache()
+        except Exception:
+            pass
     try:
         from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
         with _STOCK_DATA_HEALTH_LOCK:
@@ -11683,16 +11696,16 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                 comp_name = sec_master.get(sym, {}).get("company_name", sym)
                 if raw_period in ("No local file", "Empty", "None", "Error"):
                     reason = "MISSING_RAW_FILINGS"
-                    missing_summary = f"No raw disclosures on disk. Backfill pending for mandatory period {sym_mand_period}."
+                    missing_summary = "No financial files on disk: Initial download required from exchange."
                     status_code = "STALE_RAW_DATA"
                 elif eff_qtr and eff_qtr < "2026-06-30":
-                    reason = f"LOCAL_CACHE_BACKFILL_PENDING (Latest quarterly {eff_qtr} < 2026-06-30)"
+                    reason = f"QUARTERLY_DISCLOSURES_OUTDATED ({eff_qtr})"
                     status_code = "STALE_LOCAL_CACHE"
-                    missing_summary = f"Local raw cache backfill pending: Quarterly disclosures end at {eff_qtr}, baseline requires >= 2026-06-30."
+                    missing_summary = f"Missing recent quarterly results: Latest quarter is {eff_qtr} (scanner requires June 2026 or newer)."
                 else:
-                    reason = f"ANNUAL_DISCLOSURES_OUTDATED (Latest {eff_latest} < 2025-03-31)"
+                    reason = f"ANNUAL_DISCLOSURES_OUTDATED ({eff_latest})"
                     status_code = "STALE_ANNUAL_DATA"
-                    missing_summary = f"Annual filings outdated: Latest annual is {eff_latest}, requires >= 2025-03-31."
+                    missing_summary = f"Missing recent annual report: Latest annual on disk is FY{eff_latest[:4]} (scanner requires FY2025 or newer)."
 
                 ann_p, qtr_p = _resolve_periods(sym, raw_info, row)
                 stale_map[sym] = {
