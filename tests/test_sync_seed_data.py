@@ -52,3 +52,4 @@ def test_sync_seed_data_anti_downgrade(monkeypatch):
             res_target = json.load(f)
         assert len(res_target) == 2
         assert res_target[-1]["period_end_date"] == "2026-09-30"
+

@@ -2589,6 +2589,7 @@ if __name__ == "__main__":
                 restore_filing_watcher_state_from_db,
                 restore_pit_raw_bundle_from_db,
                 download_parquet_from_db,
+                upload_parquet_to_db,
                 parquet_exists_in_db,
                 clear_unified_stock_data_health_cache,
                 clear_canonical_snapshot_cache,
