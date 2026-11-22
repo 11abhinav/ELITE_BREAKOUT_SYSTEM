@@ -2060,10 +2060,20 @@ class FinancialFilingWatcher:
                         logger.warning(f"[filling scanner] Tier-3 PDF fallback notice for {sym_u}: {pdf_fallback_err}")
 
                 if not raw_filings_list or not any(raw_filings_list):
-                    logger.info(
-                        f"⚠️ [filling scanner] {sym_u}: Attempted exchange search (Tier 1/2/3) but 0 new filings found on NSE/BSE "
-                        f"(company may not have released results yet). Retaining existing local data (latest_period={latest_local_period or 'NONE'})."
-                    )
+                    if 'uncovered_pdf_anns' in locals() and uncovered_pdf_anns:
+                        ann_urls = [str(a.get('attchmntFile') or a.get('attachmentUrl') or '') for a in uncovered_pdf_anns if (a.get('attchmntFile') or a.get('attachmentUrl'))]
+                        ann_periods = list({str(a.get('period_end_date')) for a in uncovered_pdf_anns if a.get('period_end_date')})
+                        logger.warning(
+                            f"⚠️ [filling scanner] {sym_u}: Found {len(uncovered_pdf_anns)} official financial results announcement(s) on exchange "
+                            f"(periods: {ann_periods}), but automated table parsing could not extract structured facts "
+                            f"(e.g. scanned image PDF without embedded text layer, non-standard table layout, or image-only tables). "
+                            f"Filing URLs: {ann_urls[:3]}. Retaining existing local data (latest_period={latest_local_period or 'NONE'})."
+                        )
+                    else:
+                        logger.info(
+                            f"⚠️ [filling scanner] {sym_u}: Attempted exchange search (Tier 1/2/3) but 0 new filings found on NSE/BSE "
+                            f"(company has not submitted results on exchange yet). Retaining existing local data (latest_period={latest_local_period or 'NONE'})."
+                        )
                     with self._state_lock:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()

@@ -474,6 +474,44 @@ class ExchangePdfParser:
                 except TypeError:
                     text = page.extract_text() or ""
             except Exception:
+                text = ""
+
+            # Check if this page is a scanned bitmap without embedded digital text
+            raw_text_len = len(text.strip())
+            page_images = getattr(page, "images", None)
+            has_embedded_images = bool(page_images and len(page_images) > 0)
+
+            if raw_text_len < 50 and has_embedded_images:
+                logger.info(
+                    f"📷 [PDF_PARSER] {symbol}: Page {page_idx + 1} has minimal digital text ({raw_text_len} chars) "
+                    f"but contains {len(page_images)} embedded bitmap image(s). Attempting OCR extraction..."
+                )
+                ocr_parts = []
+                try:
+                    import pytesseract
+                    for img_idx, img_obj in enumerate(page_images):
+                        try:
+                            img = img_obj.image
+                            ocr_txt = pytesseract.image_to_string(img)
+                            if ocr_txt and len(ocr_txt.strip()) > 20:
+                                ocr_parts.append(ocr_txt)
+                        except Exception as img_ocr_err:
+                            logger.debug(f"[OCR] Page {page_idx + 1} img {img_idx} error: {img_ocr_err}")
+                except ImportError:
+                    logger.debug(f"[OCR] pytesseract not available in runtime environment for {symbol} page {page_idx + 1}.")
+                except Exception as tesseract_err:
+                    logger.debug(f"[OCR] Tesseract error for {symbol} page {page_idx + 1}: {tesseract_err}")
+
+                if ocr_parts:
+                    text = "\n".join(ocr_parts)
+                    logger.info(f"✨ [PDF_PARSER: OCR SUCCESS] {symbol}: Page {page_idx + 1} extracted {len(text)} characters via OCR.")
+                else:
+                    logger.info(
+                        f"⚠️ [PDF_PARSER: SCANNED_IMAGE] {symbol}: Page {page_idx + 1} contains scanned image tables "
+                        f"without selectable text layer. (Images: {[getattr(img, 'name', f'img_{i}') for i, img in enumerate(page_images)]})"
+                    )
+
+            if not text or len(text.strip()) < 10:
                 continue
 
             text = _normalize_ocr_text(text)
@@ -1178,6 +1216,11 @@ class ExchangePdfParser:
                 continue
 
             parsed = self.parse_sebi_reg33_pdf(pdf_bytes, sym_u, announcement_metadata=ann)
+            if not parsed:
+                logger.warning(
+                    f"⚠️ [PDF_FALLBACK: ZERO_FACTS] {sym_u}: Downloaded {os.path.basename(att_file)} ({len(pdf_bytes)} bytes) "
+                    f"for period {p_end or 'UNKNOWN'}, but 0 structured statement facts could be extracted."
+                )
             existing_scopes = {(r.period_end_date, r.consolidation) for r in pdf_records}
             for rec in parsed:
                 rec_scope = (rec.period_end_date, rec.consolidation)
