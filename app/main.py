@@ -1727,21 +1727,6 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ TECHNICAL is STOPPED by Admin. Skipping 18:15 run.")
 
-            # 16:00 IST (4:00 PM) - Corporate Filing Watcher Daily Sweep (Runs strictly once daily at 4:00 PM IST)
-            if (now.hour > 16 or (now.hour == 16 and now.minute >= 0)) and last_filing_poll_date != now.date():
-                last_filing_poll_date = now.date()
-                if not is_scanner_stopped("FILING_WATCHER"):
-                    logger.info("🕒 SCHEDULER | [16:00 IST / 4:00 PM] Triggering FILING_WATCHER (Daily 4:00 PM Corporate Filing Sweep)")
-                    import threading
-                    threading.Thread(
-                        target=_trigger_filing_watcher,
-                        kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON_4PM"},
-                        name="FilingWatcherDaily4PM",
-                        daemon=True
-                    ).start()
-                else:
-                    logger.info("⏭️ FILING_WATCHER is STOPPED by Admin. Skipping 16:00 IST (4:00 PM) run.")
-
             # 17:00 - Quality Compounder V2 Full Daily Scan (Post-Market 5Y Quality & 25% EV/EBITDA Valuation Review)
             if (now.hour > 17 or (now.hour == 17 and now.minute >= 0)) and last_wealth_daily_date != now.date():
                 last_wealth_daily_date = now.date()
@@ -1766,17 +1751,31 @@ def run_system_scheduler():
 
             # Earnings Calendar removed — earnings data was unused and added latency.
 
-            # Midnight session rotation — triggered once on date boundary
-            if last_rotation_date != now.date():
-                last_rotation_date = now.date()
-                try:
-                    from application_context import ApplicationContext
-                    ApplicationContext.get_instance().new_trading_day()
-                    logger.info("🌙 [SESSION_ARCH] Midnight rotation complete — old session destroyed.")
-                except Exception as _me:
-                    logger.warning(f"⚠️ [SESSION_ARCH] Midnight session rotation failed: {_me}")
+        # ── 7-Day Daily Operations (Runs Mon-Sun, including weekends) ───────────
+        # 16:00 IST (4:00 PM) - Corporate Filing Watcher Daily Sweep (Runs strictly once daily 7 days a week)
+        if (now.hour > 16 or (now.hour == 16 and now.minute >= 0)) and last_filing_poll_date != now.date():
+            last_filing_poll_date = now.date()
+            if not is_scanner_stopped("FILING_WATCHER"):
+                logger.info("🕒 SCHEDULER | [16:00 IST / 4:00 PM] Triggering FILING_WATCHER (Daily 4:00 PM Corporate Filing Sweep)")
+                import threading
+                threading.Thread(
+                    target=_trigger_filing_watcher,
+                    kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON_4PM"},
+                    name="FilingWatcherDaily4PM",
+                    daemon=True
+                ).start()
+            else:
+                logger.info("⏭️ FILING_WATCHER is STOPPED by Admin. Skipping 16:00 IST (4:00 PM) run.")
 
-        # [DECOMMISSIONED] Saturday MULTIBAGGER fundamental refresh slot permanently removed.
+        # Midnight session rotation — triggered once on date boundary every night
+        if last_rotation_date != now.date():
+            last_rotation_date = now.date()
+            try:
+                from application_context import ApplicationContext
+                ApplicationContext.get_instance().new_trading_day()
+                logger.info("🌙 [SESSION_ARCH] Midnight rotation complete — old session destroyed.")
+            except Exception as _me:
+                logger.warning(f"⚠️ [SESSION_ARCH] Midnight session rotation failed: {_me}")
 
         # Sleep tight, loop runs approximately every 15 seconds for precision timing
         time.sleep(15)
