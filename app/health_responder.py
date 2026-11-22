@@ -7,12 +7,16 @@ Once the Flask dashboard is ready, requests are transparently reverse-proxied to
 
 import socket
 import threading
+import time as _time
 import os
 import sys
 
 FLASK_READY = False
 FLASK_INTERNAL_PORT = 8001
 FLASK_PORT = 8001
+
+_STARTED_PORTS = set()          # Guard against double-start
+_STARTED_PORTS_LOCK = threading.Lock()
 
 HEALTH_HTTP_200 = (
     b"HTTP/1.1 200 OK\r\n"
@@ -105,19 +109,68 @@ def _handle_client(client_sock: socket.socket):
             except Exception: pass
 
 def _start_listener(port: int):
-    try:
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind(("0.0.0.0", port))
-        server.listen(128)
-        while True:
-            client, _ = server.accept()
-            threading.Thread(target=_handle_client, args=(client,), daemon=True).start()
-    except Exception as e:
-        sys.stderr.write(f"⚠️ Health responder failed to bind on port {port}: {e}\n")
+    """Bind and listen on *port* with retry on EADDRINUSE.
+
+    After a container restart the previous socket may still be in TIME_WAIT.
+    We retry up to 10 times (total ~30 s) which is enough for the kernel to
+    reclaim the socket.  If all retries fail we log a final warning and exit
+    the thread — the dashboard server will still work via its own binding.
+    """
+    max_retries = 10
+    for attempt in range(1, max_retries + 1):
+        server = None
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("0.0.0.0", port))
+            server.listen(128)
+            if attempt > 1:
+                sys.stderr.write(
+                    f"✅ Health responder bound on port {port} after {attempt} attempts\n"
+                )
+            # Accept loop — runs forever
+            while True:
+                client, _ = server.accept()
+                threading.Thread(target=_handle_client, args=(client,), daemon=True).start()
+        except OSError as e:
+            # errno 48 (macOS) / 98 (Linux) = EADDRINUSE
+            if e.errno in (48, 98) and attempt < max_retries:
+                if server:
+                    try: server.close()
+                    except Exception: pass
+                wait = min(1.0 * attempt, 5.0)   # 1s, 2s, 3s … 5s cap
+                sys.stderr.write(
+                    f"⚠️ Health responder port {port} in use, retry {attempt}/{max_retries} "
+                    f"in {wait:.0f}s\n"
+                )
+                _time.sleep(wait)
+                continue
+            # Final failure — log and exit thread
+            if server:
+                try: server.close()
+                except Exception: pass
+            sys.stderr.write(
+                f"⚠️ Health responder could not bind port {port} after {max_retries} "
+                f"attempts: {e}\n"
+            )
+            return
+        except Exception as e:
+            if server:
+                try: server.close()
+                except Exception: pass
+            sys.stderr.write(f"⚠️ Health responder error on port {port}: {e}\n")
+            return
+
 
 def start_early_health_responder():
-    """Starts the ultra-fast socket listener on 8000 and 8080 in daemon threads."""
+    """Starts the ultra-fast socket listener on 8000 and 8080 in daemon threads.
+
+    Safe to call multiple times — each port is started at most once.
+    """
     for p in (8000, 8080):
+        with _STARTED_PORTS_LOCK:
+            if p in _STARTED_PORTS:
+                continue
+            _STARTED_PORTS.add(p)
         t = threading.Thread(target=_start_listener, args=(p,), name=f"EarlyHealthResponder-{p}", daemon=True)
         t.start()
