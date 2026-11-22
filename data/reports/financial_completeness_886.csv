@@ -1,6 +1,6 @@
 symbol,isin,latest_period_end,consolidated,revenue,operating_profit,depreciation_amortization,ebitda,net_profit,eps,shares_outstanding_m,total_debt,cash_and_equivalents,total_equity,operating_cash_flow,sales_cagr_5y,pat_cagr_5y,roce_5y_avg,cfo_pat_5y_ratio,debt_to_equity,market_cap,enterprise_value,current_ev_ebitda,ev_ebitda_3y_median,current_pe,pe_3y_median,provenance_status,failure_reasons
 360ONE,,2026-03-31,True,,,155.0,2970.0,,,410.0,15931.0,34.0,9836.0,-2921.0,22.0,26.94,13.4,-1.46,1.62,43993.0,59890.0,20.16,22.52,36.18,41.83,CERTIFIED,NONE
-3BBLACKBIO,,2026-03-31,True,,,5.0,8.49,,,8.8061,3.0,79.0,325.0,20.0,-31.03,-38.78,23.6,0.9,0.01,1450.1885,1406.12,22.68,17.61,147.83,18.69,CERTIFIED,NONE
+3BBLACKBIO,,2026-03-31,True,142.0,57.0,5.0,62.0,60.0,68.27,9.0,3.0,79.0,325.0,52.0,-8.96,-12.05,23.6,0.9,0.01,1482.12,1406.12,22.68,17.61,24.7,18.69,CERTIFIED,NONE
 3MINDIA,,2026-03-31,True,,,63.0,1049.0,,,11.0,170.0,818.0,1768.0,514.0,16.04,28.5,33.2,1.0,0.1,37317.5,36669.5,34.96,47.28,71.49,66.19,CERTIFIED,NONE
 AADHARHFC,,2026-03-31,True,,,32.0,,,,436.0,0.0,1213.0,7541.0,-2808.0,,26.38,,-2.79,0.0,19380.2,18167.2,,16.57,17.68,22.52,STRUCTURAL_INELIGIBLE,EBITDA_MISSING; CURRENT_EV_EBITDA_MISSING
 AARTIDRUGS,,2026-03-31,True,,,67.0,379.0,,,91.0,577.0,5.0,1549.0,254.0,3.55,-6.98,15.2,1.17,0.37,3889.34,4461.34,11.77,13.17,19.95,25.43,CERTIFIED,NONE

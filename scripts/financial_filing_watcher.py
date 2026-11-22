@@ -980,12 +980,13 @@ class FinancialFilingWatcher:
         if max_symbols:
             symbols = symbols[:max_symbols]
 
+        targeted_symbols_set = {str(s).strip().upper() for s in target_symbols} if (target_symbols and len(target_symbols) < len(self.approved_symbols)) else set()
+
         if max_workers is None:
             max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "30"))
         max_workers = max(1, min(max_workers, 40))
 
-
-        logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str} (concurrency={max_workers})...")
+        logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str} (concurrency={max_workers}, targeted={bool(targeted_symbols_set)})...")
 
         # [RULE 67 CHANGE-RATIONALE: Guarantee every execution creates an entry in scanner_execution_history]
         # If poll_exchange_filings is invoked standalone (e.g. from dashboard or test script) without run_ctx,
@@ -1469,17 +1470,46 @@ class FinancialFilingWatcher:
                             break
 
                 # ── RULE 67 / RESOURCE CONSERVATION INVARIANT: ZERO REDUNDANT SCRAPING ──
+                # Check if this symbol was specifically targeted by user / admin
+                is_targeted_symbol = bool(targeted_symbols_set and sym_u in targeted_symbols_set)
+
+                # Check SEBI LODR statutory 45-day deadline for latest concluded quarter
+                # If statutory deadline has passed (e.g. past Nov 14 for Q2 ended Sep 30),
+                # an NSE-only market sweep CANNOT bypass BSE-listed or PDF-filing stocks!
+                is_quarter_overdue = False
+                sebi_deadline_str = ""
+                try:
+                    from datetime import date as _dt_d, timedelta as _dt_td
+                    _qtr_dt = _dt_d.fromisoformat(latest_concluded_qtr)
+                    _sebi_deadline = _qtr_dt + _dt_td(days=45)
+                    sebi_deadline_str = _sebi_deadline.isoformat()
+                    if (as_of_date or date.today()) > _sebi_deadline and not has_latest_concluded_quarter:
+                        is_quarter_overdue = True
+                except Exception:
+                    pass
+
                 # 1. Fast Market Sweep Bypass:
                 # NSE publishes a market-wide announcement sweep covering the last 45 days.
                 # If market sweep confirmed ZERO new announcements for this symbol, and the stock already
                 # possesses its historical baseline on disk (e.g. annual filings present and non-empty):
                 # The company simply has not published a newer result on the exchange yet.
                 # Bypass in 0ms to eliminate 45-60s per-symbol ScraperAPI timeouts across the entire market!
+                # STRICT INVARIANT: CANNOT bypass if:
+                #   - Symbol was explicitly targeted by user/admin (is_targeted_symbol)
+                #   - Latest concluded quarter is overdue under SEBI LODR (is_quarter_overdue)
+                #   - Force backfill was requested (force_backfill)
                 has_baseline = (
                     (local_annual_count >= 3 or len(sorted_annual_years) >= 3 or (latest_local_period and not has_corrupt_or_empty_raw))
                     and not force_backfill
                 )
-                if market_sweep_ok and not has_newer_sweep_filing and has_baseline:
+                can_market_sweep_bypass = (
+                    market_sweep_ok
+                    and not has_newer_sweep_filing
+                    and has_baseline
+                    and not is_targeted_symbol
+                    and not is_quarter_overdue
+                )
+                if can_market_sweep_bypass:
                     with self._state_lock:
                         from zoneinfo import ZoneInfo
                         now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
@@ -1534,10 +1564,22 @@ class FinancialFilingWatcher:
                         pass
                     return
 
+                if is_targeted_symbol:
+                    logger.info(
+                        f"🎯 [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"EXPLICITLY TARGETED BY ADMIN/USER (latest_local={latest_local_period}). Bypassing 0ms skip to perform active multi-tier exchange scan."
+                    )
+                elif is_quarter_overdue:
+                    logger.info(
+                        f"⏳ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"SEBI LODR OVERDUE for {latest_concluded_qtr} (deadline was {sebi_deadline_str}, latest_local={latest_local_period}). "
+                        f"Bypassing NSE market sweep skip to actively query Tier-2 BSE and Tier-3 PDF attachments."
+                    )
+
                 # 2. If needs_bootstrap (e.g. historical annual gap or tail annual lag), BUT symbol was already polled
                 #    within the last 24h AND market sweep confirms zero new filings on NSE/BSE today:
                 #    DO NOT hammer ScraperAPI in a tight loop! Wait for the 24h window or a new market sweep disclosure.
-                if needs_bootstrap and polled_recently and not has_newer_sweep_filing and not force_backfill:
+                if needs_bootstrap and polled_recently and not has_newer_sweep_filing and not force_backfill and not is_targeted_symbol and not is_quarter_overdue:
                     with counter_lock:
                         skipped_complete_count[0] += 1
                     logger.info(
@@ -3083,17 +3125,23 @@ class FinancialFilingWatcher:
 
             # [RULE 67 CHANGE-RATIONALE: Execute fundamental data recovery sweep exclusively in FILING_WATCHER background cycle to isolate network filing downloads from live scanners and prevent global lock stalls.]
             # 2c. Execute fundamental data recovery sweep for incomplete symbols (handled exclusively by FILING_WATCHER)
-            try:
+            # CRITICAL GOVERNANCE INVARIANT: Only run the global fundamental pre-recovery sweep on FULL scheduled / un-targeted runs.
+            # Targeted single-stock / on-demand triggers MUST NOT scan or backfill unrelated stocks!
+            is_targeted_run = bool(symbol or (stale_only and max_symbols and max_symbols < 50))
+            if not is_targeted_run:
                 try:
-                    from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
-                except ImportError:
-                    from fundamental_pre_recovery import FundamentalPreRecoveryEngine
-                logger.info("🔄 [filling scanner] Starting fundamental data recovery sweep for incomplete symbols...")
-                pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name="FILING_WATCHER")
-                pre_recovery_engine.execute_pre_scan_sweep()
-                logger.info("✅ [filling scanner] Fundamental data recovery sweep complete.")
-            except Exception as pre_rec_err:
-                logger.warning(f"[filling scanner] Fundamental recovery sweep notice: {pre_rec_err}")
+                    try:
+                        from app.fundamental_pre_recovery import FundamentalPreRecoveryEngine
+                    except ImportError:
+                        from fundamental_pre_recovery import FundamentalPreRecoveryEngine
+                    logger.info("🔄 [filling scanner] Starting fundamental data recovery sweep for incomplete symbols...")
+                    pre_recovery_engine = FundamentalPreRecoveryEngine(scanner_name="FILING_WATCHER")
+                    pre_recovery_engine.execute_pre_scan_sweep()
+                    logger.info("✅ [filling scanner] Fundamental data recovery sweep complete.")
+                except Exception as pre_rec_err:
+                    logger.warning(f"[filling scanner] Fundamental recovery sweep notice: {pre_rec_err}")
+            else:
+                logger.info(f"🎯 [filling scanner] Targeted run ({len(target_symbols)} symbols: {target_symbols[:5]}). Skipping global pre-recovery sweep for unrelated stocks.")
 
             # 3. Detect pending symbols or missing snapshot
             pending_symbols = [

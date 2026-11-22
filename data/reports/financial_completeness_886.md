@@ -1,7 +1,7 @@
 # 886-Stock Financial Data Completeness Matrix
 
 **Universe**: 886 Approved Equities  
-**Generated At**: 2026-11-22T12:00:47.038214  
+**Generated At**: 2026-11-22T12:34:05.383955  
 
 ## Field-by-Field Completeness Table
 
@@ -10,12 +10,12 @@
 | **Identity (Symbol / ISIN)** | 886/886 | 0 | 100.0% |
 | **Latest Annual Filing** | 885/886 | 1 | 99.9% |
 | **Consolidated Basis** | 885/886 | 1 | 99.9% |
-| **Revenue** | 818/886 | 68 | 92.3% |
-| **Operating Profit** | 817/886 | 69 | 92.2% |
+| **Revenue** | 819/886 | 67 | 92.4% |
+| **Operating Profit** | 818/886 | 68 | 92.3% |
 | **Depreciation & Amortization** | 872/886 | 14 | 98.4% |
 | **EBITDA (Operating Profit + D&A)** | 832/886 | 54 | 93.9% |
-| **Net Profit (PAT)** | 869/886 | 17 | 98.1% |
-| **EPS** | 866/886 | 20 | 97.7% |
+| **Net Profit (PAT)** | 870/886 | 16 | 98.2% |
+| **EPS** | 867/886 | 19 | 97.9% |
 | **Shares Outstanding (Filed)** | 886/886 | 0 | 100.0% |
 | **Total Debt (Borrowings)** | 833/886 | 53 | 94.0% |
 | **Cash & Equivalents** | 839/886 | 47 | 94.7% |
