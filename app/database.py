@@ -10499,9 +10499,16 @@ def check_and_restore_stale_stock(
                         snap_status = str(row.get("snapshot_status", "")).upper()
                         has_gap = bool(row.get("filing_gap_detected", False))
                         curr_status = str(row.get("pit_freshness_status", "")).upper()
-                        if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap:
+                        needs_period_update = False
+                        if period_end:
+                            p_end_str = str(period_end)[:10]
+                            if "latest_quarterly_period" in snap_df.columns:
+                                curr_q = str(snap_df.loc[mask, "latest_quarterly_period"].iloc[0] or "")
+                                if p_end_str > curr_q or not curr_q or curr_q == "None":
+                                    needs_period_update = True
+                        if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap or needs_period_update:
                             was_stale = True
-                            stale_reasons.append(f"Snapshot:{curr_status or 'GAP'}")
+                            stale_reasons.append(f"Snapshot:{curr_status or 'PERIOD_UPDATE' if needs_period_update else 'GAP'}")
                             snap_df.loc[mask, "pit_freshness_status"] = "VALID"
                             if "snapshot_status" in snap_df.columns:
                                 snap_df.loc[mask, "snapshot_status"] = "FRESH"
@@ -11217,24 +11224,29 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     raw_latest_val = str(raw_info.get("latest") or "") if raw_info else ""
 
     if not raw_qtr_val or raw_qtr_val < sym_mand_qtr:
-        try:
-            base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            p_f = os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json")
-            if os.path.exists(p_f):
-                with open(p_f, "r", encoding="utf-8") as _rf:
-                    _stmts = json.load(_rf)
-                if isinstance(_stmts, list) and _stmts:
-                    for _st in _stmts:
-                        _p_end = str(_st.get("period_end_date") or _st.get("period_end") or "")[:10]
-                        _stt = str(_st.get("statement_type") or _st.get("period") or "").upper()
-                        if _p_end:
-                            raw_latest_val = max(raw_latest_val, _p_end)
-                            if "QUARTER" in _stt or _stt.startswith("Q") or _p_end[5:10] in ("06-30", "09-30", "12-31"):
-                                raw_qtr_val = max(raw_qtr_val, _p_end)
-                            if "ANNUAL" in _stt or "FY" in _stt or (_p_end.endswith("-03-31") and not _stt.startswith("Q")):
-                                raw_ann_val = max(raw_ann_val, _p_end)
-        except Exception:
-            pass
+        base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        for p_cand in [
+            os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json"),
+            os.path.join(base_dir_val, "data_seed", "pit_raw_filings", f"{sym_u}.json"),
+            f"/app/data/pit_raw_filings/{sym_u}.json",
+            f"/app/data_seed/pit_raw_filings/{sym_u}.json",
+        ]:
+            if os.path.exists(p_cand):
+                try:
+                    with open(p_cand, "r", encoding="utf-8") as _rf:
+                        _stmts = json.load(_rf)
+                    if isinstance(_stmts, list) and _stmts:
+                        for _st in _stmts:
+                            _p_end = str(_st.get("period_end_date") or _st.get("period_end") or "")[:10]
+                            _stt = str(_st.get("statement_type") or _st.get("period") or "").upper()
+                            if _p_end:
+                                raw_latest_val = max(raw_latest_val, _p_end)
+                                if "QUARTER" in _stt or _stt.startswith("Q") or _p_end[5:10] in ("06-30", "09-30", "12-31"):
+                                    raw_qtr_val = max(raw_qtr_val, _p_end)
+                                if "ANNUAL" in _stt or "FY" in _stt or (_p_end.endswith("-03-31") and not _stt.startswith("Q")):
+                                    raw_ann_val = max(raw_ann_val, _p_end)
+                except Exception:
+                    pass
 
     snap_qtr_val = str(snap_item.get("latest_quarterly_period") or "") if snap_item else ""
     snap_ann_val = str(snap_item.get("latest_annual_period") or "") if snap_item else ""
@@ -11243,6 +11255,13 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     eff_ann_val = max(snap_ann_val, raw_ann_val) if (snap_ann_val and raw_ann_val) else (snap_ann_val or raw_ann_val)
     has_recent_quarter = bool(eff_qtr_val and eff_qtr_val >= sym_mand_qtr)
     has_recent_annual = bool(eff_ann_val and eff_ann_val >= "2025-03-31")
+
+    if sym_u in ("ABBOTINDIA", "ABCAPITAL", "ACE") or has_recent_quarter:
+        logger.info(
+            f"🔍 [RESTORE_EVAL] {sym_u}: eff_qtr={eff_qtr_val}, mand_qtr={sym_mand_qtr}, "
+            f"has_recent_qtr={has_recent_quarter}, snap_qtr={snap_qtr_val}, raw_qtr={raw_qtr_val}, "
+            f"eff_ann={eff_ann_val}, has_recent_ann={has_recent_annual}"
+        )
 
     # Helper to check numeric validity (> -900 and not NaN)
     def _is_num_valid(v):
@@ -11863,6 +11882,29 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                 snap_qtr = str(row.get("latest_quarterly_period") or "")
                 eff_qtr = max(raw_qtr, snap_qtr) if (raw_qtr and snap_qtr) else (raw_qtr or snap_qtr)
                 eff_latest = max(raw_period, eff_qtr) if (raw_period not in ("None", "Empty", "Error") and eff_qtr) else (eff_qtr or raw_period)
+
+                if not is_half_y and eff_qtr < sym_mand_period:
+                    # Directly check disk files to eliminate in-memory cache lag false positives
+                    base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    for p_cand in [
+                        os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym}.json"),
+                        f"/app/data/pit_raw_filings/{sym}.json",
+                    ]:
+                        if os.path.exists(p_cand):
+                            try:
+                                with open(p_cand, "r", encoding="utf-8") as _rf:
+                                    _stmts = json.load(_rf)
+                                if isinstance(_stmts, list):
+                                    for _st in _stmts:
+                                        _p_end = str(_st.get("period_end_date") or _st.get("period_end") or "")[:10]
+                                        _stt = str(_st.get("statement_type") or _st.get("period") or "").upper()
+                                        if "QUARTER" in _stt or _stt.startswith("Q") or _p_end[5:10] in ("06-30", "09-30", "12-31"):
+                                            if _p_end > eff_qtr:
+                                                eff_qtr = _p_end
+                                                eff_latest = max(eff_latest, _p_end)
+                                                raw_qtr = _p_end
+                            except Exception:
+                                pass
 
                 if raw_count == 0 or raw_period in ("None", "Empty", "Error"):
                     raw_stale = True

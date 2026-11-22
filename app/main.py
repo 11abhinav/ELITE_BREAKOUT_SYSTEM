@@ -2608,8 +2608,26 @@ if __name__ == "__main__":
                 if parquet_exists_in_db("canonical_pit_rebuilt"):
                     tmp_db_canon = canonical_path + ".boot_tmp"
                     if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_canon):
-                        shutil.move(tmp_db_canon, canonical_path)
-                        logger.info("✅ [BOOT] Adopted authoritative canonical_pit_rebuilt from Postgres DB.")
+                        try:
+                            import pandas as pd
+                            df_db = pd.read_parquet(tmp_db_canon)
+                            df_local = pd.read_parquet(canonical_path) if os.path.exists(canonical_path) else None
+
+                            db_q2 = int((df_db["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if (df_db is not None and "latest_quarterly_period" in df_db.columns) else 0
+                            local_q2 = int((df_local["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if (df_local is not None and "latest_quarterly_period" in df_local.columns) else 0
+
+                            if df_local is not None and not df_local.empty and local_q2 >= db_q2 and len(df_local) >= len(df_db):
+                                upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                                logger.info(f"✅ [BOOT] Preserved newer local canonical snapshot (Q2 count: {local_q2} >= DB: {db_q2}). Upgraded DB cache.")
+                                if os.path.exists(tmp_db_canon):
+                                    os.remove(tmp_db_canon)
+                            else:
+                                shutil.move(tmp_db_canon, canonical_path)
+                                logger.info(f"✅ [BOOT] Adopted authoritative canonical_pit_rebuilt from Postgres DB (DB Q2: {db_q2} > local: {local_q2}).")
+                        except Exception as _cmp_err:
+                            logger.warning(f"[BOOT] Parquet comparison error ({_cmp_err}). Adopting DB copy.")
+                            shutil.move(tmp_db_canon, canonical_path)
+
                         clear_canonical_snapshot_cache()
                         try:
                             from app.financial_data_integrity import set_financial_snapshot_status, FinancialSnapshotStatus
@@ -2619,6 +2637,9 @@ if __name__ == "__main__":
                             }, data_dir=DATA_DIR)
                         except Exception as _meta_e:
                             logger.debug(f"Meta status write error: {_meta_e}")
+                elif os.path.exists(canonical_path):
+                    upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                    logger.info("✅ [BOOT] Initialized DB parquet cache from local canonical snapshot.")
 
                 clear_unified_stock_data_health_cache()
 

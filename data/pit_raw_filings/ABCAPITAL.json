@@ -823,5 +823,25 @@
     "raw_NII": null,
     "mapped_revenue": null,
     "mapping_rule": "REVENUE_DIRECT"
+  },
+  {
+    "exchange": "NSE",
+    "source": "NSE_ANNOUNCEMENT_PDF",
+    "filing_id": "NSE_PDF_ABCAPITAL_106836223_2026-09-30",
+    "symbol": "ABCAPITAL",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 5493.4,
+    "net_profit": 1237.23,
+    "operating_profit": 1237.23,
+    "eps": 4.52,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": 2620000000.0,
+    "filing_date": "2026-10-30",
+    "broadcast_timestamp": "2026-10-30T13:48:07",
+    "provenance_status": "CERTIFIED"
   }
 ]
