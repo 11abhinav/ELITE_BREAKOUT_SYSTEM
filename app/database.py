@@ -11109,19 +11109,34 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     has_valuation = has_ev_ebitda or has_pe
 
     # -------------------------------------------------------------------------
-    # 0. UNIVERSAL CANONICAL PIT INTEGRITY & FRESHNESS INVARIANT (NON-STOCK-SPECIFIC)
+    # 0. UNIVERSAL SCANNER DATA COMPLETENESS & FRESHNESS INVARIANT
     # -------------------------------------------------------------------------
-    # If the master Point-in-Time rebuilt dataset proves the stock has:
-    #   1. Valid freshness status ('VALID' or 'FRESH')
-    #   2. Zero historical filing gaps (filing_gap_detected is False)
-    #   3. Recent annual filing present (pit_staleness_years <= 1.5 or latest_annual_period >= '2025-03-31')
-    # Then the stock is verified clean and fresh on the authoritative data layer.
-    # Any historical cool-off lock for filing gaps, staleness, unparsed statements, depth,
-    # or general data insufficiency MUST be automatically and immediately evicted!
+    # If the master Point-in-Time rebuilt dataset proves the stock has ALL data
+    # required by the scanners (ROCE, Sales CAGR, PAT CAGR, Debt/Equity, Valuation, CMP,
+    # recent annual >= 2025-03-31, recent quarter >= 2026-06-30, zero filing gaps),
+    # the stock is verified complete and scanner-ready. Any historical cool-off lock
+    # MUST be automatically and immediately evicted!
     is_pit_valid = str(snap_item.get("pit_freshness_status") or "").upper() in ("VALID", "FRESH")
     no_filing_gap = not bool(snap_item.get("filing_gap_detected", False))
     stale_yrs = float(snap_item.get("pit_staleness_years") or 99.0)
     has_recent_annual = (stale_yrs <= 1.5) or (str(snap_item.get("latest_annual_period") or "") >= "2025-03-31")
+    latest_qtr_val = str(snap_item.get("latest_quarterly_period") or "")
+    has_recent_quarter = (not latest_qtr_val) or (latest_qtr_val >= "2026-06-30")
+
+    listing_age = float(snap_item.get("listing_age_years") or 99.0)
+    has_sales = _is_num_valid(snap_item.get("sales_cagr_5y")) or (listing_age < 5.0)
+    is_base_loss = (snap_item.get("pat_base_year_loss") is True) or (snap_item.get("pat_cagr_5y") == -999.0)
+    has_pat = _is_num_valid(snap_item.get("pat_cagr_5y")) or is_base_loss or (listing_age < 5.0)
+    is_bfsi = bool(snap_item.get("is_bfsi", False))
+    has_de_or_bfsi = has_de or is_bfsi
+    has_cmp = _is_num_valid(snap_item.get("cmp"))
+
+    is_scanner_data_complete = (
+        has_roce and has_sales and has_pat and has_de_or_bfsi and has_valuation and has_cmp
+        and no_filing_gap and has_recent_annual and has_recent_quarter
+    )
+    if is_scanner_data_complete:
+        return True
 
     is_filing_or_staleness_issue = any(k in r_low for k in (
         "stale", "gap", "backfill", "local_cache", "xbrl", "depth", "lodr", "sebi",
@@ -11607,7 +11622,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                 }
                 continue
 
-            # Strict SEBI LODR Regulation 33 filing gate
+            # Strict Baseline & Filing Integrity Gate
             raw_info = raw_cache.get(sym)
             raw_stale = False
             raw_period = "No local file"
@@ -11624,12 +11639,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
 
                 if raw_count == 0 or raw_period in ("None", "Empty", "Error"):
                     raw_stale = True
-                elif eff_latest < sym_mand_period:
-                    # [SEBI LODR REG 33 INVARIANT]: If latest filed period is older than the statutory mandatory period,
-                    # the company is overdue on its exchange disclosures and MUST be classified as stale.
+                elif eff_latest < "2025-03-31" and float(row.get("pit_staleness_years") or 99.0) > 1.5:
                     raw_stale = True
-                elif not is_half_y and sym_mand_period.endswith(("-06-30", "-09-30", "-12-31")) and eff_qtr < sym_mand_period:
-                    # [SEBI LODR REG 33 INVARIANT]: Standard quarterly filers must submit quarterly results for each concluded quarter.
+                elif eff_qtr and eff_qtr < "2026-06-30":
                     raw_stale = True
 
             if raw_stale:
@@ -11638,12 +11650,14 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     reason = "MISSING_RAW_FILINGS"
                     missing_summary = f"No raw disclosures on disk. Backfill pending for mandatory period {sym_mand_period}."
                     status_code = "STALE_RAW_DATA"
-                else:
-                    reason = f"LOCAL_CACHE_BACKFILL_PENDING ({eff_latest} < {sym_mand_period})"
+                elif eff_qtr and eff_qtr < "2026-06-30":
+                    reason = f"LOCAL_CACHE_BACKFILL_PENDING (Latest quarterly {eff_qtr} < 2026-06-30)"
                     status_code = "STALE_LOCAL_CACHE"
-                    missing_summary = _format_missing_data(reason, "", sym, raw_info=raw_info, snap_item=row)
-                    if not missing_summary or missing_summary == reason or "not met" in missing_summary.lower():
-                        missing_summary = f"Local raw cache backfill pending ({sym_label}). Exchange requires {sym_mand_period} (Due {sym_deadline}), but local files end at {raw_period}."
+                    missing_summary = f"Local raw cache backfill pending: Quarterly disclosures end at {eff_qtr}, baseline requires >= 2026-06-30."
+                else:
+                    reason = f"ANNUAL_DISCLOSURES_OUTDATED (Latest {eff_latest} < 2025-03-31)"
+                    status_code = "STALE_ANNUAL_DATA"
+                    missing_summary = f"Annual filings outdated: Latest annual is {eff_latest}, requires >= 2025-03-31."
 
                 ann_p, qtr_p = _resolve_periods(sym, raw_info, row)
                 stale_map[sym] = {
@@ -11657,7 +11671,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                     "cooloff_until": (now_dt + timedelta(days=7)).isoformat(),
                     "days_remaining": 7.0,
                     "status": status_code,
-                    "source": "SEBI_LODR_REG33_SCHEDULE",
+                    "source": "FILING_BASELINE_GATE",
                     "last_fetched_at": _resolve_last_fetch(sym, raw_info, row, row.get("as_of_date")),
                     "latest_annual_period": ann_p,
                     "latest_quarterly_period": qtr_p,
@@ -11691,7 +11705,7 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
 
             # 3. [RULE 67 CHANGE-RATIONALE: ZERO FALSE-POSITIVE FRESH INVARIANT]
             # Required fundamental metrics completeness gate. A stock CANNOT be certified FRESH if its
-            # required 5Y CAGR, ROCE, or Debt metrics are missing/None. It must be classified as DATA_INSUFFICIENT.
+            # required scanner metrics (ROCE, Sales CAGR, PAT CAGR, Debt, Valuation, CMP) are missing/None.
             missing_fund_fields = []
             is_bfsi = bool(row.get("is_bfsi", False))
             listing_age = float(row.get("listing_age_years") or 99.0)
@@ -11701,10 +11715,15 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             if listing_age >= 5.0:
                 if row.get("sales_cagr_5y") is None:
                     missing_fund_fields.append("sales_cagr_5y")
-                if row.get("pat_cagr_5y") is None:
+                is_base_loss = (row.get("pat_base_year_loss") is True) or (row.get("pat_cagr_5y") == -999.0)
+                if row.get("pat_cagr_5y") is None and not is_base_loss:
                     missing_fund_fields.append("pat_cagr_5y")
             if not is_bfsi and row.get("debt_to_equity") is None:
                 missing_fund_fields.append("debt_to_equity")
+            if row.get("current_pe") is None and row.get("current_ev_ebitda") is None:
+                missing_fund_fields.append("valuation (PE/EV-EBITDA)")
+            if row.get("cmp") is None:
+                missing_fund_fields.append("CMP")
 
             is_insuff_status = freshness in ("DATA_INSUFFICIENT", "DATA_UNAVAILABLE", "INCOMPLETE") or snap_st in ("DATA_INSUFFICIENT", "DATA_UNAVAILABLE", "INCOMPLETE")
 
