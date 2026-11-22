@@ -169,6 +169,26 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"(\d)\s*[_]\s*(\d)", r"\g<1>.\g<2>", text)
     text = re.sub(r"(\d)[tIl](\d)", r"\g<1>1\g<2>", text)
 
+    # --- Spaced-out numbers cleanup (e.g. '17,483 .09' -> '17,483.09', '4 ,385.86' -> '4,385.86') ---
+    text = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', text)
+    text = re.sub(r'(\d+[\d,]*)\s*\.\s*(\d+)', r'\1.\2', text)
+
+    # --- Universal kerning de-spacing for corporate financial statement vocabulary ---
+    _FINANCIAL_DE_SPACE_TERMS = [
+        'statement', 'unaudited', 'audited', 'financial', 'results', 'result',
+        'half', 'year', 'quarter', 'ended', 'period', 'particulars', 'revenue',
+        'income', 'operations', 'expenses', 'profit', 'loss', 'before', 'after',
+        'exceptional', 'extraordinary', 'tax', 'taxes', 'earnings', 'share', 'shares',
+        'nominal', 'basic', 'diluted', 'equity', 'liabilities', 'assets',
+        'capital', 'reserves', 'surplus', 'borrowings', 'provisions', 'payables',
+        'receivables', 'inventories', 'cash', 'balances', 'operating',
+        'september', 'december', 'march', 'june', 'january', 'february',
+        'april', 'august', 'october', 'november', 'comprehensive', 'continuing'
+    ]
+    for term in _FINANCIAL_DE_SPACE_TERMS:
+        pattern = r'\b' + r'\s*'.join(list(term)) + r'\b'
+        text = re.sub(pattern, term, text, flags=re.I)
+
     # --- Month name OCR damage (generic for any stock/filing) ---
     text = re.sub(r"\bSep[rt]e?mber\b", "September", text)         # Seprember, Seprtmber, Septmber
     text = re.sub(r"\bSEP[RT]E?MBER\b", "SEPTEMBER", text)
@@ -962,9 +982,12 @@ class ExchangePdfParser:
             avail_dt = _parse_exchange_date(ann_meta.get("filingDate") or ann_meta.get("an_dt")) or str(period_end)
             seq_id = str(ann_meta.get("seqNumber") or ann_meta.get("seq_id") or "1")
 
+            exch = str(ann_meta.get("exchange") or ("BSE" if "bseindia" in str(ann_meta.get("attchmntFile", "")).lower() else "NSE")).upper()
+            pdf_source = f"{exch}_ANNOUNCEMENT_PDF"
+
             record = RawFinancialRecord(
                 symbol=symbol.upper(),
-                source="NSE_ANNOUNCEMENT_PDF",
+                source=pdf_source,
                 period_end_date=period_end,
                 period_type=st_type,
                 consolidation=basis,
@@ -981,7 +1004,7 @@ class ExchangePdfParser:
                 unit="crores",
                 currency="INR",
                 source_document_hash=pdf_hash,
-                filing_id=f"NSE_PDF_{symbol.upper()}_{seq_id}_{period_end}",
+                filing_id=f"{exch}_PDF_{symbol.upper()}_{seq_id}_{period_end}",
                 revision_indicator="N",
                 raw_fact_details={
                     "page_number": page_idx + 1,
@@ -1002,6 +1025,79 @@ class ExchangePdfParser:
                 if has_cons:
                     logger.debug(f"🎯 [PDF_PARSER] {symbol}: Consolidated financial statement extracted on page {page_idx + 1}. Halting further page extraction.")
                     break
+
+        # Enrich extracted records with Balance Sheet (Debt & Equity) and Cash Flow from subsequent pages if present
+        for rec in records:
+            if rec.total_debt is None or rec.total_equity is None or rec.operating_cash_flow is None:
+                for p_idx, p_obj in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
+                    try:
+                        p_raw = p_obj.extract_text() or ""
+                        if not p_raw or len(p_raw.strip()) < 20:
+                            continue
+                        p_norm = _normalize_ocr_text(p_raw)
+                        p_norm_low = p_norm.lower()
+
+                        # Multiplier for this page
+                        page_mult = doc_mult
+                        if re.search(r"in\s*lakhs?|\(in\s*lakhs?\)|inr\s*in\s*lakhs?|\(t\s*in\s*lakhs\)", p_norm, re.I):
+                            page_mult = 0.01
+                        elif re.search(r"in\s*crores?|\(in\s*crores?\)", p_norm, re.I):
+                            page_mult = 1.0
+
+                        # 1. Statement of Assets and Liabilities (Balance Sheet)
+                        is_bs_page = any(k in p_norm_low for k in ["assets and liabilities", "statement of assets", "balance sheet"])
+                        if is_bs_page:
+                            # Look for Total Debt: borrowings
+                            if rec.total_debt is None:
+                                lt_debt = None
+                                st_debt = None
+                                for el in p_norm.split("\n"):
+                                    el_low = el.lower()
+                                    if "long term borrowings" in el_low or "non-current borrowings" in el_low:
+                                        el_nums = [_clean_token_number(t) for t in el.split() if _clean_token_number(t) is not None]
+                                        if el_nums:
+                                            lt_debt = el_nums[0] * page_mult
+                                    elif "short term borrowings" in el_low or "current borrowings" in el_low:
+                                        el_nums = [_clean_token_number(t) for t in el.split() if _clean_token_number(t) is not None]
+                                        if el_nums:
+                                            st_debt = el_nums[0] * page_mult
+                                if lt_debt is not None or st_debt is not None:
+                                    rec.total_debt = round((lt_debt or 0.0) + (st_debt or 0.0), 4)
+
+                            # Look for Total Equity
+                            if rec.total_equity is None:
+                                eq_cap_val = None
+                                res_val = None
+                                for el in p_norm.split("\n"):
+                                    el_low = el.lower()
+                                    if ("total equity" in el_low or "total shareholders" in el_low or "shareholders' funds" in el_low) and "liabilities" not in el_low:
+                                        el_nums = [_clean_token_number(t) for t in el.split() if _clean_token_number(t) is not None]
+                                        if el_nums:
+                                            rec.total_equity = round(el_nums[0] * page_mult, 4)
+                                            break
+                                    elif "share capital" in el_low and "paid" not in el_low:
+                                        el_nums = [_clean_token_number(t) for t in el.split() if _clean_token_number(t) is not None]
+                                        if el_nums:
+                                            eq_cap_val = el_nums[0] * page_mult
+                                    elif "reserves" in el_low and ("surplus" in el_low or "other equity" in el_low):
+                                        el_nums = [_clean_token_number(t) for t in el.split() if _clean_token_number(t) is not None]
+                                        if el_nums:
+                                            res_val = el_nums[0] * page_mult
+                                if rec.total_equity is None and (eq_cap_val is not None or res_val is not None):
+                                    rec.total_equity = round((eq_cap_val or 0.0) + (res_val or 0.0), 4)
+
+                        # 2. Statement of Cash Flows
+                        is_cf_page = any(k in p_norm_low for k in ["cash flow from operating", "cash flows from operating", "operating activities"])
+                        if is_cf_page and rec.operating_cash_flow is None:
+                            for cl in p_norm.split("\n"):
+                                cl_low = cl.lower()
+                                if any(k in cl_low for k in ["net cash flow from", "net cash generated from", "cash generated from operating"]) and "operating" in cl_low:
+                                    cl_nums = [_clean_token_number(t) for t in cl.split() if _clean_token_number(t) is not None]
+                                    if cl_nums:
+                                        rec.operating_cash_flow = round(cl_nums[0] * page_mult, 4)
+                                        break
+                    except Exception:
+                        pass
 
         # Strategy C: Certified SEBI Reg 33 Outcome / Press Release Fallback
         # When table pages are scanned raster images, official financial results are frequently disclosed
@@ -1077,9 +1173,12 @@ class ExchangePdfParser:
                             )
                             st_type = "QUARTERLY" if period_end.endswith(("-06-30", "-09-30", "-12-31")) else "ANNUAL"
 
+                            exch_pr = str(ann_meta.get("exchange") or ("BSE" if "bseindia" in str(ann_meta.get("attchmntFile", "")).lower() else "NSE")).upper()
+                            pdf_src_pr = f"{exch_pr}_ANNOUNCEMENT_PDF"
+
                             pr_rec = RawFinancialRecord(
                                 symbol=symbol.upper(),
-                                source="NSE_ANNOUNCEMENT_PDF",
+                                source=pdf_src_pr,
                                 period_end_date=period_end,
                                 period_type=st_type,
                                 consolidation=basis,
@@ -1096,7 +1195,7 @@ class ExchangePdfParser:
                                 unit="crores",
                                 currency="INR",
                                 source_document_hash=pdf_hash,
-                                filing_id=f"NSE_PDF_{symbol.upper()}_{seq_id}_{period_end}",
+                                filing_id=f"{exch_pr}_PDF_{symbol.upper()}_{seq_id}_{period_end}",
                                 revision_indicator="N",
                                 raw_fact_details={
                                     "page_number": 1,

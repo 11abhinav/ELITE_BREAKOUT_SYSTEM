@@ -794,19 +794,25 @@ class FinancialFilingWatcher:
         Supports delta updates for individual or pending symbols.
         """
         as_of = as_of_date or date.today()
-        sym_target = str(symbol) if symbol else "ALL_PENDING"
+        target_list = None
+        if isinstance(symbol, (list, set, tuple)):
+            target_list = []
+            for s in symbol:
+                for sub_s in str(s).split(","):
+                    if sub_s.strip():
+                        target_list.append(sub_s.strip().upper())
+            target_list = sorted(list(dict.fromkeys(target_list)))
+        elif symbol:
+            target_list = [s.strip().upper() for s in str(symbol).split(",") if s.strip()]
+
+        sym_target = ",".join(target_list) if target_list else (str(symbol) if symbol else "ALL_PENDING")
         logger.info(f"🔄 [filling scanner] [SNAPSHOT_REBUILD] Target: {sym_target} as of {as_of.isoformat()}...")
 
         try:
             from scripts.rebuild_pit_from_exchange import rebuild_canonical_pit_dataset
             from app.financial_data_integrity import clear_shared_snapshot_cache
 
-            target_list = None
-            if isinstance(symbol, (list, set, tuple)):
-                target_list = [str(s).strip().upper() for s in symbol if s]
-            elif symbol:
-                target_list = [str(symbol).strip().upper()]
-            elif SNAPSHOT_PATH.exists():
+            if target_list is None and SNAPSHOT_PATH.exists():
                 pending_symbols = [
                     s for s, v in self.state.items()
                     if v.get("snapshot_status") == SnapshotFreshnessStatus.UPDATE_PENDING.value
@@ -838,7 +844,7 @@ class FinancialFilingWatcher:
                     f"❌ [filling scanner] [SNAPSHOT_REBUILD: DATA_INCOMPLETE] Rebuilt {len(df)} rows, "
                     f"but Current EV/EBITDA is 0/{len(df)}. Refusing to mark snapshot FRESH!"
                 )
-                sym_list = [symbol.strip().upper()] if isinstance(symbol, str) else ([str(s).strip().upper() for s in symbol] if isinstance(symbol, (list, set, tuple)) else [])
+                sym_list = list(target_list) if target_list else []
                 for sym_u in sym_list:
                     if sym_u in self.state:
                         self.state[sym_u]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
@@ -850,7 +856,7 @@ class FinancialFilingWatcher:
                 return False
 
             # Mark state as FRESH only when data completeness invariants pass
-            sym_list = [symbol.strip().upper()] if isinstance(symbol, str) else ([str(s).strip().upper() for s in symbol] if isinstance(symbol, (list, set, tuple)) else [])
+            sym_list = list(target_list) if target_list else []
             for sym_u in sym_list:
                 if sym_u in self.state:
                     self.state[sym_u]["snapshot_status"] = SnapshotFreshnessStatus.FRESH.value
@@ -898,7 +904,7 @@ class FinancialFilingWatcher:
             return True
         except Exception as e:
             logger.error(f"❌ [filling scanner] [SNAPSHOT_REBUILD: FAILED] {e}")
-            sym_list = [symbol.strip().upper()] if isinstance(symbol, str) else ([str(s).strip().upper() for s in symbol] if isinstance(symbol, (list, set, tuple)) else [])
+            sym_list = list(target_list) if target_list else []
             for sym_u in sym_list:
                 if sym_u in self.state:
                     self.state[sym_u]["snapshot_status"] = SnapshotFreshnessStatus.INVALID.value
@@ -1032,44 +1038,50 @@ class FinancialFilingWatcher:
             logger.debug(f"[filling scanner] Could not pre-load snapshot lookup: {_snap_err}")
 
         # ── FAST MARKET-WIDE FILINGS PRE-SWEEP (1-2s for whole market) ──
+        # Optimization: Only run heavy 45-day entire market sweep when scanning broad universe (> 50 symbols).
+        # For targeted runs (e.g. 1-10 stocks), bypass the 2,500-stock market sweep to complete in seconds!
+        is_targeted_poll = bool(targeted_symbols_set and len(targeted_symbols_set) <= 50)
         market_sweep_filings: Dict[str, List[Dict[str, Any]]] = {}
         market_sweep_ok = False
-        try:
+        if not is_targeted_poll:
             try:
-                from app.data_providers.nse_xbrl_provider import NseXbrlProvider
-            except ImportError:
-                from data_providers.nse_xbrl_provider import NseXbrlProvider
-            _sweep_prov = NseXbrlProvider()
-            sweep_lookback = int(os.getenv("FILING_WATCHER_SWEEP_LOOKBACK_DAYS", "45"))
-            market_sweep_filings = _sweep_prov.discover_market_filings_sweep(as_of_date=as_of, lookback_days=sweep_lookback)
-            if market_sweep_filings:
-                market_sweep_ok = True
-                total_market_disclosures = sum(len(v) for v in market_sweep_filings.values())
-                logger.info(
-                    f"⚡ [filling scanner] Market-wide announcement sweep complete in ~2s: "
-                    f"Found {total_market_disclosures} disclosures across {len(market_sweep_filings)} market symbols."
-                )
                 try:
+                    from app.data_providers.nse_xbrl_provider import NseXbrlProvider
+                except ImportError:
+                    from data_providers.nse_xbrl_provider import NseXbrlProvider
+                _sweep_prov = NseXbrlProvider()
+                sweep_lookback = int(os.getenv("FILING_WATCHER_SWEEP_LOOKBACK_DAYS", "45"))
+                market_sweep_filings = _sweep_prov.discover_market_filings_sweep(as_of_date=as_of, lookback_days=sweep_lookback)
+                if market_sweep_filings:
+                    market_sweep_ok = True
+                    total_market_disclosures = sum(len(v) for v in market_sweep_filings.values())
+                    logger.info(
+                        f"⚡ [filling scanner] Market-wide announcement sweep complete in ~2s: "
+                        f"Found {total_market_disclosures} disclosures across {len(market_sweep_filings)} market symbols."
+                    )
                     try:
-                        from app.financial_data_integrity import record_exchange_watermark
-                    except ImportError:
-                        from financial_data_integrity import record_exchange_watermark
-                    _now_iso = datetime.now().isoformat()
-                    max_sweep_bcast = None
-                    for s_items in market_sweep_filings.values():
-                        for it in s_items:
-                            b_ts = it.get("broadCastDate") or it.get("filingDate") or it.get("broadcast_timestamp")
-                            if b_ts:
-                                b_str = str(b_ts)
-                                if not max_sweep_bcast or b_str > max_sweep_bcast:
-                                    max_sweep_bcast = b_str
-                    record_exchange_watermark(source_name="NSE", last_successful_check_at=_now_iso, latest_filing_timestamp=max_sweep_bcast)
-                    record_exchange_watermark(source_name="BSE", last_successful_check_at=_now_iso)
-                    logger.info(f"🛡️ [WATERMARK] Recorded fresh exchange watermarks (NSE latest={max_sweep_bcast}, checked={_now_iso}).")
-                except Exception as _wm_err:
-                    logger.debug(f"[filling scanner] Watermark update note: {_wm_err}")
-        except Exception as _sweep_err:
-            logger.warning(f"⚠️ [filling scanner] Market sweep notice: {_sweep_err}")
+                        try:
+                            from app.financial_data_integrity import record_exchange_watermark
+                        except ImportError:
+                            from financial_data_integrity import record_exchange_watermark
+                        _now_iso = datetime.now().isoformat()
+                        max_sweep_bcast = None
+                        for s_items in market_sweep_filings.values():
+                            for it in s_items:
+                                b_ts = it.get("broadCastDate") or it.get("filingDate") or it.get("broadcast_timestamp")
+                                if b_ts:
+                                    b_str = str(b_ts)
+                                    if not max_sweep_bcast or b_str > max_sweep_bcast:
+                                        max_sweep_bcast = b_str
+                        record_exchange_watermark(source_name="NSE", last_successful_check_at=_now_iso, latest_filing_timestamp=max_sweep_bcast)
+                        record_exchange_watermark(source_name="BSE", last_successful_check_at=_now_iso)
+                        logger.info(f"🛡️ [WATERMARK] Recorded fresh exchange watermarks (NSE latest={max_sweep_bcast}, checked={_now_iso}).")
+                    except Exception as _wm_err:
+                        logger.debug(f"[filling scanner] Watermark update note: {_wm_err}")
+            except Exception as _sweep_err:
+                logger.warning(f"⚠️ [filling scanner] Market sweep notice: {_sweep_err}")
+        else:
+            logger.info(f"🎯 [filling scanner] Targeted poll ({len(targeted_symbols_set)} symbols: {list(targeted_symbols_set)[:5]}). Skipping 45-day entire market sweep.")
 
         _tls = threading.local()
 
@@ -2034,10 +2046,12 @@ class FinancialFilingWatcher:
                                 norm_p = _normalize_iso_date(r.period_end_date)
                                 if not norm_p or norm_p < min_cutoff:
                                     continue
+                                rec_exch = "BSE" if "BSE" in str(getattr(r, "source", "")).upper() else "NSE"
+                                rec_src = getattr(r, "source", None) or f"{rec_exch}_ANNOUNCEMENT_PDF"
                                 raw_filings_list.append({
-                                    "exchange": "NSE",
-                                    "source": "NSE_ANNOUNCEMENT_PDF",
-                                    "filing_id": getattr(r, "filing_id", None) or f"NSE_PDF_{sym_u}_{norm_p}",
+                                    "exchange": rec_exch,
+                                    "source": rec_src,
+                                    "filing_id": getattr(r, "filing_id", None) or f"{rec_exch}_PDF_{sym_u}_{norm_p}",
                                     "period_end_date": norm_p,
                                     "statement_type": r.period_type,
                                     "basis": r.consolidation.value if hasattr(r.consolidation, "value") else str(r.consolidation),
@@ -2054,7 +2068,7 @@ class FinancialFilingWatcher:
                                 })
                                 logger.info(
                                     f"📑 [filling scanner] {sym_u}: Ingested SEBI Reg 33 PDF statement for {norm_p} ({r.period_type}): "
-                                    f"Revenue = {r.revenue} Cr, PAT = {r.net_profit} Cr (source=NSE_ANNOUNCEMENT_PDF)"
+                                    f"Revenue = {r.revenue} Cr, PAT = {r.net_profit} Cr (source={rec_src})"
                                 )
                     except Exception as pdf_fallback_err:
                         logger.warning(f"[filling scanner] Tier-3 PDF fallback notice for {sym_u}: {pdf_fallback_err}")
@@ -3021,7 +3035,15 @@ class FinancialFilingWatcher:
                 logger.warning(f"[filling scanner] Could not fetch stale stocks list: {_stale_err}")
                 target_symbols = [s.strip().upper() for s in symbol.split(",") if s.strip()] if symbol else list(self.approved_symbols)
         elif symbol:
-            target_symbols = [s.strip().upper() for s in symbol.split(",") if s.strip()]
+            if isinstance(symbol, (list, tuple, set)):
+                target_symbols = []
+                for s in symbol:
+                    for sub in str(s).split(","):
+                        if sub.strip():
+                            target_symbols.append(sub.strip().upper())
+                target_symbols = sorted(list(dict.fromkeys(target_symbols)))
+            else:
+                target_symbols = [s.strip().upper() for s in str(symbol).split(",") if s.strip()]
         else:
             target_symbols = list(self.approved_symbols)
 

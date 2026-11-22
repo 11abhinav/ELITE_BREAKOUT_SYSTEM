@@ -908,6 +908,70 @@ class NseXbrlProvider:
                         "exchange": "NSE",
                     })
 
+        # 4. If symbol yielded 0 filings on Mainboard (index=equities), query NSE SME platform (index=sme)
+        if not all_filings:
+            try:
+                sme_base_url = f"{_BASE_URL}?index=sme&symbol={symbol}"
+                sme_base_raw = self._get(sme_base_url, symbol)
+                if sme_base_raw:
+                    sme_base_rows = sme_base_raw if isinstance(sme_base_raw, list) else (sme_base_raw.get("data", []) if isinstance(sme_base_raw, dict) else [])
+                    all_filings.extend(sme_base_rows)
+
+                sme_ann_url = f"{_ANN_URL}?index=sme&symbol={symbol}"
+                sme_ann_raw = self._get(sme_ann_url, symbol)
+                if sme_ann_raw:
+                    sme_ann_rows = sme_ann_raw if isinstance(sme_ann_raw, list) else (sme_ann_raw.get("data", []) if isinstance(sme_ann_raw, dict) else [])
+                    existing_ann_keys = set()
+                    for item in sme_ann_rows:
+                        desc = str(item.get("desc") or "")
+                        txt = str(item.get("attchmntText") or "")
+                        has_xbrl = bool(item.get("hasXbrl"))
+                        combined = f"{desc} {txt}".lower()
+
+                        is_fin_ann = (
+                            has_xbrl
+                            or any(k in combined for k in (
+                                "financial result", "financial results", "outcome of board meeting",
+                                "un-audited financial", "unaudited financial", "audited financial",
+                                "quarterly result", "half year", "period ended"
+                            ))
+                        )
+                        if not is_fin_ann:
+                            continue
+
+                        p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
+                        if not p_end or p_end < "2020-01-01":
+                            continue
+                        att_file = str(item.get("attchmntFile") or "")
+                        ann_key = (p_end, att_file)
+                        if ann_key in existing_ann_keys:
+                            continue
+                        existing_ann_keys.add(ann_key)
+
+                        st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
+                        basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
+
+                        all_filings.append({
+                            "symbol": symbol,
+                            "toDate": p_end,
+                            "period_end_date": p_end,
+                            "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
+                            "statement_type": st_type,
+                            "consolidated": basis,
+                            "seqNumber": str(item.get("seq_id") or ""),
+                            "broadCastDate": str(item.get("an_dt") or item.get("exchdisstime") or item.get("sort_date") or ""),
+                            "filingDate": str(item.get("an_dt") or "")[:11],
+                            "xbrl": item.get("xbrl") or "",
+                            "attchmntFile": item.get("attchmntFile") or "",
+                            "desc": desc,
+                            "attchmntText": txt,
+                            "exchange": "NSE",
+                        })
+                if all_filings:
+                    logger.info(f"✨ [NSE SME] {symbol}: Discovered {len(all_filings)} corporate filing disclosure(s) via NSE SME platform.")
+            except Exception as _sme_err:
+                logger.debug(f"[NSE SME] Discovery notice for {symbol}: {_sme_err}")
+
         self.filing_records_discovered += len(all_filings)
         self._discovered_cache[symbol] = all_filings
         return all_filings

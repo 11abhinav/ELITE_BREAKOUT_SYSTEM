@@ -10138,6 +10138,8 @@ def remove_symbol_from_cooloff(symbol: str, scanner: str = "ALL") -> bool:
     """Manually removes a symbol from active cool-off."""
     if not symbol:
         return False
+    if "," in str(symbol):
+        return all(remove_symbol_from_cooloff(s, scanner=scanner) for s in [sub.strip().upper() for sub in str(symbol).split(",") if sub.strip()])
     sym = symbol.strip().upper()
     scan = str(scanner or "ALL").strip().upper()
 
@@ -10189,6 +10191,17 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
     """
     if not symbol:
         return {"ok": False, "error": "Invalid symbol"}
+
+    if "," in str(symbol):
+        sub_syms = [s.strip().upper() for s in str(symbol).split(",") if s.strip()]
+        res_list = [remove_stale_stock_from_cooloff(s, admin_user=admin_user) for s in sub_syms]
+        all_ok = all(r.get("ok") for r in res_list)
+        return {
+            "ok": all_ok,
+            "symbols": sub_syms,
+            "results": res_list,
+            "message": f"Processed {len(sub_syms)} symbols: " + ", ".join(r.get("message", "") for r in res_list)
+        }
 
     sym_u = str(symbol).strip().upper()
     now_dt = datetime.now(IST)
@@ -10342,6 +10355,21 @@ def check_and_restore_stale_stock(
     """
     if not symbol:
         return False
+
+    if "," in str(symbol):
+        sub_syms = [s.strip().upper() for s in str(symbol).split(",") if s.strip()]
+        res = True
+        for sub_s in sub_syms:
+            if not check_and_restore_stale_stock(
+                symbol=sub_s,
+                source=source,
+                period_end=period_end,
+                notify_admin=notify_admin,
+                force=force,
+            ):
+                res = False
+        return res
+
     sym = str(symbol).strip().upper()
     was_stale = False
     stale_reasons = []

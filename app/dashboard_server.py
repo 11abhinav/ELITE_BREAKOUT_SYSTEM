@@ -3629,6 +3629,15 @@ def api_admin_batch_validate_stocks():
                             j_data = json.load(f_chk)
                             if not j_data or (isinstance(j_data, list) and len(j_data) == 0):
                                 need_filing_poll = True
+                            elif isinstance(j_data, list):
+                                try:
+                                    from scripts.financial_filing_watcher import get_latest_concluded_quarter
+                                    latest_q = get_latest_concluded_quarter()
+                                    max_p = max([str(it.get("period_end_date") or it.get("toDate") or "") for it in j_data] or [""])
+                                    if not max_p or max_p < latest_q:
+                                        need_filing_poll = True
+                                except Exception:
+                                    pass
                     if need_filing_poll:
                         try:
                             from scripts.financial_filing_watcher import FinancialFilingWatcher

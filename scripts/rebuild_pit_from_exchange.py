@@ -666,7 +666,15 @@ def rebuild_canonical_pit_dataset(
 
     # Determine symbols to compute
     if target_symbols:
-        symbols_to_process = [s.strip().upper() for s in target_symbols]
+        if isinstance(target_symbols, str):
+            symbols_to_process = [s.strip().upper() for s in target_symbols.split(",") if s.strip()]
+        else:
+            symbols_to_process = []
+            for item in target_symbols:
+                for s in str(item).split(","):
+                    if s.strip():
+                        symbols_to_process.append(s.strip().upper())
+            symbols_to_process = sorted(list(dict.fromkeys(symbols_to_process)))
         is_delta = os.path.exists(out_file) and len(symbols_to_process) < len(approved_set)
     else:
         symbols_to_process = sorted(list(approved_set))
