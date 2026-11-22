@@ -10462,8 +10462,13 @@ def check_and_restore_stale_stock(
                             if "filing_gap_detected" in snap_df.columns:
                                 snap_df.loc[mask, "filing_gap_detected"] = False
                             if period_end:
-                                if "latest_annual_period" in snap_df.columns and ("ANNUAL" in str(source).upper() or "-03-31" in str(period_end)):
-                                    snap_df.loc[mask, "latest_annual_period"] = str(period_end)[:10]
+                                p_end_str = str(period_end)[:10]
+                                if "latest_annual_period" in snap_df.columns and ("ANNUAL" in str(source).upper() or p_end_str.endswith(("-03-31", "-12-31"))):
+                                    snap_df.loc[mask, "latest_annual_period"] = p_end_str
+                                if "latest_quarterly_period" in snap_df.columns:
+                                    curr_q = str(snap_df.loc[mask, "latest_quarterly_period"].iloc[0] or "")
+                                    if p_end_str > curr_q or not curr_q or curr_q == "None":
+                                        snap_df.loc[mask, "latest_quarterly_period"] = p_end_str
                             tmp_fd, tmp_snap = tempfile.mkstemp(
                                 dir=str(snap_path.parent),
                                 prefix=f"stale_rst_{os.getpid()}_",
@@ -10502,11 +10507,10 @@ def check_and_restore_stale_stock(
         )
         # [CHANGE-RATIONALE: Suppress Stale Stock Restored UI notifications to avoid spamming admin/user]
 
-    if was_stale:
-        try:
-            clear_unified_stock_data_health_cache()
-        except Exception:
-            pass
+    try:
+        clear_unified_stock_data_health_cache()
+    except Exception:
+        pass
 
     return was_stale
 

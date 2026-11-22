@@ -1283,6 +1283,22 @@ class FinancialFilingWatcher:
                         f"HAS LATEST RESULT ({latest_concluded_qtr} present in local DB/cache | latest_period={latest_local_period} | annual_count={local_annual_count}). "
                         f"Skipping in 0ms."
                     )
+                    # INVARIANT: If stock already has latest concluded quarter, immediately restore from any stale cool-off!
+                    try:
+                        try:
+                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
+                        except ImportError:
+                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
+                        check_and_restore_stale_stock(
+                            symbol=sym_u,
+                            source="EXCHANGE_FILING_WATCHER_LATEST_CONFIRMED",
+                            period_end=latest_local_period or latest_concluded_qtr,
+                            notify_admin=False,
+                            force=True,
+                        )
+                        clear_unified_stock_data_health_cache()
+                    except Exception as _rst_err:
+                        logger.debug(f"[filling scanner] latest result restore note for {sym_u}: {_rst_err}")
                     return
 
                 # 1. Intermediate Annual Gap Detection (y[i+1] - y[i] > 1) within required lookback window
@@ -1501,6 +1517,21 @@ class FinancialFilingWatcher:
                         f"BASELINE INTACT & 0 NEW FILINGS IN MARKET SWEEP (latest={latest_local_period}, annuals={local_annual_count}). "
                         f"Skipping exchange fetch in 0ms."
                     )
+                    try:
+                        try:
+                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
+                        except ImportError:
+                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
+                        check_and_restore_stale_stock(
+                            symbol=sym_u,
+                            source="MARKET_SWEEP_CONFIRMED",
+                            period_end=latest_local_period,
+                            notify_admin=False,
+                            force=True,
+                        )
+                        clear_unified_stock_data_health_cache()
+                    except Exception:
+                        pass
                     return
 
                 # 2. If needs_bootstrap (e.g. historical annual gap or tail annual lag), BUT symbol was already polled
