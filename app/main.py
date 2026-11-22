@@ -1283,10 +1283,28 @@ def run_system_scheduler():
 
             from database import parquet_exists_in_db, clear_canonical_snapshot_cache
 
+            adopt_db = False
             if db_has_valid and _df_db is not None:
-                # UNCONDITIONALLY ADOPT DB SNAPSHOT ON CONTAINER BOOT!
-                # Ephemeral container images contain static git seed files.
-                # DB contains authoritative, live-evaluated, audited data.
+                if not local_canonical_valid or _df_local is None:
+                    adopt_db = True
+                else:
+                    # Never-downgrade comparison: check max quarterly period and certified count
+                    local_max_q = str(_df_local["latest_quarterly_period"].dropna().max() or "") if "latest_quarterly_period" in _df_local.columns else ""
+                    db_max_q = str(_df_db["latest_quarterly_period"].dropna().max() or "") if "latest_quarterly_period" in _df_db.columns else ""
+                    local_cert = int((_df_local["provenance_status"] == "CERTIFIED").sum()) if "provenance_status" in _df_local.columns else 0
+                    db_cert = int((_df_db["provenance_status"] == "CERTIFIED").sum()) if "provenance_status" in _df_db.columns else 0
+
+                    if db_max_q > local_max_q or (db_max_q == local_max_q and db_cert >= local_cert):
+                        adopt_db = True
+                    else:
+                        logger.info(
+                            f"🛡️ [CANONICAL BOOT] Local certified image snapshot is newer/superior "
+                            f"(local_qtr={local_max_q}, cert={local_cert} vs db_qtr={db_max_q}, cert={db_cert}). "
+                            f"Preserving local snapshot and synchronizing up to DB."
+                        )
+                        upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+
+            if adopt_db:
                 shutil.move(db_cand_path, canonical_path)
                 logger.info(f"✅ [CANONICAL BOOT] Adopted authoritative DB snapshot ({len(_df_db)} symbols)")
                 try:
@@ -1340,6 +1358,12 @@ def run_system_scheduler():
                         logger.debug(f"Canonical DB upload notice: {_c_up_err}")
                 else:
                     logger.warning("⚠️ [CANONICAL BOOT] DB already has canonical_pit_rebuilt. Preserving DB state (zero boot overwrite).")
+
+            try:
+                from database import reconcile_and_purge_restored_cooloffs
+                reconcile_and_purge_restored_cooloffs()
+            except Exception as _rc_err:
+                logger.debug(f"[BOOT] Reconcile cooloffs note: {_rc_err}")
 
             # Step 0: Ensure pit_raw_filings directory exists and is populated
             pit_raw_dir = os.path.join(DATA_DIR, "pit_raw_filings")

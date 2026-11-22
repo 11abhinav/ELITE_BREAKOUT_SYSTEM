@@ -4833,8 +4833,8 @@ function changeAdminPage(type, delta) {
       } else if (tabId === 'filings-discovery') {
         if (typeof loadCorporateFilingsDiscovery === 'function') loadCorporateFilingsDiscovery();
       } else if (tabId === 'stock-data-health') {
-        // Instant SWR hydration from cache followed by smooth background sync
-        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(false);
+        // Fetch fresh authoritative stock data health audit
+        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(true);
       }
     }
 
@@ -15345,6 +15345,15 @@ async function triggerFilingScannerForStale(limit = 25) {
       updateSdhBatchButton();
       const masterCb = document.getElementById('sdh-select-all');
       if (masterCb) masterCb.checked = false;
+
+      // Automatically refresh Data Health table at 3s, 8s, 15s, and 25s to reflect newly restored stocks
+      [3000, 8000, 15000, 25000].forEach(delay => {
+        setTimeout(() => {
+          if (typeof fetchStockDataHealth === 'function') {
+            fetchStockDataHealth(true);
+          }
+        }, delay);
+      });
     } else {
       alert(`⚠️ Could not trigger filing scanner: ${data.message || data.error || 'Server error'}`);
     }

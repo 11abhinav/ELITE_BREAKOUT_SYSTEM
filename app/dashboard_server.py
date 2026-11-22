@@ -5669,6 +5669,12 @@ def api_admin_trigger_filing_watcher():
                     stale_only=stale_only,
                     max_symbols=max_syms,
                 )
+                try:
+                    from app.database import clear_unified_stock_data_health_cache, reconcile_and_purge_restored_cooloffs
+                except ImportError:
+                    from database import clear_unified_stock_data_health_cache, reconcile_and_purge_restored_cooloffs
+                reconcile_and_purge_restored_cooloffs()
+                clear_unified_stock_data_health_cache()
             except Exception as e:
                 logger.error(f"[API_TRIGGER_FILING_WATCHER] Background run failed: {e}")
 

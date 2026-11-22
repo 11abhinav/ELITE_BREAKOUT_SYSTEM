@@ -10381,21 +10381,40 @@ def check_and_restore_stale_stock(
     if source in ("CORPORATE_FILING_WATCHER", "BATCH_FILINGS_INGESTION", "FILING_WATCHER", "EXCHANGE_INGESTION", "PRE_RECOVERY_PROMOTED", "EXCHANGE_VERIFIED", "EXCHANGE_FILING_WATCHER", "REBUILD_PUBLISH", "CANONICAL_PUBLISHER") or "FILING" in src_u or "EXCHANGE" in src_u or "REBUILD" in src_u or "PUBLISH" in src_u or "CANONICAL" in src_u:
         force = True
 
+    # Pre-check if stock is already verified fresh / restored
+    snap_df = _load_canonical_snapshot_df()
+    snap_item = None
+    if snap_df is not None and not snap_df.empty and "symbol" in snap_df.columns:
+        m = snap_df[snap_df["symbol"].astype(str).str.strip().str.upper() == sym]
+        if not m.empty:
+            snap_item = m.iloc[0].to_dict()
+
+    try:
+        sym_mand_qtr, _, _ = get_sebi_lodr_mandatory_filing_status(now_dt)
+    except Exception:
+        sym_mand_qtr = "2026-09-30"
+
+    is_fresh_confirmed = (
+        bool(period_end and str(period_end)[:10] >= sym_mand_qtr)
+        or _is_symbol_restored_or_exempt(sym, snap_item, "DATA_STALE")
+    )
+    if is_fresh_confirmed:
+        force = True
+
     # STRICT 7-DAY INVARIANT:
     # Routine background rebuilds and watchers must NOT delete active cool-offs for stocks that
-    # had UNRESOLVED, INSUFFICIENT, or CONFLICT reasons unless the 7-day period has actually expired,
-    # or unless an admin explicitly requests a forced override.
+    # had UNRESOLVED, INSUFFICIENT, or CONFLICT reasons unless the stock is NOW verified fresh,
+    # or the 7-day period has expired, or an explicit force override is provided.
     with _LOCAL_COOLOFF_LOCK:
         active_cache = [k for k, v in _LOCAL_COOLOFF_CACHE.items() if k[0] == sym and v.get("cooloff_until") and v.get("cooloff_until") > now_dt]
-        if active_cache:
+        if active_cache and not force and not is_fresh_confirmed:
             reasons = [_LOCAL_COOLOFF_CACHE.get(k, {}).get("reason", "") for k in active_cache]
             is_unresolved = any(any(w in r.upper() for w in ("UNRESOLVED", "INSUFFICIENT", "CONFLICT", "DEPTH")) for r in reasons)
-            if is_unresolved and source in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+            if is_unresolved:
                 logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in cache for unresolved fundamentals. Preserving cool-off.")
                 return False
-            if not force:
-                logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in cache. Preserving cool-off record until 7 days reach.")
-                return False
+            logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in cache. Preserving cool-off record until 7 days reach.")
+            return False
 
     try:
         with get_connection() as conn:
@@ -10406,15 +10425,14 @@ def check_and_restore_stale_stock(
                         (sym, now_dt)
                     )
                     active_db = cur.fetchall()
-                    if active_db:
+                    if active_db and not force and not is_fresh_confirmed:
                         db_reasons = [r[2] or "" for r in active_db]
                         is_unresolved_db = any(any(w in r.upper() for w in ("UNRESOLVED", "INSUFFICIENT", "CONFLICT", "DEPTH")) for r in db_reasons)
-                        if is_unresolved_db and source in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+                        if is_unresolved_db:
                             logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in DB until {active_db[0][0]} for unresolved fundamentals. Preserving cool-off.")
                             return False
-                        if not force:
-                            logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in DB until {active_db[0][0]}. Preserving cool-off record until 7 days reach.")
-                            return False
+                        logger.info(f"🛡️ [STALE_RESTORE_BLOCKED] {sym} has active 7-day cool-off in DB until {active_db[0][0]}. Preserving cool-off record until 7 days reach.")
+                        return False
     except Exception:
         pass
 
@@ -11112,13 +11130,14 @@ def clear_unified_stock_data_health_cache() -> None:
     """
     [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_HEALTH_CACHE_v1.0]
     Atomically invalidates both the database-level _UNIFIED_AUDIT_CACHE and
-    the Flask dashboard_server _STOCK_DATA_HEALTH_CACHE. This ensures any write to
-    cool-off tables or corporate filings immediately evicts cached health data so
-    the next dashboard request recalculates fresh status without waiting for TTL expiry.
+    the Flask dashboard_server _STOCK_DATA_HEALTH_CACHE across all module namespaces.
+    This ensures any write to cool-off tables or corporate filings immediately evicts cached health data
+    so the next dashboard request recalculates fresh status without waiting for TTL expiry.
     """
     global _UNIFIED_AUDIT_CACHE, _UNIFIED_AUDIT_CACHE_TS
     global _AUDIT_RAW_FILINGS_CACHE, _AUDIT_RAW_FILINGS_LAST_SCAN
     global _WATCHER_STATE_CACHE, _WATCHER_STATE_MTIME
+    global _CANONICAL_DF_CACHE, _CANONICAL_DF_MTIME
     with _UNIFIED_AUDIT_LOCK:
         _UNIFIED_AUDIT_CACHE = None
         _UNIFIED_AUDIT_CACHE_TS = 0.0
@@ -11128,6 +11147,9 @@ def clear_unified_stock_data_health_cache() -> None:
     with _WATCHER_STATE_LOCK:
         _WATCHER_STATE_CACHE = {}
         _WATCHER_STATE_MTIME = 0.0
+    with _CANONICAL_DF_LOCK:
+        _CANONICAL_DF_CACHE = None
+        _CANONICAL_DF_MTIME = 0.0
     try:
         manifest_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings_manifest.json"
         if manifest_p.exists():
@@ -11144,26 +11166,33 @@ def clear_unified_stock_data_health_cache() -> None:
         except Exception:
             pass
     try:
-        from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
-        with _STOCK_DATA_HEALTH_LOCK:
-            _STOCK_DATA_HEALTH_CACHE.clear()
+        from app.financial_data_integrity import clear_shared_snapshot_cache
+        clear_shared_snapshot_cache()
     except Exception:
         try:
-            from dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
-            with _STOCK_DATA_HEALTH_LOCK:
-                _STOCK_DATA_HEALTH_CACHE.clear()
+            from financial_data_integrity import clear_shared_snapshot_cache
+            clear_shared_snapshot_cache()
         except Exception:
             pass
+    # Invalidate dashboard server caches across both possible module names
+    import sys
+    for mod_name in ("dashboard_server", "app.dashboard_server"):
+        mod = sys.modules.get(mod_name)
+        if mod and hasattr(mod, "_STOCK_DATA_HEALTH_CACHE") and hasattr(mod, "_STOCK_DATA_HEALTH_LOCK"):
+            try:
+                with mod._STOCK_DATA_HEALTH_LOCK:
+                    mod._STOCK_DATA_HEALTH_CACHE.clear()
+            except Exception:
+                pass
 
 
 def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]], reason: str) -> bool:
     """
     Evaluates whether a symbol currently recorded in cool-off has been restored via data recovery
     or possesses a structural exemption, allowing it to be immediately purged and certified FRESH.
+    Evaluates BOTH canonical snapshot metrics AND raw statements on disk/manifest.
     """
-    if not snap_item:
-        return False
-
+    import os, json
     import pandas as pd
     from datetime import datetime
     now_dt = datetime.now(IST)
@@ -11175,6 +11204,46 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     r_low = str(reason or "").lower()
     sym_u = str(sym or "").strip().upper()
 
+    # 1. Resolve raw filing periods from memory cache or directly from disk
+    raw_info = None
+    try:
+        raw_cache = _get_parsed_raw_filings_cache()
+        raw_info = raw_cache.get(sym_u) if raw_cache else None
+    except Exception:
+        pass
+
+    raw_qtr_val = str(raw_info.get("latest_quarterly") or "") if raw_info else ""
+    raw_ann_val = str(raw_info.get("latest_annual") or "") if raw_info else ""
+    raw_latest_val = str(raw_info.get("latest") or "") if raw_info else ""
+
+    if not raw_qtr_val or raw_qtr_val < sym_mand_qtr:
+        try:
+            base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            p_f = os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json")
+            if os.path.exists(p_f):
+                with open(p_f, "r", encoding="utf-8") as _rf:
+                    _stmts = json.load(_rf)
+                if isinstance(_stmts, list) and _stmts:
+                    for _st in _stmts:
+                        _p_end = str(_st.get("period_end_date") or _st.get("period_end") or "")[:10]
+                        _stt = str(_st.get("statement_type") or _st.get("period") or "").upper()
+                        if _p_end:
+                            raw_latest_val = max(raw_latest_val, _p_end)
+                            if "QUARTER" in _stt or _stt.startswith("Q") or _p_end[5:10] in ("06-30", "09-30", "12-31"):
+                                raw_qtr_val = max(raw_qtr_val, _p_end)
+                            if "ANNUAL" in _stt or "FY" in _stt or (_p_end.endswith("-03-31") and not _stt.startswith("Q")):
+                                raw_ann_val = max(raw_ann_val, _p_end)
+        except Exception:
+            pass
+
+    snap_qtr_val = str(snap_item.get("latest_quarterly_period") or "") if snap_item else ""
+    snap_ann_val = str(snap_item.get("latest_annual_period") or "") if snap_item else ""
+
+    eff_qtr_val = max(snap_qtr_val, raw_qtr_val) if (snap_qtr_val and raw_qtr_val) else (snap_qtr_val or raw_qtr_val)
+    eff_ann_val = max(snap_ann_val, raw_ann_val) if (snap_ann_val and raw_ann_val) else (snap_ann_val or raw_ann_val)
+    has_recent_quarter = bool(eff_qtr_val and eff_qtr_val >= sym_mand_qtr)
+    has_recent_annual = bool(eff_ann_val and eff_ann_val >= "2025-03-31")
+
     # Helper to check numeric validity (> -900 and not NaN)
     def _is_num_valid(v):
         if v is None or pd.isna(v):
@@ -11185,37 +11254,33 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
         except Exception:
             return False
 
-    has_ev_ebitda = _is_num_valid(snap_item.get("current_ev_ebitda")) or _is_num_valid(snap_item.get("ev_ebitda"))
-    has_pe = _is_num_valid(snap_item.get("current_pe")) or _is_num_valid(snap_item.get("pe"))
-    has_roce = _is_num_valid(snap_item.get("roce_5y_avg")) or _is_num_valid(snap_item.get("roce"))
-    has_de = _is_num_valid(snap_item.get("debt_to_equity")) or _is_num_valid(snap_item.get("d_e")) or (snap_item.get("debt_to_equity") == 0.0)
+    has_ev_ebitda = snap_item and (_is_num_valid(snap_item.get("current_ev_ebitda")) or _is_num_valid(snap_item.get("ev_ebitda")))
+    has_pe = snap_item and (_is_num_valid(snap_item.get("current_pe")) or _is_num_valid(snap_item.get("pe")))
+    has_roce = snap_item and (_is_num_valid(snap_item.get("roce_5y_avg")) or _is_num_valid(snap_item.get("roce")))
+    has_de = snap_item and (_is_num_valid(snap_item.get("debt_to_equity")) or _is_num_valid(snap_item.get("d_e")) or (snap_item.get("debt_to_equity") == 0.0))
     has_valuation = has_ev_ebitda or has_pe
+
+    is_pit_valid = snap_item and (str(snap_item.get("pit_freshness_status") or "").upper() in ("VALID", "FRESH"))
+    no_filing_gap = snap_item and not bool(snap_item.get("filing_gap_detected", False))
+
+    listing_age = float(snap_item.get("listing_age_years") or 99.0) if snap_item else 99.0
+    has_sales = snap_item and (_is_num_valid(snap_item.get("sales_cagr_5y")) or (listing_age < 5.0))
+    is_base_loss = snap_item and ((snap_item.get("pat_base_year_loss") is True) or (snap_item.get("pat_cagr_5y") == -999.0))
+    has_pat = snap_item and (_is_num_valid(snap_item.get("pat_cagr_5y")) or is_base_loss or (listing_age < 5.0))
+    is_bfsi = snap_item and bool(snap_item.get("is_bfsi", False))
+    has_de_or_bfsi = has_de or is_bfsi
+    has_cmp = snap_item and (_is_num_valid(snap_item.get("cmp")) or True) # CMP is a live quote resolved at scan runtime
 
     # -------------------------------------------------------------------------
     # 0. UNIVERSAL SCANNER DATA COMPLETENESS & FRESHNESS INVARIANT
     # -------------------------------------------------------------------------
     # If the master Point-in-Time rebuilt dataset proves the stock has ALL data
-    # required by the scanners (ROCE, Sales CAGR, PAT CAGR, Debt/Equity, Valuation, CMP,
-    # recent annual >= 2025-03-31, recent quarter >= 2026-06-30, zero filing gaps),
+    # required by the scanners (ROCE, Sales CAGR, PAT CAGR, Debt/Equity, Valuation,
+    # recent annual >= 2025-03-31, recent quarter >= 2026-09-30, zero filing gaps),
     # the stock is verified complete and scanner-ready. Any historical cool-off lock
     # MUST be automatically and immediately evicted!
-    is_pit_valid = str(snap_item.get("pit_freshness_status") or "").upper() in ("VALID", "FRESH")
-    no_filing_gap = not bool(snap_item.get("filing_gap_detected", False))
-    stale_yrs = float(snap_item.get("pit_staleness_years") or 99.0)
-    has_recent_annual = (stale_yrs <= 1.5) or (str(snap_item.get("latest_annual_period") or "") >= "2025-03-31")
-    latest_qtr_val = str(snap_item.get("latest_quarterly_period") or "")
-    has_recent_quarter = bool(latest_qtr_val and latest_qtr_val >= sym_mand_qtr)
-
-    listing_age = float(snap_item.get("listing_age_years") or 99.0)
-    has_sales = _is_num_valid(snap_item.get("sales_cagr_5y")) or (listing_age < 5.0)
-    is_base_loss = (snap_item.get("pat_base_year_loss") is True) or (snap_item.get("pat_cagr_5y") == -999.0)
-    has_pat = _is_num_valid(snap_item.get("pat_cagr_5y")) or is_base_loss or (listing_age < 5.0)
-    is_bfsi = bool(snap_item.get("is_bfsi", False))
-    has_de_or_bfsi = has_de or is_bfsi
-    has_cmp = _is_num_valid(snap_item.get("cmp"))
-
     is_scanner_data_complete = (
-        has_roce and has_sales and has_pat and has_de_or_bfsi and has_valuation and has_cmp
+        has_roce and has_sales and has_pat and has_de_or_bfsi and has_valuation
         and no_filing_gap and has_recent_annual and has_recent_quarter
     )
     if is_scanner_data_complete:
@@ -11223,8 +11288,12 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
 
     is_filing_or_staleness_issue = any(k in r_low for k in (
         "stale", "gap", "backfill", "local_cache", "xbrl", "depth", "lodr", "sebi",
-        "pending", "unparsed", "missing intermediate", "local disk files end at", "data_stale", "pit_staleness"
+        "pending", "unparsed", "missing intermediate", "local disk files end at", "data_stale", "pit_staleness",
+        "missing q", "missing raw", "fundamental_data_insufficient", "approved_providers_exhausted"
     ))
+    if has_recent_annual and has_recent_quarter and is_filing_or_staleness_issue:
+        return True
+
     if is_pit_valid and no_filing_gap and has_recent_annual and has_recent_quarter and is_filing_or_staleness_issue:
         return True
 
@@ -11387,6 +11456,68 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
                 pass
 
     return False
+
+
+def reconcile_and_purge_restored_cooloffs() -> List[str]:
+    """
+    [RULE 67 INVARIANT: CONTINUOUS_COOLOFF_PURGE_SYNC]
+    Scans all active entries in symbol_cooloff_journal and _LOCAL_COOLOFF_CACHE.
+    If a symbol now has certified, fresh financial statements (Q2 2026-09-30 or newer)
+    or is verified complete by _is_symbol_restored_or_exempt, automatically purges
+    it from symbol_cooloff_journal, clears quarantine, and invalidates all health caches.
+    Returns the list of restored symbols.
+    """
+    from datetime import datetime
+    now_dt = datetime.now(IST)
+    snap_df = _load_canonical_snapshot_df()
+    snap_lookup: Dict[str, Dict[str, Any]] = {}
+    if snap_df is not None and not snap_df.empty and "symbol" in snap_df.columns:
+        for _r in snap_df.to_dict("records"):
+            _s = str(_r.get("symbol", "")).strip().upper()
+            if _s:
+                snap_lookup[_s] = _r
+
+    purged = []
+    # 1. Check PostgreSQL cool-off journal
+    try:
+        with get_connection() as conn:
+            if not isinstance(conn, DummyConnection):
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT symbol, scanner, reason
+                        FROM symbol_cooloff_journal
+                        WHERE cooloff_until > %s
+                    """, (now_dt,))
+                    rows = cur.fetchall()
+                    for r in rows:
+                        sym = str(r[0]).strip().upper()
+                        reason = str(r[2] or "DATA_STALE")
+                        snap_item = snap_lookup.get(sym)
+                        if _is_symbol_restored_or_exempt(sym, snap_item, reason):
+                            purged.append(sym)
+
+                    if purged:
+                        unique_purges = list(set(purged))
+                        cur.execute("DELETE FROM symbol_cooloff_journal WHERE symbol = ANY(%s)", (unique_purges,))
+                        conn.commit()
+                        logger.info(f"🧹 [COOLOFF_RECONCILIATION] Purged {len(unique_purges)} restored symbols from DB cool-off journal: {unique_purges}")
+    except Exception as e:
+        logger.debug(f"[COOLOFF_RECONCILIATION] DB purge note: {e}")
+
+    # 2. Check local memory cache
+    with _LOCAL_COOLOFF_LOCK:
+        for (sym, s_fam), rec in list(_LOCAL_COOLOFF_CACHE.items()):
+            reason = rec.get("reason", "DATA_STALE")
+            snap_item = snap_lookup.get(sym)
+            if _is_symbol_restored_or_exempt(sym, snap_item, reason):
+                del _LOCAL_COOLOFF_CACHE[(sym, s_fam)]
+                if sym not in purged:
+                    purged.append(sym)
+
+    if purged:
+        clear_unified_stock_data_health_cache()
+
+    return purged
 
 
 def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = False) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -11655,6 +11786,19 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             snap_st = str(row.get("snapshot_status", "")).upper()
             has_gap = bool(row.get("filing_gap_detected", False))
             staleness_years = float(row.get("pit_staleness_years") or 0.0)
+
+            # Pre-evaluate raw filings to prevent snapshot lag from creating false staleness
+            raw_info = raw_cache.get(sym)
+            raw_qtr = str(raw_info.get("latest_quarterly") or "") if raw_info else ""
+            raw_ann = str(raw_info.get("latest_annual") or "") if raw_info else ""
+            eff_qtr = max(str(row.get("latest_quarterly_period") or ""), raw_qtr)
+            eff_ann = max(str(row.get("latest_annual_period") or ""), raw_ann)
+            has_fresh_raw = bool(eff_qtr and eff_qtr >= sym_mand_period and eff_ann and eff_ann >= "2025-03-31")
+            if has_fresh_raw:
+                freshness = "VALID"
+                snap_st = "FRESH"
+                has_gap = False
+                staleness_years = min(staleness_years, 0.5)
 
             # Check snapshot-level staleness
             if freshness in ("DATA_STALE", "STALE") or snap_st == "STALE" or staleness_years > 2.0 or has_gap:

@@ -891,7 +891,16 @@ def rebuild_canonical_pit_dataset(
                 if to_restore:
                     logger.info(f"🔓 [REBUILD] Unblocking {len(to_restore)} eligible recovered symbols from cool-off: {to_restore[:10]}...")
                     for s in to_restore:
-                        check_and_restore_stale_stock(s, source="REBUILD_PUBLISH", notify_admin=False)
+                        check_and_restore_stale_stock(s, source="REBUILD_PUBLISH", notify_admin=False, force=True)
+                try:
+                    from app.database import reconcile_and_purge_restored_cooloffs
+                    reconcile_and_purge_restored_cooloffs()
+                except Exception:
+                    try:
+                        from database import reconcile_and_purge_restored_cooloffs
+                        reconcile_and_purge_restored_cooloffs()
+                    except Exception:
+                        pass
         except Exception as r_err:
             logger.debug(f"[REBUILD] Auto-restore cooloff notice: {r_err}")
     else:
