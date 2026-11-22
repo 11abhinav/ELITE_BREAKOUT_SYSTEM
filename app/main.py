@@ -2495,7 +2495,7 @@ def _trigger_wealth_exit(check_type="EOD", trigger_type="MANUAL", scheduler_name
     return {"total_count": 1, "processed_count": 1}
 
 
-def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON"):
+def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON", symbol=None, stale_only=False, max_symbols=None):
     from database import is_scanner_stopped
     if is_scanner_stopped("FILING_WATCHER"):
         logger.info("⏸️ [filling scanner] Watcher is PAUSED/STOPPED by Admin. Skipping trigger.")
@@ -2505,7 +2505,13 @@ def _trigger_filing_watcher(trigger_type="SCHEDULED", scheduler_name="CRON"):
     except ImportError:
         from app.financial_filing_watcher import FinancialFilingWatcher
     watcher = FinancialFilingWatcher()
-    res = watcher.run_watcher_cycle(trigger_type=trigger_type, scheduler_name=scheduler_name)
+    res = watcher.run_watcher_cycle(
+        trigger_type=trigger_type,
+        scheduler_name=scheduler_name,
+        symbol=symbol,
+        stale_only=stale_only,
+        max_symbols=max_symbols,
+    )
     try:
         from app.financial_data_integrity import record_source_watermark
     except ImportError:

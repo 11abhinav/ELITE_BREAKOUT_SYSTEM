@@ -2928,6 +2928,8 @@ class FinancialFilingWatcher:
         symbol: Optional[str] = None,
         force_rebuild: bool = False,
         force_backfill: bool = False,
+        stale_only: bool = False,
+        max_symbols: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Executes a complete financial filing watcher cycle:
@@ -2953,7 +2955,28 @@ class FinancialFilingWatcher:
             return {"status": "ALREADY_RUNNING", "message": "Already actively running"}
 
         run_ctx = None
-        target_symbols = [s.strip().upper() for s in symbol.split(",") if s.strip()] if symbol else list(self.approved_symbols)
+
+        if stale_only:
+            try:
+                try:
+                    from app.database import get_unified_stock_data_health_audit
+                except ImportError:
+                    from database import get_unified_stock_data_health_audit
+                stale_list, _ = get_unified_stock_data_health_audit(force=True)
+                target_symbols = [str(s.get("symbol", "")).strip().upper() for s in stale_list if s.get("symbol")]
+                logger.info(f"🎯 [filling scanner] Auto-targeted {len(target_symbols)} STALE stocks from data health audit.")
+            except Exception as _stale_err:
+                logger.warning(f"[filling scanner] Could not fetch stale stocks list: {_stale_err}")
+                target_symbols = [s.strip().upper() for s in symbol.split(",") if s.strip()] if symbol else list(self.approved_symbols)
+        elif symbol:
+            target_symbols = [s.strip().upper() for s in symbol.split(",") if s.strip()]
+        else:
+            target_symbols = list(self.approved_symbols)
+
+        if max_symbols and max_symbols > 0:
+            target_symbols = target_symbols[:max_symbols]
+            logger.info(f"🎯 [filling scanner] Limited target symbols to {len(target_symbols)} stocks (limit={max_symbols}).")
+
         total_count = len(target_symbols)
 
         # Lazy import database telemetry utilities
@@ -3282,7 +3305,9 @@ class FinancialFilingWatcher:
 def main():
     parser = argparse.ArgumentParser(description="Financial Filing Watcher & Dependency Invalidation Engine")
     parser.add_argument("--poll", action="store_true", help="Poll for new filings and execute cycle")
-    parser.add_argument("--symbol", type=str, default=None, help="Specific symbol to check/rebuild")
+    parser.add_argument("--symbol", type=str, default=None, help="Specific symbol(s) to check/rebuild (comma-separated, e.g. ASTRAL,RELIANCE)")
+    parser.add_argument("--stale-only", action="store_true", help="Run filing watcher only for stocks currently marked STALE in health audit")
+    parser.add_argument("--limit", "--max-symbols", type=int, default=None, dest="max_symbols", help="Maximum number of stocks to process")
     parser.add_argument("--force-rebuild", action="store_true", help="Force rebuild canonical snapshot")
     parser.add_argument("--force-backfill", action="store_true", help=f"Force full historical bootstrap from {get_historical_cutoff_date()} (max 5Y scanner lookback + 1Y buffer)")
     parser.add_argument("--as-of-date", type=str, default=None, help="As-of date in YYYY-MM-DD")
@@ -3291,13 +3316,15 @@ def main():
     as_of = datetime.strptime(args.as_of_date, "%Y-%m-%d").date() if args.as_of_date else date.today()
     watcher = FinancialFilingWatcher()
 
-    if args.poll or args.force_rebuild or args.force_backfill:
+    if args.poll or args.force_rebuild or args.force_backfill or args.stale_only or args.symbol:
         res = watcher.run_watcher_cycle(
             trigger_type="MANUAL",
             scheduler_name="CLI",
             symbol=args.symbol,
             force_rebuild=args.force_rebuild,
             force_backfill=args.force_backfill,
+            stale_only=args.stale_only,
+            max_symbols=args.max_symbols,
         )
         print(f"\n[FILING_WATCHER] Cycle finished with status: {res.get('status')}")
     else:

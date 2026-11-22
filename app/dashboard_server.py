@@ -5624,6 +5624,61 @@ def api_trigger_scanner(scanner_name):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/admin/trigger_filing_watcher", methods=["POST"])
+@admin_required
+def api_admin_trigger_filing_watcher():
+    """Admin endpoint to manually trigger the Financial Filing Watcher in the background
+    with optional targeting:
+      - symbols: comma-separated string or JSON array (e.g. ["ASTRAL", "RELIANCE"])
+      - stale_only: bool (if True, automatically targets stocks currently in cool-off / STALE)
+      - limit / max_symbols: int (caps number of stocks to scan, e.g. 20)
+    Runs asynchronously and returns immediately.
+    """
+    try:
+        req_json = request.get_json(silent=True) or {}
+        symbols = req_json.get("symbols") or request.args.get("symbols")
+        if isinstance(symbols, list):
+            symbol_str = ",".join(str(s).strip().upper() for s in symbols if str(s).strip())
+        elif isinstance(symbols, str):
+            symbol_str = symbols.strip().upper()
+        else:
+            symbol_str = None
+
+        stale_only = bool(req_json.get("stale_only", False) or request.args.get("stale_only") in ("true", "1"))
+        limit_val = req_json.get("limit") or req_json.get("max_symbols") or request.args.get("limit")
+        max_syms = int(limit_val) if limit_val else None
+
+        from main import _trigger_filing_watcher
+        import threading
+
+        def _bg_run():
+            try:
+                _trigger_filing_watcher(
+                    trigger_type="ADMIN_ON_DEMAND",
+                    scheduler_name="API",
+                    symbol=symbol_str,
+                    stale_only=stale_only,
+                    max_symbols=max_syms,
+                )
+            except Exception as e:
+                logger.error(f"[API_TRIGGER_FILING_WATCHER] Background run failed: {e}")
+
+        th = threading.Thread(target=_bg_run, name="AdminFilingWatcherThread", daemon=True)
+        th.start()
+
+        target_desc = f"symbols: {symbol_str}" if symbol_str else ("STALE stocks only" if stale_only else "all approved universe")
+        limit_desc = f" (limit={max_syms})" if max_syms else ""
+        return jsonify({
+            "status": "ok",
+            "message": f"🚀 Filing scanner launched in background for {target_desc}{limit_desc}.",
+            "target": target_desc,
+            "limit": max_syms
+        }), 200
+    except Exception as e:
+        logger.exception("❌ /api/admin/trigger_filing_watcher failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/admin/accumulation/control", methods=["POST"])
 @admin_required
 def api_accumulation_control():
