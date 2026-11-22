@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-22T13:52:47.860688+05:30",
+    "last_successful_check_at": "2026-11-22T14:09:42.125264+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -285,12 +285,16 @@
       "ACCENTMIC": {
         "last_successful_check_at": "2026-11-22T13:45:11.671481",
         "latest_filing_timestamp": "2026-09-30"
+      },
+      "ACE": {
+        "last_successful_check_at": "2026-11-22T14:10:32.740948",
+        "latest_filing_timestamp": "2026-11-12T17:51:41.757"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-22T13:52:47.860688+05:30",
+    "last_successful_check_at": "2026-11-22T14:09:42.125264+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

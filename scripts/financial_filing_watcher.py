@@ -1602,7 +1602,7 @@ class FinancialFilingWatcher:
                     return
 
                 # 3. Fallback when market sweep was unavailable, but local data was checked today:
-                if not market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
+                if not is_targeted_symbol and not is_quarter_overdue and not market_sweep_ok and not force_backfill and not has_newer_sweep_filing:
                     if not polled_recently and snap_row is not None and local_annual_count >= 6 and not snap_gap_flag:
                         snap_as_of = str(snap_row.get("as_of_date") or "")
                         try:
