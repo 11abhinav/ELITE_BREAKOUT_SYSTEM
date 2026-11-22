@@ -11257,7 +11257,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     has_recent_annual = bool(eff_ann_val and eff_ann_val >= "2025-03-31")
 
     if sym_u in ("ABBOTINDIA", "ABCAPITAL", "ACE") or has_recent_quarter:
-        logger.info(
+        logger.debug(
             f"🔍 [RESTORE_EVAL] {sym_u}: eff_qtr={eff_qtr_val}, mand_qtr={sym_mand_qtr}, "
             f"has_recent_qtr={has_recent_quarter}, snap_qtr={snap_qtr_val}, raw_qtr={raw_qtr_val}, "
             f"eff_ann={eff_ann_val}, has_recent_ann={has_recent_annual}"
