@@ -11004,35 +11004,66 @@ def _format_missing_data(
     if "RECOVERY_DATA_INSUFFICIENT" in r_upper:
         return "Quality Value Recovery metrics missing (drawdown, valuation compression, or debt/equity)."
 
-    # 7. Other general rules
-    if "INSUFFICIENT_HISTORICAL_DEPTH" in pf_str or "INSUFFICIENT_HISTORICAL_DEPTH" in r_upper:
-        return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files need historical backfill."
-    elif "QUARTERLY" in r_upper or "QUARTERLY" in pf_str:
-        return "Local raw cache backfill pending: Latest annual filing present on disk; pending recent quarterly results."
-    elif "PIT_STALENESS" in r_upper or "PIT_DATA_STALE" in r_upper:
+    # 7. Other general rules - dynamically inspect exact stock state to explain what is wrong
+    eff_ann = ""
+    eff_qtr = ""
+    if snap_item:
+        eff_ann = str(snap_item.get("latest_annual_period") or "")[:10]
+        eff_qtr = str(snap_item.get("latest_quarterly_period") or "")[:10]
+    if raw_info:
+        r_ann = str(raw_info.get("latest_annual") or "")[:10]
+        r_qtr = str(raw_info.get("latest_quarterly") or "")[:10]
+        eff_ann = max(eff_ann, r_ann) if eff_ann else r_ann
+        eff_qtr = max(eff_qtr, r_qtr) if eff_qtr else r_qtr
+
+    if eff_qtr and eff_qtr < "2026-06-30":
+        return f"Quarterly disclosures outdated: Latest quarter on disk is {eff_qtr} (scanner baseline requires >= 2026-06-30)."
+
+    if eff_ann and eff_ann < "2025-03-31":
+        return f"Annual filings outdated: Latest annual on disk is FY{eff_ann[:4]} (scanner baseline requires >= FY2025)."
+
+    # Check missing fundamental metrics on snap_item
+    if snap_item:
+        missing_fields = []
+        if snap_item.get("roce_5y_avg") is None and snap_item.get("roce") is None:
+            missing_fields.append("ROCE")
+        if l_age >= 5.0 and snap_item.get("sales_cagr_5y") is None:
+            missing_fields.append("5Y Sales CAGR")
+        if l_age >= 5.0 and snap_item.get("pat_cagr_5y") is None and not is_base_year_loss:
+            missing_fields.append("5Y PAT CAGR")
+        if not bool(snap_item.get("is_bfsi", False)) and snap_item.get("debt_to_equity") is None:
+            missing_fields.append("Debt-to-Equity")
+        if snap_item.get("current_pe") is None and snap_item.get("current_ev_ebitda") is None:
+            missing_fields.append("Valuation (PE/EV-EBITDA)")
+        if snap_item.get("cmp") is None:
+            missing_fields.append("CMP (Market Price)")
+        if missing_fields:
+            return f"Missing required scanner metrics: {', '.join(missing_fields)}. Continuous 5-year audited series required."
+
+    if "PIT_STALENESS" in r_upper or "PIT_DATA_STALE" in r_upper:
         import re
         m = re.search(r"PIT_STALENESS_([0-9\.]+)Y", r_upper)
         if m:
             y = float(m.group(1))
-            if y > 2.0:
-                return f"Local raw cache backfill pending: Exchange annual filings exist, but local disk files are {y:.1f} years stale (>2.0Y limit)."
-            else:
-                return f"Local raw cache backfill pending: Latest annual filing on disk is {y:.1f}Y old; pending recent SEBI LODR 33 quarterly results."
-        return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files require backfill."
-    elif "STALE_PRICE_DATA" in r_upper:
-        return "CMP quote is stale or missing live market session closing bar."
-    elif "FILING_GAP" in r_upper:
-        return "Historical fiscal year gap detected in filing sequence (missing annual year)."
-    elif "PARTIAL_RECOVERY_UNRESOLVED" in r_upper or "RECOVERY_UNAVAILABLE" in r_upper or "DATA_CONFLICT" in r_upper:
+            return f"PIT staleness limit exceeded: Latest audited disclosures on disk are {y:.1f} years old (>1.5Y limit). Backfill required."
+        return "PIT series stale: Latest audited filing exceeds 1.5-year freshness window."
+
+    if "STALE_PRICE_DATA" in r_upper or "PRICE_DATA" in r_upper:
+        return "Live market quote (CMP) missing from Upstox API or last session market close unavailable."
+
+    if "FILING_GAP" in r_upper:
+        return "Historical fiscal year gap detected in filing sequence (missing intermediate annual statement)."
+
+    if "PARTIAL_RECOVERY_UNRESOLVED" in r_upper or "RECOVERY_UNAVAILABLE" in r_upper or "DATA_CONFLICT" in r_upper:
         if ":" in str(reason):
             prefix = "Data conflict between exchange and broker feeds" if "DATA_CONFLICT" in r_upper else "Required fundamental metrics missing"
             return f"{prefix}: {str(reason).split(':', 1)[1].strip()}"
-    elif "DATA_STALE" in r_upper or "LOCAL_CACHE" in r_upper:
-        return "Local raw cache backfill pending: Exchange annual filings exist, but local disk files require backfill."
-    elif failures:
+
+    if failures:
         clean_f = str(failures).strip()
         if clean_f and clean_f not in ("[]", "{}", "None", "''", '""'):
-            return f"Provider verification: {clean_f[:120]}"
+            return f"Provider verification failure: {clean_f[:120]}"
+
     return reason or "Data quality criteria not met"
 
 
