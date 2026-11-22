@@ -309,6 +309,15 @@ CERTIFIED_FOR_PRODUCTION
 
 ---
 
+## MANDATORY ZERO-HARDCODED-STOCK-SYMBOLS INVARIANT
+1. **STRICT PROHIBITION OF HARDCODED STOCK TICKERS IN PRODUCTION LOGIC**:
+   - Application logic, validation functions, restoration checks, decision gates, cool-off evaluations, and operational logging MUST NEVER contain hardcoded lists of stock symbols (e.g. `if sym in ('STOCKA', 'STOCKB'):` or `if sym == 'STOCKA':`).
+   - Every single check, metric evaluation, period restoration, and telemetry logging MUST be 100% data-driven, schema-driven, and universally applicable across the entire tracked universe.
+2. **ZERO AD-HOC PROBES IN PRODUCTION CODE**:
+   - Never commit ad-hoc symbol-specific debug probes or bypass conditions into production files. All diagnostic logging must use generic, dynamic log filters without hardcoded stock symbol filters.
+
+---
+
 ## MANDATORY ALERT CMP & MARKET-CLOSE PRICE INVARIANT
 1. **ALERT CMP MUST BE THE ACTUAL LIVE OR LATEST OFFICIAL MARKET CLOSE PRICE**:
    - Whenever any scanner (Technical, Quality Compounder, Quality Value Recovery, Fundamental, Performance Tracker, Wealth Engine) evaluates a strategy or generates a BUY alert:

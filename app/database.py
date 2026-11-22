@@ -11256,13 +11256,6 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     has_recent_quarter = bool(eff_qtr_val and eff_qtr_val >= sym_mand_qtr)
     has_recent_annual = bool(eff_ann_val and eff_ann_val >= "2025-03-31")
 
-    if sym_u in ("ABBOTINDIA", "ABCAPITAL", "ACE") or has_recent_quarter:
-        logger.debug(
-            f"🔍 [RESTORE_EVAL] {sym_u}: eff_qtr={eff_qtr_val}, mand_qtr={sym_mand_qtr}, "
-            f"has_recent_qtr={has_recent_quarter}, snap_qtr={snap_qtr_val}, raw_qtr={raw_qtr_val}, "
-            f"eff_ann={eff_ann_val}, has_recent_ann={has_recent_annual}"
-        )
-
     # Helper to check numeric validity (> -900 and not NaN)
     def _is_num_valid(v):
         if v is None or pd.isna(v):
