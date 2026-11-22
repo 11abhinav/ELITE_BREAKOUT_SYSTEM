@@ -228,6 +228,7 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            logger.warning(f"🔒 [AUTH_REJECT] {request.method} {request.path} rejected: unauthenticated (no user_id in session)")
             if request.path.startswith('/api/'):
                 return jsonify({
                     'status': 'error',
@@ -238,6 +239,7 @@ def login_required(f):
             
         session_token = session.get('session_token')
         if not _cached_check_session(session['user_id'], session_token):
+            logger.warning(f"🔒 [AUTH_REJECT] {request.method} {request.path} rejected: session token invalid/expired for user_id={session.get('user_id')}")
             session.clear()
             if request.path.startswith('/api/'):
                 return jsonify({
@@ -254,6 +256,7 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            logger.warning(f"🔒 [AUTH_REJECT] {request.method} {request.path} rejected: unauthenticated (no user_id in session)")
             if request.path.startswith('/api/'):
                 return jsonify({
                     'status': 'error',
@@ -264,6 +267,7 @@ def admin_required(f):
             
         session_token = session.get('session_token')
         if not _cached_check_session(session['user_id'], session_token):
+            logger.warning(f"🔒 [AUTH_REJECT] {request.method} {request.path} rejected: session token invalid/expired for user_id={session.get('user_id')}")
             session.clear()
             if request.path.startswith('/api/'):
                 return jsonify({
@@ -274,6 +278,7 @@ def admin_required(f):
             return redirect('/login')
             
         if session.get('role') not in ('admin', 'superuser'):
+            logger.warning(f"🔒 [AUTH_REJECT] {request.method} {request.path} rejected: role '{session.get('role')}' is not admin")
             if request.path.startswith('/api/'):
                 return jsonify({
                     'status': 'error',
@@ -5607,12 +5612,14 @@ def api_resume_all_scanners():
 
 @app.route("/api/admin/trigger_scanner/<scanner_name>", methods=["POST"])
 @admin_required
+@csrf.exempt
 def api_trigger_scanner(scanner_name):
     """Admin endpoint to manually trigger any scanner regardless of market hours.
     Runs the scanner in a background thread and returns immediately.
     """
     try:
         force_refresh = request.args.get('force_refresh', 'false') == 'true'
+        logger.info(f"👉 [API_TRIGGER_SCANNER] Manual trigger request received for scanner: '{scanner_name}' (force_refresh={force_refresh})")
         if scanner_name == 'MULTIBAGGER' and force_refresh:
             import os
             from config import DATA_DIR
@@ -5635,6 +5642,7 @@ def api_trigger_scanner(scanner_name):
 
 @app.route("/api/admin/trigger_filing_watcher", methods=["POST"])
 @admin_required
+@csrf.exempt
 def api_admin_trigger_filing_watcher():
     """Admin endpoint to manually trigger the Financial Filing Watcher in the background
     with optional targeting:
@@ -5656,6 +5664,8 @@ def api_admin_trigger_filing_watcher():
         stale_only = bool(req_json.get("stale_only", False) or request.args.get("stale_only") in ("true", "1"))
         limit_val = req_json.get("limit") or req_json.get("max_symbols") or request.args.get("limit")
         max_syms = int(limit_val) if limit_val else None
+
+        logger.info(f"👉 [API_TRIGGER_FILING_WATCHER] Trigger request received: symbols='{symbol_str}', stale_only={stale_only}, limit={max_syms}")
 
         from main import _trigger_filing_watcher
         import threading

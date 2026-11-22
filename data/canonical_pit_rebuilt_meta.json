@@ -15,5 +15,8 @@
   "sha256": "be55e691595bc3f4cd577ae672d7000c99a002a5feaef899224f301828266ccd",
   "built_at": "2026-11-22T14:10:38.203372",
   "audit_summary": {},
-  "snapshot_status_updated_at": "2026-11-22T14:10:38.205313"
+  "snapshot_status_updated_at": "2026-11-22T20:35:08.956496",
+  "rebuild_in_progress": true,
+  "target_symbols_count": 2,
+  "rebuild_started_at": "2026-11-22T20:35:08.954738"
 }
