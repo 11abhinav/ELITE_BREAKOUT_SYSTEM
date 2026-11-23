@@ -54,8 +54,8 @@ def _handle_client(client_sock: socket.socket):
         # Forward requests to Flask on internal port once Flask is ready
         try:
             target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            target_sock.settimeout(15.0)
-            client_sock.settimeout(15.0)
+            target_sock.settimeout(180.0)
+            client_sock.settimeout(180.0)
             target_sock.connect(("127.0.0.1", FLASK_PORT))
 
             # Force Connection: close to prevent HTTP/1.1 persistent connection leaks
@@ -69,28 +69,49 @@ def _handle_client(client_sock: socket.socket):
 
             target_sock.sendall(data)
 
-            # Bidirectional stream with explicit timeouts and mutual socket teardown
-            def _pipe(src, dst):
+            # RFC-compliant directional pipes:
+            # 1. client -> target (Flask): streams request body. When client is done sending,
+            #    it shuts down the write half of target_sock so Flask knows request is complete,
+            #    WITHOUT closing target_sock or client_sock.
+            def _pipe_client_to_target():
                 try:
-                    src.settimeout(15.0)
+                    client_sock.settimeout(180.0)
                     while True:
-                        buf = src.recv(8192)
+                        buf = client_sock.recv(8192)
                         if not buf:
                             break
-                        dst.sendall(buf)
+                        target_sock.sendall(buf)
                 except Exception:
                     pass
                 finally:
-                    # Mutual teardown: closing both terminates the other pipe thread immediately
-                    try: src.close()
+                    try:
+                        target_sock.shutdown(socket.SHUT_WR)
+                    except Exception:
+                        pass
+
+            # 2. target (Flask) -> client: streams response body. When Flask closes connection
+            #    after sending response, this pipe terminates and performs clean teardown of both sockets.
+            def _pipe_target_to_client():
+                try:
+                    target_sock.settimeout(180.0)
+                    while True:
+                        buf = target_sock.recv(8192)
+                        if not buf:
+                            break
+                        client_sock.sendall(buf)
+                except Exception:
+                    pass
+                finally:
+                    try: client_sock.close()
                     except Exception: pass
-                    try: dst.close()
+                    try: target_sock.close()
                     except Exception: pass
 
-            t1 = threading.Thread(target=_pipe, args=(client_sock, target_sock), daemon=True)
-            t2 = threading.Thread(target=_pipe, args=(target_sock, client_sock), daemon=True)
+            t1 = threading.Thread(target=_pipe_client_to_target, daemon=True)
+            t2 = threading.Thread(target=_pipe_target_to_client, daemon=True)
             t1.start()
             t2.start()
+            t2.join(timeout=180.0)
         except Exception as forward_err:
             # Fallback if Flask connection fails
             try:
