@@ -5725,7 +5725,17 @@ def api_admin_trigger_filing_watcher():
         limit_val = req_json.get("limit") or req_json.get("max_symbols") or request.args.get("limit")
         max_syms = int(limit_val) if limit_val else None
 
-        logger.info(f"👉 [API_TRIGGER_FILING_WATCHER] Trigger request received: symbols='{symbol_str}', stale_only={stale_only}, limit={max_syms}")
+        force = bool(req_json.get("force", False) or request.args.get("force") in ("true", "1"))
+        if force:
+            try:
+                from scripts.financial_filing_watcher import _WATCHER_LOCK
+                if _WATCHER_LOCK.locked():
+                    _WATCHER_LOCK.release()
+                    logger.warning("🔓 [ADMIN] Forced release of _WATCHER_LOCK requested by admin.")
+            except Exception as _fe:
+                logger.debug(f"Forced lock release note: {_fe}")
+
+        logger.info(f"👉 [API_TRIGGER_FILING_WATCHER] Trigger request received: symbols='{symbol_str}', stale_only={stale_only}, limit={max_syms}, force={force}")
 
         try:
             from app.main import _trigger_filing_watcher

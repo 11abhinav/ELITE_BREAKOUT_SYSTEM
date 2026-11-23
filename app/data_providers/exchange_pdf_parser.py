@@ -338,8 +338,10 @@ class ExchangePdfParser:
             except Exception as read_err:
                 logger.debug(f"[PDF_PARSER] Cache read failed for {cache_path}: {read_err}")
 
-        # Acquire download semaphore without skipping
-        _DOWNLOAD_SEMAPHORE.acquire()
+        # Acquire download semaphore without skipping (with 45s safety timeout)
+        if not _DOWNLOAD_SEMAPHORE.acquire(timeout=45.0):
+            logger.warning(f"[PDF_PARSER] Download semaphore busy (>45s wait) for {base_name}. Skipping download.")
+            return None
         try:
             # 1. Direct fetch from exchange static archives (streamed to enforce ceiling_bytes)
             try:
@@ -416,8 +418,10 @@ class ExchangePdfParser:
             logger.info(f"📄 [PDF_PARSER] Skipping {symbol}: PDF exceeds {_PDF_MAX_RESULT_BYTES // (1024*1024)}MB ({len(pdf_bytes)} bytes).")
             return []
 
-        # Acquire parse semaphore with full blocking (30 workers supported, never skip due to queue busy)
-        _PARSE_SEMAPHORE.acquire()
+        # Acquire parse semaphore with timeout (30s safety timeout to prevent hanging worker threads)
+        if not _PARSE_SEMAPHORE.acquire(timeout=30.0):
+            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>30s wait). Skipping PDF.")
+            return []
         try:
             records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
             if records:
@@ -480,7 +484,12 @@ class ExchangePdfParser:
         # We scan only the first _PDF_MAX_PAGES_SCAN pages (up to 15 pages), so documents of any length
         # (e.g. results combined with an amalgamation scheme or investor presentation) are never skipped,
         # while CPU time is strictly bounded. With smart early-exit, scanning halts as soon as statements are found.
+        cached_page_texts: Dict[int, str] = {}
         for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
+            # Strict 25-second document parse timeout to prevent corrupt font/stream infinite loops
+            if time.time() - t_start > 25.0:
+                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 25s parse timeout on page {page_idx+1}. Breaking early.")
+                break
 
             # Smart early exit: finish immediately if both Consolidated and Standalone statements were extracted
             has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
@@ -495,6 +504,8 @@ class ExchangePdfParser:
                     text = page.extract_text() or ""
             except Exception:
                 text = ""
+
+            cached_page_texts[page_idx] = text
 
             # Fast Digital Text First Invariant: 95%+ of official SEBI Reg 33 outcomes
             # contain pure digital text statement tables (even if cover letters on pages 1-3 have scanned letterheads).
@@ -998,9 +1009,12 @@ class ExchangePdfParser:
         # Enrich extracted records with Balance Sheet (Debt & Equity) and Cash Flow from subsequent pages if present
         for rec in records:
             if rec.total_debt is None or rec.total_equity is None or rec.operating_cash_flow is None:
-                for p_idx, p_obj in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
+                for p_idx in range(min(len(reader.pages), _PDF_MAX_PAGES_SCAN)):
                     try:
-                        p_raw = p_obj.extract_text() or ""
+                        p_raw = cached_page_texts.get(p_idx)
+                        if p_raw is None:
+                            p_raw = reader.pages[p_idx].extract_text() or ""
+                            cached_page_texts[p_idx] = p_raw
                         if not p_raw or len(p_raw.strip()) < 20:
                             continue
                         p_norm = _normalize_ocr_text(p_raw)

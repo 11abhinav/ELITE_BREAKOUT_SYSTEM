@@ -273,6 +273,8 @@ def _normalize_iso_date(val: Any) -> Optional[str]:
 
 
 _WATCHER_LOCK = threading.Lock()
+_WATCHER_LOCK_ACQUIRED_AT: Optional[float] = None
+_WATCHER_LOCK_OWNER: Optional[str] = None
 
 
 class FinancialFilingWatcher:
@@ -3132,9 +3134,36 @@ class FinancialFilingWatcher:
                 get_connection,
             )
 
-        if not _WATCHER_LOCK.acquire(blocking=False):
-            logger.info("⏳ [filling scanner] Watcher cycle is already actively executing in this process. Skipping duplicate trigger.")
-            return {"status": "ALREADY_RUNNING", "message": "Already actively running"}
+        global _WATCHER_LOCK_ACQUIRED_AT, _WATCHER_LOCK_OWNER
+
+        is_manual_or_force = (
+            trigger_type in ("MANUAL", "CLI", "ADMIN_ON_DEMAND", "API", "NON_MARKET_BOOT")
+            or force_backfill
+            or force_rebuild
+            or bool(symbol)
+        )
+
+        lock_acquired = _WATCHER_LOCK.acquire(blocking=False)
+        if not lock_acquired:
+            held_secs = time.time() - (_WATCHER_LOCK_ACQUIRED_AT or 0) if _WATCHER_LOCK_ACQUIRED_AT else 0
+            if is_manual_or_force and held_secs > 180:
+                logger.warning(
+                    f"⚠️ [filling scanner] Stale watcher lock detected (held for {held_secs:.1f}s by {_WATCHER_LOCK_OWNER}). "
+                    f"Auto-breaking stale lock for {trigger_type}..."
+                )
+                try:
+                    _WATCHER_LOCK.release()
+                except Exception:
+                    pass
+                lock_acquired = _WATCHER_LOCK.acquire(blocking=False)
+
+        if not lock_acquired:
+            held_info = f" (held for {time.time() - _WATCHER_LOCK_ACQUIRED_AT:.1f}s by {_WATCHER_LOCK_OWNER})" if _WATCHER_LOCK_ACQUIRED_AT else ""
+            logger.info(f"⏳ [filling scanner] Watcher cycle is already actively executing in this process{held_info}. Skipping duplicate trigger.")
+            return {"status": "ALREADY_RUNNING", "message": f"Already actively running{held_info}"}
+
+        _WATCHER_LOCK_ACQUIRED_AT = time.time()
+        _WATCHER_LOCK_OWNER = f"{trigger_type}:{scheduler_name}:{symbol or 'ALL'}"
 
         try:
             # 1. Register execution run in scanner_execution_history
@@ -3444,8 +3473,13 @@ class FinancialFilingWatcher:
                     run_ctx.stop_heartbeat_worker()
                 except Exception:
                     pass
+            _WATCHER_LOCK_ACQUIRED_AT = None
+            _WATCHER_LOCK_OWNER = None
             if _WATCHER_LOCK.locked():
-                _WATCHER_LOCK.release()
+                try:
+                    _WATCHER_LOCK.release()
+                except Exception:
+                    pass
 
 
 # -----------------------------------------------------------------------------
