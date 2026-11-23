@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-23T19:23:21.230791+05:30",
+    "last_successful_check_at": "2026-11-23T20:00:29.313668",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -271,7 +271,7 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "ACCELYA": {
-        "last_successful_check_at": "2026-11-23T19:25:30.062314",
+        "last_successful_check_at": "2026-11-23T19:33:02.316219",
         "latest_filing_timestamp": "2026-10-13T16:03:32.617"
       },
       "ASTRAL": {
@@ -323,7 +323,7 @@
         "latest_filing_timestamp": "31-Jul-2026 18:05:35"
       },
       "ADANIENSOL": {
-        "last_successful_check_at": "2026-11-23T19:25:36.899693",
+        "last_successful_check_at": "2026-11-23T19:33:14.726378",
         "latest_filing_timestamp": "2026-11-06T14:50:25.66"
       },
       "ADANIGREEN": {
@@ -373,12 +373,208 @@
       "AFFLE": {
         "last_successful_check_at": "2026-11-23T19:25:33.465533",
         "latest_filing_timestamp": "2026-09-30"
+      },
+      "AKUMS": {
+        "last_successful_check_at": "2026-11-23T19:32:00.776288",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AIIL": {
+        "last_successful_check_at": "2026-11-23T19:32:03.151054",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AGIIL": {
+        "last_successful_check_at": "2026-11-23T19:32:10.860104",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ALKEM": {
+        "last_successful_check_at": "2026-11-23T19:32:25.569212",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ADANIPOWER": {
+        "last_successful_check_at": "2026-11-23T19:32:27.945736",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AHLUCONT": {
+        "last_successful_check_at": "2026-11-23T19:32:32.178904",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AJANTPHARM": {
+        "last_successful_check_at": "2026-11-23T19:32:35.394055",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AMRUTANJAN": {
+        "last_successful_check_at": "2026-11-23T19:32:38.588474",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ANTELOPUS": {
+        "last_successful_check_at": "2026-11-23T19:32:40.955357",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ANANDRATHI": {
+        "last_successful_check_at": "2026-11-23T19:32:44.643329",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ANANTRAJ": {
+        "last_successful_check_at": "2026-11-23T19:32:48.159165",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AMBUJACEM": {
+        "last_successful_check_at": "2026-11-23T19:32:50.603892",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ALLDIGI": {
+        "last_successful_check_at": "2026-11-23T19:32:55.968379",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AIAENG": {
+        "last_successful_check_at": "2026-11-23T19:32:59.159726",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ANTHEM": {
+        "last_successful_check_at": "2026-11-23T19:33:02.312462",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ANUP": {
+        "last_successful_check_at": "2026-11-23T19:33:06.087711",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AFSL": {
+        "last_successful_check_at": "2026-11-23T19:33:10.005429",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AMNPLST": {
+        "last_successful_check_at": "2026-11-23T19:33:12.739803",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "AJAXENGG": {
+        "last_successful_check_at": "2026-11-23T19:33:12.742051",
+        "latest_filing_timestamp": "2026-11-14T11:43:49.417"
+      },
+      "APARINDS": {
+        "last_successful_check_at": "2026-11-23T19:34:31.872952",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "APCOTEXIND": {
+        "last_successful_check_at": "2026-11-23T19:35:36.874484",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASTRAZEN": {
+        "last_successful_check_at": "2026-11-23T19:37:05.016440",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "APTUS": {
+        "last_successful_check_at": "2026-11-23T19:37:18.086586",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "APLAPOLLO": {
+        "last_successful_check_at": "2026-11-23T19:37:23.453419",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ARVSMART": {
+        "last_successful_check_at": "2026-11-23T19:37:31.885910",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASHAPURMIN": {
+        "last_successful_check_at": "2026-11-23T19:37:35.503596",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ARE&M": {
+        "last_successful_check_at": "2026-11-23T19:37:39.972917",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "APOLLOTYRE": {
+        "last_successful_check_at": "2026-11-23T19:37:44.304548",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ARTEMISMED": {
+        "last_successful_check_at": "2026-11-23T19:37:48.464113",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ARIHANTSUP": {
+        "last_successful_check_at": "2026-11-23T19:37:50.961249",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASHIANA": {
+        "last_successful_check_at": "2026-11-23T19:37:53.450523",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "APOLLOHOSP": {
+        "last_successful_check_at": "2026-11-23T19:37:55.965106",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "APLLTD": {
+        "last_successful_check_at": "2026-11-23T19:38:04.501700",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASTRAMICRO": {
+        "last_successful_check_at": "2026-11-23T19:38:06.846493",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASKAUTOLTD": {
+        "last_successful_check_at": "2026-11-23T19:38:10.345833",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ARIS": {
+        "last_successful_check_at": "2026-11-23T19:38:12.904268",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASTERDM": {
+        "last_successful_check_at": "2026-11-23T19:38:16.621530",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ARSSBL": {
+        "last_successful_check_at": "2026-11-23T19:38:19.313932",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASAHIINDIA": {
+        "last_successful_check_at": "2026-11-23T19:38:21.760503",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ARVINDFASN": {
+        "last_successful_check_at": "2026-11-23T19:38:24.102132",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASIANPAINT": {
+        "last_successful_check_at": "2026-11-23T19:38:26.735545",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ASHOKLEY": {
+        "last_successful_check_at": "2026-11-23T19:38:29.361157",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "APOLLO": {
+        "last_successful_check_at": "2026-11-23T19:38:31.403577",
+        "latest_filing_timestamp": "2026-11-13T22:20:10.277"
+      },
+      "AVL": {
+        "last_successful_check_at": "2026-11-23T19:40:07.336203",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "BAJAJFINSV": {
+        "last_successful_check_at": "2026-11-23T19:42:10.551684",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "BALKRISIND": {
+        "last_successful_check_at": "2026-11-23T19:42:38.673518",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "JNKINDIA": {
+        "last_successful_check_at": "2026-11-23T19:52:51.379943",
+        "latest_filing_timestamp": "2026-11-07T17:37:38.793"
+      },
+      "RPTECH": {
+        "last_successful_check_at": "2026-11-23T19:58:37.192002",
+        "latest_filing_timestamp": "2026-11-13T14:40:32.73"
+      },
+      "SIKA": {
+        "last_successful_check_at": "2026-11-23T20:00:35.080180",
+        "latest_filing_timestamp": "2026-11-05T17:51:52.953"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-23T19:23:21.230791+05:30",
+    "last_successful_check_at": "2026-11-23T20:00:29.313668",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
