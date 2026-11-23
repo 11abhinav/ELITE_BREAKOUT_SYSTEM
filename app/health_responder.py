@@ -54,28 +54,44 @@ def _handle_client(client_sock: socket.socket):
         # Forward requests to Flask on internal port once Flask is ready
         try:
             target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            target_sock.settimeout(180.0)
-            client_sock.settimeout(180.0)
+            target_sock.settimeout(60.0)
+            client_sock.settimeout(60.0)
             target_sock.connect(("127.0.0.1", FLASK_PORT))
 
-            # Force Connection: close to prevent HTTP/1.1 persistent connection leaks
-            if b"Connection: keep-alive" in data:
-                data = data.replace(b"Connection: keep-alive", b"Connection: close")
-            elif b"connection: keep-alive" in data:
-                data = data.replace(b"connection: keep-alive", b"connection: close")
-            elif b"\r\n\r\n" in data and b"Connection:" not in data and b"connection:" not in data:
-                # Inject Connection: close into request headers
+            # Case-insensitively replace any Connection header with Connection: close
+            import re
+            data = re.sub(rb'(?i)connection:\s*[^\r\n]+', b'Connection: close', data)
+            if b"Connection: close" not in data and b"\r\n\r\n" in data:
                 data = data.replace(b"\r\n\r\n", b"\r\nConnection: close\r\n\r\n", 1)
 
             target_sock.sendall(data)
 
-            # RFC-compliant directional pipes:
-            # 1. client -> target (Flask): streams request body. When client is done sending,
-            #    it shuts down the write half of target_sock so Flask knows request is complete,
-            #    WITHOUT closing target_sock or client_sock.
+            # Detect whether request has pending body bytes to stream
+            has_pending_body = False
+            first_line = data.split(b"\r\n")[0] if b"\r\n" in data else data
+            method = first_line.split(b" ")[0].upper() if b" " in first_line else b""
+            if method in (b"POST", b"PUT", b"PATCH"):
+                cl_match = re.search(rb'(?i)content-length:\s*(\d+)', data)
+                if cl_match:
+                    content_len = int(cl_match.group(1))
+                    header_end = data.find(b"\r\n\r\n")
+                    body_bytes_in_data = len(data) - (header_end + 4) if header_end != -1 else 0
+                    if body_bytes_in_data < content_len:
+                        has_pending_body = True
+                elif b"chunked" in data.lower():
+                    has_pending_body = True
+
+            if not has_pending_body:
+                # GET/HEAD/OPTIONS or body already completely sent in initial packet:
+                # Immediately signal write EOF to Flask so Flask never waits for further request bytes
+                try:
+                    target_sock.shutdown(socket.SHUT_WR)
+                except Exception:
+                    pass
+
             def _pipe_client_to_target():
                 try:
-                    client_sock.settimeout(180.0)
+                    client_sock.settimeout(60.0)
                     while True:
                         buf = client_sock.recv(8192)
                         if not buf:
@@ -89,11 +105,9 @@ def _handle_client(client_sock: socket.socket):
                     except Exception:
                         pass
 
-            # 2. target (Flask) -> client: streams response body. When Flask closes connection
-            #    after sending response, this pipe terminates and performs clean teardown of both sockets.
             def _pipe_target_to_client():
                 try:
-                    target_sock.settimeout(180.0)
+                    target_sock.settimeout(60.0)
                     while True:
                         buf = target_sock.recv(8192)
                         if not buf:
@@ -107,11 +121,14 @@ def _handle_client(client_sock: socket.socket):
                     try: target_sock.close()
                     except Exception: pass
 
-            t1 = threading.Thread(target=_pipe_client_to_target, daemon=True)
             t2 = threading.Thread(target=_pipe_target_to_client, daemon=True)
-            t1.start()
             t2.start()
-            t2.join(timeout=180.0)
+
+            if has_pending_body:
+                t1 = threading.Thread(target=_pipe_client_to_target, daemon=True)
+                t1.start()
+
+            t2.join(timeout=60.0)
         except Exception as forward_err:
             # Fallback if Flask connection fails
             try:
