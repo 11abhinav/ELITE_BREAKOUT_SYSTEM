@@ -422,9 +422,9 @@ class ExchangePdfParser:
             logger.info(f"📄 [PDF_PARSER] Skipping {symbol}: PDF exceeds {_PDF_MAX_RESULT_BYTES // (1024*1024)}MB ({len(pdf_bytes)} bytes).")
             return []
 
-        # Acquire parse semaphore with timeout (180s safety timeout to prevent dropping queued worker threads)
-        if not _PARSE_SEMAPHORE.acquire(timeout=180.0):
-            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>180s wait). Skipping PDF.")
+        # Acquire parse semaphore with timeout (240s safety timeout to prevent dropping queued worker threads)
+        if not _PARSE_SEMAPHORE.acquire(timeout=240.0):
+            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>240s wait). Skipping PDF.")
             return []
         try:
             records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
@@ -515,9 +515,9 @@ class ExchangePdfParser:
         t_start = time.time()
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
-            # Strict 45-second document parse timeout to prevent corrupt font/stream infinite loops
-            if time.time() - t_start > 45.0:
-                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 45s parse timeout on page {page_idx+1}. Breaking early.")
+            # Adaptive document parse timeout (90s ceiling allows thorough multi-page extraction on cloud vCPUs)
+            if time.time() - t_start > 90.0:
+                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 90s parse timeout on page {page_idx+1}. Breaking early.")
                 break
 
             # Smart early exit: finish immediately if both Consolidated and Standalone statements were extracted

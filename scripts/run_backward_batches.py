@@ -73,7 +73,7 @@ def trigger_batch(symbols):
         print(f"[trigger_batch] Error: {e}", flush=True)
         return {"status": "error", "message": str(e)}
 
-def query_axiom_logs(minutes=3, limit=50):
+def query_axiom_logs(minutes=5, limit=50):
     if not AXIOM_TOKEN:
         return []
     headers = {
@@ -148,13 +148,15 @@ def run_continuous(max_batches=50):
         start_wait = time.time()
         completed = False
 
-        while time.time() - start_wait < 120:  # 2 minutes max per batch of 10
+        while time.time() - start_wait < 180:  # 3 minutes max per batch of 10
             time.sleep(5)
-            logs = query_axiom_logs(minutes=2, limit=40)
+            logs = query_axiom_logs(minutes=5, limit=50)
             for m in logs:
                 msg = m.get("data", {}).get("message") or m.get("data", {}).get("log") or ""
                 if ("Completed run" in msg and "FILING_WATCHER" in msg) or \
-                   ("transition='RUNNING -> IDLE'" in msg and "FILING_WATCHER" in msg):
+                   ("transition='RUNNING -> IDLE'" in msg and "FILING_WATCHER" in msg) or \
+                   ("transition='RUNNING -> OK'" in msg and "FILING_WATCHER" in msg) or \
+                   ("Published" in msg and "symbols" in msg and "CANONICAL" in msg):
                     completed = True
                     print(f"✅ Production run completed: {msg.strip()[:140]}", flush=True)
                     break
