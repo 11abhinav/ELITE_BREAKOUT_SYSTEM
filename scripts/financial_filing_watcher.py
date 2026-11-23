@@ -1171,6 +1171,7 @@ class FinancialFilingWatcher:
 
         def _process_symbol(sym: str) -> None:
             sym_u = sym.strip().upper()
+            is_targeted_symbol = bool(targeted_symbols_set and sym_u in targeted_symbols_set)
             try:
                 if run_ctx and getattr(run_ctx, "is_stopped", False):
                     return
@@ -2241,6 +2242,33 @@ class FinancialFilingWatcher:
                         f"✨ [filling scanner] {sym_u}: Ingested {sym_new_events} new/amended disclosures "
                         f"(NSE_records={nse_fetch_count}, NSE_discovered={nse_disc_count}, BSE={bse_count})."
                     )
+                    try:
+                        try:
+                            from app.database import (
+                                sync_raw_filings_cache_for_symbol,
+                                check_and_restore_stale_stock,
+                                reconcile_and_purge_restored_cooloffs,
+                                clear_unified_stock_data_health_cache,
+                            )
+                        except ImportError:
+                            from database import (
+                                sync_raw_filings_cache_for_symbol,
+                                check_and_restore_stale_stock,
+                                reconcile_and_purge_restored_cooloffs,
+                                clear_unified_stock_data_health_cache,
+                            )
+                        sync_raw_filings_cache_for_symbol(sym_u)
+                        check_and_restore_stale_stock(
+                            symbol=sym_u,
+                            source="EXCHANGE_FILING_WATCHER_INGESTED",
+                            period_end=latest_local_period,
+                            notify_admin=False,
+                            force=True,
+                        )
+                        reconcile_and_purge_restored_cooloffs()
+                        clear_unified_stock_data_health_cache()
+                    except Exception as _rst_e:
+                        logger.debug(f"[filling scanner] Immediate sync/restore note for {sym_u}: {_rst_e}")
                 else:
                     if not needs_bootstrap:
                         with counter_lock:
@@ -2663,15 +2691,34 @@ class FinancialFilingWatcher:
         os.replace(tmp_path, raw_path)
         logger.info(f"💾 [filling scanner] Successfully persisted fresh filing for {sym_u} ({norm_period_end} {statement_type}) to {raw_path}.")
 
-        # Invalidate in-memory health audit cache so dashboard sees fresh state immediately
+        # Immediately synchronize raw filings cache and restore symbol from cool-off
         try:
             try:
-                from app.database import clear_unified_stock_data_health_cache
+                from app.database import (
+                    clear_unified_stock_data_health_cache,
+                    sync_raw_filings_cache_for_symbol,
+                    check_and_restore_stale_stock,
+                    reconcile_and_purge_restored_cooloffs,
+                )
             except ImportError:
-                from database import clear_unified_stock_data_health_cache
+                from database import (
+                    clear_unified_stock_data_health_cache,
+                    sync_raw_filings_cache_for_symbol,
+                    check_and_restore_stale_stock,
+                    reconcile_and_purge_restored_cooloffs,
+                )
+            sync_raw_filings_cache_for_symbol(sym_u)
+            check_and_restore_stale_stock(
+                symbol=sym_u,
+                source="EXCHANGE_FILING_WATCHER_INGESTED",
+                period_end=norm_period_end,
+                notify_admin=False,
+                force=True,
+            )
+            reconcile_and_purge_restored_cooloffs()
             clear_unified_stock_data_health_cache()
-        except Exception:
-            pass
+        except Exception as _sync_err:
+            logger.debug(f"[filling scanner] Immediate sync error for {sym_u}: {_sync_err}")
 
         # Invariant: Immediately register newly ingested period in persistent state so restarts never re-poll
         try:

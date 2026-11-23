@@ -1075,10 +1075,7 @@ def invalidate_all_dashboard_caches():
         pass
     try:
         if "_STOCK_DATA_HEALTH_CACHE" in globals() and isinstance(_STOCK_DATA_HEALTH_CACHE, dict):
-            _STOCK_DATA_HEALTH_CACHE["timestamp"] = 0.0
-            _STOCK_DATA_HEALTH_CACHE["payload"] = None
-            _STOCK_DATA_HEALTH_CACHE["gzip"] = None
-            _STOCK_DATA_HEALTH_CACHE["etag"] = None
+            _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
     except Exception:
         pass
 
