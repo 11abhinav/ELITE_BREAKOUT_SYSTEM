@@ -190,6 +190,10 @@ def _normalize_ocr_text(text: str) -> str:
         text = re.sub(pattern, term, text, flags=re.I)
 
     # --- Month name OCR damage (generic for any stock/filing) ---
+    text = re.sub(r"(?i)\bmon[l1|t]{2,3}s\b", "months", text)
+    text = re.sub(r"(?i)\bsjx\b", "six", text)
+    text = re.sub(r"(?i)\bthrec\b", "three", text)
+    text = re.sub(r"['\`~>]{1,2}(?=\d{1,2}[\.,/-]\d{1,2}[\.,/-]202\d)", "", text)
     text = re.sub(r"\bSep[rt]e?mber\b", "September", text)         # Seprember, Seprtmber, Septmber
     text = re.sub(r"\bSEP[RT]E?MBER\b", "SEPTEMBER", text)
     text = re.sub(r"(?i)\bsep[rt]e?mber\b", "September", text)
@@ -418,9 +422,9 @@ class ExchangePdfParser:
             logger.info(f"📄 [PDF_PARSER] Skipping {symbol}: PDF exceeds {_PDF_MAX_RESULT_BYTES // (1024*1024)}MB ({len(pdf_bytes)} bytes).")
             return []
 
-        # Acquire parse semaphore with timeout (30s safety timeout to prevent hanging worker threads)
-        if not _PARSE_SEMAPHORE.acquire(timeout=30.0):
-            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>30s wait). Skipping PDF.")
+        # Acquire parse semaphore with timeout (180s safety timeout to prevent dropping queued worker threads)
+        if not _PARSE_SEMAPHORE.acquire(timeout=180.0):
+            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>180s wait). Skipping PDF.")
             return []
         try:
             records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
@@ -464,9 +468,11 @@ class ExchangePdfParser:
         doc_mult = 1.0
         doc_unit = "crore"
         doc_sample_text = ""
-        for p in reader.pages[:10]:
+        cached_page_texts: Dict[int, str] = {}
+        for p_idx, p in enumerate(reader.pages[:3]):
             try:
                 p_t = p.extract_text() or ""
+                cached_page_texts[p_idx] = p_t
                 if p_t:
                     doc_sample_text += "\n" + p_t
             except Exception:
@@ -506,7 +512,7 @@ class ExchangePdfParser:
                 if p not in candidate_page_indices:
                     candidate_page_indices.append(p)
 
-        cached_page_texts: Dict[int, str] = {}
+        t_start = time.time()
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
             # Strict 45-second document parse timeout to prevent corrupt font/stream infinite loops
@@ -520,12 +526,14 @@ class ExchangePdfParser:
             if has_cons and has_std:
                 break
 
-            try:
-                text = page.extract_text() or ""
-            except Exception:
-                text = ""
-
-            cached_page_texts[page_idx] = text
+            if page_idx in cached_page_texts:
+                text = cached_page_texts[page_idx]
+            else:
+                try:
+                    text = page.extract_text() or ""
+                except Exception:
+                    text = ""
+                cached_page_texts[page_idx] = text
 
             # Fast Digital Text First Invariant: 95%+ of official SEBI Reg 33 outcomes
             # contain pure digital text statement tables (even if cover letters on pages 1-3 have scanned letterheads).
@@ -609,10 +617,11 @@ class ExchangePdfParser:
                 # Text is already OCR-normalized upstream (month names, ordinal suffixes cleaned)
                 # Universal regex matching Day-First ("30th September 2026") AND Month-First ("September 30, 2026")
                 _date_patterns = [
-                    r"(?:quarter|half\s*year|year)\s*ended\s*(?:on\s*)?([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
+                    r"(?:quarter|half\s*year|year|\d+\s*months?|months?|period)\s*ended\s*(?:(?:and|to)\s*[^\n]*ended\s*)?(?:on\s*)?([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
                     r"\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December),?\s*202\d)\b",
                     r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d)\b",
                     r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
+                    r"\b(\d{2}[\./-]\d{2}[\./-]202\d)\b",
                 ]
                 for d_pat in _date_patterns:
                     dm = re.search(d_pat, text, re.I | re.DOTALL)
@@ -1027,12 +1036,13 @@ class ExchangePdfParser:
                     break
 
         # Enrich extracted records with Balance Sheet (Debt & Equity) and Cash Flow from subsequent pages if present
+        t_pass2_start = time.time()
         for rec in records:
-            if time.time() - t_start > 35.0:
+            if time.time() - t_pass2_start > 15.0:
                 break
             if rec.total_debt is None or rec.total_equity is None or rec.operating_cash_flow is None:
                 for p_idx in candidate_page_indices:
-                    if time.time() - t_start > 40.0:
+                    if time.time() - t_pass2_start > 20.0:
                         break
                     try:
                         p_raw = cached_page_texts.get(p_idx)
