@@ -481,14 +481,37 @@ class ExchangePdfParser:
             doc_mult = 1.0
             doc_unit = "crore"
 
-        # We scan only the first _PDF_MAX_PAGES_SCAN pages (up to 15 pages), so documents of any length
-        # (e.g. results combined with an amalgamation scheme or investor presentation) are never skipped,
-        # while CPU time is strictly bounded. With smart early-exit, scanning halts as soon as statements are found.
+        # Deep Full-Document Adaptive Search:
+        # Handles documents of any length, ensuring financial statements at the tail/end are never missed:
+        # 1. Front Pass: First 20 pages (where 90%+ of SEBI Reg 33 statement tables appear)
+        # 2. Tail Pass: Last 15 pages (for filings with long corporate governance / merger drafts / presentations upfront)
+        # 3. Middle Pass: Any remaining pages up to 60 pages total if statements still not found
+        # Early-exit terminates scanning immediately once financial statements are captured.
+        total_doc_pages = len(reader.pages)
+        candidate_page_indices: List[int] = []
+
+        # Priority 1: First 20 pages
+        candidate_page_indices.extend(range(min(20, total_doc_pages)))
+
+        # Priority 2: Tail 15 pages (if document is long > 25 pages)
+        if total_doc_pages > 25:
+            tail_start = max(20, total_doc_pages - 15)
+            for p in range(tail_start, total_doc_pages):
+                if p not in candidate_page_indices:
+                    candidate_page_indices.append(p)
+
+        # Priority 3: Intermediate pages up to 60 pages if needed
+        if total_doc_pages > 20:
+            for p in range(20, min(total_doc_pages, 60)):
+                if p not in candidate_page_indices:
+                    candidate_page_indices.append(p)
+
         cached_page_texts: Dict[int, str] = {}
-        for page_idx, page in enumerate(reader.pages[:_PDF_MAX_PAGES_SCAN]):
-            # Strict 25-second document parse timeout to prevent corrupt font/stream infinite loops
-            if time.time() - t_start > 25.0:
-                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 25s parse timeout on page {page_idx+1}. Breaking early.")
+        for page_idx in candidate_page_indices:
+            page = reader.pages[page_idx]
+            # Strict 45-second document parse timeout to prevent corrupt font/stream infinite loops
+            if time.time() - t_start > 45.0:
+                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 45s parse timeout on page {page_idx+1}. Breaking early.")
                 break
 
             # Smart early exit: finish immediately if both Consolidated and Standalone statements were extracted
@@ -1009,7 +1032,7 @@ class ExchangePdfParser:
         # Enrich extracted records with Balance Sheet (Debt & Equity) and Cash Flow from subsequent pages if present
         for rec in records:
             if rec.total_debt is None or rec.total_equity is None or rec.operating_cash_flow is None:
-                for p_idx in range(min(len(reader.pages), _PDF_MAX_PAGES_SCAN)):
+                for p_idx in candidate_page_indices:
                     try:
                         p_raw = cached_page_texts.get(p_idx)
                         if p_raw is None:
