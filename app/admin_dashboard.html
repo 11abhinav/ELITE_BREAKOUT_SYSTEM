@@ -14224,7 +14224,7 @@ async function fetchStockDataHealth(force = false) {
 
   const tbody = document.getElementById('tbl-sdh-body');
   if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
-    tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
   }
 
   if (SDH_IS_FETCHING) return;
@@ -14236,13 +14236,17 @@ async function fetchStockDataHealth(force = false) {
     refreshBtn.innerHTML = '🔄 Refreshing...';
   }
 
-  try {
-    if (force) {
-      try {
-        localStorage.removeItem('CACHE_SDH_DATA');
-        sessionStorage.removeItem('CACHE_SDH_DATA');
-      } catch (_) {}
+  // Safety net timer: Un-stick button after 20s under any circumstance
+  const safetyTimeout = setTimeout(() => {
+    SDH_IS_FETCHING = false;
+    if (refreshBtn) {
+      refreshBtn.style.opacity = '1';
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '🔄 Refresh Audit';
     }
+  }, 20000);
+
+  try {
     const forceParam = force ? '&force=1' : '';
     const fetchOpts = {
       cache: force ? 'no-store' : 'default',
@@ -14287,6 +14291,7 @@ async function fetchStockDataHealth(force = false) {
       tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:30px; color:#ef4444;">⚠️ ${err.message || 'Network or server error loading stock data health.'}</td></tr>`;
     }
   } finally {
+    clearTimeout(safetyTimeout);
     SDH_IS_FETCHING = false;
     if (refreshBtn) {
       refreshBtn.style.opacity = '1';

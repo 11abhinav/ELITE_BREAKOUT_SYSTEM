@@ -1313,6 +1313,14 @@ class FinancialFilingWatcher:
                         clear_unified_stock_data_health_cache()
                     except Exception as _rst_err:
                         logger.debug(f"[filling scanner] latest result restore note for {sym_u}: {_rst_err}")
+
+                    # Check if canonical snapshot has lagged behind disk or if explicitly targeted
+                    snap_qtr = str(snap_row.get("latest_quarterly_period") or "")[:10] if snap_row else ""
+                    snap_status_val = str(snap_row.get("pit_freshness_status") or "").upper() if snap_row else ""
+                    snapshot_lagging = bool(snap_row is None or snap_qtr < latest_concluded_qtr or snap_status_val not in ("VALID", "FRESH"))
+                    if snapshot_lagging or is_targeted_symbol:
+                        with events_lock:
+                            pending_rebuild_syms.add(sym_u)
                     return
 
                 # 1. Intermediate Annual Gap Detection (y[i+1] - y[i] > 1) within required lookback window
@@ -1575,6 +1583,14 @@ class FinancialFilingWatcher:
                         clear_unified_stock_data_health_cache()
                     except Exception:
                         pass
+
+                    # Check if canonical snapshot has lagged behind disk or if explicitly targeted
+                    snap_qtr = str(snap_row.get("latest_quarterly_period") or "")[:10] if snap_row else ""
+                    snap_status_val = str(snap_row.get("pit_freshness_status") or "").upper() if snap_row else ""
+                    snapshot_lagging = bool(snap_row is None or snap_qtr < latest_concluded_qtr or snap_status_val not in ("VALID", "FRESH"))
+                    if snapshot_lagging or is_targeted_symbol:
+                        with events_lock:
+                            pending_rebuild_syms.add(sym_u)
                     return
 
                 if is_targeted_symbol:

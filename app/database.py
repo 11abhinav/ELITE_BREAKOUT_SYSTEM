@@ -12015,8 +12015,8 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             eff_qtr = max(raw_qtr, snap_qtr) if (raw_qtr and snap_qtr) else (raw_qtr or snap_qtr)
             eff_latest = max(raw_period, eff_qtr) if (raw_period not in ("None", "Empty", "Error", "No local file") and eff_qtr) else (eff_qtr or raw_period)
 
-            # If raw_cache missing, empty, or seemingly overdue, inspect disk JSON directly
-            if not raw_info or raw_count == 0 or (not is_half_y and eff_qtr < sym_mand_period) or (is_half_y and eff_latest < sym_mand_period):
+            # If raw_cache missing, empty, or unparsed, inspect disk JSON directly
+            if not raw_info or raw_count == 0 or raw_period in ("None", "Empty", "Error", "No local file"):
                 base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 for p_cand in [
                     os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym}.json"),
