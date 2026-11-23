@@ -4350,6 +4350,9 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
+          <!-- CROSS-TAB SEARCH DISCOVERY BANNER -->
+          <div id="sdh-cross-tab-discovery" style="margin-bottom:12px; display:none;"></div>
+
           <!-- STOCKS DATA TABLE -->
           <div class="tbl-wrap" style="overflow-x:auto; max-height:70vh;">
             <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px; min-width:1600px;">
@@ -14213,32 +14216,55 @@ async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
   // SWR: Instant local hydration from localStorage / sessionStorage / memory (0ms UI render)
-  if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
+  if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length && !force) {
     try {
       const cachedStr = localStorage.getItem('CACHE_SDH_DATA') || sessionStorage.getItem('CACHE_SDH_DATA');
       if (cachedStr) {
-        _applyStockDataHealthData(JSON.parse(cachedStr));
+        const parsed = JSON.parse(cachedStr);
+        // Only hydrate if cache is fresh (< 3 minutes old)
+        if (parsed && parsed.summary && parsed.summary._cached_at && (Date.now() - parsed.summary._cached_at < 180000)) {
+          _applyStockDataHealthData(parsed);
+        }
       }
     } catch (_) {}
   }
 
   const tbody = document.getElementById('tbl-sdh-body');
   if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
-    tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
   }
 
-  if (SDH_IS_FETCHING) return;
+  if (SDH_IS_FETCHING && !force) return;
   SDH_IS_FETCHING = true;
   const refreshBtn = document.getElementById('btn-refresh-sdh') || document.querySelector('button[onclick*="fetchStockDataHealth"]');
-  if (refreshBtn && force) {
+  if (refreshBtn) {
     refreshBtn.style.opacity = '0.7';
     refreshBtn.disabled = true;
     refreshBtn.innerHTML = '🔄 Refreshing...';
   }
 
+  // Safety net timer: Un-stick button after 25s if network hangs
+  const safetyTimeout = setTimeout(() => {
+    SDH_IS_FETCHING = false;
+    if (refreshBtn) {
+      refreshBtn.style.opacity = '1';
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '🔄 Refresh Audit';
+    }
+  }, 25000);
+
   try {
+    if (force) {
+      try {
+        localStorage.removeItem('CACHE_SDH_DATA');
+        sessionStorage.removeItem('CACHE_SDH_DATA');
+      } catch (_) {}
+    }
     const forceParam = force ? '&force=1' : '';
-    const fetchOpts = force ? { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } } : {};
+    const fetchOpts = {
+      cache: force ? 'no-store' : 'default',
+      headers: force ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : {}
+    };
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`, fetchOpts);
     
     if (res.status === 401) {
@@ -14246,13 +14272,13 @@ async function fetchStockDataHealth(force = false) {
       SDH_STALE_STOCKS = [];
       SDH_FRESH_STOCKS = [];
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444; font-weight:700;">🔒 Admin session expired or not authenticated. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:30px; color:#ef4444; font-weight:700;">🔒 Admin session expired or not authenticated. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a></td></tr>`;
       }
       return;
     }
 
-    if (res.status === 304 && !force) {
-      // 304 Not Modified: client cache is current
+    if (res.status === 304) {
+      // 304 Not Modified: server confirmed data is unchanged
       return;
     }
 
@@ -14262,6 +14288,8 @@ async function fetchStockDataHealth(force = false) {
     if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
 
     if (data.status === 'success') {
+      data.summary = data.summary || {};
+      data.summary._cached_at = Date.now();
       try {
         localStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
         sessionStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
@@ -14269,15 +14297,16 @@ async function fetchStockDataHealth(force = false) {
       _applyStockDataHealthData(data);
     } else {
       if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
-        tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || data.error || 'Server returned invalid response'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || data.error || 'Server returned invalid response'}</td></tr>`;
       }
     }
   } catch (err) {
     console.error('Error fetching stock data health:', err);
     if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
-      tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:30px; color:#ef4444;">⚠️ ${err.message || 'Network or server error loading stock data health.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:30px; color:#ef4444;">⚠️ ${err.message || 'Network or server error loading stock data health.'}</td></tr>`;
     }
   } finally {
+    clearTimeout(safetyTimeout);
     SDH_IS_FETCHING = false;
     if (refreshBtn) {
       refreshBtn.style.opacity = '1';
@@ -14905,8 +14934,63 @@ function renderStockDataHealthTable() {
 
   renderSdhPaginationControls(totalPages);
 
+  // Update Cross-Tab Search Discovery Banner
+  const discoveryEl = document.getElementById('sdh-cross-tab-discovery');
+  if (discoveryEl) {
+    if (query && SDH_ACTIVE_FILTER === 'STALE') {
+      const freshHits = SDH_FRESH_STOCKS.filter(it => (it.symbol || '').toUpperCase().includes(query) || (it.company_name || '').toUpperCase().includes(query));
+      if (freshHits.length > 0) {
+        discoveryEl.style.display = 'block';
+        discoveryEl.innerHTML = `<div style="background:rgba(16, 185, 129, 0.12); border:1px solid #10b981; border-radius:8px; padding:10px 16px; color:#10b981; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <span>🎉 Found <strong>${freshHits.length}</strong> matching stock(s) in <strong>Fresh &amp; Certified</strong> (e.g. <strong>${freshHits[0].symbol}</strong>: Q2 ${freshHits[0].latest_quarterly_period || '2026-09-30'} certified, ${freshHits[0].filings_count_in_db || 26} filings verified)!</span>
+          <button onclick="setSdhFilter('FRESH')" style="background:#10b981; color:#000; border:none; padding:5px 12px; border-radius:6px; font-weight:800; cursor:pointer; font-size:11px;">View in Fresh &amp; Certified Tab ›</button>
+        </div>`;
+      } else {
+        discoveryEl.style.display = 'none';
+        discoveryEl.innerHTML = '';
+      }
+    } else if (query && SDH_ACTIVE_FILTER === 'FRESH') {
+      const staleHits = SDH_STALE_STOCKS.filter(it => (it.symbol || '').toUpperCase().includes(query) || (it.company_name || '').toUpperCase().includes(query));
+      if (staleHits.length > 0) {
+        discoveryEl.style.display = 'block';
+        discoveryEl.innerHTML = `<div style="background:rgba(239, 68, 68, 0.12); border:1px solid #ef4444; border-radius:8px; padding:10px 16px; color:#ef4444; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <span>⚠️ Found <strong>${staleHits.length}</strong> matching stock(s) in <strong>Stale / Cool-off</strong> (e.g. <strong>${staleHits[0].symbol}</strong>: ${staleHits[0].missing_data_summary || staleHits[0].reason || 'Pending'})</span>
+          <button onclick="setSdhFilter('STALE')" style="background:#ef4444; color:#fff; border:none; padding:5px 12px; border-radius:6px; font-weight:800; cursor:pointer; font-size:11px;">View in Stale / Cool-off Tab ›</button>
+        </div>`;
+      } else {
+        discoveryEl.style.display = 'none';
+        discoveryEl.innerHTML = '';
+      }
+    } else {
+      discoveryEl.style.display = 'none';
+      discoveryEl.innerHTML = '';
+    }
+  }
+
   if (items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:36px; color:var(--muted);">No stocks found matching current filters.</td></tr>`;
+    let emptyMsg = `No stocks found matching current filters.`;
+    if (query) {
+      if (SDH_ACTIVE_FILTER === 'STALE') {
+        const freshHits = SDH_FRESH_STOCKS.filter(it => (it.symbol || '').toUpperCase().includes(query) || (it.company_name || '').toUpperCase().includes(query));
+        if (freshHits.length > 0) {
+          emptyMsg = `<div style="background:rgba(16, 185, 129, 0.15); border:1px solid #10b981; border-radius:10px; padding:20px; max-width:650px; margin:16px auto; color:#10b981; font-size:13px; font-weight:700;">
+            <div style="font-size:16px; margin-bottom:8px;">🎉 <strong>${freshHits[0].symbol}</strong> is already <strong>CERTIFIED FRESH</strong>!</div>
+            <div style="color:var(--text); font-weight:normal; margin-bottom:14px; font-size:12px; line-height:1.5;">This stock is NOT stale. It possesses certified official exchange disclosures (latest quarter: <strong>${freshHits[0].latest_quarterly_period || '2026-09-30'}</strong>, total disclosures: <strong>${freshHits[0].filings_count_in_db || 26}</strong>) and is active for all production breakout scanners.</div>
+            <button onclick="setSdhFilter('FRESH')" style="background:#10b981; color:#000; border:none; padding:7px 16px; border-radius:6px; font-weight:800; cursor:pointer; font-size:12px;">View in Fresh &amp; Certified Tab ›</button>
+          </div>`;
+        }
+      } else if (SDH_ACTIVE_FILTER === 'FRESH') {
+        const staleHits = SDH_STALE_STOCKS.filter(it => (it.symbol || '').toUpperCase().includes(query) || (it.company_name || '').toUpperCase().includes(query));
+        if (staleHits.length > 0) {
+          emptyMsg = `<div style="background:rgba(239, 68, 68, 0.15); border:1px solid #ef4444; border-radius:10px; padding:20px; max-width:650px; margin:16px auto; color:#ef4444; font-size:13px; font-weight:700;">
+            <div style="font-size:16px; margin-bottom:8px;">⚠️ <strong>${staleHits[0].symbol}</strong> is currently in <strong>Stale / Cool-off</strong></div>
+            <div style="color:var(--text); font-weight:normal; margin-bottom:14px; font-size:12px; line-height:1.5;">Reason: <strong>${staleHits[0].missing_data_summary || staleHits[0].reason || 'Pending filings'}</strong></div>
+            <button onclick="setSdhFilter('STALE')" style="background:#ef4444; color:#fff; border:none; padding:7px 16px; border-radius:6px; font-weight:800; cursor:pointer; font-size:12px;">View in Stale / Cool-off Tab ›</button>
+          </div>`;
+        }
+      }
+    }
+    tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:36px; color:var(--muted);">${emptyMsg}</td></tr>`;
     return;
   }
 

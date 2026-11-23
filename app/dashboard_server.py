@@ -165,7 +165,7 @@ def _make_json_response(payload_str: str, etag: str = None, max_age: int = 10, p
     """Serve JSON payload with instant pre-compressed gzip if client accepts gzip.
     Eliminates multi-hundred millisecond synchronous gzip overhead on Flask request threads."""
     client_etag = request.headers.get("If-None-Match")
-    if client_etag and etag and client_etag == etag:
+    if not no_cache and client_etag and etag and client_etag == etag:
         return Response("", status=304, headers={
             "ETag": etag,
             "Cache-Control": f"public, max-age={max_age}, must-revalidate"
@@ -3506,7 +3506,7 @@ def api_admin_stock_data_health():
         # Cache miss or forced reload: compute synchronously
         resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
         max_age_val = 0 if force else 30
-        resp = _make_json_response(resp_json, etag=etag, max_age=max_age_val, precompressed_gzip=gz)
+        resp = _make_json_response(resp_json, etag=etag, max_age=max_age_val, precompressed_gzip=gz, no_cache=force)
         if force:
             resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             resp.headers["Pragma"] = "no-cache"
