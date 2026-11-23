@@ -3081,10 +3081,6 @@ class FinancialFilingWatcher:
         start_ts = time.time()
         now_ist = datetime.now(IST)
 
-        if not _WATCHER_LOCK.acquire(blocking=False):
-            logger.info("⏳ [filling scanner] Watcher cycle is already actively executing in this process. Skipping duplicate trigger.")
-            return {"status": "ALREADY_RUNNING", "message": "Already actively running"}
-
         run_ctx = None
 
         if stale_only:
@@ -3135,6 +3131,10 @@ class FinancialFilingWatcher:
                 upsert_fetch_error,
                 get_connection,
             )
+
+        if not _WATCHER_LOCK.acquire(blocking=False):
+            logger.info("⏳ [filling scanner] Watcher cycle is already actively executing in this process. Skipping duplicate trigger.")
+            return {"status": "ALREADY_RUNNING", "message": "Already actively running"}
 
         try:
             # 1. Register execution run in scanner_execution_history
