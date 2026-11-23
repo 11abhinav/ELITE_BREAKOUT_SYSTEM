@@ -61,7 +61,7 @@ def get_stock_health(timeout=90):
 
 def trigger_batch(symbols):
     url = f"{PROD_URL}/api/admin/trigger_filing_watcher"
-    payload = json.dumps({"symbols": symbols}).encode()
+    payload = json.dumps({"symbols": symbols, "force": True}).encode()
     req = urllib.request.Request(url, data=payload, headers=HEADERS, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:

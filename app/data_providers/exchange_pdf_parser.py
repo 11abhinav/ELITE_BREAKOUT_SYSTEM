@@ -521,10 +521,7 @@ class ExchangePdfParser:
                 break
 
             try:
-                try:
-                    text = page.extract_text(orientations=0) or ""
-                except TypeError:
-                    text = page.extract_text() or ""
+                text = page.extract_text() or ""
             except Exception:
                 text = ""
 
@@ -676,7 +673,7 @@ class ExchangePdfParser:
             num_cols = 1
             target_dmy = f"{period_end[8:10]}.{period_end[5:7]}.{period_end[:4]}" if period_end else ""
             for line in text.split("\n"):
-                dm = re.findall(r"(\d{2}[\.,/-](?:[A-Za-z]{3}|\d{2})[\.,/-](?:20)?\d{2})", line)
+                dm = re.findall(r"([0-9'\`~>]{2}[\.,/-](?:[A-Za-z]{3}|\d{2})[\.,/-](?:20)?\d{2})", line)
                 if dm and len(dm) >= 2:
                     num_cols = len(dm)
                     # Under SEBI LODR Regulation 33 schedule, Col 0 is always the latest reporting quarter
@@ -764,7 +761,7 @@ class ExchangePdfParser:
                     # In a multi-column table, a line with fewer numbers than columns is an item label/note, not data
                     continue
                 else:
-                    last_val = nums[0]
+                    last_val = nums[-1]
 
                 if rev is None and any(k in line_lower for k in [
                     "revenue from operations", "net sales", "income from operations", "total income", "interest earned"
@@ -1031,8 +1028,12 @@ class ExchangePdfParser:
 
         # Enrich extracted records with Balance Sheet (Debt & Equity) and Cash Flow from subsequent pages if present
         for rec in records:
+            if time.time() - t_start > 35.0:
+                break
             if rec.total_debt is None or rec.total_equity is None or rec.operating_cash_flow is None:
                 for p_idx in candidate_page_indices:
+                    if time.time() - t_start > 40.0:
+                        break
                     try:
                         p_raw = cached_page_texts.get(p_idx)
                         if p_raw is None:
