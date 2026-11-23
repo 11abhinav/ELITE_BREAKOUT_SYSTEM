@@ -48,6 +48,7 @@ data/*
 !data/pit_valuation_history_cache.parquet
 !data/fundamentals_cache.json
 !data/multibagger_fundamentals_cache.json
+!data/stock_data_health_cache.json
 !data/pit_raw_filings_manifest.json
 !data_seed/pit_raw_filings_manifest.json
 !data/pit_raw_filings/

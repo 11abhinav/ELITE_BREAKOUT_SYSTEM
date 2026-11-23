@@ -14264,7 +14264,17 @@ async function fetchStockDataHealth(force = false) {
     }
 
     if (res.status === 304) {
-      // 304 Not Modified: cache is current
+      // 304 Not Modified: cache is current, hydrate from local cache if in-memory is empty
+      if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
+        try {
+          const cachedStr = localStorage.getItem('CACHE_SDH_DATA') || sessionStorage.getItem('CACHE_SDH_DATA');
+          if (cachedStr) {
+            _applyStockDataHealthData(JSON.parse(cachedStr));
+          } else {
+            fetchStockDataHealth(true);
+          }
+        } catch (_) {}
+      }
       return;
     }
 

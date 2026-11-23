@@ -10651,8 +10651,15 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                     sample_entry = next(iter(_m_data.values())) if _m_data else None
                     if sample_entry and "null_filings" in sample_entry and "latest_quarterly" in sample_entry:
                         _AUDIT_RAW_FILINGS_CACHE = _m_data
+                        _AUDIT_RAW_FILINGS_LAST_SCAN = now
             except Exception:
                 pass
+
+        if _AUDIT_RAW_FILINGS_CACHE and len(_AUDIT_RAW_FILINGS_CACHE) >= 500:
+            # Manifest has full universe coverage: avoid re-scanning all 886 disk files on every startup
+            _AUDIT_RAW_DIR_MTIME = curr_dir_mtime
+            _AUDIT_RAW_FILINGS_LAST_SCAN = now
+            return _AUDIT_RAW_FILINGS_CACHE
 
         if _AUDIT_RAW_FILINGS_CACHE is None:
             _AUDIT_RAW_FILINGS_CACHE = {}

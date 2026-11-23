@@ -3088,6 +3088,37 @@ _STOCK_DATA_HEALTH_CACHE: Dict[str, Any] = {"payload": None, "ts": 0.0}
 _STOCK_DATA_HEALTH_LOCK = threading.Lock()
 _STOCK_DATA_HEALTH_COMPUTE_LOCK = threading.Lock()
 
+def _seed_stock_data_health_cache_from_disk():
+    """Seeds _STOCK_DATA_HEALTH_CACHE directly from disk on process startup for instant 0ms responses."""
+    global _STOCK_DATA_HEALTH_CACHE
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for p in [
+            os.path.join(base_dir, "data", "stock_data_health_cache.json"),
+            os.path.join(base_dir, "data_seed", "stock_data_health_cache.json"),
+            "/app/data/stock_data_health_cache.json",
+            "/app/data_seed/stock_data_health_cache.json",
+        ]:
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f_in:
+                    raw_json = f_in.read()
+                if raw_json and len(raw_json) > 100:
+                    import hashlib
+                    etag = f'"{hashlib.md5(raw_json.encode("utf-8")).hexdigest()}"'
+                    gz = _gzip.compress(raw_json.encode("utf-8"), compresslevel=1)
+                    mtime = os.path.getmtime(p)
+                    with _STOCK_DATA_HEALTH_LOCK:
+                        _STOCK_DATA_HEALTH_CACHE["payload"] = raw_json
+                        _STOCK_DATA_HEALTH_CACHE["etag"] = etag
+                        _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
+                        _STOCK_DATA_HEALTH_CACHE["ts"] = mtime
+                    logger.info(f"⚡ [STOCK_DATA_HEALTH] Pre-seeded in-memory cache from {p} ({len(raw_json)} bytes)")
+                    break
+    except Exception as e:
+        logger.debug(f"[STOCK_DATA_HEALTH] Seed error: {e}")
+
+_seed_stock_data_health_cache_from_disk()
+
 def _invalidate_all_stock_data_health_caches():
     """
     [RULE 67 CHANGE-RATIONALE: ATOMIC_AUDIT_CACHE_INVALIDATION_v1.0]
@@ -3447,6 +3478,15 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
         _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
         _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
 
+    # Persist precomputed audit to disk for instant cold-boot recovery (<1ms)
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cache_path = os.path.join(base_dir, "data", "stock_data_health_cache.json")
+        with open(cache_path, "w", encoding="utf-8") as f_out:
+            f_out.write(resp_json)
+    except Exception as _p_err:
+        logger.debug(f"[STOCK_DATA_HEALTH] Disk persist note: {_p_err}")
+
     return resp_json, etag, gz
 
 
@@ -3479,7 +3519,6 @@ def api_admin_stock_data_health():
     try:
         force = request.args.get("force") in ("1", "true", "True")
         now_t = time.time()
-        req_etag = request.headers.get("If-None-Match")
 
         with _STOCK_DATA_HEALTH_LOCK:
             cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
@@ -3487,48 +3526,32 @@ def api_admin_stock_data_health():
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-        if force:
-            # SWR Coalescing: If a force refresh completed within the last 5 seconds, serve it immediately
-            if cached_payload and (now_t - cached_ts <= 5.0):
-                return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
-
-            with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
-                # Double-check if another thread finished computing while we were waiting on the lock
-                with _STOCK_DATA_HEALTH_LOCK:
-                    cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
-                    cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
-                    cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
-                    cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
-                if cached_payload and (time.time() - cached_ts <= 5.0):
-                    return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
-
-                _invalidate_all_stock_data_health_caches()
-                resp_json, etag, gz = _compute_stock_data_health_payload(force=True)
-                return _make_json_response(resp_json, etag=etag, max_age=0, precompressed_gzip=gz, no_cache=True)
-
-        if not force and cached_payload and (now_t - cached_ts <= 180.0):
-            # Check 304 Not Modified
-            if req_etag and cached_etag and req_etag == cached_etag:
-                resp = Response(status=304)
-                resp.headers["ETag"] = cached_etag
-                resp.headers["Cache-Control"] = "public, max-age=30"
-                return resp
-
-            # Stale-While-Revalidate: refresh in background if cache is >60s old
+        # 1. Superfast SWR hit: return immediately in <5ms without blocking
+        if not force and cached_payload:
+            # Refresh in background if cache is >60s old
             if now_t - cached_ts > 60.0:
                 threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
 
             return _make_json_response(cached_payload, etag=cached_etag, max_age=30, precompressed_gzip=cached_gz)
 
-        # Cache miss or forced reload: compute synchronously
-        resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
-        max_age_val = 0 if force else 30
-        resp = _make_json_response(resp_json, etag=etag, max_age=max_age_val, precompressed_gzip=gz, no_cache=force)
-        if force:
-            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            resp.headers["Pragma"] = "no-cache"
-            resp.headers["Expires"] = "0"
-        return resp
+        # 2. Force refresh or Cold Cache: single-flight serialized computation
+        with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
+            # Double check under compute lock
+            with _STOCK_DATA_HEALTH_LOCK:
+                cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
+                cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
+                cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
+                cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
+
+            # SWR Coalescing: If a computation completed within the last 5 seconds, serve it immediately
+            if cached_payload and (time.time() - cached_ts <= 5.0):
+                return _make_json_response(cached_payload, etag=cached_etag, max_age=0 if force else 30, precompressed_gzip=cached_gz, no_cache=force)
+
+            if force:
+                _invalidate_all_stock_data_health_caches()
+
+            resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
+            return _make_json_response(resp_json, etag=etag, max_age=0 if force else 30, precompressed_gzip=gz, no_cache=force)
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
