@@ -3481,13 +3481,13 @@ def api_admin_stock_data_health():
         now_t = time.time()
         req_etag = request.headers.get("If-None-Match")
 
-        if force:
-            with _STOCK_DATA_HEALTH_LOCK:
-                cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
-                cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
-                cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
-                cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
+        with _STOCK_DATA_HEALTH_LOCK:
+            cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
+            cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
+            cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
+            cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
+        if force:
             # SWR Coalescing: If a force refresh completed within the last 5 seconds, serve it immediately
             if cached_payload and (now_t - cached_ts <= 5.0):
                 return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)

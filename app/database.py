@@ -11353,7 +11353,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     raw_ann_val = str(raw_info.get("latest_annual") or "") if raw_info else ""
     raw_latest_val = str(raw_info.get("latest") or "") if raw_info else ""
 
-    if not raw_qtr_val or raw_qtr_val < sym_mand_qtr:
+    if raw_info is None:
         base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         for p_cand in [
             os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json"),
@@ -11549,55 +11549,57 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
 
     # 9. Historical filings depth, gaps, and unparsed XBRL restoration
     if any(k in r_low for k in ("stale", "gap", "backfill", "local_cache", "xbrl", "depth", "lodr", "sebi")):
-        base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        p_f = os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json")
-        if os.path.exists(p_f):
-            try:
-                with open(p_f, "r", encoding="utf-8") as _rf:
-                    _rf_data = json.load(_rf)
-                if isinstance(_rf_data, list) and len(_rf_data) > 0:
-                    ann_years = set()
-                    null_filings_count = 0
-                    for _stmt in _rf_data:
-                        _pend = str(_stmt.get("period_end_date") or "")[:10]
-                        _stt = str(_stmt.get("statement_type") or "").upper()
-                        if "ANNUAL" in _stt and len(_pend) >= 4:
-                            try:
-                                ann_years.add(int(_pend[:4]))
-                            except Exception:
-                                pass
-                        if _pend >= "2024-01-01":
-                            _rev = _stmt.get("revenue")
-                            _np = _stmt.get("net_profit")
-                            if (_rev is None or pd.isna(_rev)) and (_np is None or pd.isna(_np)):
-                                null_filings_count += 1
+        ann_years = set(raw_info.get("annual_years", [])) if raw_info else set()
+        null_filings_count = len(raw_info.get("null_filings", [])) if raw_info else 0
+        latest_qtr_p = str(raw_info.get("latest_quarterly") or "") if raw_info else ""
 
-                    sorted_ann = sorted(list(ann_years))
-                    recent_ann = [y for y in sorted_ann if y >= 2020]
-                    has_gap = False
-                    for i in range(len(recent_ann) - 1):
-                        if recent_ann[i + 1] - recent_ann[i] > 1:
-                            has_gap = True
-                            break
+        if raw_info is None:
+            base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            p_f = os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json")
+            if os.path.exists(p_f):
+                try:
+                    with open(p_f, "r", encoding="utf-8") as _rf:
+                        _rf_data = json.load(_rf)
+                    if isinstance(_rf_data, list) and len(_rf_data) > 0:
+                        for _stmt in _rf_data:
+                            _pend = str(_stmt.get("period_end_date") or "")[:10]
+                            _stt = str(_stmt.get("statement_type") or "").upper()
+                            if "ANNUAL" in _stt and len(_pend) >= 4:
+                                try:
+                                    ann_years.add(int(_pend[:4]))
+                                except Exception:
+                                    pass
+                            if _pend >= "2024-01-01":
+                                _rev = _stmt.get("revenue")
+                                _np = _stmt.get("net_profit")
+                                if (_rev is None or pd.isna(_rev)) and (_np is None or pd.isna(_np)):
+                                    null_filings_count += 1
+                        valid_qtrs = [
+                            str(_stmt.get("period_end_date") or "")[:10]
+                            for _stmt in _rf_data
+                            if (_stmt.get("revenue") is not None or _stmt.get("net_profit") is not None)
+                        ]
+                        latest_qtr_p = max(valid_qtrs) if valid_qtrs else ""
+                except Exception:
+                    pass
 
-                    has_depth = len(sorted_ann) >= 6 or (sorted_ann and max(sorted_ann) >= 2026)
-                    if not has_gap and null_filings_count == 0 and has_depth:
-                        return True
+        if ann_years or latest_qtr_p:
+            sorted_ann = sorted(list(ann_years))
+            recent_ann = [y for y in sorted_ann if y >= 2020]
+            has_gap = False
+            for i in range(len(recent_ann) - 1):
+                if recent_ann[i + 1] - recent_ann[i] > 1:
+                    has_gap = True
+                    break
 
-                    # Quarterly & SEBI LODR restoration check:
-                    # If cool-off reason was missing recent quarterly / SEBI LODR 33 results or backfill,
-                    # and the stock now possesses a valid recent quarterly filing on disk with numeric facts:
-                    valid_qtrs = [
-                        str(_stmt.get("period_end_date") or "")[:10]
-                        for _stmt in _rf_data
-                        if (_stmt.get("revenue") is not None or _stmt.get("net_profit") is not None)
-                    ]
-                    latest_qtr_p = max(valid_qtrs) if valid_qtrs else ""
-                    if latest_qtr_p and latest_qtr_p >= sym_mand_qtr:
-                        if len(sorted_ann) >= 3 and not has_gap and null_filings_count == 0:
-                            return True
-            except Exception:
-                pass
+            has_depth = len(sorted_ann) >= 6 or (sorted_ann and max(sorted_ann) >= 2026)
+            if not has_gap and null_filings_count == 0 and has_depth:
+                return True
+
+            # Quarterly & SEBI LODR restoration check:
+            if latest_qtr_p and latest_qtr_p >= sym_mand_qtr:
+                if len(sorted_ann) >= 3 and not has_gap and null_filings_count == 0:
+                    return True
 
     return False
 

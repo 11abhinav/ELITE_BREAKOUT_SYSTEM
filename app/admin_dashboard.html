@@ -14227,7 +14227,6 @@ async function fetchStockDataHealth(force = false) {
     tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
   }
 
-  if (SDH_IS_FETCHING) return;
   SDH_IS_FETCHING = true;
   const refreshBtn = document.getElementById('btn-refresh-sdh') || document.querySelector('button[onclick*="fetchStockDataHealth"]');
   if (refreshBtn && force) {
