@@ -11294,12 +11294,6 @@ def clear_unified_stock_data_health_cache() -> None:
         _CANONICAL_DF_CACHE = None
         _CANONICAL_DF_MTIME = 0.0
     try:
-        manifest_p = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings_manifest.json"
-        if manifest_p.exists():
-            manifest_p.unlink(missing_ok=True)
-    except Exception:
-        pass
-    try:
         from app.scanner_data_gateway import clear_gateway_cache
         clear_gateway_cache()
     except Exception:

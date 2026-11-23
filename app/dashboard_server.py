@@ -3086,6 +3086,7 @@ _CORP_FILINGS_LOCK = threading.Lock()
 
 _STOCK_DATA_HEALTH_CACHE: Dict[str, Any] = {"payload": None, "ts": 0.0}
 _STOCK_DATA_HEALTH_LOCK = threading.Lock()
+_STOCK_DATA_HEALTH_COMPUTE_LOCK = threading.Lock()
 
 def _invalidate_all_stock_data_health_caches():
     """
@@ -3481,13 +3482,29 @@ def api_admin_stock_data_health():
         req_etag = request.headers.get("If-None-Match")
 
         if force:
-            _invalidate_all_stock_data_health_caches()
+            with _STOCK_DATA_HEALTH_LOCK:
+                cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
+                cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
+                cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
+                cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-        with _STOCK_DATA_HEALTH_LOCK:
-            cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
-            cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
-            cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
-            cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
+            # SWR Coalescing: If a force refresh completed within the last 5 seconds, serve it immediately
+            if cached_payload and (now_t - cached_ts <= 5.0):
+                return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
+
+            with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
+                # Double-check if another thread finished computing while we were waiting on the lock
+                with _STOCK_DATA_HEALTH_LOCK:
+                    cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
+                    cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
+                    cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
+                    cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
+                if cached_payload and (time.time() - cached_ts <= 5.0):
+                    return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
+
+                _invalidate_all_stock_data_health_caches()
+                resp_json, etag, gz = _compute_stock_data_health_payload(force=True)
+                return _make_json_response(resp_json, etag=etag, max_age=0, precompressed_gzip=gz, no_cache=True)
 
         if not force and cached_payload and (now_t - cached_ts <= 180.0):
             # Check 304 Not Modified
