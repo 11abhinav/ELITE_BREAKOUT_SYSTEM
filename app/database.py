@@ -10883,11 +10883,22 @@ def sync_raw_filings_cache_for_symbol(symbol: str) -> Optional[Dict[str, Any]]:
             }
 
         with _AUDIT_RAW_LOCK:
-            if _AUDIT_RAW_FILINGS_CACHE is None:
+            manifest_p = Path(p_found).parent.parent / "pit_raw_filings_manifest.json"
+            if _AUDIT_RAW_FILINGS_CACHE is None or not isinstance(_AUDIT_RAW_FILINGS_CACHE, dict):
+                # Never clobber existing universe manifest when updating a single symbol
+                if manifest_p.exists():
+                    try:
+                        with open(manifest_p, "r", encoding="utf-8") as _mf:
+                            _ex_data = json.load(_mf)
+                        if isinstance(_ex_data, dict) and len(_ex_data) > 0:
+                            _AUDIT_RAW_FILINGS_CACHE = _ex_data
+                    except Exception:
+                        pass
+            if _AUDIT_RAW_FILINGS_CACHE is None or not isinstance(_AUDIT_RAW_FILINGS_CACHE, dict):
                 _AUDIT_RAW_FILINGS_CACHE = {}
+
             _AUDIT_RAW_FILINGS_CACHE[sym_u] = parsed_item
             _AUDIT_RAW_FILINGS_LAST_SCAN = time.time()
-            manifest_p = Path(p_found).parent.parent / "pit_raw_filings_manifest.json"
             try:
                 with open(manifest_p, "w", encoding="utf-8") as _mf:
                     json.dump(_AUDIT_RAW_FILINGS_CACHE, _mf)
@@ -12030,6 +12041,16 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                                 raw_period = eff_latest
                         except Exception:
                             pass
+
+                if raw_count > 0:
+                    raw_info = {
+                        "count": raw_count,
+                        "latest": raw_period,
+                        "latest_quarterly": raw_qtr,
+                        "latest_annual": str(row.get("latest_annual_period") or ""),
+                        "recent": raw_info.get("recent", []) if raw_info else [f"{raw_period} (A)"],
+                        "null_filings": raw_info.get("null_filings", []) if raw_info else [],
+                    }
 
             if raw_count == 0 or raw_period in ("None", "Empty", "Error", "No local file"):
                 raw_stale = True

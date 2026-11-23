@@ -4217,7 +4217,7 @@ function changeAdminPage(type, delta) {
                   <button onclick="exportStockDataHealthCSV()" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:7px 14px; font-size:12px; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;" title="Export currently filtered and sorted records to CSV">
                     📥 Export CSV
                   </button>
-                  <button class="scanner-action-btn run" onclick="fetchStockDataHealth(true)" style="background:#2563eb; color:white; padding:7px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;">
+                  <button id="btn-refresh-sdh" class="scanner-action-btn run" onclick="fetchStockDataHealth(true)" style="background:#2563eb; color:white; padding:7px 14px; font-size:12px; border:none; border-radius:8px; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:6px;">
                     🔄 Refresh Audit
                   </button>
                 </div>
@@ -4833,8 +4833,8 @@ function changeAdminPage(type, delta) {
       } else if (tabId === 'filings-discovery') {
         if (typeof loadCorporateFilingsDiscovery === 'function') loadCorporateFilingsDiscovery();
       } else if (tabId === 'stock-data-health') {
-        // Fetch fresh authoritative stock data health audit
-        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(true);
+        // Load authoritative stock data health audit (fast cached SWR)
+        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(false);
       }
     }
 
@@ -14227,11 +14227,12 @@ async function fetchStockDataHealth(force = false) {
     tbody.innerHTML = `<tr><td colspan="23" style="text-align:center; padding:36px; color:var(--muted);">⏳ Loading universe stock data health audit...</td></tr>`;
   }
 
+  if (SDH_IS_FETCHING) return;
   SDH_IS_FETCHING = true;
   const refreshBtn = document.getElementById('btn-refresh-sdh') || document.querySelector('button[onclick*="fetchStockDataHealth"]');
-  const origBtnText = refreshBtn ? refreshBtn.innerHTML : '';
   if (refreshBtn && force) {
     refreshBtn.style.opacity = '0.7';
+    refreshBtn.disabled = true;
     refreshBtn.innerHTML = '🔄 Refreshing...';
   }
 
@@ -14278,9 +14279,10 @@ async function fetchStockDataHealth(force = false) {
     }
   } finally {
     SDH_IS_FETCHING = false;
-    if (refreshBtn && force && origBtnText) {
+    if (refreshBtn) {
       refreshBtn.style.opacity = '1';
-      refreshBtn.innerHTML = origBtnText;
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '🔄 Refresh Audit';
     }
   }
 }
@@ -15347,14 +15349,9 @@ async function triggerFilingScannerForStale(limit = 25) {
       const masterCb = document.getElementById('sdh-select-all');
       if (masterCb) masterCb.checked = false;
 
-      // Automatically refresh Data Health table at 3s, 8s, 15s, and 25s to reflect newly restored stocks
-      [3000, 8000, 15000, 25000].forEach(delay => {
-        setTimeout(() => {
-          if (typeof fetchStockDataHealth === 'function') {
-            fetchStockDataHealth(true);
-          }
-        }, delay);
-      });
+      // Automatically refresh Data Health table at 5s and 18s to reflect newly restored stocks
+      setTimeout(() => { if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(false); }, 5000);
+      setTimeout(() => { if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(true); }, 18000);
     } else {
       alert(`⚠️ Could not trigger filing scanner: ${data.message || data.error || 'Server error'}`);
     }
