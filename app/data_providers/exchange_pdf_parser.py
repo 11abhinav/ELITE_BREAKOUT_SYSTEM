@@ -1121,13 +1121,19 @@ class ExchangePdfParser:
         # in the accompanying certified press release or board outcome announcement text.
         if not records:
             doc_text = ""
-            for p in reader.pages:
-                try:
-                    p_txt = p.extract_text() or ""
-                    if p_txt:
-                        doc_text += "\n" + p_txt
-                except Exception:
-                    pass
+            t_fallback_start = time.time()
+            for p_idx in candidate_page_indices:
+                if time.time() - t_fallback_start > 15.0:
+                    break
+                p_txt = cached_page_texts.get(p_idx)
+                if p_txt is None:
+                    try:
+                        p_txt = reader.pages[p_idx].extract_text() or ""
+                        cached_page_texts[p_idx] = p_txt
+                    except Exception:
+                        p_txt = ""
+                if p_txt:
+                    doc_text += "\n" + p_txt
 
             if doc_text and any(k in doc_text.lower() for k in ["profit after tax", "revenue", "net profit"]):
                 clean_doc = _normalize_ocr_text(doc_text)
