@@ -3138,7 +3138,12 @@ class FinancialFilingWatcher:
 
         try:
             # 1. Register execution run in scanner_execution_history
-            is_manual_or_force = (trigger_type in ("MANUAL", "CLI") or force_backfill or force_rebuild)
+            is_manual_or_force = (
+                trigger_type in ("MANUAL", "CLI", "ADMIN_ON_DEMAND", "API", "NON_MARKET_BOOT")
+                or force_backfill
+                or force_rebuild
+                or bool(symbol)
+            )
             try:
                 run_ctx = start_scanner_execution_run(
                     scanner_name="FILING_WATCHER",
