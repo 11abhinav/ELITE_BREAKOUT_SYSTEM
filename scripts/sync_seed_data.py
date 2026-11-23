@@ -40,11 +40,11 @@ def sync_seed_data():
                 seed_q2 = int((df_seed["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in df_seed.columns else 0
                 target_q2 = int((df_target["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in df_target.columns else 0
 
-                if seed_q2 >= target_q2 and len(df_seed) >= len(df_target):
+                if seed_q2 > target_q2 and len(df_seed) >= len(df_target):
                     should_copy = True
-                    reason = f"seed Q2 count ({seed_q2}) >= target ({target_q2})"
+                    reason = f"seed Q2 count ({seed_q2}) > target ({target_q2})"
                 else:
-                    reason = f"target is newer (target Q2: {target_q2} > seed: {seed_q2})"
+                    reason = f"target is newer/equal (target Q2: {target_q2} >= seed: {seed_q2})"
             except Exception as e:
                 # If target is corrupt, copy seed
                 should_copy = True

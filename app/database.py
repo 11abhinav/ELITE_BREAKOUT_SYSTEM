@@ -8022,6 +8022,10 @@ def restore_pit_raw_bundle_from_db() -> bool:
                     f"✅ [PIT RAW BOOT] Processed DB bundle (date: {row[1]}): "
                     f"{restored_count} extracted, {merged_count} merged, {skipped_count} local files preserved."
                 )
+                global _AUDIT_RAW_FILINGS_CACHE, _AUDIT_RAW_FILINGS_LAST_SCAN, _AUDIT_RAW_DIR_MTIME
+                _AUDIT_RAW_FILINGS_CACHE = None
+                _AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
+                _AUDIT_RAW_DIR_MTIME = 0.0
                 clear_unified_stock_data_health_cache()
                 clear_canonical_snapshot_cache()
                 return True
@@ -10638,8 +10642,8 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
 
         manifest_p = raw_dir.parent / "pit_raw_filings_manifest.json"
 
-        # 1. Ultra-fast in-memory hit: cache populated and age < max_age_sec
-        if _AUDIT_RAW_FILINGS_CACHE and (now - _AUDIT_RAW_FILINGS_LAST_SCAN < max_age_sec):
+        # 1. Ultra-fast in-memory hit: cache populated, age < max_age_sec, AND raw directory mtime matches
+        if _AUDIT_RAW_FILINGS_CACHE and _AUDIT_RAW_DIR_MTIME == curr_dir_mtime and (now - _AUDIT_RAW_FILINGS_LAST_SCAN < max_age_sec):
             return _AUDIT_RAW_FILINGS_CACHE
 
         # 2. Fast disk manifest hit: seed in-memory cache if empty
@@ -10651,15 +10655,8 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                     sample_entry = next(iter(_m_data.values())) if _m_data else None
                     if sample_entry and "null_filings" in sample_entry and "latest_quarterly" in sample_entry:
                         _AUDIT_RAW_FILINGS_CACHE = _m_data
-                        _AUDIT_RAW_FILINGS_LAST_SCAN = now
             except Exception:
                 pass
-
-        if _AUDIT_RAW_FILINGS_CACHE and len(_AUDIT_RAW_FILINGS_CACHE) >= 500:
-            # Manifest has full universe coverage: avoid re-scanning all 886 disk files on every startup
-            _AUDIT_RAW_DIR_MTIME = curr_dir_mtime
-            _AUDIT_RAW_FILINGS_LAST_SCAN = now
-            return _AUDIT_RAW_FILINGS_CACHE
 
         if _AUDIT_RAW_FILINGS_CACHE is None:
             _AUDIT_RAW_FILINGS_CACHE = {}

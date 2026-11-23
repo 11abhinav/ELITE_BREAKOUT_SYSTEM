@@ -1288,21 +1288,21 @@ def run_system_scheduler():
                 if not local_canonical_valid or _df_local is None:
                     adopt_db = True
                 else:
-                    # Never-downgrade comparison: check max quarterly period and certified count
-                    local_max_q = str(_df_local["latest_quarterly_period"].dropna().max() or "") if "latest_quarterly_period" in _df_local.columns else ""
-                    db_max_q = str(_df_db["latest_quarterly_period"].dropna().max() or "") if "latest_quarterly_period" in _df_db.columns else ""
-                    local_cert = int((_df_local["provenance_status"] == "CERTIFIED").sum()) if "provenance_status" in _df_local.columns else 0
-                    db_cert = int((_df_db["provenance_status"] == "CERTIFIED").sum()) if "provenance_status" in _df_db.columns else 0
+                    # Never-downgrade comparison: check Q2+ period count and symbol count
+                    local_q2 = int((_df_local["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in _df_local.columns else 0
+                    db_q2 = int((_df_db["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in _df_db.columns else 0
 
-                    if db_max_q > local_max_q or (db_max_q == local_max_q and db_cert >= local_cert):
+                    if db_q2 > local_q2 or (db_q2 == local_q2 and len(_df_db) >= len(_df_local)):
                         adopt_db = True
-                    else:
+                    elif local_q2 > db_q2:
                         logger.info(
                             f"🛡️ [CANONICAL BOOT] Local certified image snapshot is newer/superior "
-                            f"(local_qtr={local_max_q}, cert={local_cert} vs db_qtr={db_max_q}, cert={db_cert}). "
+                            f"(local_q2={local_q2} vs db_q2={db_q2}). "
                             f"Preserving local snapshot and synchronizing up to DB."
                         )
                         upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
+                    else:
+                        adopt_db = True
 
             if adopt_db:
                 shutil.move(db_cand_path, canonical_path)
