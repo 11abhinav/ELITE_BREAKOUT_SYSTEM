@@ -14289,6 +14289,11 @@ async function fetchStockDataHealth(force = false) {
         sessionStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
       } catch (_) {}
       _applyStockDataHealthData(data);
+      if (force) {
+        setTimeout(() => {
+          fetchStockDataHealth(false);
+        }, 4000);
+      }
     } else {
       if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
         tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:30px; color:#ef4444;">❌ Failed to load audit: ${data.message || data.error || 'Server returned invalid response'}</td></tr>`;

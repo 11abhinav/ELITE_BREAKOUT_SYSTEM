@@ -3122,11 +3122,12 @@ _seed_stock_data_health_cache_from_disk()
 def _invalidate_all_stock_data_health_caches():
     """
     [RULE 67 CHANGE-RATIONALE: ATOMIC_AUDIT_CACHE_INVALIDATION_v1.0]
-    Atomically clears both dashboard_server in-memory Flask memo cache and database.py
-    _UNIFIED_AUDIT_CACHE to prevent stale data health lists after validation or unblocking.
+    Atomically marks both dashboard_server in-memory memo cache and database.py
+    _UNIFIED_AUDIT_CACHE as expired to trigger refresh without destroying cached_payload.
+    Preserves cached_payload so readers always receive instant <5ms responses.
     """
     with _STOCK_DATA_HEALTH_LOCK:
-        _STOCK_DATA_HEALTH_CACHE.clear()
+        _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
     try:
         from database import clear_unified_stock_data_health_cache
         clear_unified_stock_data_health_cache()
@@ -3527,14 +3528,20 @@ def api_admin_stock_data_health():
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
         # 1. Superfast SWR hit: return immediately in <5ms without blocking
-        if not force and cached_payload:
-            # Refresh in background if cache is >60s old
-            if now_t - cached_ts > 60.0:
+        if cached_payload:
+            # Refresh in background if force requested or cache is >60s old
+            if force or (now_t - cached_ts > 60.0):
                 threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
 
-            return _make_json_response(cached_payload, etag=cached_etag, max_age=30, precompressed_gzip=cached_gz)
+            return _make_json_response(
+                cached_payload,
+                etag=cached_etag,
+                max_age=0 if force else 30,
+                precompressed_gzip=cached_gz,
+                no_cache=force
+            )
 
-        # 2. Force refresh or Cold Cache: single-flight serialized computation
+        # 2. Cold Cache only: single-flight serialized computation
         with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
             # Double check under compute lock
             with _STOCK_DATA_HEALTH_LOCK:
@@ -3543,12 +3550,8 @@ def api_admin_stock_data_health():
                 cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
                 cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-            # SWR Coalescing: If a computation completed within the last 5 seconds, serve it immediately
-            if cached_payload and (time.time() - cached_ts <= 5.0):
+            if cached_payload:
                 return _make_json_response(cached_payload, etag=cached_etag, max_age=0 if force else 30, precompressed_gzip=cached_gz, no_cache=force)
-
-            if force:
-                _invalidate_all_stock_data_health_caches()
 
             resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
             return _make_json_response(resp_json, etag=etag, max_age=0 if force else 30, precompressed_gzip=gz, no_cache=force)
