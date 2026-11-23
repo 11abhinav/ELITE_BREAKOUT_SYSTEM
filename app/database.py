@@ -10301,6 +10301,7 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
         pass
 
     try:
+        sync_raw_filings_cache_for_symbol(sym)
         clear_unified_stock_data_health_cache()
     except Exception:
         pass
@@ -10561,6 +10562,7 @@ def check_and_restore_stale_stock(
         # [CHANGE-RATIONALE: Suppress Stale Stock Restored UI notifications to avoid spamming admin/user]
 
     try:
+        sync_raw_filings_cache_for_symbol(sym)
         clear_unified_stock_data_health_cache()
     except Exception:
         pass
@@ -10772,6 +10774,129 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
         _AUDIT_RAW_DIR_MTIME = curr_dir_mtime
         _AUDIT_RAW_FILINGS_LAST_SCAN = now
         return _AUDIT_RAW_FILINGS_CACHE
+
+
+def sync_raw_filings_cache_for_symbol(symbol: str) -> Optional[Dict[str, Any]]:
+    """
+    [REAL-TIME DISK SYNC INVARIANT]
+    Synchronously re-parses data/pit_raw_filings/<symbol>.json directly from disk
+    and immediately updates _AUDIT_RAW_FILINGS_CACHE and pit_raw_filings_manifest.json.
+    Eliminates in-flight cache lag where raw JSON has new filings but manifest/cache is stale.
+    """
+    global _AUDIT_RAW_FILINGS_CACHE, _AUDIT_RAW_FILINGS_LAST_SCAN
+    if not symbol:
+        return None
+    sym_u = str(symbol).strip().upper()
+    base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    cand_paths = [
+        os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym_u}.json"),
+        f"/app/data/pit_raw_filings/{sym_u}.json",
+    ]
+    p_found = None
+    for cp in cand_paths:
+        if os.path.exists(cp):
+            p_found = cp
+            break
+    if not p_found:
+        return None
+
+    try:
+        import pandas as pd
+        mtime = os.path.getmtime(p_found)
+        with open(p_found, "rb") as f:
+            data = json.loads(f.read())
+        if not isinstance(data, list) or len(data) == 0:
+            parsed_item = {"count": 0, "latest": "Empty", "latest_quarterly": "", "latest_annual": "", "mtime": mtime, "recent": [], "null_filings": [], "annual_years": [], "gaps": [], "has_missing_bs": False}
+        else:
+            valid_p = [str(stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date") or "")[:10] for stmt in data if (stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date"))]
+            latest = max(valid_p) if valid_p else "None"
+            recent = []
+            for stmt in data[-5:]:
+                pend = str(stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date") or "")
+                stt = str(stmt.get("statement_type") or stmt.get("period") or "A")[:1]
+                if pend:
+                    recent.append(f"{pend} ({stt})")
+
+            null_filings = []
+            annual_years = []
+            has_missing_bs = False
+            latest_annual = None
+            latest_annual_p = None
+            latest_quarterly_p = None
+
+            for stmt in data:
+                p_end = str(stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date") or "")[:10]
+                stt = str(stmt.get("statement_type") or stmt.get("period") or "").upper()
+                try:
+                    from app.financial_data_integrity import classify_statement_type
+                    is_ann = (classify_statement_type(stt, period_end_date=p_end) == "ANNUAL")
+                except Exception:
+                    is_ann = (("ANNUAL" in stt or "FY" in stt or (p_end.endswith("-03-31") and "QUARTER" not in stt and "Q" not in stt)) and not any(k in stt for k in ("HALF", "H1", "H2", "6M")))
+
+                has_facts = (stmt.get("revenue") is not None or stmt.get("net_profit") is not None)
+                if is_ann and len(p_end) >= 4:
+                    if latest_annual_p is None or p_end > latest_annual_p:
+                        latest_annual_p = p_end
+                    try:
+                        yr = int(p_end[:4])
+                        if yr not in annual_years:
+                            annual_years.append(yr)
+                    except Exception:
+                        pass
+                    if latest_annual is None or p_end > str(latest_annual.get("period_end_date") or latest_annual.get("period_end") or ""):
+                        latest_annual = stmt
+                elif not is_ann and has_facts:
+                    if latest_quarterly_p is None or p_end > latest_quarterly_p:
+                        latest_quarterly_p = p_end
+
+                if p_end >= "2024-01-01":
+                    rev = stmt.get("revenue")
+                    np = stmt.get("net_profit")
+                    if (rev is None or pd.isna(rev)) and (np is None or pd.isna(np)):
+                        fid = stmt.get("filing_id") or ""
+                        null_filings.append(f"{p_end}:{fid}" if fid else p_end)
+
+            if latest_annual:
+                d = latest_annual.get("total_debt") if latest_annual.get("total_debt") is not None else latest_annual.get("debt")
+                e = latest_annual.get("total_equity") if latest_annual.get("total_equity") is not None else latest_annual.get("equity")
+                if (d is None or pd.isna(d)) and (e is None or pd.isna(e)):
+                    has_missing_bs = True
+
+            annual_years.sort()
+            recent_annual_years = [y for y in annual_years if y >= 2020]
+            gaps = []
+            for i in range(len(recent_annual_years) - 1):
+                if recent_annual_years[i + 1] - recent_annual_years[i] > 1:
+                    gaps.extend(range(recent_annual_years[i] + 1, recent_annual_years[i + 1]))
+
+            parsed_item = {
+                "count": len(data),
+                "latest": latest,
+                "latest_quarterly": latest_quarterly_p or "",
+                "latest_annual": latest_annual_p or "",
+                "mtime": mtime,
+                "recent": recent,
+                "null_filings": null_filings,
+                "annual_years": annual_years,
+                "gaps": gaps,
+                "has_missing_bs": has_missing_bs,
+            }
+
+        with _AUDIT_RAW_LOCK:
+            if _AUDIT_RAW_FILINGS_CACHE is None:
+                _AUDIT_RAW_FILINGS_CACHE = {}
+            _AUDIT_RAW_FILINGS_CACHE[sym_u] = parsed_item
+            _AUDIT_RAW_FILINGS_LAST_SCAN = time.time()
+            manifest_p = Path(p_found).parent.parent / "pit_raw_filings_manifest.json"
+            try:
+                with open(manifest_p, "w", encoding="utf-8") as _mf:
+                    json.dump(_AUDIT_RAW_FILINGS_CACHE, _mf)
+            except Exception:
+                pass
+        return parsed_item
+    except Exception as e:
+        logger.debug(f"[sync_raw_filings_cache] Error parsing {sym_u}: {e}")
+        return None
 
 
 def get_sebi_lodr_mandatory_filing_status(
@@ -11896,6 +12021,9 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                                                 eff_qtr = _p_end
                                                 eff_latest = max(eff_latest, _p_end)
                                                 raw_qtr = _p_end
+                                    raw_count = max(raw_count, len(_stmts))
+                                    if eff_latest and eff_latest not in ("None", "Empty", "Error"):
+                                        raw_period = eff_latest
                             except Exception:
                                 pass
 
@@ -16713,6 +16841,7 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     # the TTL-cached (30s-stale) filing list even though the filing scanner just wrote
     # a fresh row — the user would see outdated data until the TTL expired.
     try:
+        sync_raw_filings_cache_for_symbol(sym)
         clear_unified_stock_data_health_cache()
     except Exception:
         pass
@@ -16966,6 +17095,7 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
     # Batch upsert also evicts both caches on every commit so bulk filing ingestion
     # (e.g. filing scanner processing 900 symbols) never serves a stale cache window.
     try:
+        sync_raw_filings_cache_for_symbol(sym)
         clear_unified_stock_data_health_cache()
     except Exception:
         pass

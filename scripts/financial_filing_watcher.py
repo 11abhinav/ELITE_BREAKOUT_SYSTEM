@@ -1299,9 +1299,10 @@ class FinancialFilingWatcher:
                     # INVARIANT: If stock already has latest concluded quarter, immediately restore from any stale cool-off!
                     try:
                         try:
-                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
+                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache, sync_raw_filings_cache_for_symbol
                         except ImportError:
-                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
+                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache, sync_raw_filings_cache_for_symbol
+                        sync_raw_filings_cache_for_symbol(sym_u)
                         check_and_restore_stale_stock(
                             symbol=sym_u,
                             source="EXCHANGE_FILING_WATCHER_LATEST_CONFIRMED",
