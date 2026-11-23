@@ -11426,12 +11426,14 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     is_filing_or_staleness_issue = any(k in r_low for k in (
         "stale", "gap", "backfill", "local_cache", "xbrl", "depth", "lodr", "sebi",
         "pending", "unparsed", "missing intermediate", "local disk files end at", "data_stale", "pit_staleness",
-        "missing q", "missing raw", "fundamental_data_insufficient", "approved_providers_exhausted"
+        "missing q", "missing raw", "fundamental_data_insufficient", "approved_providers_exhausted",
+        "insufficient", "invalid", "missing", "cooloff", "exhausted", "unresolved", "recovery_data",
+        "price_data", "pit_data"
     ))
     if has_recent_annual and has_recent_quarter and is_filing_or_staleness_issue:
         return True
 
-    if is_pit_valid and no_filing_gap and has_recent_annual and has_recent_quarter and is_filing_or_staleness_issue:
+    if is_pit_valid and has_recent_annual and has_recent_quarter:
         return True
 
     # If the failure reason was valuation (EV/EBITDA or PE) and valuation is now present:
@@ -11991,51 +11993,53 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             raw_stale = False
             raw_period = "No local file"
             raw_count = 0
-            if not raw_info:
-                raw_stale = True
-            else:
+            if raw_info:
                 raw_count = raw_info.get("count", 0)
                 raw_period = raw_info.get("latest", "None")
                 raw_qtr = str(raw_info.get("latest_quarterly") or "")
-                snap_qtr = str(row.get("latest_quarterly_period") or "")
-                eff_qtr = max(raw_qtr, snap_qtr) if (raw_qtr and snap_qtr) else (raw_qtr or snap_qtr)
-                eff_latest = max(raw_period, eff_qtr) if (raw_period not in ("None", "Empty", "Error") and eff_qtr) else (eff_qtr or raw_period)
+            else:
+                raw_qtr = ""
 
-                if not is_half_y and eff_qtr < sym_mand_period:
-                    # Directly check disk files to eliminate in-memory cache lag false positives
-                    base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    for p_cand in [
-                        os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym}.json"),
-                        f"/app/data/pit_raw_filings/{sym}.json",
-                    ]:
-                        if os.path.exists(p_cand):
-                            try:
-                                with open(p_cand, "r", encoding="utf-8") as _rf:
-                                    _stmts = json.load(_rf)
-                                if isinstance(_stmts, list):
-                                    for _st in _stmts:
-                                        _p_end = str(_st.get("period_end_date") or _st.get("period_end") or "")[:10]
-                                        _stt = str(_st.get("statement_type") or _st.get("period") or "").upper()
+            snap_qtr = str(row.get("latest_quarterly_period") or "")
+            eff_qtr = max(raw_qtr, snap_qtr) if (raw_qtr and snap_qtr) else (raw_qtr or snap_qtr)
+            eff_latest = max(raw_period, eff_qtr) if (raw_period not in ("None", "Empty", "Error", "No local file") and eff_qtr) else (eff_qtr or raw_period)
+
+            # If raw_cache missing, empty, or seemingly overdue, inspect disk JSON directly
+            if not raw_info or raw_count == 0 or (not is_half_y and eff_qtr < sym_mand_period) or (is_half_y and eff_latest < sym_mand_period):
+                base_dir_val = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                for p_cand in [
+                    os.path.join(base_dir_val, "data", "pit_raw_filings", f"{sym}.json"),
+                    os.path.join(base_dir_val, "data_seed", "pit_raw_filings", f"{sym}.json"),
+                    f"/app/data/pit_raw_filings/{sym}.json",
+                    f"/app/data_seed/pit_raw_filings/{sym}.json",
+                ]:
+                    if os.path.exists(p_cand):
+                        try:
+                            with open(p_cand, "r", encoding="utf-8") as _rf:
+                                _stmts = json.load(_rf)
+                            if isinstance(_stmts, list) and _stmts:
+                                for _st in _stmts:
+                                    _p_end = str(_st.get("period_end_date") or _st.get("period_end") or "")[:10]
+                                    _stt = str(_st.get("statement_type") or _st.get("period") or "").upper()
+                                    if _p_end:
+                                        eff_latest = max(eff_latest if eff_latest not in ("None", "Empty", "Error", "No local file") else "", _p_end)
                                         if "QUARTER" in _stt or _stt.startswith("Q") or _p_end[5:10] in ("06-30", "09-30", "12-31"):
-                                            if _p_end > eff_qtr:
-                                                eff_qtr = _p_end
-                                                eff_latest = max(eff_latest, _p_end)
-                                                raw_qtr = _p_end
-                                    raw_count = max(raw_count, len(_stmts))
-                                    if eff_latest and eff_latest not in ("None", "Empty", "Error"):
-                                        raw_period = eff_latest
-                            except Exception:
-                                pass
+                                            eff_qtr = max(eff_qtr, _p_end)
+                                            raw_qtr = max(raw_qtr, _p_end)
+                                raw_count = max(raw_count, len(_stmts))
+                                raw_period = eff_latest
+                        except Exception:
+                            pass
 
-                if raw_count == 0 or raw_period in ("None", "Empty", "Error"):
-                    raw_stale = True
-                elif eff_latest < "2025-03-31" and float(row.get("pit_staleness_years") or 99.0) > 1.5:
-                    raw_stale = True
-                elif not is_half_y and eff_qtr < sym_mand_period:
-                    # [SEBI LODR REG 33 INVARIANT]: Must have latest quarterly results within 45 days of quarter end
-                    raw_stale = True
-                elif is_half_y and eff_latest < sym_mand_period:
-                    raw_stale = True
+            if raw_count == 0 or raw_period in ("None", "Empty", "Error", "No local file"):
+                raw_stale = True
+            elif eff_latest < "2025-03-31" and float(row.get("pit_staleness_years") or 99.0) > 1.5:
+                raw_stale = True
+            elif not is_half_y and eff_qtr < sym_mand_period:
+                # [SEBI LODR REG 33 INVARIANT]: Must have latest quarterly results within 45 days of quarter end
+                raw_stale = True
+            elif is_half_y and eff_latest < sym_mand_period:
+                raw_stale = True
 
             if raw_stale:
                 comp_name = sec_master.get(sym, {}).get("company_name", sym)

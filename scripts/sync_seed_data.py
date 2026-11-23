@@ -112,9 +112,28 @@ def sync_seed_data():
     # 3. Synchronize manifest
     seed_manifest = seed_dir / "pit_raw_filings_manifest.json"
     target_manifest = data_dir / "pit_raw_filings_manifest.json"
-    if seed_manifest.exists() and (not target_manifest.exists() or seed_manifest.stat().st_mtime > target_manifest.stat().st_mtime):
-        shutil.copy2(seed_manifest, target_manifest)
-        print("✅ [SEED_SYNC] Copied pit_raw_filings_manifest.json to volume.")
+    if seed_manifest.exists():
+        should_copy_manifest = False
+        if not target_manifest.exists() or target_manifest.stat().st_size == 0:
+            should_copy_manifest = True
+        else:
+            try:
+                with open(seed_manifest, "r", encoding="utf-8") as f:
+                    sm_data = json.load(f)
+                with open(target_manifest, "r", encoding="utf-8") as f:
+                    tm_data = json.load(f)
+                if not isinstance(tm_data, dict) or len(tm_data) == 0:
+                    should_copy_manifest = True
+                elif isinstance(sm_data, dict):
+                    s_total = sum(v.get("count", 0) for v in sm_data.values() if isinstance(v, dict))
+                    t_total = sum(v.get("count", 0) for v in tm_data.values() if isinstance(v, dict))
+                    if len(sm_data) > len(tm_data) or s_total > t_total or seed_manifest.stat().st_mtime > target_manifest.stat().st_mtime:
+                        should_copy_manifest = True
+            except Exception:
+                should_copy_manifest = True
+        if should_copy_manifest:
+            shutil.copy2(seed_manifest, target_manifest)
+            print("✅ [SEED_SYNC] Copied pit_raw_filings_manifest.json to volume.")
 
 if __name__ == "__main__":
     sync_seed_data()

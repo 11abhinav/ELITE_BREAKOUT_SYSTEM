@@ -14237,7 +14237,8 @@ async function fetchStockDataHealth(force = false) {
 
   try {
     const forceParam = force ? '&force=1' : '';
-    const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`);
+    const fetchOpts = force ? { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } } : {};
+    const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`, fetchOpts);
     
     if (res.status === 401) {
       try { sessionStorage.removeItem('CACHE_SDH_DATA'); localStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
@@ -14249,7 +14250,7 @@ async function fetchStockDataHealth(force = false) {
       return;
     }
 
-    if (res.status === 304) {
+    if (res.status === 304 && !force) {
       // 304 Not Modified: client cache is current
       return;
     }

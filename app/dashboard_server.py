@@ -3480,6 +3480,9 @@ def api_admin_stock_data_health():
         now_t = time.time()
         req_etag = request.headers.get("If-None-Match")
 
+        if force:
+            _invalidate_all_stock_data_health_caches()
+
         with _STOCK_DATA_HEALTH_LOCK:
             cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
             cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
@@ -3502,7 +3505,13 @@ def api_admin_stock_data_health():
 
         # Cache miss or forced reload: compute synchronously
         resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
-        return _make_json_response(resp_json, etag=etag, max_age=30, precompressed_gzip=gz)
+        max_age_val = 0 if force else 30
+        resp = _make_json_response(resp_json, etag=etag, max_age=max_age_val, precompressed_gzip=gz)
+        if force:
+            resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+        return resp
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -5685,6 +5694,7 @@ def api_admin_trigger_filing_watcher():
                     from database import clear_unified_stock_data_health_cache, reconcile_and_purge_restored_cooloffs
                 reconcile_and_purge_restored_cooloffs()
                 clear_unified_stock_data_health_cache()
+                _invalidate_all_stock_data_health_caches()
             except Exception as e:
                 logger.error(f"[API_TRIGGER_FILING_WATCHER] Background run failed: {e}")
 
