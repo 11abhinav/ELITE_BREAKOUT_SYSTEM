@@ -9,9 +9,9 @@
     "net_profit": 36.09,
     "operating_cash_flow": 22.53,
     "total_debt": 175.0,
-    "total_equity": 189.0,
+    "total_equity": 189.45,
     "ebit": 49.71,
-    "capital_employed": null,
+    "capital_employed": 189.45,
     "eps": 2.46,
     "shares_outstanding": 24000000.0,
     "unit": "crore",
@@ -37,7 +37,7 @@
     "raw_NII": null,
     "mapped_revenue": 905.0,
     "mapping_rule": "REVENUE_DIRECT",
-    "source_record_hash": "c43e54935b5a1c7204afc549b012946c2ce1b9bfbbc58cd0d34f3141e6ac10e4"
+    "source_record_hash": "37524a1b2f4c32efbe16d10d98b09214e5ef3c8c1c7bd7ef1756f4484d01cec1"
   },
   {
     "filing_id": "VMARCIND_20250630_Q_v1",
@@ -83,9 +83,9 @@
     "net_profit": 98.78,
     "operating_cash_flow": 109.15,
     "total_debt": 214.0,
-    "total_equity": 289.0,
+    "total_equity": 289.5000000000001,
     "ebit": 133.66,
-    "capital_employed": null,
+    "capital_employed": 289.5000000000001,
     "eps": 6.74,
     "shares_outstanding": 24000000.0,
     "unit": "crore",
@@ -111,7 +111,7 @@
     "raw_NII": null,
     "mapped_revenue": 1797.0,
     "mapping_rule": "REVENUE_DIRECT",
-    "source_record_hash": "708027d94b043576129764b8fd510bb8b5e3065a07fca943a230dc9253f955e2"
+    "source_record_hash": "804f9498d9ac22b79b436e492bd8c1973b6c703beb165f6a03d6489281ffcfa6"
   },
   {
     "filing_id": "VMARCIND_20260630_Q_v1",

@@ -1038,9 +1038,9 @@ class FinancialFilingWatcher:
             logger.debug(f"[filling scanner] Could not pre-load snapshot lookup: {_snap_err}")
 
         # ── FAST MARKET-WIDE FILINGS PRE-SWEEP (1-2s for whole market) ──
-        # Optimization: Only run heavy 45-day entire market sweep when scanning broad universe (> 50 symbols).
-        # For targeted runs (e.g. 1-10 stocks), bypass the 2,500-stock market sweep to complete in seconds!
-        is_targeted_poll = bool(targeted_symbols_set and len(targeted_symbols_set) <= 50)
+        # Always run 45-day entire market sweep in 1 single request (~2-5s) so every symbol (broad or targeted)
+        # gets instant access to in-memory corporate announcements and SEBI Reg 33 PDF links.
+        is_targeted_poll = False
         market_sweep_filings: Dict[str, List[Dict[str, Any]]] = {}
         market_sweep_ok = False
         if not is_targeted_poll:
@@ -1701,7 +1701,7 @@ class FinancialFilingWatcher:
                 # to avoid wasting 45-60s per stock on failing legacy corporates-financial-results calls!
                 direct_sweep_success = False
                 direct_sweep_attempted = False
-                if market_sweep_ok and has_newer_sweep_filing:
+                if market_sweep_ok and (has_newer_sweep_filing or not has_latest_concluded_quarter):
                     direct_sweep_attempted = True
                     sym_sweep_disclosures = market_sweep_filings.get(sym_u, [])
                     # 1. First attempt XBRL XML extraction if available in sweep announcements
@@ -1814,7 +1814,8 @@ class FinancialFilingWatcher:
                 should_poll_nse_legacy = bool(
                     nse_prov
                     and not direct_sweep_success  # <-- Early exit: skip if sweep already ingested new data
-                    and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok)
+                    and not market_sweep_ok  # When market sweep was successful, announcements were already inspected in-memory
+                    and (needs_bootstrap or not has_latest_concluded_quarter)
                 )
                 if should_poll_nse_legacy:
                     try:
