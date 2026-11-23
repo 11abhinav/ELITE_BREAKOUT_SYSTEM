@@ -186,7 +186,7 @@ class ScannerDataGateway:
                     from database import _load_canonical_snapshot_df
                 except ImportError:
                     from app.database import _load_canonical_snapshot_df
-                df = _load_canonical_snapshot_df()
+                df = _load_canonical_snapshot_df(allow_gateway=False)
             except Exception:
                 pass
 

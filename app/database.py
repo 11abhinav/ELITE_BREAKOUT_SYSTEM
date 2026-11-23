@@ -11022,28 +11022,28 @@ def clear_canonical_snapshot_cache() -> None:
     except Exception:
         pass
 
-def _load_canonical_snapshot_df() -> Optional[Any]:
+def _load_canonical_snapshot_df(allow_gateway: bool = False) -> Optional[Any]:
     """
     Resilient loader for canonical_pit_rebuilt.parquet with multi-tier self-healing
     and in-memory mtime caching for sub-millisecond retrieval.
-    Routes through ScannerDataGateway to ensure Layer B validated overlay is included.
     """
     global _CANONICAL_DF_CACHE, _CANONICAL_DF_MTIME
     import os, shutil
     import pandas as pd
 
-    # Try Tier 0: Single Point of Truth (ScannerDataGateway: Base + Layer B Validated Overlay)
-    try:
+    if allow_gateway:
+        # Try Tier 0: Single Point of Truth (ScannerDataGateway: Base + Layer B Validated Overlay)
         try:
-            from app.scanner_data_gateway import ScannerDataGateway
-        except ImportError:
-            from scanner_data_gateway import ScannerDataGateway
-        gateway = ScannerDataGateway()
-        df_gw = gateway.get_working_dataset()
-        if df_gw is not None and not df_gw.empty and "symbol" in df_gw.columns:
-            return df_gw
-    except Exception as _gw_e:
-        logger.debug(f"[CANONICAL_LOADER] Gateway load fallback: {_gw_e}")
+            try:
+                from app.scanner_data_gateway import ScannerDataGateway
+            except ImportError:
+                from scanner_data_gateway import ScannerDataGateway
+            gateway = ScannerDataGateway()
+            df_gw = gateway.get_working_dataset()
+            if df_gw is not None and not df_gw.empty and "symbol" in df_gw.columns:
+                return df_gw
+        except Exception as _gw_e:
+            logger.debug(f"[CANONICAL_LOADER] Gateway load fallback: {_gw_e}")
 
     base_dir = Path(__file__).resolve().parent.parent
     snap_path = base_dir / "data" / "canonical_pit_rebuilt.parquet"

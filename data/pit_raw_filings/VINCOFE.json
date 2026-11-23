@@ -770,5 +770,23 @@
     "mapped_revenue": 55.53,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "a962f360b3b2f761f49b7070befb7ad06ee0cd441dd2ee2a2f3a962ca2e6946b"
+  },
+  {
+    "symbol": "VINCOFE",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 222.9749,
+    "net_profit": 413.3702,
+    "operating_profit": null,
+    "eps": 5.0,
+    "total_debt": 15.0535,
+    "total_equity": 7.44,
+    "operating_cash_flow": null,
+    "shares_outstanding": 32066800.0,
+    "filing_date": "2026-11-04",
+    "broadcast_timestamp": "04-Nov-2026 11:44:12",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_VINCOFE_106843651_2026-09-30"
   }
 ]

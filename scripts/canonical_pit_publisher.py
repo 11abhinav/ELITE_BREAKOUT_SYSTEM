@@ -400,7 +400,8 @@ def publish_canonical_pit(
                 # This ensures valid recoveries across the rest of the batch are not discarded by a single symbol regression.
                 df_target = df_new.copy()
                 if df_old is not None and not df_old.empty:
-                    df_old_idx = df_old.set_index(df_old["symbol"].str.upper())
+                    df_old_dedup = df_old.drop_duplicates(subset=["symbol"], keep="last")
+                    df_old_idx = df_old_dedup.set_index(df_old_dedup["symbol"].str.upper())
                     target_syms = df_target["symbol"].str.upper()
                     tracked_preserve_cols = [
                         "current_ev_ebitda", "ev_ebitda_3y_median", "current_pe", "pe_3y_median",
@@ -413,13 +414,25 @@ def publish_canonical_pit(
                     preserved_count = 0
                     for col in tracked_preserve_cols:
                         if col in df_old.columns and col in df_target.columns:
-                            old_mapped = target_syms.map(df_old_idx[col])
+                            old_series = df_old_idx[col]
+                            if isinstance(old_series, pd.DataFrame):
+                                old_series = old_series.iloc[:, 0]
+                            old_mapped = target_syms.map(old_series)
                             missing_mask = df_target[col].isna() & old_mapped.notna()
                             if missing_mask.any():
                                 preserved_count += int(missing_mask.sum())
                                 df_target.loc[missing_mask, col] = old_mapped[missing_mask]
                     if preserved_count > 0:
                         logger.info(f"🛡️ [CANONICAL_PUBLISHER] Conflict isolation: preserved {preserved_count} verified field(s) from existing canonical to prevent regression")
+
+                    if "provenance_status" in df_old.columns and "provenance_status" in df_target.columns:
+                        old_prov = target_syms.map(df_old_idx["provenance_status"])
+                        if isinstance(old_prov, pd.DataFrame):
+                            old_prov = old_prov.iloc[:, 0]
+                        cert_mask = (old_prov == "CERTIFIED") & (df_target["provenance_status"] != "CERTIFIED")
+                        if cert_mask.any():
+                            df_target.loc[cert_mask, "provenance_status"] = "CERTIFIED"
+                            logger.info(f"🛡️ [CANONICAL_PUBLISHER] Preserved CERTIFIED provenance for {int(cert_mask.sum())} symbol(s)")
 
                 gate_passed, gate_reasons = _run_never_downgrade_gate(df_old, df_target, reason)
 

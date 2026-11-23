@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-23T20:00:29.313668",
+    "last_successful_check_at": "2026-11-23T22:48:47.043883",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -165,10 +165,12 @@
         "last_successful_check_at": "2026-11-14T17:48:07.313902"
       },
       "VSSL": {
-        "last_successful_check_at": "2026-10-24T19:12:39.460302"
+        "last_successful_check_at": "2026-11-23T22:50:36.193310",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "WEBELSOLAR": {
-        "last_successful_check_at": "2026-11-14T17:48:08.468591"
+        "last_successful_check_at": "2026-11-23T22:46:31.048598",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "CAMPUS": {
         "last_successful_check_at": "2026-10-15T20:25:47.681650"
@@ -569,12 +571,104 @@
       "SIKA": {
         "last_successful_check_at": "2026-11-23T20:00:35.080180",
         "latest_filing_timestamp": "2026-11-05T17:51:52.953"
+      },
+      "WINDLAS": {
+        "last_successful_check_at": "2026-11-23T22:41:25.012008",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ZENTEC": {
+        "last_successful_check_at": "2026-11-23T22:41:33.390761",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ZENSARTECH": {
+        "last_successful_check_at": "2026-11-23T22:41:52.179963",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ZYDUSLIFE": {
+        "last_successful_check_at": "2026-11-23T22:41:57.371579",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "WIPRO": {
+        "last_successful_check_at": "2026-11-23T22:42:03.707523",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ZAGGLE": {
+        "last_successful_check_at": "2026-11-23T22:42:09.340496",
+        "latest_filing_timestamp": "2026-11-14T17:13:47.493"
+      },
+      "ZFCVINDIA": {
+        "last_successful_check_at": "2026-11-23T22:42:09.340181",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "YATHARTH": {
+        "last_successful_check_at": "2026-11-23T22:42:16.674734",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ZSARACOM": {
+        "last_successful_check_at": "2026-11-23T22:42:18.916094",
+        "latest_filing_timestamp": "2026-11-06T12:33:34.56"
+      },
+      "WAAREEINDO": {
+        "last_successful_check_at": "2026-11-23T22:45:36.263161",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "WABAG": {
+        "last_successful_check_at": "2026-11-23T22:45:52.271683",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "WELCORP": {
+        "last_successful_check_at": "2026-11-23T22:46:05.844559",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "WHEELS": {
+        "last_successful_check_at": "2026-11-23T22:46:12.435995",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VSTIND": {
+        "last_successful_check_at": "2026-11-23T22:46:19.202780",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "WELENT": {
+        "last_successful_check_at": "2026-11-23T22:46:24.124343",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "WAAREEENER": {
+        "last_successful_check_at": "2026-11-23T22:46:36.905571",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "WAAREERTL": {
+        "last_successful_check_at": "2026-11-23T22:46:41.503411",
+        "latest_filing_timestamp": "2026-10-20T14:49:51.037"
+      },
+      "VSTTILLERS": {
+        "last_successful_check_at": "2026-11-23T22:46:43.176261",
+        "latest_filing_timestamp": "2026-10-23T18:23:57.133"
+      },
+      "VMM": {
+        "last_successful_check_at": "2026-11-23T22:50:24.760762",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VMART": {
+        "last_successful_check_at": "2026-11-23T22:50:31.664897",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VOLTAMP": {
+        "last_successful_check_at": "2026-11-23T22:50:43.363056",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VINCOFE": {
+        "last_successful_check_at": "2026-11-23T22:50:52.016853",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VISHNU": {
+        "last_successful_check_at": "2026-11-23T22:50:57.116902",
+        "latest_filing_timestamp": "2026-09-30"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-23T20:00:29.313668",
+    "last_successful_check_at": "2026-11-23T22:48:47.043883",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
