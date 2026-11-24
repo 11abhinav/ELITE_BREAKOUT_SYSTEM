@@ -3593,21 +3593,21 @@ def api_admin_stock_data_health():
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-        # 1. Superfast SWR hit: return immediately in <5ms without blocking
-        if cached_payload:
-            # Refresh in background if force requested or cache is >60s old
-            if force or (now_t - cached_ts > 60.0):
+        # 1. Warm cache hit: return immediately in <5ms ONLY if cache is valid and NOT explicitly invalidated (ts > 0.0)
+        if cached_payload and cached_ts > 0.0 and not force:
+            # Refresh in background if cache is >60s old
+            if (now_t - cached_ts > 60.0):
                 threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
 
             return _make_json_response(
                 cached_payload,
                 etag=cached_etag,
-                max_age=0 if force else 30,
+                max_age=30,
                 precompressed_gzip=cached_gz,
-                no_cache=force
+                no_cache=False
             )
 
-        # 2. Cold Cache only: single-flight serialized computation
+        # 2. Invalidated (ts == 0.0), Forced (force=True), or Cold Cache: compute fresh payload synchronously
         with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
             # Double check under compute lock
             with _STOCK_DATA_HEALTH_LOCK:
@@ -3616,8 +3616,8 @@ def api_admin_stock_data_health():
                 cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
                 cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-            if cached_payload:
-                return _make_json_response(cached_payload, etag=cached_etag, max_age=0 if force else 30, precompressed_gzip=cached_gz, no_cache=force)
+            if cached_payload and cached_ts > 0.0 and not force:
+                return _make_json_response(cached_payload, etag=cached_etag, max_age=30, precompressed_gzip=cached_gz, no_cache=False)
 
             resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
             return _make_json_response(resp_json, etag=etag, max_age=0 if force else 30, precompressed_gzip=gz, no_cache=force)
@@ -5854,6 +5854,11 @@ def api_admin_trigger_filing_watcher():
                 reconcile_and_purge_restored_cooloffs()
                 clear_unified_stock_data_health_cache()
                 _invalidate_all_stock_data_health_caches()
+                try:
+                    _compute_stock_data_health_payload(force=True)
+                    logger.info("⚡ [API_TRIGGER_FILING_WATCHER] Precomputed fresh stock data health audit immediately after sweep.")
+                except Exception as _comp_err:
+                    logger.debug(f"[API_TRIGGER_FILING_WATCHER] Precompute note: {_comp_err}")
             except Exception as e:
                 logger.error(f"[API_TRIGGER_FILING_WATCHER] Background run failed: {e}")
 
