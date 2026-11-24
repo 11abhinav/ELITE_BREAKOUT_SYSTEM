@@ -115,6 +115,17 @@ def query_axiom_logs(minutes=5, limit=50):
 
 def run_continuous(max_batches=200):
     attempted_stocks = set()
+    attempted_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "backward_sweep_attempted.json")
+    if os.path.exists(attempted_file):
+        try:
+            with open(attempted_file) as af:
+                saved = json.load(af)
+                if isinstance(saved, list):
+                    attempted_stocks.update(saved)
+                    print(f"📂 Loaded {len(attempted_stocks)} previously attempted stocks from {os.path.basename(attempted_file)}", flush=True)
+        except Exception as e:
+            print(f"⚠️ Could not load attempted file: {e}", flush=True)
+
     batch_idx = 0
     pass_number = 1
 
@@ -140,6 +151,11 @@ def run_continuous(max_batches=200):
                 pass_number += 1
                 print(f"🔄 Pass {pass_number-1} complete. Starting Pass {pass_number} on {len(backward_stale)} remaining stale stocks...", flush=True)
                 attempted_stocks.clear()
+                try:
+                    if os.path.exists(attempted_file):
+                        os.remove(attempted_file)
+                except Exception:
+                    pass
                 unattempted = backward_stale
 
         batch_idx += 1
@@ -151,6 +167,11 @@ def run_continuous(max_batches=200):
 
         current_batch = unattempted[:10]
         attempted_stocks.update(current_batch)
+        try:
+            with open(attempted_file, "w") as af:
+                json.dump(sorted(list(attempted_stocks)), af)
+        except Exception:
+            pass
 
         print(f"👉 TARGETING BATCH #{batch_idx} ({len(current_batch)} stocks): {current_batch}", flush=True)
         trigger_res = trigger_batch(current_batch)

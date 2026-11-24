@@ -125,8 +125,9 @@ def _handle_client(client_sock: socket.socket):
                 threading.Thread(target=_pipe_client_to_target, daemon=True).start()
 
             # Stream target (Flask) response back to client directly in this thread
+            # [RULE 67 CHANGE-RATIONALE]: 60s timeout accommodates cold-start queries while bounded SWR caches serve in <5ms
             try:
-                target_sock.settimeout(15.0)
+                target_sock.settimeout(60.0)
                 while True:
                     buf = target_sock.recv(8192)
                     if not buf:

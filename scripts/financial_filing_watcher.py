@@ -1808,17 +1808,13 @@ class FinancialFilingWatcher:
                             f"Skipping redundant legacy corporates-financial-results calls."
                         )
 
-                # 1. Poll NSE XBRL / Corporate Results (Primary Source) - if needs_bootstrap, missing latest quarter, or market sweep was unavailable
-                # KEY OPTIMIZATION: If market sweep executed cleanly, recent disclosures were already examined in memory.
-                # Only fall back to slow per-symbol legacy API round-trips if:
-                #   - We need full historical bootstrapping (needs_bootstrap=True), OR
-                #   - We are missing the latest concluded quarter (not has_latest_concluded_quarter), OR
-                #   - Market sweep was unavailable/failed (not market_sweep_ok)
+                # 1. Poll NSE XBRL / Corporate Results (Primary Source) - if direct sweep did not ingest facts
+                # [RULE 67 CHANGE-RATIONALE]: When announcement PDF is scanned/unreadable (direct_sweep_success=False),
+                # always poll official NSE XBRL results API, which contains authoritative machine-readable XML.
                 should_poll_nse_legacy = bool(
                     nse_prov
-                    and not direct_sweep_success  # <-- Early exit: skip if sweep already ingested new data
-                    and not market_sweep_ok  # When market sweep was successful, announcements were already inspected in-memory
-                    and (needs_bootstrap or not has_latest_concluded_quarter)
+                    and not direct_sweep_success
+                    and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok or is_targeted_symbol)
                 )
                 if should_poll_nse_legacy:
                     try:

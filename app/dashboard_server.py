@@ -903,6 +903,7 @@ def notify_stream_clients(event_type: str = "alert", payload: dict = None):
         _LATEST_STREAM_EVENT["last_payload"] = payload
 
 _todays_alerts_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
+_ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
 _SEH_API_CACHE = {}
 
 def invalidate_seh_api_cache():
@@ -2187,18 +2188,43 @@ def health():
 # ── PHASE 4 V2 MASTER ORCHESTRATION ROUTES ──
 _V2_MASTER_SUMMARY_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
 
+_V2_MASTER_SUMMARY_REFRESHING = False
+
 @app.route("/api/v2/master_summary")
 def get_v2_master_summary():
-    """Serves v2 master summary with 5s in-memory micro-cache, ETag 304, and precompressed gzip."""
-    global _V2_MASTER_SUMMARY_CACHE
+    """Serves v2 master summary with bounded stale-while-revalidate (SWR) caching, ETag 304, and precompressed gzip."""
+    global _V2_MASTER_SUMMARY_CACHE, _V2_MASTER_SUMMARY_REFRESHING
     now_ts = time.time()
-    if _V2_MASTER_SUMMARY_CACHE["payload"] is not None and (now_ts - _V2_MASTER_SUMMARY_CACHE["ts"]) < 5.0:
-        return _make_json_response(
-            _V2_MASTER_SUMMARY_CACHE["payload"],
-            etag=_V2_MASTER_SUMMARY_CACHE["etag"],
-            max_age=5,
-            precompressed_gzip=_V2_MASTER_SUMMARY_CACHE["gzip"]
-        )
+    cached_p = _V2_MASTER_SUMMARY_CACHE.get("payload")
+    cached_etag = _V2_MASTER_SUMMARY_CACHE.get("etag")
+    cached_gz = _V2_MASTER_SUMMARY_CACHE.get("gzip")
+    cached_ts = _V2_MASTER_SUMMARY_CACHE.get("ts", 0.0)
+
+    # Fast-path SWR: If payload exists, serve immediately and trigger background refresh if older than 5s
+    if cached_p is not None:
+        if (now_ts - cached_ts) >= 5.0 and not _V2_MASTER_SUMMARY_REFRESHING:
+            def _bg_refresh():
+                global _V2_MASTER_SUMMARY_CACHE, _V2_MASTER_SUMMARY_REFRESHING
+                try:
+                    _V2_MASTER_SUMMARY_REFRESHING = True
+                    from master_orchestrator import orchestrator_v2
+                    data = orchestrator_v2.get_master_summary()
+                    payload = json.dumps(data, default=str)
+                    import hashlib
+                    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+                    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                    _V2_MASTER_SUMMARY_CACHE["ts"] = time.time()
+                    _V2_MASTER_SUMMARY_CACHE["payload"] = payload
+                    _V2_MASTER_SUMMARY_CACHE["gzip"] = gz
+                    _V2_MASTER_SUMMARY_CACHE["etag"] = etag
+                except Exception as bg_err:
+                    logger.debug(f"[V2_MASTER_SUMMARY] BG refresh notice: {bg_err}")
+                finally:
+                    _V2_MASTER_SUMMARY_REFRESHING = False
+            threading.Thread(target=_bg_refresh, daemon=True, name="V2MasterSummarySWR").start()
+
+        return _make_json_response(cached_p, etag=cached_etag, max_age=5, precompressed_gzip=cached_gz)
+
     try:
         from master_orchestrator import orchestrator_v2
         data = orchestrator_v2.get_master_summary()
@@ -2213,8 +2239,8 @@ def get_v2_master_summary():
         return _make_json_response(payload, etag=etag, max_age=5, precompressed_gzip=gz)
     except Exception as e:
         logger.exception(f"❌ Failed to get v2 master summary: {e}")
-        if _V2_MASTER_SUMMARY_CACHE["payload"]:
-            return _make_json_response(_V2_MASTER_SUMMARY_CACHE["payload"], etag=_V2_MASTER_SUMMARY_CACHE["etag"], max_age=5, precompressed_gzip=_V2_MASTER_SUMMARY_CACHE["gzip"])
+        if _V2_MASTER_SUMMARY_CACHE.get("payload"):
+            return _make_json_response(_V2_MASTER_SUMMARY_CACHE["payload"], etag=_V2_MASTER_SUMMARY_CACHE.get("etag"), max_age=5, precompressed_gzip=_V2_MASTER_SUMMARY_CACHE.get("gzip"))
         return jsonify({})
 
 
@@ -3163,6 +3189,8 @@ def invalidate_corp_filings_cache():
 
 
 
+_AVAIL_DATES_CACHE = {"ts": 0.0, "dates": []}
+
 @app.route("/api/corporate_filings", methods=["GET"])
 @app.route("/api/admin/corporate_filings", methods=["GET"])
 @login_required
@@ -3171,7 +3199,30 @@ def api_get_corporate_filings():
     Returns corporate filings discovered by the Filing Scanner, filtered by date and symbol.
     Cached for 30s for ultra-fast, sub-millisecond response on tab switching and filtering.
     """
+    global _AVAIL_DATES_CACHE
     try:
+        raw_date = (request.args.get("date") or "").strip()
+        run_id = (request.args.get("run_id") or "").strip() or None
+        if run_id and run_id.upper() in ("ALL", "NONE", "*"):
+            run_id = None
+        symbol = request.args.get("symbol", "").strip() or None
+        event_type = request.args.get("event_type", "ALL").strip()
+        statement_type = request.args.get("statement_type", "ALL").strip()
+        limit = int(request.args.get("limit", 1000))
+        force = request.args.get("force") in ("1", "true", "True")
+
+        cache_key = f"{raw_date}:{run_id}:{symbol}:{event_type}:{statement_type}:{limit}"
+        now_t = time.time()
+        with _CORP_FILINGS_LOCK:
+            cached = _CORP_FILINGS_CACHE.get(cache_key)
+            if not force and cached and (now_t - cached["ts"] < 30.0):
+                return _make_json_response(
+                    cached["payload"],
+                    etag=cached.get("etag"),
+                    max_age=30,
+                    precompressed_gzip=cached.get("gzip")
+                )
+
         from database import (
             get_corporate_filings_by_date,
             get_corporate_filings_available_dates,
@@ -3179,10 +3230,13 @@ def api_get_corporate_filings():
             get_corporate_filing_execution_runs
         )
         today_str = datetime.now(IST).strftime("%Y-%m-%d")
-        avail_dates = get_corporate_filings_available_dates()
-        avail_dates = [d for d in avail_dates if d <= today_str and not d.startswith("30")]
-        default_date = today_str
-        raw_date = (request.args.get("date") or "").strip()
+
+        # Memoize available dates for 60s
+        if (now_t - _AVAIL_DATES_CACHE["ts"] >= 60.0) or not _AVAIL_DATES_CACHE["dates"]:
+            fresh_dates = get_corporate_filings_available_dates()
+            _AVAIL_DATES_CACHE["dates"] = [d for d in fresh_dates if d <= today_str and not d.startswith("30")]
+            _AVAIL_DATES_CACHE["ts"] = now_t
+        avail_dates = _AVAIL_DATES_CACHE["dates"]
 
         if not raw_date or raw_date.upper() in ("TODAY", "DEFAULT"):
             target_date = today_str
@@ -3194,7 +3248,6 @@ def api_get_corporate_filings():
             target_date = None
             resp_date = "ALL"
         else:
-            # [RULE 67 CHANGE-RATIONALE: Heal clerical 30xx typo and clamp any future date to today_str]
             if raw_date.startswith("30") and len(raw_date) == 10:
                 raw_date = "20" + raw_date[2:]
             if raw_date > today_str:
@@ -5207,36 +5260,36 @@ def api_reset_trades_to_open():
 def api_all_alerts():
     """Return trade alerts from PostgreSQL database across all dates, newest first, with 15s micro-cache and ETag 304."""
     global _ALL_ALERTS_CACHE
-    now_ts = time.time()
-    is_admin = session.get('role') in ('admin', 'superuser')
-    role_key = "admin" if is_admin else "user"
-    payload_key = f"{role_key}_payload"
-    etag_key = f"{role_key}_etag"
+    try:
+        now_ts = time.time()
+        is_admin = bool(_is_valid_admin_token() or (session and session.get('role') in ('admin', 'superuser')))
+        role_key = "admin" if is_admin else "user"
+        payload_key = f"{role_key}_payload"
+        etag_key = f"{role_key}_etag"
 
-    client_etag = request.headers.get("If-None-Match")
+        client_etag = request.headers.get("If-None-Match")
 
-    with _dashboard_cache_lock:
-        if _ALL_ALERTS_CACHE.get(payload_key) is not None and (now_ts - _ALL_ALERTS_CACHE.get("ts", 0)) < 15.0:
-            cached_payload = _ALL_ALERTS_CACHE[payload_key]
-            cached_etag = _ALL_ALERTS_CACHE.get(etag_key)
-            if client_etag and cached_etag and client_etag == cached_etag:
-                return Response("", status=304, headers={
-                    "ETag": cached_etag,
+        with _dashboard_cache_lock:
+            if _ALL_ALERTS_CACHE.get(payload_key) is not None and (now_ts - _ALL_ALERTS_CACHE.get("ts", 0)) < 15.0:
+                cached_payload = _ALL_ALERTS_CACHE[payload_key]
+                cached_etag = _ALL_ALERTS_CACHE.get(etag_key)
+                if client_etag and cached_etag and client_etag == cached_etag:
+                    return Response("", status=304, headers={
+                        "ETag": cached_etag,
+                        "Cache-Control": "public, max-age=5, must-revalidate"
+                    })
+                return Response(cached_payload, mimetype="application/json", headers={
+                    "ETag": cached_etag or "",
                     "Cache-Control": "public, max-age=5, must-revalidate"
                 })
-            return Response(cached_payload, mimetype="application/json", headers={
-                "ETag": cached_etag or "",
-                "Cache-Control": "public, max-age=5, must-revalidate"
-            })
 
-    try:
         from database import get_all_alerts
         import hashlib
         limit_arg = request.args.get('limit')
         limit = None if limit_arg == 'all' else (int(limit_arg) if limit_arg and limit_arg.isdigit() else 1000)
-        rows = get_all_alerts(limit=limit)
+        rows = get_all_alerts(limit=limit) or []
         admin_payload = json.dumps(serialize_datetimes(rows), default=str)
-        user_rows = [r for r in rows if not r.get('is_rejected', False)]
+        user_rows = [r for r in rows if isinstance(r, dict) and not r.get('is_rejected', False)]
         user_payload = json.dumps(serialize_datetimes(user_rows), default=str)
 
         admin_etag = f'"{hashlib.md5(admin_payload.encode("utf-8")).hexdigest()}"'
@@ -7360,24 +7413,24 @@ def get_multibagger_watchlist():
         except Exception as _ce_err:
             pass
 
-        # [RULE 67 CHANGE-RATIONALE]: Ensure latest_price is populated for every multibagger watchlist stock
+        # [RULE 67 CHANGE-RATIONALE]: Fast non-blocking in-memory price resolution for multibagger watchlist stocks
         missing_mb_syms = [
             r.get("symbol") for r in rows
             if r.get("symbol") and (r.get("latest_price") is None or float(r.get("latest_price") or 0) <= 0)
         ]
         if missing_mb_syms:
             try:
-                from master_orchestrator import orchestrator_v2
-                mb_cmps = orchestrator_v2._batch_resolve_cmps(missing_mb_syms)
+                from price_cache import get_cached_price_details
                 for r in rows:
-                    sym = r.get("symbol")
-                    clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
                     if r.get("latest_price") is None or float(r.get("latest_price") or 0) <= 0:
-                        p = mb_cmps.get(sym) or mb_cmps.get(clean_s)
-                        if p:
-                            r["latest_price"] = p
+                        sym = r.get("symbol")
+                        p, src, _, _ = get_cached_price_details(sym)
+                        if p is not None and float(p) > 0 and src != "UNAVAILABLE":
+                            r["latest_price"] = round(float(p), 2)
+                        elif r.get("last_alert_price") and float(r.get("last_alert_price") or 0) > 0:
+                            r["latest_price"] = float(r["last_alert_price"])
             except Exception as _mb_cmp_err:
-                logger.debug(f"Failed to batch resolve latest_price in multibagger watchlist: {_mb_cmp_err}")
+                logger.debug(f"Failed to resolve latest_price in multibagger watchlist: {_mb_cmp_err}")
     except Exception as e:
         msg = str(e).lower()
         if "watchlist" in msg or "undefinedtable" in msg or "does not exist" in msg:

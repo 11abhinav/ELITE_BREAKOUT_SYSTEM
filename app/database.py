@@ -617,6 +617,32 @@ def init_db(force: bool = False):
                                         CREATE INDEX IF NOT EXISTS idx_cfl_status_disc ON corporate_filings_log(status, discovered_at ASC);
                                         CREATE INDEX IF NOT EXISTS idx_cfl_filing_disc ON corporate_filings_log(filing_date DESC, discovered_at DESC, symbol);
 
+                                        -- [VERSION: FAIR_ROUND_ROBIN_SWEEP_v1.0] Persistent Filing Sweep Journal
+                                        CREATE TABLE IF NOT EXISTS filing_sweep_journal (
+                                            id BIGSERIAL PRIMARY KEY,
+                                            sweep_id VARCHAR(64) NOT NULL,
+                                            symbol VARCHAR(30) NOT NULL,
+                                            pass_number INTEGER NOT NULL DEFAULT 1,
+                                            status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+                                            claimed_by VARCHAR(64),
+                                            claimed_at TIMESTAMPTZ,
+                                            lease_expires_at TIMESTAMPTZ,
+                                            completed_at TIMESTAMPTZ,
+                                            xbrl_status VARCHAR(30),
+                                            pdf_status VARCHAR(30),
+                                            ocr_status VARCHAR(30),
+                                            facts_extracted INTEGER DEFAULT 0,
+                                            validated_facts INTEGER DEFAULT 0,
+                                            failure_rca VARCHAR(100),
+                                            details TEXT,
+                                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                            CONSTRAINT fsj_sweep_sym_pass_uniq UNIQUE (sweep_id, symbol, pass_number)
+                                        );
+                                        CREATE INDEX IF NOT EXISTS idx_fsj_claim_order ON filing_sweep_journal(sweep_id, pass_number ASC, status, id ASC);
+                                        CREATE INDEX IF NOT EXISTS idx_fsj_lease ON filing_sweep_journal(sweep_id, status, lease_expires_at);
+                                        CREATE INDEX IF NOT EXISTS idx_fsj_sym_completed ON filing_sweep_journal(symbol, completed_at DESC);
+
                                         CREATE TABLE IF NOT EXISTS earnings_forensic_reports (
                                             id BIGSERIAL PRIMARY KEY,
                                             symbol VARCHAR(30) NOT NULL,
@@ -15342,7 +15368,7 @@ def get_scanner_execution_history(
                 import time as _time_mod
                 global _ORPHAN_CLEANUP_LAST_RUN_TS
                 _now_mono = _time_mod.monotonic()
-                if _now_mono - _ORPHAN_CLEANUP_LAST_RUN_TS >= 60.0:
+                if _now_mono - _ORPHAN_CLEANUP_LAST_RUN_TS >= 300.0:
                     try:
                         auto_heal_stuck_scanner_runs()
                         _ORPHAN_CLEANUP_LAST_RUN_TS = _now_mono
@@ -17712,6 +17738,429 @@ def get_corporate_filing_execution_runs(target_date: Optional[str] = None) -> Li
 
     runs.sort(key=lambda x: str(x.get("started_at") or ""), reverse=True)
     return runs
+
+
+# =====================================================================================
+# [VERSION: FAIR_ROUND_ROBIN_SWEEP_v1.0] PERSISTENT FILING SWEEP JOURNAL & CONCURRENCY QUEUE
+# =====================================================================================
+
+import sqlite3
+
+_SQLITE_SWEEP_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "filing_sweep_journal.db")
+
+def _init_sqlite_sweep_db():
+    os.makedirs(os.path.dirname(_SQLITE_SWEEP_DB), exist_ok=True)
+    with sqlite3.connect(_SQLITE_SWEEP_DB) as s_conn:
+        s_conn.execute("""
+            CREATE TABLE IF NOT EXISTS filing_sweep_journal (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sweep_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                pass_number INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                claimed_by TEXT,
+                claimed_at TEXT,
+                lease_expires_at TEXT,
+                completed_at TEXT,
+                xbrl_status TEXT,
+                pdf_status TEXT,
+                ocr_status TEXT,
+                facts_extracted INTEGER DEFAULT 0,
+                validated_facts INTEGER DEFAULT 0,
+                failure_rca TEXT,
+                details TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(sweep_id, symbol, pass_number)
+            );
+        """)
+        s_conn.execute("CREATE INDEX IF NOT EXISTS idx_fsj_claim_order ON filing_sweep_journal(sweep_id, pass_number, status, id);")
+        s_conn.execute("CREATE INDEX IF NOT EXISTS idx_fsj_lease ON filing_sweep_journal(sweep_id, status, lease_expires_at);")
+
+
+def get_active_or_latest_sweep_id() -> str:
+    """Returns active sweep ID for current date or creates a standard daily sweep identifier."""
+    from zoneinfo import ZoneInfo
+    today_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y%m%d")
+    return f"SWEEP_{today_str}"
+
+
+def init_filing_sweep(sweep_id: str, eligible_symbols: List[str]) -> Dict[str, Any]:
+    """
+    Initializes a persistent sweep in filing_sweep_journal for the specified eligible symbols.
+    Idempotent: symbols already present in the sweep remain untouched.
+    """
+    if not sweep_id or not eligible_symbols:
+        return {"status": "NOOP", "total_symbols": 0}
+    clean_syms = sorted(list(dict.fromkeys(str(s).strip().upper() for s in eligible_symbols if str(s).strip())))
+    init_db()
+    with get_connection() as conn:
+        if not isinstance(conn, DummyConnection):
+            with conn.cursor() as cur:
+                for sym in clean_syms:
+                    cur.execute("""
+                        INSERT INTO filing_sweep_journal (sweep_id, symbol, pass_number, status, created_at, updated_at)
+                        VALUES (%s, %s, 1, 'PENDING', NOW(), NOW())
+                        ON CONFLICT (sweep_id, symbol, pass_number) DO NOTHING;
+                    """, (sweep_id, sym))
+            conn.commit()
+        else:
+            _init_sqlite_sweep_db()
+            with sqlite3.connect(_SQLITE_SWEEP_DB) as s_conn:
+                for sym in clean_syms:
+                    s_conn.execute("""
+                        INSERT INTO filing_sweep_journal (sweep_id, symbol, pass_number, status, created_at, updated_at)
+                        VALUES (?, ?, 1, 'PENDING', datetime('now'), datetime('now'))
+                        ON CONFLICT (sweep_id, symbol, pass_number) DO NOTHING;
+                    """, (sweep_id, sym))
+                s_conn.commit()
+    return get_sweep_progress(sweep_id)
+
+
+def claim_next_sweep_batch(
+    sweep_id: str,
+    batch_size: int = 10,
+    claimed_by: Optional[str] = None,
+    lease_minutes: int = 15,
+) -> List[str]:
+    """
+    Concurrency-safe batch claimant using SELECT ... FOR UPDATE SKIP LOCKED (PostgreSQL)
+    or transaction locks (SQLite fallback).
+    GUARANTEES:
+      1. Recovers expired worker leases (> lease_minutes) automatically so crashes never lock stocks permanently.
+      2. Strictly prioritizes unattempted stocks in the lowest available pass_number.
+      3. Failed / unreadable PDF stocks are NEVER re-selected in the current pass.
+      4. Only advances to pass_number + 1 once 100% of eligible stocks in current pass have completed.
+    """
+    worker_id = claimed_by or f"worker_{os.getpid()}_{int(time.time()*1000)}"
+    claimed_symbols: List[str] = []
+    init_db()
+    with get_connection() as conn:
+        if not isinstance(conn, DummyConnection):
+            with conn.cursor() as cur:
+                # 1. Recover expired leases
+                cur.execute("""
+                    UPDATE filing_sweep_journal
+                    SET status = 'PENDING',
+                        claimed_by = NULL,
+                        claimed_at = NULL,
+                        lease_expires_at = NULL,
+                        updated_at = NOW()
+                    WHERE sweep_id = %s
+                      AND status = 'CLAIMED'
+                      AND lease_expires_at < NOW();
+                """, (sweep_id,))
+
+                # 2. Find lowest pass with PENDING items
+                cur.execute("""
+                    SELECT MIN(pass_number)
+                    FROM filing_sweep_journal
+                    WHERE sweep_id = %s AND status = 'PENDING';
+                """, (sweep_id,))
+                res_pass = cur.fetchone()
+                min_pending_pass = res_pass[0] if res_pass else None
+
+                # 3. If no PENDING items in any pass, check if current pass is complete and can advance
+                if min_pending_pass is None:
+                    cur.execute("""
+                        SELECT COUNT(*)
+                        FROM filing_sweep_journal
+                        WHERE sweep_id = %s AND status = 'CLAIMED';
+                    """, (sweep_id,))
+                    active_claimed = (cur.fetchone() or [0])[0]
+
+                    if active_claimed == 0:
+                        cur.execute("""
+                            SELECT MAX(pass_number) FROM filing_sweep_journal WHERE sweep_id = %s;
+                        """, (sweep_id,))
+                        max_pass = (cur.fetchone() or [1])[0] or 1
+                        if max_pass < 5:
+                            cur.execute("""
+                                SELECT symbol
+                                FROM filing_sweep_journal
+                                WHERE sweep_id = %s
+                                  AND pass_number = %s
+                                  AND status NOT IN ('COMPLETED', 'PERMANENT_EXCLUDE')
+                                ORDER BY completed_at ASC NULLS FIRST, id ASC;
+                            """, (sweep_id, max_pass))
+                            retry_rows = cur.fetchall()
+                            retry_syms = [r[0] for r in retry_rows]
+                            if retry_syms:
+                                next_pass = max_pass + 1
+                                for sym in retry_syms:
+                                    cur.execute("""
+                                        INSERT INTO filing_sweep_journal (sweep_id, symbol, pass_number, status, created_at, updated_at)
+                                        VALUES (%s, %s, %s, 'PENDING', NOW(), NOW())
+                                        ON CONFLICT (sweep_id, symbol, pass_number) DO NOTHING;
+                                    """, (sweep_id, sym, next_pass))
+                                min_pending_pass = next_pass
+
+                # 4. Concurrency-safe claim
+                if min_pending_pass is not None:
+                    cur.execute("""
+                        WITH candidates AS (
+                            SELECT id
+                            FROM filing_sweep_journal
+                            WHERE sweep_id = %s
+                              AND pass_number = %s
+                              AND status = 'PENDING'
+                            ORDER BY id ASC
+                            LIMIT %s
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        UPDATE filing_sweep_journal j
+                        SET status = 'CLAIMED',
+                            claimed_by = %s,
+                            claimed_at = NOW(),
+                            lease_expires_at = NOW() + (%s * INTERVAL '1 minute'),
+                            updated_at = NOW()
+                        FROM candidates c
+                        WHERE j.id = c.id
+                        RETURNING j.symbol;
+                    """, (sweep_id, min_pending_pass, max(1, batch_size), worker_id, lease_minutes))
+                    rows = cur.fetchall()
+                    claimed_symbols = [r[0] for r in rows]
+            conn.commit()
+        else:
+            # SQLite fallback for local test execution
+            _init_sqlite_sweep_db()
+            with sqlite3.connect(_SQLITE_SWEEP_DB) as s_conn:
+                s_cur = s_conn.cursor()
+                # 1. Recover expired leases
+                s_cur.execute("""
+                    UPDATE filing_sweep_journal
+                    SET status = 'PENDING',
+                        claimed_by = NULL,
+                        claimed_at = NULL,
+                        lease_expires_at = NULL,
+                        updated_at = datetime('now')
+                    WHERE sweep_id = ?
+                      AND status = 'CLAIMED'
+                      AND lease_expires_at < datetime('now');
+                """, (sweep_id,))
+
+                # 2. Find lowest pass with PENDING items
+                s_cur.execute("""
+                    SELECT MIN(pass_number)
+                    FROM filing_sweep_journal
+                    WHERE sweep_id = ? AND status = 'PENDING';
+                """, (sweep_id,))
+                res_pass = s_cur.fetchone()
+                min_pending_pass = res_pass[0] if res_pass else None
+
+                if min_pending_pass is None:
+                    s_cur.execute("""
+                        SELECT COUNT(*)
+                        FROM filing_sweep_journal
+                        WHERE sweep_id = ? AND status = 'CLAIMED';
+                    """, (sweep_id,))
+                    active_claimed = (s_cur.fetchone() or [0])[0]
+
+                    if active_claimed == 0:
+                        s_cur.execute("SELECT MAX(pass_number) FROM filing_sweep_journal WHERE sweep_id = ?;", (sweep_id,))
+                        max_pass = (s_cur.fetchone() or [1])[0] or 1
+                        if max_pass < 5:
+                            s_cur.execute("""
+                                SELECT symbol
+                                FROM filing_sweep_journal
+                                WHERE sweep_id = ?
+                                  AND pass_number = ?
+                                  AND status NOT IN ('COMPLETED', 'PERMANENT_EXCLUDE')
+                                ORDER BY completed_at ASC, id ASC;
+                            """, (sweep_id, max_pass))
+                            retry_rows = s_cur.fetchall()
+                            retry_syms = [r[0] for r in retry_rows]
+                            if retry_syms:
+                                next_pass = max_pass + 1
+                                for sym in retry_syms:
+                                    s_cur.execute("""
+                                        INSERT INTO filing_sweep_journal (sweep_id, symbol, pass_number, status, created_at, updated_at)
+                                        VALUES (?, ?, ?, 'PENDING', datetime('now'), datetime('now'))
+                                        ON CONFLICT (sweep_id, symbol, pass_number) DO NOTHING;
+                                    """, (sweep_id, sym, next_pass))
+                                min_pending_pass = next_pass
+
+                if min_pending_pass is not None:
+                    s_cur.execute("""
+                        SELECT id, symbol
+                        FROM filing_sweep_journal
+                        WHERE sweep_id = ?
+                          AND pass_number = ?
+                          AND status = 'PENDING'
+                        ORDER BY id ASC
+                        LIMIT ?;
+                    """, (sweep_id, min_pending_pass, max(1, batch_size)))
+                    cand_rows = s_cur.fetchall()
+                    if cand_rows:
+                        cand_ids = [r[0] for r in cand_rows]
+                        claimed_symbols = [r[1] for r in cand_rows]
+                        placeholders = ",".join(["?"] * len(cand_ids))
+                        lease_exp_sql = f"datetime('now', '+{lease_minutes} minutes')"
+                        s_cur.execute(f"""
+                            UPDATE filing_sweep_journal
+                            SET status = 'CLAIMED',
+                                claimed_by = ?,
+                                claimed_at = datetime('now'),
+                                lease_expires_at = {lease_exp_sql},
+                                updated_at = datetime('now')
+                            WHERE id IN ({placeholders});
+                        """, [worker_id] + cand_ids)
+                s_conn.commit()
+
+    return claimed_symbols
+
+
+def record_sweep_symbol_result(
+    sweep_id: str,
+    symbol: str,
+    status: str,
+    xbrl_status: Optional[str] = None,
+    pdf_status: Optional[str] = None,
+    ocr_status: Optional[str] = None,
+    facts_extracted: int = 0,
+    validated_facts: int = 0,
+    failure_rca: Optional[str] = None,
+    details: Optional[str] = None,
+) -> None:
+    """Updates sweep journal with evaluation results for the claimed stock."""
+    if not sweep_id or not symbol:
+        return
+    sym_u = symbol.strip().upper()
+    init_db()
+    with get_connection() as conn:
+        if not isinstance(conn, DummyConnection):
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE filing_sweep_journal
+                    SET status = %s,
+                        completed_at = NOW(),
+                        xbrl_status = %s,
+                        pdf_status = %s,
+                        ocr_status = %s,
+                        facts_extracted = %s,
+                        validated_facts = %s,
+                        failure_rca = %s,
+                        details = %s,
+                        updated_at = NOW()
+                    WHERE id = (
+                        SELECT id FROM filing_sweep_journal
+                        WHERE sweep_id = %s AND symbol = %s
+                        ORDER BY pass_number DESC, id DESC
+                        LIMIT 1
+                    );
+                """, (
+                    status,
+                    xbrl_status,
+                    pdf_status,
+                    ocr_status,
+                    facts_extracted,
+                    validated_facts,
+                    failure_rca,
+                    details[:2000] if details else None,
+                    sweep_id,
+                    sym_u
+                ))
+            conn.commit()
+        else:
+            _init_sqlite_sweep_db()
+            with sqlite3.connect(_SQLITE_SWEEP_DB) as s_conn:
+                s_cur = s_conn.cursor()
+                s_cur.execute("""
+                    SELECT id FROM filing_sweep_journal
+                    WHERE sweep_id = ? AND symbol = ?
+                    ORDER BY pass_number DESC, id DESC
+                    LIMIT 1;
+                """, (sweep_id, sym_u))
+                row = s_cur.fetchone()
+                if row:
+                    row_id = row[0]
+                    s_cur.execute("""
+                        UPDATE filing_sweep_journal
+                        SET status = ?,
+                            completed_at = datetime('now'),
+                            xbrl_status = ?,
+                            pdf_status = ?,
+                            ocr_status = ?,
+                            facts_extracted = ?,
+                            validated_facts = ?,
+                            failure_rca = ?,
+                            details = ?,
+                            updated_at = datetime('now')
+                        WHERE id = ?;
+                    """, (
+                        status,
+                        xbrl_status,
+                        pdf_status,
+                        ocr_status,
+                        facts_extracted,
+                        validated_facts,
+                        failure_rca,
+                        details[:2000] if details else None,
+                        row_id
+                    ))
+                s_conn.commit()
+
+
+def get_sweep_progress(sweep_id: str) -> Dict[str, Any]:
+    """Returns real-time progress metrics for a sweep across passes and statuses."""
+    init_db()
+    with get_connection() as conn:
+        if not isinstance(conn, DummyConnection):
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT status, COUNT(*)
+                    FROM filing_sweep_journal
+                    WHERE sweep_id = %s
+                    GROUP BY status;
+                """, (sweep_id,))
+                rows = cur.fetchall()
+                stats = {r[0]: r[1] for r in rows}
+
+                cur.execute("""
+                    SELECT COUNT(DISTINCT symbol)
+                    FROM filing_sweep_journal
+                    WHERE sweep_id = %s;
+                """, (sweep_id,))
+                total_symbols = (cur.fetchone() or [0])[0]
+
+                cur.execute("""
+                    SELECT MIN(pass_number), MAX(pass_number)
+                    FROM filing_sweep_journal
+                    WHERE sweep_id = %s;
+                """, (sweep_id,))
+                p_row = cur.fetchone() or (1, 1)
+        else:
+            _init_sqlite_sweep_db()
+            with sqlite3.connect(_SQLITE_SWEEP_DB) as s_conn:
+                s_cur = s_conn.cursor()
+                s_cur.execute("""
+                    SELECT status, COUNT(*)
+                    FROM filing_sweep_journal
+                    WHERE sweep_id = ?
+                    GROUP BY status;
+                """, (sweep_id,))
+                rows = s_cur.fetchall()
+                stats = {r[0]: r[1] for r in rows}
+
+                s_cur.execute("SELECT COUNT(DISTINCT symbol) FROM filing_sweep_journal WHERE sweep_id = ?;", (sweep_id,))
+                total_symbols = (s_cur.fetchone() or [0])[0]
+
+                s_cur.execute("SELECT MIN(pass_number), MAX(pass_number) FROM filing_sweep_journal WHERE sweep_id = ?;", (sweep_id,))
+                p_row = s_cur.fetchone() or (1, 1)
+
+    return {
+        "sweep_id": sweep_id,
+        "total_symbols": total_symbols,
+        "active_pass": p_row[1] or 1,
+        "pending": stats.get("PENDING", 0),
+        "claimed": stats.get("CLAIMED", 0),
+        "completed": stats.get("COMPLETED", 0),
+        "failed": stats.get("FAILED", 0),
+        "unreadable_pdf": stats.get("UNREADABLE_PDF", 0),
+        "no_filings": stats.get("NO_FILINGS", 0),
+        "quarantined": stats.get("QUARANTINED", 0),
+    }
+
 
 
 
