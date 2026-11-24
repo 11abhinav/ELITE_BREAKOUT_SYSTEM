@@ -770,5 +770,41 @@
     "mapped_revenue": 109.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "137b31dfa45c7090f0141ac1d6b9d609e0c8bc8e620b7f62007614c729c22cd4"
+  },
+  {
+    "symbol": "TAJGVK",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 112.9,
+    "net_profit": 38.53,
+    "operating_profit": 52.66,
+    "eps": 2.0,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": 26.58,
+    "shares_outstanding": 12540000.0,
+    "filing_date": "2026-11-12",
+    "broadcast_timestamp": "12-Nov-2026 12:55:10",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_TAJGVK_106856446_2026-09-30"
+  },
+  {
+    "symbol": "TAJGVK",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 166.81,
+    "net_profit": 26.55,
+    "operating_profit": 45.01,
+    "eps": 2.0,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": 26.58,
+    "shares_outstanding": 12540000.0,
+    "filing_date": "2026-11-12",
+    "broadcast_timestamp": "12-Nov-2026 12:55:10",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_TAJGVK_106856446_2026-09-30"
   }
 ]
