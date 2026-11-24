@@ -3093,6 +3093,8 @@ class FinancialFilingWatcher:
         now_ist = datetime.now(IST)
 
         run_ctx = None
+        attempted_stocks = set()
+        attempted_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "backward_sweep_attempted.json")
 
         if stale_only:
             try:
@@ -3101,8 +3103,33 @@ class FinancialFilingWatcher:
                 except ImportError:
                     from database import get_unified_stock_data_health_audit
                 stale_list, _ = get_unified_stock_data_health_audit(force=True)
-                target_symbols = [str(s.get("symbol", "")).strip().upper() for s in stale_list if s.get("symbol")]
-                logger.info(f"🎯 [filling scanner] Auto-targeted {len(target_symbols)} STALE stocks from data health audit.")
+                raw_stale_symbols = [str(s.get("symbol", "")).strip().upper() for s in stale_list if s.get("symbol")]
+
+                # FAIR ROUND-ROBIN QUEUE:
+                # Load persistent attempt state so stocks tried in the current pass (e.g. ADANIPOWER)
+                # are NOT retried until ALL other remaining stale stocks have been attempted once.
+                if os.path.exists(attempted_file):
+                    try:
+                        with open(attempted_file, "r") as af:
+                            saved = json.load(af)
+                            if isinstance(saved, list):
+                                attempted_stocks.update(saved)
+                    except Exception as _af_err:
+                        logger.debug(f"[filling scanner] Could not read attempted state: {_af_err}")
+
+                unattempted = [sym for sym in raw_stale_symbols if sym not in attempted_stocks]
+                if not unattempted and raw_stale_symbols:
+                    logger.info(f"🔄 [FAIR QUEUE] All {len(raw_stale_symbols)} stale stocks have received an attempt in the active pass. Resetting queue for Pass 2.")
+                    attempted_stocks.clear()
+                    unattempted = raw_stale_symbols
+                    try:
+                        if os.path.exists(attempted_file):
+                            os.remove(attempted_file)
+                    except Exception:
+                        pass
+
+                target_symbols = unattempted
+                logger.info(f"🎯 [filling scanner] Auto-targeted {len(target_symbols)} unattempted STALE stocks (total stale: {len(raw_stale_symbols)}, attempted in active pass: {len(attempted_stocks)}).")
             except Exception as _stale_err:
                 logger.warning(f"[filling scanner] Could not fetch stale stocks list: {_stale_err}")
                 target_symbols = [s.strip().upper() for s in symbol.split(",") if s.strip()] if symbol else list(self.approved_symbols)
@@ -3122,6 +3149,17 @@ class FinancialFilingWatcher:
         if max_symbols and max_symbols > 0:
             target_symbols = target_symbols[:max_symbols]
             logger.info(f"🎯 [filling scanner] Limited target symbols to {len(target_symbols)} stocks (limit={max_symbols}).")
+
+        # Record this batch into attempted_stocks so the next run skips them until Pass 1 completes
+        if stale_only and target_symbols:
+            try:
+                attempted_stocks.update(target_symbols)
+                os.makedirs(os.path.dirname(attempted_file), exist_ok=True)
+                with open(attempted_file, "w") as af:
+                    json.dump(sorted(list(attempted_stocks)), af)
+                logger.info(f"📝 [FAIR QUEUE] Recorded {len(target_symbols)} stocks into attempt state ({len(attempted_stocks)} attempted in active pass).")
+            except Exception as _rec_err:
+                logger.debug(f"[FAIR QUEUE] Attempt state save notice: {_rec_err}")
 
         total_count = len(target_symbols)
 
