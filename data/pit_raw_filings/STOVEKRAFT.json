@@ -847,5 +847,23 @@
     "broadcast_timestamp": "03-Aug-2026 15:36:35",
     "exchange": "NSE",
     "filing_id": "106721964"
+  },
+  {
+    "symbol": "STOVEKRAFT",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 5846.66,
+    "net_profit": 291.56,
+    "operating_profit": 482.4,
+    "eps": 8.81,
+    "total_debt": null,
+    "total_equity": 4711.35,
+    "operating_cash_flow": 398.47,
+    "shares_outstanding": 331020000.0,
+    "filing_date": "2026-11-04",
+    "broadcast_timestamp": "04-Nov-2026 14:29:03",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_STOVEKRAFT_106844083_2026-09-30"
   }
 ]

@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T22:10:35.019552+05:30",
+    "last_successful_check_at": "2026-11-24T22:14:21.026894+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -71,7 +71,8 @@
         "last_successful_check_at": "2026-10-18T22:20:28.114871"
       },
       "STYRENIX": {
-        "last_successful_check_at": "2026-10-24T19:13:21.362903"
+        "last_successful_check_at": "2026-11-24T22:17:09.518598",
+        "latest_filing_timestamp": "2024-12-31"
       },
       "DOLPHIN": {
         "last_successful_check_at": "2026-10-18T22:20:33.735888"
@@ -1020,12 +1021,48 @@
       "SURAKSHA": {
         "last_successful_check_at": "2026-11-24T22:12:47.571373",
         "latest_filing_timestamp": "2026-11-19T13:41:07.45"
+      },
+      "STEELCAS": {
+        "last_successful_check_at": "2026-11-24T22:15:52.883459",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "STOVEKRAFT": {
+        "last_successful_check_at": "2026-11-24T22:15:59.863018",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "STYLAMIND": {
+        "last_successful_check_at": "2026-11-24T22:16:06.010217",
+        "latest_filing_timestamp": "2026-10-28"
+      },
+      "SUDEEPPHRM": {
+        "last_successful_check_at": "2026-11-24T22:16:12.320698",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUNCLAY": {
+        "last_successful_check_at": "2026-11-24T22:16:18.486523",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUMICHEM": {
+        "last_successful_check_at": "2026-11-24T22:16:23.709143",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUNDARMFIN": {
+        "last_successful_check_at": "2026-11-24T22:16:28.581225",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUBROS": {
+        "last_successful_check_at": "2026-11-24T22:16:33.549843",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "STYLEBAAZA": {
+        "last_successful_check_at": "2026-11-24T22:16:37.800161",
+        "latest_filing_timestamp": "2026-11-06T17:27:58.287"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T22:10:35.019552+05:30",
+    "last_successful_check_at": "2026-11-24T22:14:21.026894+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
