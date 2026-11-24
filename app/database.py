@@ -8089,6 +8089,57 @@ def restore_filing_watcher_state_from_db() -> bool:
         return False
 
 
+def save_stock_data_health_to_db(payload_json: str) -> bool:
+    """
+    Persists the authoritative unified stock data health cache directly into PostgreSQL parquet_cache
+    so cold reboots restore from the authoritative DB state instead of stale git files.
+    """
+    if not payload_json:
+        return False
+    init_db()
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    import psycopg2
+    try:
+        binary_data = payload_json.encode("utf-8")
+        with _DB_WRITE_LOCK:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO parquet_cache (name, date, data)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
+                    """, ("stock_data_health_cache", today, psycopg2.Binary(binary_data)))
+                    cur.execute("DELETE FROM parquet_cache WHERE name = 'stock_data_health_cache' AND date < %s", (today,))
+                conn.commit()
+        logger.info(f"💾 [STOCK_DATA_HEALTH DB SYNC] Persisted authoritative health cache ({len(binary_data)/1024.0:.1f} KB) to DB parquet_cache for {today}")
+        return True
+    except Exception as e:
+        logger.warning(f"⚠️ [STOCK_DATA_HEALTH DB SYNC] Failed to persist health cache to DB: {e}")
+        return False
+
+
+def restore_stock_data_health_from_db() -> Optional[str]:
+    """
+    Restores the latest authoritative stock data health cache JSON directly from PostgreSQL parquet_cache.
+    Guarantees that on container reboot, the system uses authoritative DB state rather than hardcoded git files.
+    """
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT data, date FROM parquet_cache WHERE name = 'stock_data_health_cache' ORDER BY date DESC LIMIT 1")
+                row = cur.fetchone()
+                if row and row[0]:
+                    raw_bytes = bytes(row[0])
+                    raw_json = raw_bytes.decode("utf-8", errors="replace")
+                    if len(raw_json) > 100:
+                        logger.info(f"✅ [STOCK_DATA_HEALTH BOOT] Restored authoritative health cache ({len(raw_bytes)/1024.0:.1f} KB) from DB (date: {row[1]})")
+                        return raw_json
+    except Exception as e:
+        logger.warning(f"⚠️ [STOCK_DATA_HEALTH BOOT] Failed to restore health cache from DB: {e}")
+    return None
+
+
 
 def save_df_to_table(table_name: str, df: pd.DataFrame):
     """Saves a Pandas DataFrame to a PostgreSQL table dynamically with connection retry."""

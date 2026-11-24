@@ -3121,36 +3121,55 @@ _STOCK_DATA_HEALTH_CACHE: Dict[str, Any] = {"payload": None, "ts": 0.0}
 _STOCK_DATA_HEALTH_LOCK = threading.Lock()
 _STOCK_DATA_HEALTH_COMPUTE_LOCK = threading.Lock()
 
-def _seed_stock_data_health_cache_from_disk():
-    """Seeds _STOCK_DATA_HEALTH_CACHE directly from disk on process startup for instant 0ms responses."""
+def _seed_stock_data_health_cache():
+    """
+    Seeds _STOCK_DATA_HEALTH_CACHE directly from PostgreSQL DB on process startup for instant <5ms responses.
+    Authoritative state is always loaded from DB, NEVER from stale hardcoded git files.
+    """
     global _STOCK_DATA_HEALTH_CACHE
     try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for p in [
-            os.path.join(base_dir, "data", "stock_data_health_cache.json"),
-            os.path.join(base_dir, "data_seed", "stock_data_health_cache.json"),
-            "/app/data/stock_data_health_cache.json",
-            "/app/data_seed/stock_data_health_cache.json",
-        ]:
-            if os.path.exists(p):
-                with open(p, "r", encoding="utf-8") as f_in:
-                    raw_json = f_in.read()
-                if raw_json and len(raw_json) > 100:
-                    import hashlib
-                    etag = f'"{hashlib.md5(raw_json.encode("utf-8")).hexdigest()}"'
-                    gz = _gzip.compress(raw_json.encode("utf-8"), compresslevel=1)
-                    mtime = os.path.getmtime(p)
-                    with _STOCK_DATA_HEALTH_LOCK:
-                        _STOCK_DATA_HEALTH_CACHE["payload"] = raw_json
-                        _STOCK_DATA_HEALTH_CACHE["etag"] = etag
-                        _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
-                        _STOCK_DATA_HEALTH_CACHE["ts"] = mtime
-                    logger.info(f"⚡ [STOCK_DATA_HEALTH] Pre-seeded in-memory cache from {p} ({len(raw_json)} bytes)")
-                    break
+        from database import restore_stock_data_health_from_db
+        raw_json = restore_stock_data_health_from_db()
+        if raw_json and len(raw_json) > 100:
+            import hashlib
+            etag = f'"{hashlib.md5(raw_json.encode("utf-8")).hexdigest()}"'
+            gz = _gzip.compress(raw_json.encode("utf-8"), compresslevel=1)
+            with _STOCK_DATA_HEALTH_LOCK:
+                _STOCK_DATA_HEALTH_CACHE["payload"] = raw_json
+                _STOCK_DATA_HEALTH_CACHE["etag"] = etag
+                _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
+                _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
+            logger.info(f"⚡ [STOCK_DATA_HEALTH] Loaded authoritative cache from PostgreSQL DB ({len(raw_json)} bytes)")
+            return
     except Exception as e:
-        logger.debug(f"[STOCK_DATA_HEALTH] Seed error: {e}")
+        logger.debug(f"[STOCK_DATA_HEALTH] DB restore error on boot: {e}")
 
-_seed_stock_data_health_cache_from_disk()
+    # Fallback to local scratch file if present on volume (not from git), else schedule background DB computation
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        p = os.path.join(base_dir, "data", "stock_data_health_cache.json")
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f_in:
+                raw_json = f_in.read()
+            if raw_json and len(raw_json) > 100:
+                import hashlib
+                etag = f'"{hashlib.md5(raw_json.encode("utf-8")).hexdigest()}"'
+                gz = _gzip.compress(raw_json.encode("utf-8"), compresslevel=1)
+                mtime = os.path.getmtime(p)
+                with _STOCK_DATA_HEALTH_LOCK:
+                    _STOCK_DATA_HEALTH_CACHE["payload"] = raw_json
+                    _STOCK_DATA_HEALTH_CACHE["etag"] = etag
+                    _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
+                    _STOCK_DATA_HEALTH_CACHE["ts"] = mtime
+                logger.info(f"⚡ [STOCK_DATA_HEALTH] Pre-seeded in-memory cache from local volume file ({len(raw_json)} bytes)")
+                return
+    except Exception as e:
+        logger.debug(f"[STOCK_DATA_HEALTH] Local file seed error: {e}")
+
+    logger.info("ℹ️ [STOCK_DATA_HEALTH] No pre-existing health cache in DB or volume. Scheduling background computation.")
+    threading.Thread(target=_background_refresh_stock_data_health, name="InitialStockHealthCompute", daemon=True).start()
+
+_seed_stock_data_health_cache()
 
 def _invalidate_all_stock_data_health_caches():
     """
@@ -3513,7 +3532,14 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
         _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
         _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
 
-    # Persist precomputed audit to disk for instant cold-boot recovery (<1ms)
+    # Persist authoritative audit directly to PostgreSQL DB parquet_cache
+    try:
+        from database import save_stock_data_health_to_db
+        save_stock_data_health_to_db(resp_json)
+    except Exception as _db_err:
+        logger.debug(f"[STOCK_DATA_HEALTH] DB persist note: {_db_err}")
+
+    # Also persist to local volume disk scratch for single-node backup
     try:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         cache_path = os.path.join(base_dir, "data", "stock_data_health_cache.json")
