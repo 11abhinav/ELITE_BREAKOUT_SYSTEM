@@ -25,8 +25,47 @@ HEALTH_HTTP_200 = (
     b"HTTP/1.1 200 OK\r\n"
     b"Content-Type: application/json\r\n"
     b"Content-Length: " + str(len(_BODY)).encode() + b"\r\n"
+    b"Cache-Control: no-cache, no-store, must-revalidate, max-age=0\r\n"
+    b"Pragma: no-cache\r\n"
     b"Connection: close\r\n"
     b"\r\n" + _BODY
+)
+
+_HTML_LOADING_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="refresh" content="2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loading Elite Breakout System...</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0e14; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+  .card { background: #131722; border: 1px solid #1e293b; padding: 36px 44px; border-radius: 16px; text-align: center; max-width: 420px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+  .spinner { width: 40px; height: 40px; border: 3px solid rgba(56,189,248,0.2); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 18px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 10px 0; color: #f8fafc; }
+  p { font-size: 13px; color: #94a3b8; margin: 0 0 16px 0; line-height: 1.5; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 4px 12px; border-radius: 20px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="spinner"></div>
+  <h1>Elite Breakout System</h1>
+  <p>Connecting to live dashboard...</p>
+  <span class="badge">Connecting in 2s...</span>
+</div>
+</body>
+</html>
+""".encode("utf-8")
+HEALTH_HTML_200 = (
+    b"HTTP/1.1 200 OK\r\n"
+    b"Content-Type: text/html; charset=utf-8\r\n"
+    b"Content-Length: " + str(len(_HTML_LOADING_PAGE)).encode() + b"\r\n"
+    b"Cache-Control: no-cache, no-store, must-revalidate, max-age=0\r\n"
+    b"Pragma: no-cache\r\n"
+    b"Connection: close\r\n"
+    b"\r\n" + _HTML_LOADING_PAGE
 )
 
 def mark_flask_ready(port: int):
@@ -59,10 +98,16 @@ def _handle_client(client_sock: socket.socket):
             except Exception: pass
             return
 
+        # Differentiate real human browser requests from machine health check probes
+        is_html_req = (
+            b"text/html" in data
+            or (b"Mozilla" in data and b"GET " in data and not b"/api/" in data and not b"/health" in data)
+        )
+
         # Before Flask is ready, immediately answer any incoming probe/request with 200 OK
         if not FLASK_READY:
             try:
-                client_sock.sendall(HEALTH_HTTP_200)
+                client_sock.sendall(HEALTH_HTML_200 if is_html_req else HEALTH_HTTP_200)
             finally:
                 try: client_sock.close()
                 except Exception: pass
@@ -141,9 +186,9 @@ def _handle_client(client_sock: socket.socket):
                 try: target_sock.close()
                 except Exception: pass
         except Exception as forward_err:
-            # Fallback if Flask connection fails
+            # Fallback if Flask connection fails during startup transition
             try:
-                client_sock.sendall(HEALTH_HTTP_200)
+                client_sock.sendall(HEALTH_HTML_200 if is_html_req else HEALTH_HTTP_200)
             finally:
                 try: client_sock.close()
                 except Exception: pass

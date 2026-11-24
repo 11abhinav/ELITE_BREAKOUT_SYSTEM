@@ -1301,9 +1301,14 @@ def serve_cached_html(file_path: str, extra_headers: dict = None):
 @app.route("/")
 def index():
     """Serve the dashboard HTML if logged in; if not logged in, serve login page directly with 200 OK for healthchecks."""
+    accept_hdr = request.headers.get("Accept", "")
+    is_html_request = "text/html" in accept_hdr
     ua = request.headers.get("User-Agent", "").lower()
-    if any(h in ua for h in ("curl", "wget", "go-http-client", "docker", "coolify", "healthcheck", "uptime", "probe")):
-        return jsonify({"status": "ok", "service": "elite-breakout-dashboard", "time_ist": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")}), 200
+    if not is_html_request and any(h in ua for h in ("curl", "wget", "go-http-client", "docker", "coolify", "healthcheck", "uptime", "probe")):
+        resp = jsonify({"status": "ok", "service": "elite-breakout-dashboard", "time_ist": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")})
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        return resp, 200
 
     if 'user_id' not in session:
         login_path = get_html_path("login.html")
