@@ -20,13 +20,13 @@ _STARTED_PORTS_LOCK = threading.Lock()
 _SERVERS = {}
 _SERVERS_LOCK = threading.Lock()
 
+_BODY = b'{"status":"ok","service":"elite-breakout-system"}\n'
 HEALTH_HTTP_200 = (
     b"HTTP/1.1 200 OK\r\n"
     b"Content-Type: application/json\r\n"
-    b"Content-Length: 48\r\n"
+    b"Content-Length: " + str(len(_BODY)).encode() + b"\r\n"
     b"Connection: close\r\n"
-    b"\r\n"
-    b'{"status":"ok","service":"elite-breakout-system"}\n'
+    b"\r\n" + _BODY
 )
 
 def mark_flask_ready(port: int):

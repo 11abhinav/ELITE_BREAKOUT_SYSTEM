@@ -3166,8 +3166,7 @@ def _seed_stock_data_health_cache():
     except Exception as e:
         logger.debug(f"[STOCK_DATA_HEALTH] Local file seed error: {e}")
 
-    logger.info("ℹ️ [STOCK_DATA_HEALTH] No pre-existing health cache in DB or volume. Scheduling background computation.")
-    threading.Thread(target=_background_refresh_stock_data_health, name="InitialStockHealthCompute", daemon=True).start()
+    logger.info("ℹ️ [STOCK_DATA_HEALTH] No pre-existing health cache in DB or volume. Background compute will run after server startup.")
 
 _seed_stock_data_health_cache()
 
