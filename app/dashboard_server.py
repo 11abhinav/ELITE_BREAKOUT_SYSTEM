@@ -3143,7 +3143,9 @@ def _seed_stock_data_health_cache():
                 _STOCK_DATA_HEALTH_CACHE["payload"] = raw_json
                 _STOCK_DATA_HEALTH_CACHE["etag"] = etag
                 _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
-                _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
+                # Set ts to 0.0 so restored DB cache is served immediately for fast boot,
+                # but triggers an immediate background SWR refresh on the first user request.
+                _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
             logger.info(f"⚡ [STOCK_DATA_HEALTH] Loaded authoritative cache from PostgreSQL DB ({len(raw_json)} bytes)")
             return
     except Exception as e:
