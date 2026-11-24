@@ -1048,7 +1048,7 @@ def invalidate_all_dashboard_caches():
     try:
         if "_SHORTLIST_MEMO_CACHE" in globals():
             _SHORTLIST_MEMO_CACHE["ts"] = 0.0
-            _SHORTLIST_MEMO_CACHE["payload"] = None
+            # Keep payload intact for SWR fast-path; background revalidator refreshes smoothly
     except Exception:
         pass
     try:
@@ -3202,6 +3202,7 @@ def api_get_corporate_filings():
     """
     global _AVAIL_DATES_CACHE
     try:
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
         raw_date = (request.args.get("date") or "").strip()
         run_id = (request.args.get("run_id") or "").strip() or None
         if run_id and run_id.upper() in ("ALL", "NONE", "*"):
@@ -3212,11 +3213,25 @@ def api_get_corporate_filings():
         limit = int(request.args.get("limit", 1000))
         force = request.args.get("force") in ("1", "true", "True")
 
-        cache_key = f"{raw_date}:{run_id}:{symbol}:{event_type}:{statement_type}:{limit}"
+        if not raw_date or raw_date.upper() in ("TODAY", "DEFAULT"):
+            target_date = today_str
+            resp_date = today_str
+        elif raw_date.upper() in ("ALL", "*"):
+            target_date = None
+            resp_date = "ALL"
+        else:
+            if raw_date.startswith("30") and len(raw_date) == 10:
+                raw_date = "20" + raw_date[2:]
+            if raw_date > today_str:
+                raw_date = today_str
+            target_date = raw_date
+            resp_date = raw_date
+
+        cache_key = f"{target_date}:{run_id}:{symbol}:{event_type}:{statement_type}:{limit}"
         now_t = time.time()
         with _CORP_FILINGS_LOCK:
             cached = _CORP_FILINGS_CACHE.get(cache_key)
-            if not force and cached and (now_t - cached["ts"] < 30.0):
+            if not force and cached and (now_t - cached["ts"] < 3600.0):
                 return _make_json_response(
                     cached["payload"],
                     etag=cached.get("etag"),
@@ -3230,7 +3245,6 @@ def api_get_corporate_filings():
             get_corporate_filings_summary,
             get_corporate_filing_execution_runs
         )
-        today_str = datetime.now(IST).strftime("%Y-%m-%d")
 
         # Memoize available dates for 60s
         if (now_t - _AVAIL_DATES_CACHE["ts"] >= 60.0) or not _AVAIL_DATES_CACHE["dates"]:
@@ -3239,49 +3253,9 @@ def api_get_corporate_filings():
             _AVAIL_DATES_CACHE["ts"] = now_t
         avail_dates = _AVAIL_DATES_CACHE["dates"]
 
-        if not raw_date or raw_date.upper() in ("TODAY", "DEFAULT"):
-            target_date = today_str
-            resp_date = today_str
-        elif raw_date.upper() == "LATEST":
+        if raw_date.upper() == "LATEST":
             target_date = avail_dates[0] if avail_dates else today_str
             resp_date = target_date
-        elif raw_date.upper() in ("ALL", "*"):
-            target_date = None
-            resp_date = "ALL"
-        else:
-            if raw_date.startswith("30") and len(raw_date) == 10:
-                raw_date = "20" + raw_date[2:]
-            if raw_date > today_str:
-                raw_date = today_str
-            target_date = raw_date
-            resp_date = raw_date
-
-        run_id = (request.args.get("run_id") or "").strip() or None
-        if run_id and run_id.upper() in ("ALL", "NONE", "*"):
-            run_id = None
-
-        symbol = request.args.get("symbol", "").strip() or None
-        event_type = request.args.get("event_type", "ALL").strip()
-        statement_type = request.args.get("statement_type", "ALL").strip()
-        limit = int(request.args.get("limit", 1000))
-        force = request.args.get("force") in ("1", "true", "True")
-
-        cache_key = f"{target_date}:{run_id}:{symbol}:{event_type}:{statement_type}:{limit}"
-        now_t = time.time()
-        cached = None
-        with _CORP_FILINGS_LOCK:
-            # [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_FILING_CACHE_v1.0]
-            # Cache persists indefinitely (up to 1hr safety window) as long as no DB write occurs.
-            # As soon as a filing is inserted or updated in database.py, invalidate_corp_filings_cache()
-            # evicts this cache instantly, satisfying the zero-stale, write-driven invalidation strategy.
-            cached = _CORP_FILINGS_CACHE.get(cache_key)
-            if not force and cached and (now_t - cached["ts"] < 3600.0):
-                return _make_json_response(
-                    cached["payload"],
-                    etag=cached.get("etag"),
-                    max_age=30,
-                    precompressed_gzip=cached.get("gzip")
-                )
 
         # Map semantic result filters (e.g. Quarterly Results in event filter)
         if event_type.upper() in ("QUARTERLY_RESULT", "QUARTERLY"):
@@ -4176,17 +4150,26 @@ def _compute_shortlist_payload_sync():
     df = df.where(pd.notnull(df), None)
     records = df.to_dict(orient="records")
 
-    # Dynamically attach live CMP quotes to the fundamental watchlist
+    # Dynamically attach live CMP quotes to the fundamental watchlist via non-blocking RAM price cache
     sym_list = [r.get("Stock") or r.get("symbol") or r.get("Symbol") for r in records if (r.get("Stock") or r.get("symbol") or r.get("Symbol"))]
     if sym_list:
         try:
-            from master_orchestrator import orchestrator_v2
-            batch_cmps = orchestrator_v2._batch_resolve_cmps(sym_list)
+            from price_cache import get_cached_price_details
             for r in records:
                 s = r.get("Stock") or r.get("symbol") or r.get("Symbol")
                 if s:
                     clean_s = str(s).split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
-                    cmp_val = batch_cmps.get(s) or batch_cmps.get(clean_s)
+                    cmp_val = None
+                    try:
+                        p, src, _, _ = get_cached_price_details(clean_s)
+                        if p is not None and float(p) > 0 and src != "UNAVAILABLE":
+                            cmp_val = float(p)
+                    except Exception:
+                        pass
+                    if not cmp_val:
+                        prev_p = r.get("Price") or r.get("close") or r.get("Close")
+                        if prev_p and float(prev_p) > 0:
+                            cmp_val = float(prev_p)
                     if cmp_val and float(cmp_val) > 0:
                         cmp_f = round(float(cmp_val), 2)
                         r["cmp"] = cmp_f
@@ -4369,6 +4352,8 @@ def api_wealth_delta():
     mgr = get_snapshot_manager()
     delta = mgr.compute_delta("wealth", since_version=since)
     if delta is None:
+        if since == 0:
+            return jsonify({"version": 0, "changes": []}), 200
         return Response("", status=304)
     return jsonify(delta)
 
@@ -8150,14 +8135,29 @@ def get_multibagger_positions():
 
 # ── KNOW ABOUT YOUR STOCK & MANUAL ALERT API ENDPOINTS ─────────────────────────
 
+_SYMBOLS_SUGGEST_CACHE = {}
+_SYMBOLS_SUGGEST_LOCK = threading.Lock()
+
 @app.route("/api/v1/symbols/suggest", methods=["GET"])
 @login_required
 def api_symbols_suggest():
-    """Real-time autocomplete ticker suggestions."""
+    """Real-time autocomplete ticker suggestions with 300s RAM micro-cache."""
+    global _SYMBOLS_SUGGEST_CACHE
     try:
+        q = (request.args.get("q") or "").strip().upper()
+        if not q:
+            return jsonify([])
+        now_ts = time.time()
+        with _SYMBOLS_SUGGEST_LOCK:
+            cached = _SYMBOLS_SUGGEST_CACHE.get(q)
+            if cached and (now_ts - cached["ts"]) < 300.0:
+                return jsonify(cached["data"])
         from stock_analyzer import search_symbols_autocomplete
-        q = request.args.get("q", "").strip()
         suggestions = search_symbols_autocomplete(q, limit=10)
+        with _SYMBOLS_SUGGEST_LOCK:
+            if len(_SYMBOLS_SUGGEST_CACHE) > 500:
+                _SYMBOLS_SUGGEST_CACHE.clear()
+            _SYMBOLS_SUGGEST_CACHE[q] = {"ts": now_ts, "data": suggestions}
         return jsonify(suggestions)
     except Exception as e:
         logger.exception("❌ Autocomplete suggestions endpoint error")

@@ -66,7 +66,7 @@ def trigger_batch(symbols):
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read()
-            if resp.headers.get("Content-Encoding") == "gzip":
+            if resp.headers.get("Content-Encoding") == "gzip" or (len(raw) >= 2 and raw[:2] == b"\x1f\x8b"):
                 raw = gzip.decompress(raw)
             return json.loads(raw.decode("utf-8"))
     except Exception as e:

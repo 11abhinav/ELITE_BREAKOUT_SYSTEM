@@ -29,9 +29,13 @@ from .schema import (
 
 logger = logging.getLogger(__name__)
 
+_EARNINGS_FORENSIC_DB_INITIALIZED = False
 
 def init_earnings_forensic_db() -> None:
     """Ensures earnings_forensic_reports table and indexes exist."""
+    global _EARNINGS_FORENSIC_DB_INITIALIZED
+    if _EARNINGS_FORENSIC_DB_INITIALIZED:
+        return
     try:
         with get_connection() as conn, conn.cursor() as cur:
             cur.execute("""
@@ -81,6 +85,7 @@ def init_earnings_forensic_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_efr_source_hash ON earnings_forensic_reports(source_hash);
             """)
             conn.commit()
+            _EARNINGS_FORENSIC_DB_INITIALIZED = True
     except Exception as e:
         logger.warning(f"[EARNINGS_FORENSIC] DB init notice: {e}")
 
