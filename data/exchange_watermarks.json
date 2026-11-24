@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T20:49:50.355488+05:30",
+    "last_successful_check_at": "2026-11-24T21:17:13.267890+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -48,7 +48,8 @@
         "last_successful_check_at": "2026-11-14T17:48:05.186428"
       },
       "UTLSOLAR": {
-        "last_successful_check_at": "2026-10-18T22:20:14.252026"
+        "last_successful_check_at": "2026-11-24T21:12:36.705401",
+        "latest_filing_timestamp": "22-May-2026 17:14:18"
       },
       "BASF": {
         "last_successful_check_at": "2026-10-24T19:13:09.589695"
@@ -676,12 +677,48 @@
       "VGUARD": {
         "last_successful_check_at": "2026-11-24T20:48:38.302745",
         "latest_filing_timestamp": "2026-09-30"
+      },
+      "VARROC": {
+        "last_successful_check_at": "2026-11-24T21:10:07.205777",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "URJA": {
+        "last_successful_check_at": "2026-11-24T21:11:29.657652",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "USHAMART": {
+        "last_successful_check_at": "2026-11-24T21:11:56.184480",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UTIAMC": {
+        "last_successful_check_at": "2026-11-24T21:12:09.356151",
+        "latest_filing_timestamp": "23-Oct-2026 19:38:42"
+      },
+      "VEEDOL": {
+        "last_successful_check_at": "2026-11-24T21:12:17.226507",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VENKEYS": {
+        "last_successful_check_at": "2026-11-24T21:12:22.072757",
+        "latest_filing_timestamp": "2026-10-31T12:56:55.827"
+      },
+      "V2RETAIL": {
+        "last_successful_check_at": "2026-11-24T21:12:26.308032",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VADILALIND": {
+        "last_successful_check_at": "2026-11-24T21:12:31.882813",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UPL": {
+        "last_successful_check_at": "2026-11-24T21:12:59.829088",
+        "latest_filing_timestamp": "2024-12-31"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T20:49:50.355488+05:30",
+    "last_successful_check_at": "2026-11-24T21:17:13.267890+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
