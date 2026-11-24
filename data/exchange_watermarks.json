@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T21:45:56.860954+05:30",
+    "last_successful_check_at": "2026-11-24T21:50:46.668893+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -795,12 +795,52 @@
       "UDS": {
         "last_successful_check_at": "2026-11-24T21:48:08.283092",
         "latest_filing_timestamp": "30-Oct-2026 20:18:33"
+      },
+      "TRITURBINE": {
+        "last_successful_check_at": "2026-11-24T21:52:16.147032",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TTKPRESTIG": {
+        "last_successful_check_at": "2026-11-24T21:52:22.011065",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TRENT": {
+        "last_successful_check_at": "2026-11-24T21:52:26.238129",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TVSMOTOR": {
+        "last_successful_check_at": "2026-11-24T21:52:29.992902",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TORNTPOWER": {
+        "last_successful_check_at": "2026-11-24T21:52:33.537977",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TSFINV": {
+        "last_successful_check_at": "2026-11-24T21:52:36.616510",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TORNTPHARM": {
+        "last_successful_check_at": "2026-11-24T21:52:39.985470",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TRANSRAILL": {
+        "last_successful_check_at": "2026-11-24T21:52:43.271412",
+        "latest_filing_timestamp": "2026-10-27T18:03:31.937"
+      },
+      "TRAVELFOOD": {
+        "last_successful_check_at": "2026-11-24T21:52:46.903296",
+        "latest_filing_timestamp": "2026-11-14T11:15:29.01"
+      },
+      "TRUALT": {
+        "last_successful_check_at": "2026-11-24T21:52:50.683343",
+        "latest_filing_timestamp": "29-Jul-2026 10:53:55"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T21:45:56.860954+05:30",
+    "last_successful_check_at": "2026-11-24T21:50:46.668893+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
