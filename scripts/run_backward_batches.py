@@ -47,21 +47,25 @@ AXIOM_DATASET = ENV.get("AXIOM_DATASET", "elite")
 def get_stock_health(force=False, timeout=90):
     url = f"{PROD_URL}/api/admin/stock_data_health" + ("?force=1" if force else "")
     req = urllib.request.Request(url, headers=HEADERS)
-    for attempt in range(5):
+    for attempt in range(8):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
                 if resp.headers.get("Content-Encoding") == "gzip" or raw[:2] == b"\x1f\x8b":
                     raw = gzip.decompress(raw)
-                return json.loads(raw.decode("utf-8"))
+                data = json.loads(raw.decode("utf-8"))
+                if isinstance(data, dict) and "stale_stocks" in data:
+                    return data
+                print(f"[get_stock_health] Waiting for Flask container boot (keys: {list(data.keys()) if isinstance(data, dict) else 'non-dict'})...", flush=True)
+                time.sleep(8)
         except Exception as e:
-            print(f"[get_stock_health] Attempt {attempt+1}/5 failed: {e}", flush=True)
+            print(f"[get_stock_health] Attempt {attempt+1}/8 failed: {e}", flush=True)
             time.sleep(10)
     return None
 
 def trigger_batch(symbols):
     url = f"{PROD_URL}/api/admin/trigger_filing_watcher"
-    payload = json.dumps({"symbols": symbols, "force": False}).encode()
+    payload = json.dumps({"symbols": symbols, "force": True}).encode()
     req = urllib.request.Request(url, data=payload, headers=HEADERS, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -75,14 +79,14 @@ def trigger_batch(symbols):
 
 def is_filing_watcher_running():
     try:
-        req = urllib.request.Request(f"{PROD_URL}/api/scanner_execution_history?scanner_name=FILING_WATCHER&limit=1", headers=HEADERS)
+        req = urllib.request.Request(f"{PROD_URL}/api/scanner_status", headers=HEADERS)
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw = resp.read()
             if raw[:2] == b"\x1f\x8b":
                 raw = gzip.decompress(raw)
             data = json.loads(raw.decode("utf-8"))
-            rec = data.get("records", [{}])[0]
-            return rec.get("lifecycle_status") == "RUNNING"
+            fw = data.get("FILING_WATCHER", {})
+            return fw.get("status") == "RUNNING"
     except Exception:
         return False
 

@@ -4178,6 +4178,7 @@ function changeAdminPage(type, delta) {
               <div class="card-title" style="display:flex; align-items:center; gap:8px; font-size:18px; font-weight:800; color:var(--text); margin-bottom:4px;">
                 <span>📊</span> Stock Data Health &amp; Filing Completeness Engine
                 <span id="sdhLiveBadge" style="font-size:11px; font-weight:700; background:rgba(16,185,129,0.15); color:#10b981; padding:3px 10px; border-radius:14px; border:1px solid rgba(16,185,129,0.3);">REAL UPSTOX / XBRL DATA</span>
+                <span id="sdhServerSyncBadge" style="font-size:11px; font-weight:600; color:var(--muted); margin-left:8px;"><span style="color:#10b981;">●</span> Live Synced</span>
               </div>
               <div style="font-size:12px; color:var(--muted); line-height:1.5;">
                 Full transparency across all tracked universe stocks. Inspect stocks currently suppressed under the <strong>7-day cool-off rule</strong> with missing data diagnostics, audit fresh stocks with their latest and historical filings, view previous statements stored in local DB, and run on-demand validation.
@@ -14219,11 +14220,12 @@ function _applyStockDataHealthData(data) {
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
-  // SWR: Instant local hydration from localStorage / sessionStorage / memory (0ms UI render)
+  // SWR: Instant local hydration from localStorage ONLY if stored within the last 60 seconds
   if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
     try {
-      const cachedStr = localStorage.getItem('CACHE_SDH_DATA') || sessionStorage.getItem('CACHE_SDH_DATA');
-      if (cachedStr) {
+      const cachedStr = localStorage.getItem('CACHE_SDH_DATA');
+      const cachedAt = parseInt(localStorage.getItem('CACHE_SDH_DATA_TS') || '0', 10);
+      if (cachedStr && (Date.now() - cachedAt < 60000)) {
         _applyStockDataHealthData(JSON.parse(cachedStr));
       }
     } catch (_) {}
@@ -14255,32 +14257,21 @@ async function fetchStockDataHealth(force = false) {
   try {
     const forceParam = force ? '&force=1' : '';
     const fetchOpts = {
-      cache: force ? 'no-store' : 'default',
-      headers: force ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' } : {}
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
     };
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`, fetchOpts);
     
     if (res.status === 401) {
-      try { sessionStorage.removeItem('CACHE_SDH_DATA'); localStorage.removeItem('CACHE_SDH_DATA'); } catch (_) {}
+      try {
+        sessionStorage.removeItem('CACHE_SDH_DATA');
+        localStorage.removeItem('CACHE_SDH_DATA');
+        localStorage.removeItem('CACHE_SDH_DATA_TS');
+      } catch (_) {}
       SDH_STALE_STOCKS = [];
       SDH_FRESH_STOCKS = [];
       if (tbody) {
         tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:30px; color:#ef4444; font-weight:700;">🔒 Admin session expired or not authenticated. <a href="/login" style="color:#38bdf8; text-decoration:underline;">Click here to log in again</a></td></tr>`;
-      }
-      return;
-    }
-
-    if (res.status === 304) {
-      // 304 Not Modified: cache is current, hydrate from local cache if in-memory is empty
-      if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
-        try {
-          const cachedStr = localStorage.getItem('CACHE_SDH_DATA') || sessionStorage.getItem('CACHE_SDH_DATA');
-          if (cachedStr) {
-            _applyStockDataHealthData(JSON.parse(cachedStr));
-          } else {
-            fetchStockDataHealth(true);
-          }
-        } catch (_) {}
       }
       return;
     }
@@ -14293,9 +14284,17 @@ async function fetchStockDataHealth(force = false) {
     if (data.status === 'success') {
       try {
         localStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
+        localStorage.setItem('CACHE_SDH_DATA_TS', String(Date.now()));
         sessionStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
       } catch (_) {}
       _applyStockDataHealthData(data);
+
+      const syncBadge = document.getElementById('sdhServerSyncBadge');
+      if (syncBadge) {
+        const timeStr = data.summary?.server_time ? new Date(data.summary.server_time).toLocaleTimeString() : new Date().toLocaleTimeString();
+        syncBadge.innerHTML = `<span style="color:#10b981;">●</span> Live Synced: ${timeStr}`;
+      }
+
       if (force) {
         setTimeout(() => {
           fetchStockDataHealth(false);
@@ -14308,6 +14307,10 @@ async function fetchStockDataHealth(force = false) {
     }
   } catch (err) {
     console.error('Error fetching stock data health:', err);
+    const syncBadge = document.getElementById('sdhServerSyncBadge');
+    if (syncBadge) {
+      syncBadge.innerHTML = `<span style="color:#f59e0b;">⚠️ Reconnecting (${err.message})...</span>`;
+    }
     if (tbody && (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length)) {
       tbody.innerHTML = `<tr><td colspan="24" style="text-align:center; padding:30px; color:#ef4444;">⚠️ ${err.message || 'Network or server error loading stock data health.'}</td></tr>`;
     }

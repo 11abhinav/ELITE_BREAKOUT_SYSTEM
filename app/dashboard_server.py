@@ -3581,11 +3581,21 @@ def api_admin_stock_data_health():
     - All stocks marked as stale or currently suppressed under 7-day cool-off
     - All stocks with certified, fresh data along with their latest filing and total filing counts
     - Summary metrics (total universe, stale count, fresh count, coverage %)
-    Cached with Stale-While-Revalidate (SWR) for instant, sub-millisecond response. Use ?force=1 to recompute immediately.
+    Cached with short in-memory cache for instant response with automatic disk mtime invalidation.
+    Always served with no-cache headers to ensure the admin UI reflects ground-truth live data.
     """
     try:
         force = request.args.get("force") in ("1", "true", "True")
         now_t = time.time()
+
+        # Check if underlying filing or canonical master files have changed on disk
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        manifest_path = os.path.join(base_dir, "data", "pit_raw_filings_manifest.json")
+        canonical_path = os.path.join(base_dir, "data", "canonical_master.parquet")
+        latest_file_mtime = 0.0
+        for p in (manifest_path, canonical_path):
+            if os.path.exists(p):
+                latest_file_mtime = max(latest_file_mtime, os.path.getmtime(p))
 
         with _STOCK_DATA_HEALTH_LOCK:
             cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
@@ -3593,21 +3603,22 @@ def api_admin_stock_data_health():
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-        # 1. Warm cache hit: return immediately in <5ms ONLY if cache is valid and NOT explicitly invalidated (ts > 0.0)
-        if cached_payload and cached_ts > 0.0 and not force:
-            # Refresh in background if cache is >60s old
-            if (now_t - cached_ts > 60.0):
-                threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
+            # Auto-invalidate cache if files changed on disk
+            if cached_ts > 0.0 and latest_file_mtime > cached_ts:
+                cached_ts = 0.0
+                _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
 
+        # 1. Warm cache hit: return immediately in <5ms ONLY if cache is valid and fresh (<15s) and not force
+        if cached_payload and cached_ts > 0.0 and (now_t - cached_ts < 15.0) and not force:
             return _make_json_response(
                 cached_payload,
                 etag=cached_etag,
-                max_age=30,
+                max_age=0,
                 precompressed_gzip=cached_gz,
-                no_cache=False
+                no_cache=True
             )
 
-        # 2. Invalidated (ts == 0.0), Forced (force=True), or Cold Cache: compute fresh payload synchronously
+        # 2. Invalidated (ts == 0.0), Forced (force=True), or Stale Cache: compute fresh payload synchronously
         with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
             # Double check under compute lock
             with _STOCK_DATA_HEALTH_LOCK:
@@ -3616,11 +3627,11 @@ def api_admin_stock_data_health():
                 cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
                 cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-            if cached_payload and cached_ts > 0.0 and not force:
-                return _make_json_response(cached_payload, etag=cached_etag, max_age=30, precompressed_gzip=cached_gz, no_cache=False)
+            if cached_payload and cached_ts > 0.0 and (now_t - cached_ts < 15.0) and not force:
+                return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
 
             resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
-            return _make_json_response(resp_json, etag=etag, max_age=0 if force else 30, precompressed_gzip=gz, no_cache=force)
+            return _make_json_response(resp_json, etag=etag, max_age=0, precompressed_gzip=gz, no_cache=True)
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
