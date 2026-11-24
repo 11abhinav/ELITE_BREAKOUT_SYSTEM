@@ -770,5 +770,23 @@
     "mapped_revenue": 284.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "66a2286b59a364b6727c2b92fe47396e9ff463d45786242de1e8915862750595"
+  },
+  {
+    "symbol": "SPMLINFRA",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 608.63,
+    "net_profit": 0.0233,
+    "operating_profit": null,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-12",
+    "broadcast_timestamp": "12-Nov-2026 18:35:53",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_SPMLINFRA_106857309_2026-09-30"
   }
 ]
