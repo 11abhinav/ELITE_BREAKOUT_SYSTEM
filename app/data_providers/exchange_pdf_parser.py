@@ -738,49 +738,54 @@ class ExchangePdfParser:
             if sc >= 45:
                 page_scores.append((p_idx, sc, b))
 
-        # Scanned Image PDF Early Detection & Priority 3 OCR Fallback:
-        # STRICT INVARIANT: Run OCR ONLY when the PDF has no digital text layer across scanned pages (< 150 chars total).
-        # If the document has >= 150 digital characters, it is NOT a scanned bitmap and MUST NOT trigger OCR.
+        # Scanned Image PDF / Hybrid Scanned Document Early Detection & OCR Fallback:
+        # Trigger OCR if:
+        # 1. Pure scanned PDF: doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts))
+        # 2. Hybrid scanned PDF: The vast majority of pages are image scans with 0 text (zero_text_page_count >= len(cached_page_texts) - 3),
+        #    meaning page 1 is just a typed letterhead cover letter, but all actual financial result statements are scanned bitmaps.
         doc_total_chars = sum(len(t.strip()) for t in cached_page_texts.values())
-        if doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)):
-            ocr_recovered = False
-            if _OCR_AVAILABLE:
-                try:
-                    logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on first {min(5, total_doc_pages)} scanned pages...")
-                    t_ocr_start = time.time()
-                    for p_idx in range(min(5, total_doc_pages)):
-                        if time.time() - t_ocr_start > 25.0:
-                            logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached 25s budget at page {p_idx+1}. Breaking.")
-                            break
-                        page_obj = reader.pages[p_idx]
-                        page_images = getattr(page_obj, "images", [])
-                        ocr_page_text = ""
-                        for img_obj in page_images[:2]:
-                            try:
-                                img = Image.open(io.BytesIO(img_obj.data))
-                                if img.width >= 150 and img.height >= 150:
-                                    # Downscale high-resolution scans for 10x faster OCR without text quality loss
-                                    if img.width > 1600 or img.height > 2200:
-                                        img.thumbnail((1400, 1800))
-                                    t = pytesseract.image_to_string(img, timeout=6.0)
-                                    if t and len(t.strip()) > 30:
-                                        ocr_page_text += "\n" + t.strip()
-                            except Exception:
-                                pass
-                        if ocr_page_text:
-                            cached_page_texts[p_idx] = ocr_page_text
-                            sc, b = score_page_content(ocr_page_text)
-                            if sc >= 30:
-                                page_scores.append((p_idx, sc, b))
-                                ocr_recovered = True
-                                if len(page_scores) >= 2 or sc >= 50:
-                                    break
-                    if ocr_recovered:
-                        logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len(page_scores)} pages.")
-                except Exception as _ocr_err:
-                    logger.debug(f"[PDF_PARSER: OCR] {symbol} OCR attempt note: {_ocr_err}")
+        is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
+        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) - 3) and len([p for p in page_scores if p[1] >= 45]) <= 1)
 
-            if not ocr_recovered:
+        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE:
+            ocr_recovered = False
+            try:
+                scan_candidates = [p for p in range(min(12, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
+                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
+                t_ocr_start = time.time()
+                for p_idx in scan_candidates[:6]:
+                    if time.time() - t_ocr_start > 30.0:
+                        logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached 30s budget at page {p_idx+1}. Breaking.")
+                        break
+                    page_obj = reader.pages[p_idx]
+                    page_images = getattr(page_obj, "images", [])
+                    ocr_page_text = ""
+                    for img_obj in page_images[:2]:
+                        try:
+                            img = Image.open(io.BytesIO(img_obj.data))
+                            if img.width >= 150 and img.height >= 150:
+                                # Downscale high-resolution scans for 10x faster OCR without text quality loss
+                                if img.width > 1600 or img.height > 2200:
+                                    img.thumbnail((1400, 1800))
+                                t = pytesseract.image_to_string(img, timeout=8.0)
+                                if t and len(t.strip()) > 30:
+                                    ocr_page_text += "\n" + t.strip()
+                        except Exception:
+                            pass
+                    if ocr_page_text:
+                        cached_page_texts[p_idx] = ocr_page_text
+                        sc, b = score_page_content(ocr_page_text)
+                        if sc >= 30:
+                            page_scores.append((p_idx, sc, b))
+                            ocr_recovered = True
+                            if len(page_scores) >= 3 or sc >= 50:
+                                break
+                if ocr_recovered:
+                    logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len([p for p in page_scores if p[0] in scan_candidates])} scanned pages.")
+            except Exception as _ocr_err:
+                logger.debug(f"[PDF_PARSER: OCR] {symbol} OCR attempt note: {_ocr_err}")
+
+            if is_pure_scanned and not ocr_recovered:
                 if hasattr(self, "last_failure_reason"):
                     self.last_failure_reason[symbol] = (
                         "SCANNED_IMAGE_PDF_UNREADABLE",
@@ -1594,7 +1599,7 @@ class ExchangePdfParser:
         pdf_records: List[RawFinancialRecord] = []
 
         def _score_ann(ann: Dict[str, Any]) -> int:
-            d = str(ann.get("desc") or "").lower()
+            d = str(ann.get("desc") or ann.get("headline") or ann.get("NEWSSUB") or "").lower()
             t = str(ann.get("attchmntText") or "").lower()
             fn = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
             score = 0
@@ -1604,12 +1609,17 @@ class ExchangePdfParser:
                 score += 30
             if "unaudited" in d or "unaudited" in t or "audited" in d or "audited" in t:
                 score += 20
-            if "outcome of board meeting" in d or "outcome of board meeting" in t:
-                score += 15
+            if "outcome of board meeting" in d or "outcome of board meeting" in t or "outcome of the board meeting" in d:
+                score += 50
+            if "considered and approved" in d or "considered and approved" in t:
+                score += 40
             if "standalone" in fn or "consolidated" in fn or "results" in fn:
                 score += 15
+            # Heavy penalty for advance meeting notices, prior intimations, and investor presentations
+            if any(k in d for k in ("meeting of the board of directors of the company is scheduled", "meeting of the board is scheduled", "meeting scheduled", "prior intimation", "notice of board meeting", "board meeting notice")):
+                score -= 100
             if "intimation" in fn or "intimation" in d:
-                score -= 10
+                score -= 40
             if any(k in f"{d} {t} {fn}" for k in ("newspaper", "clipping", "clarification", "presentation", "press release", "transcript", "audio", "concall", "con. call", "allotment", "appointment", "customsorder", "investor update")):
                 score -= 50
             return score

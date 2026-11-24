@@ -1983,12 +1983,17 @@ class FinancialFilingWatcher:
                         elif nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
                             candidate_anns.extend(nse_prov._discovered_cache[sym_u])
 
+                        # Also include any filings/announcements already gathered in raw_filings_list that carry PDF links
+                        for _rf in raw_filings_list:
+                            if _rf.get("attchmntFile") and _rf not in candidate_anns:
+                                candidate_anns.append(_rf)
+
                         # Also include BSE discovered announcements if BSE was queried
                         if 'bse_disc_rows' in locals() and bse_disc_rows:
                             candidate_anns.extend(bse_disc_rows)
 
-                        # If candidate announcements are empty and stock is missing latest quarter or needs bootstrap, actively discover from NSE
-                        if not candidate_anns and (needs_bootstrap or not has_latest_concluded_quarter or not market_sweep_ok):
+                        # If candidate announcements are empty, actively discover from NSE directly
+                        if not candidate_anns:
                             if nse_prov:
                                 try:
                                     nse_disc = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)

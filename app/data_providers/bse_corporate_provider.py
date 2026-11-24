@@ -482,6 +482,24 @@ class BseCorporateProvider:
                 or _parse_period_end_from_announcement_text(sub)
                 or _parse_period_end_from_announcement_text(more)
             )
+            # Fallback for generic headlines like 'Outcome of Board Meeting' with attached financial PDFs:
+            # Infer applicable concluded reporting quarter from announcement broadcast date (DT_TM)
+            if not p_end and (item.get("ATTACHMENTNAME") or xml_name):
+                bcast_dt_raw = str(item.get("DT_TM") or item.get("DissemDT") or item.get("NEWS_DT") or "")[:10]
+                if bcast_dt_raw and len(bcast_dt_raw) == 10:
+                    try:
+                        d_obj = datetime.strptime(bcast_dt_raw, "%Y-%m-%d").date()
+                        if d_obj.month in (10, 11, 12):
+                            p_end = f"{d_obj.year}-09-30"
+                        elif d_obj.month in (1, 2, 3):
+                            p_end = f"{d_obj.year - 1}-12-31"
+                        elif d_obj.month in (4, 5, 6):
+                            p_end = f"{d_obj.year}-03-31"
+                        elif d_obj.month in (7, 8, 9):
+                            p_end = f"{d_obj.year}-06-30"
+                    except Exception:
+                        pass
+
             # [RULE 67 CHANGE-RATIONALE: HISTORICAL_LOOKBACK_6Y_v1.0]
             # Maximum scanner lookback is 5 years + 1 buffer year = 6 years (>= 2020-01-01 in 2026).
             if not p_end or p_end < "2020-01-01":

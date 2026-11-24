@@ -161,6 +161,8 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
         preferred_tags=[
             "ProfitLossForPeriod",
             "ProfitLossForPeriodFromContinuingOperations",
+            "ProfitLossForThePeriod",
+            "ProfitLossForThePeriodFromContinuingOperations",
             "ProfitOrLossAttributableToOwnersOfParent",
         ],
         fallback_tags=[
@@ -173,6 +175,8 @@ CONTROLLED_TAXONOMY: Dict[str, ControlledMetricTag] = {
             "ProfitAfterTax",
             "NetProfitForPeriod",
             "PAT",
+            "ProfitLossForThePeriod",
+            "ProfitLossForThePeriodFromContinuingOperations",
         ],
         context_type="PERIOD",
         unit_type="INR",
@@ -753,7 +757,13 @@ class NseXbrlProvider:
                     try:
                         return res.json()
                     except Exception:
-                        logger.warning(f"[NSE] {symbol}: 200 but non-JSON body.")
+                        logger.warning(f"[NSE] {symbol}: 200 but non-JSON body (received {len(res.text)} chars). Refreshing session...")
+                        if session_refreshes < _MAX_SESSION_REFRESHES:
+                            self._init_session()
+                            session_refreshes += 1
+                            self.retry_count += 1
+                            time.sleep(1.0)
+                            continue
                         return None
 
                 if res.status_code in (401, 403):
