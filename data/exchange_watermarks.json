@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T21:50:46.668893+05:30",
+    "last_successful_check_at": "2026-11-24T21:55:05.374145+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -45,7 +45,8 @@
         "last_successful_check_at": "2026-10-26T10:46:15.550388"
       },
       "TIMKEN": {
-        "last_successful_check_at": "2026-11-14T17:48:05.186428"
+        "last_successful_check_at": "2026-11-24T21:57:07.961262",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "UTLSOLAR": {
         "last_successful_check_at": "2026-11-24T21:48:03.951810",
@@ -835,12 +836,48 @@
       "TRUALT": {
         "last_successful_check_at": "2026-11-24T21:52:50.683343",
         "latest_filing_timestamp": "29-Jul-2026 10:53:55"
+      },
+      "TIMETECHNO": {
+        "last_successful_check_at": "2026-11-24T21:56:39.190615",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TIINDIA": {
+        "last_successful_check_at": "2026-11-24T21:56:47.229517",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TMB": {
+        "last_successful_check_at": "2026-11-24T21:56:53.778275",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TITAN": {
+        "last_successful_check_at": "2026-11-24T21:56:58.412744",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TIIL": {
+        "last_successful_check_at": "2026-11-24T21:57:03.368937",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TNPL": {
+        "last_successful_check_at": "2026-11-24T21:57:12.507848",
+        "latest_filing_timestamp": "14-Nov-2026 13:02:11"
+      },
+      "TIMEX": {
+        "last_successful_check_at": "2026-11-24T21:57:17.776468",
+        "latest_filing_timestamp": "2026-11-23T17:59:17.88"
+      },
+      "TIPSMUSIC": {
+        "last_successful_check_at": "2026-11-24T21:57:22.910406",
+        "latest_filing_timestamp": "22-Jul-2026 13:58:09"
+      },
+      "TINNARUBR": {
+        "last_successful_check_at": "2026-11-24T21:57:28.866452",
+        "latest_filing_timestamp": "2026-10-26T17:42:10.323"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T21:50:46.668893+05:30",
+    "last_successful_check_at": "2026-11-24T21:55:05.374145+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
