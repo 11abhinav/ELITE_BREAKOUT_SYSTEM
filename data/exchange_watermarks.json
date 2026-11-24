@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T21:17:13.267890+05:30",
+    "last_successful_check_at": "2026-11-24T21:18:56.546652+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -190,7 +190,8 @@
         "last_successful_check_at": "2026-10-15T20:25:51.998551"
       },
       "VIMTALABS": {
-        "last_successful_check_at": "2026-10-15T20:25:53.065921"
+        "last_successful_check_at": "2026-11-24T21:20:16.485779",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "TCS": {
         "last_successful_check_at": "2026-10-21T07:51:23.585729"
@@ -595,8 +596,8 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "ZAGGLE": {
-        "last_successful_check_at": "2026-11-23T22:42:09.340496",
-        "latest_filing_timestamp": "2026-11-14T17:13:47.493"
+        "last_successful_check_at": "2026-11-24T21:20:33.223866",
+        "latest_filing_timestamp": "14-Nov-2026 17:14:58"
       },
       "ZFCVINDIA": {
         "last_successful_check_at": "2026-11-23T22:42:09.340181",
@@ -713,12 +714,28 @@
       "UPL": {
         "last_successful_check_at": "2026-11-24T21:12:59.829088",
         "latest_filing_timestamp": "2024-12-31"
+      },
+      "VESUVIUS": {
+        "last_successful_check_at": "2026-11-24T21:20:06.458846",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VIJAYA": {
+        "last_successful_check_at": "2026-11-24T21:20:22.982818",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VIKRAMSOLR": {
+        "last_successful_check_at": "2026-11-24T21:20:28.650681",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VIDHIING": {
+        "last_successful_check_at": "2026-11-24T21:20:49.774106",
+        "latest_filing_timestamp": "29-Jul-2026 12:36:51"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T21:17:13.267890+05:30",
+    "last_successful_check_at": "2026-11-24T21:18:56.546652+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

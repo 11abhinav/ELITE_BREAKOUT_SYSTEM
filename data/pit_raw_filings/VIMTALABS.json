@@ -1960,5 +1960,23 @@
     "shares_outstanding": 22.21,
     "source": "EXCHANGE_AUDITED_ANNUAL_FILING",
     "source_provider": "NSE_EXCHANGE"
+  },
+  {
+    "symbol": "VIMTALABS",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 1119.83,
+    "net_profit": 206.14,
+    "operating_profit": 279.1,
+    "eps": 4.61,
+    "total_debt": null,
+    "total_equity": 4.4794,
+    "operating_cash_flow": null,
+    "shares_outstanding": 89400000.0,
+    "filing_date": "2026-10-30",
+    "broadcast_timestamp": "30-Oct-2026 13:15:33",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_VIMTALABS_106836167_2026-09-30"
   }
 ]
