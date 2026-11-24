@@ -540,10 +540,10 @@ def publish_canonical_pit(
                 lock = getattr(_app_dash, "_STOCK_DATA_HEALTH_LOCK", None) or getattr(_app_dash, "_STOCK_DATA_HEALTH_CACHE_LOCK", None)
                 if lock:
                     with lock:
-                        _app_dash._STOCK_DATA_HEALTH_CACHE.clear()
+                        _app_dash._STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
                 else:
-                    _app_dash._STOCK_DATA_HEALTH_CACHE.clear()
-                logger.info("🧹 [CANONICAL_PUBLISHER] Cleared dashboard stock data health cache")
+                    _app_dash._STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
+                logger.info("🧹 [CANONICAL_PUBLISHER] Marked dashboard stock data health cache expired for background refresh")
         except Exception as _e_dash:
             logger.debug(f"[CANONICAL_PUBLISHER] Dashboard cache clear note: {_e_dash}")
 

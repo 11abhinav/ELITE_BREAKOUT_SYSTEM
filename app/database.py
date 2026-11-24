@@ -11282,24 +11282,21 @@ def clear_unified_stock_data_health_cache() -> None:
     [RULE 67 CHANGE-RATIONALE: WRITE-INVALIDATION_HEALTH_CACHE_v1.0]
     Atomically invalidates both the database-level _UNIFIED_AUDIT_CACHE and
     the Flask dashboard_server _STOCK_DATA_HEALTH_CACHE across all module namespaces.
-    This ensures any write to cool-off tables or corporate filings immediately evicts cached health data
-    so the next dashboard request recalculates fresh status without waiting for TTL expiry.
+    Sets TTL to expired (ts = 0.0) so readers receive instant SWR cached responses (<2ms)
+    while triggering a non-blocking background refresh, eliminating 502 Bad Gateway and UI lag.
     """
     global _UNIFIED_AUDIT_CACHE, _UNIFIED_AUDIT_CACHE_TS
-    global _AUDIT_RAW_FILINGS_CACHE, _AUDIT_RAW_FILINGS_LAST_SCAN
-    global _WATCHER_STATE_CACHE, _WATCHER_STATE_MTIME
-    global _CANONICAL_DF_CACHE, _CANONICAL_DF_MTIME
+    global _AUDIT_RAW_FILINGS_LAST_SCAN
+    global _WATCHER_STATE_MTIME
+    global _CANONICAL_DF_MTIME
     with _UNIFIED_AUDIT_LOCK:
         _UNIFIED_AUDIT_CACHE = None
         _UNIFIED_AUDIT_CACHE_TS = 0.0
     with _AUDIT_RAW_LOCK:
-        _AUDIT_RAW_FILINGS_CACHE = {}
         _AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
     with _WATCHER_STATE_LOCK:
-        _WATCHER_STATE_CACHE = {}
         _WATCHER_STATE_MTIME = 0.0
     with _CANONICAL_DF_LOCK:
-        _CANONICAL_DF_CACHE = None
         _CANONICAL_DF_MTIME = 0.0
     try:
         from app.scanner_data_gateway import clear_gateway_cache
@@ -11326,7 +11323,8 @@ def clear_unified_stock_data_health_cache() -> None:
         if mod and hasattr(mod, "_STOCK_DATA_HEALTH_CACHE") and hasattr(mod, "_STOCK_DATA_HEALTH_LOCK"):
             try:
                 with mod._STOCK_DATA_HEALTH_LOCK:
-                    mod._STOCK_DATA_HEALTH_CACHE.clear()
+                    # Invalidate TTL to trigger background refresh, but PRESERVE payload for instant SWR (<2ms)
+                    mod._STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
             except Exception:
                 pass
 

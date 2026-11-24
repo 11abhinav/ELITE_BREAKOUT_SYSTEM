@@ -726,10 +726,11 @@ class FundamentalPreRecoveryEngine:
                     # Invalidate admin dashboard stock_data_health cache for instant UI refresh
                     try:
                         try:
-                            from dashboard_server import _STOCK_DATA_HEALTH_CACHE
+                            from dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
                         except ImportError:
-                            from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE
-                        _STOCK_DATA_HEALTH_CACHE.clear()
+                            from app.dashboard_server import _STOCK_DATA_HEALTH_CACHE, _STOCK_DATA_HEALTH_LOCK
+                        with _STOCK_DATA_HEALTH_LOCK:
+                            _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
                         logger.info("⚡ [PRE_RECOVERY] Invalidated stock_data_health dashboard cache.")
                     except Exception:
                         pass

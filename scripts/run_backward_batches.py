@@ -51,7 +51,7 @@ def get_stock_health(timeout=90):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
-                if resp.headers.get("Content-Encoding") == "gzip":
+                if resp.headers.get("Content-Encoding") == "gzip" or raw[:2] == b"\x1f\x8b":
                     raw = gzip.decompress(raw)
                 return json.loads(raw.decode("utf-8"))
         except Exception as e:
