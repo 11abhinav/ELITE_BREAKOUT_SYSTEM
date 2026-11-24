@@ -934,14 +934,15 @@ def rebuild_canonical_pit_dataset(
         }
     )
 
-    # Run 886 completeness audit
+    # Run 886 completeness audit (only on full-universe rebuilds, skip on targeted 10-stock delta runs)
     audit_summary = {}
-    try:
-        from scripts.audit_886_financial_completeness import audit_886_completeness
-        audit_res = audit_886_completeness()
-        audit_summary = audit_res.get("summary", {})
-    except Exception as audit_err:
-        logger.warning(f"⚠️ [filling scanner] Completeness audit notice: {audit_err}")
+    if not target_symbols:
+        try:
+            from scripts.audit_886_financial_completeness import audit_886_completeness
+            audit_res = audit_886_completeness()
+            audit_summary = audit_res.get("summary", {})
+        except Exception as audit_err:
+            logger.warning(f"⚠️ [filling scanner] Completeness audit notice: {audit_err}")
 
     certified_cnt = int((df_final["provenance_status"] == "CERTIFIED").sum())
     structural_cnt = int(df_final["is_structural_ineligible"].sum()) if "is_structural_ineligible" in df_final.columns else 0

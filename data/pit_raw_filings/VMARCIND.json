@@ -1,6 +1,24 @@
 [
   {
     "symbol": "VMARCIND",
+    "period_end_date": "2024-09-30",
+    "statement_type": "HALF_YEARLY",
+    "basis": "STANDALONE",
+    "revenue": 345.2114,
+    "net_profit": 11.3683,
+    "operating_profit": 15.314,
+    "eps": 4.99,
+    "total_debt": 61.2396,
+    "total_equity": 489.2707,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2024-11-12",
+    "broadcast_timestamp": "12-NOV-2024 11:00:44",
+    "exchange": "NSE",
+    "filing_id": "1185685"
+  },
+  {
+    "symbol": "VMARCIND",
     "source": "UPSTOX_API",
     "period_end_date": "2025-03-31",
     "period_type": "ANNUAL",
@@ -146,5 +164,41 @@
     "mapped_revenue": 556.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "9d32ab5d90f0c6b9711ccbf00908863837fb9d58afc03bdf0d9c1b997a76d478"
+  },
+  {
+    "symbol": "VMARCIND",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 41711.13,
+    "net_profit": 26.665,
+    "operating_profit": 4287.48,
+    "eps": 1.82,
+    "total_debt": null,
+    "total_equity": 20295.15,
+    "operating_cash_flow": null,
+    "shares_outstanding": 24420700.0,
+    "filing_date": "2026-11-06",
+    "broadcast_timestamp": "06-Nov-2026 14:45:43",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_VMARCIND_106850234_2026-09-30"
+  },
+  {
+    "symbol": "VMARCIND",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 41711.13,
+    "net_profit": 26.665,
+    "operating_profit": 4287.48,
+    "eps": 182.0,
+    "total_debt": null,
+    "total_equity": 20295.15,
+    "operating_cash_flow": null,
+    "shares_outstanding": 24420700.0,
+    "filing_date": "2026-11-06",
+    "broadcast_timestamp": "06-Nov-2026 14:45:43",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_VMARCIND_106850234_2026-09-30"
   }
 ]

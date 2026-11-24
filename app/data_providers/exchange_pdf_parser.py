@@ -50,7 +50,7 @@ _PARSE_SEMAPHORE = threading.Semaphore(8)
 
 _PAGE_EXTRACTOR_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="pdf_page_extract")
 
-def _safe_extract_text(page, timeout: float = 8.0, extraction_mode: Optional[str] = None) -> str:
+def _safe_extract_text(page, timeout: float = 3.0, extraction_mode: Optional[str] = None) -> str:
     """Extracts text from a single page with fast direct path and safety timeout fallback."""
     # Fast path: direct in-thread extraction. In pypdf, in-memory string extraction executes
     # in <0.05s for 99.99% of valid PDF pages without queuing delays or thread pool contention.
@@ -718,15 +718,15 @@ class ExchangePdfParser:
         # Phase 2: Lightweight document-wide text pre-scan & candidate scoring
         # Enforces Safeguard A: Multi-signal weighted scoring under 2s without sequential heavy table parsing
         total_doc_pages = len(reader.pages)
-        max_scan_pages = min(60, total_doc_pages)
+        max_scan_pages = min(10, total_doc_pages)
         cached_page_texts: Dict[int, str] = {}
         page_scores: List[Tuple[int, int, ConsolidationType]] = []
         zero_text_page_count = 0
 
         t_prescan_start = time.time()
         for p_idx in range(max_scan_pages):
-            if time.time() - t_prescan_start > 30.0:
-                logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached 30s budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
+            if time.time() - t_prescan_start > 10.0:
+                logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached 10s budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
                 break
             page = reader.pages[p_idx]
             p_text = _safe_extract_text(page, timeout=8.0)
@@ -1631,8 +1631,8 @@ class ExchangePdfParser:
             if not isinstance(ann, dict):
                 continue
 
-            # Check up to top 5 scored announcement attachments (stops early as soon as results are extracted)
-            if downloaded_pdf_count >= 5:
+            # Check up to top 2 scored announcement attachments (stops early as soon as results are extracted)
+            if downloaded_pdf_count >= 2:
                 break
 
             # If we already parsed records for the requested cutoff, early exit immediately

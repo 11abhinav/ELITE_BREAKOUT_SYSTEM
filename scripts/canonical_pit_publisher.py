@@ -331,8 +331,19 @@ def publish_canonical_pit(
     os.makedirs(os.path.dirname(CANONICAL_PATH), exist_ok=True)
     lock_fd = open(LOCK_FILE, "w")
     try:
-        # Exclusive filesystem lock (blocks other processes)
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        # Exclusive filesystem lock with non-blocking retry loop (prevents permanent hang)
+        _acquired = False
+        _t_lock_start = time.time()
+        while time.time() - _t_lock_start < 15.0:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _acquired = True
+                break
+            except (BlockingIOError, IOError):
+                time.sleep(0.2)
+        if not _acquired:
+            logger.warning("[CANONICAL_PUBLISHER] Lock contention detected (>15s wait). Forcing lock acquisition.")
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
 
         # --- Step 2: Load candidate ---
         try:

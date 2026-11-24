@@ -1,6 +1,24 @@
 [
   {
     "symbol": "VINYAS",
+    "period_end_date": "2024-09-30",
+    "statement_type": "HALF_YEARLY",
+    "basis": "STANDALONE",
+    "revenue": 149.4957,
+    "net_profit": null,
+    "operating_profit": 8.4271,
+    "eps": 5.57,
+    "total_debt": 8.9707,
+    "total_equity": 289.9384,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2024-11-19",
+    "broadcast_timestamp": "19-NOV-2024 13:01:33",
+    "exchange": "NSE",
+    "filing_id": "1189233"
+  },
+  {
+    "symbol": "VINYAS",
     "source": "UPSTOX_API",
     "period_end_date": "2026-03-31",
     "period_type": "ANNUAL",
@@ -38,5 +56,23 @@
     "mapped_revenue": 514.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "9eb9f72f7ed0b5c758d8d5207e4402c9f86fc273800de978ed5e7268fc8d7d4d"
+  },
+  {
+    "symbol": "VINYAS",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 20025.41,
+    "net_profit": 1402.51,
+    "operating_profit": null,
+    "eps": 171.0,
+    "total_debt": null,
+    "total_equity": 452.08,
+    "operating_cash_flow": null,
+    "shares_outstanding": 140000.0,
+    "filing_date": "2026-11-11",
+    "broadcast_timestamp": "11-Nov-2026 15:34:00",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_VINYAS_106855151_2026-09-30"
   }
 ]
