@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T21:59:06.879414+05:30",
+    "last_successful_check_at": "2026-11-24T22:03:17.789787+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -912,12 +912,52 @@
       "TECHNOE": {
         "last_successful_check_at": "2026-11-24T22:01:46.375925",
         "latest_filing_timestamp": "2026-11-13T19:00:22.103"
+      },
+      "TATACOMM": {
+        "last_successful_check_at": "2026-11-24T22:04:53.993234",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TCIEXP": {
+        "last_successful_check_at": "2026-11-24T22:05:04.062825",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TCPLPACK": {
+        "last_successful_check_at": "2026-11-24T22:05:16.102851",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TBOTEK": {
+        "last_successful_check_at": "2026-11-24T22:05:25.390615",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TCI": {
+        "last_successful_check_at": "2026-11-24T22:05:32.452946",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TATAPOWER": {
+        "last_successful_check_at": "2026-11-24T22:05:41.502032",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TBZ": {
+        "last_successful_check_at": "2026-11-24T22:05:48.423344",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "TATATECH": {
+        "last_successful_check_at": "2026-11-24T22:05:53.249873",
+        "latest_filing_timestamp": "21-Jul-2026 15:07:38"
+      },
+      "TATASTEEL": {
+        "last_successful_check_at": "2026-11-24T22:05:57.002664",
+        "latest_filing_timestamp": "30-Jul-2026 19:15:09"
+      },
+      "TATAELXSI": {
+        "last_successful_check_at": "2026-11-24T22:06:00.539743",
+        "latest_filing_timestamp": "2026-10-14T11:19:56.143"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T21:59:06.879414+05:30",
+    "last_successful_check_at": "2026-11-24T22:03:17.789787+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
