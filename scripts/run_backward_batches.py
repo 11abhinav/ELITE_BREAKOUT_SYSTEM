@@ -47,7 +47,7 @@ AXIOM_DATASET = ENV.get("AXIOM_DATASET", "elite")
 def get_stock_health(timeout=90):
     url = f"{PROD_URL}/api/admin/stock_data_health"
     req = urllib.request.Request(url, headers=HEADERS)
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
@@ -55,13 +55,13 @@ def get_stock_health(timeout=90):
                     raw = gzip.decompress(raw)
                 return json.loads(raw.decode("utf-8"))
         except Exception as e:
-            print(f"[get_stock_health] Attempt {attempt+1} failed: {e}", flush=True)
-            time.sleep(2)
+            print(f"[get_stock_health] Attempt {attempt+1}/5 failed: {e}", flush=True)
+            time.sleep(10)
     return None
 
 def trigger_batch(symbols):
     url = f"{PROD_URL}/api/admin/trigger_filing_watcher"
-    payload = json.dumps({"symbols": symbols, "force": True}).encode()
+    payload = json.dumps({"symbols": symbols, "force": False}).encode()
     req = urllib.request.Request(url, data=payload, headers=HEADERS, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -100,36 +100,41 @@ def query_axiom_logs(minutes=5, limit=50):
     except Exception as e:
         return []
 
-def run_continuous(max_batches=50):
+def run_continuous(max_batches=200):
     attempted_stocks = set()
     batch_idx = 0
+    pass_number = 1
 
     while batch_idx < max_batches:
-        batch_idx += 1
-        print(f"\n=======================================================", flush=True)
-        print(f"🚀 INITIATING BACKWARD BATCH #{batch_idx}", flush=True)
-        print(f"=======================================================", flush=True)
-
         health = get_stock_health()
         if not health:
-            print("❌ Failed to fetch stock health, retrying in 5s...", flush=True)
-            time.sleep(5)
+            print("❌ Failed to fetch stock health, retrying in 10s...", flush=True)
+            time.sleep(10)
             continue
 
         summary = health.get("summary", {})
         stale_list = health.get("stale_stocks", [])
         fresh_list = health.get("fresh_stocks", [])
 
-        print(f"📊 PROD STATUS: Total={summary.get('total_universe')}, FRESH={len(fresh_list)}, STALE={len(stale_list)}", flush=True)
-
         backward_stale = [s["symbol"].strip().upper() for s in stale_list[::-1] if s.get("symbol")]
         unattempted = [sym for sym in backward_stale if sym not in attempted_stocks]
 
-        print(f"📋 Stale remaining: {len(backward_stale)}, Unattempted: {len(unattempted)}", flush=True)
-
         if not unattempted:
-            print("🎉 All backward stale stocks have been attempted! Sweep complete.", flush=True)
-            break
+            if not backward_stale:
+                print("🎉 All stocks are now FRESH! Universe is 100% recovered.", flush=True)
+                break
+            else:
+                pass_number += 1
+                print(f"🔄 Pass {pass_number-1} complete. Starting Pass {pass_number} on {len(backward_stale)} remaining stale stocks...", flush=True)
+                attempted_stocks.clear()
+                unattempted = backward_stale
+
+        batch_idx += 1
+        print(f"\n=======================================================", flush=True)
+        print(f"🚀 INITIATING BACKWARD BATCH #{batch_idx} (Pass {pass_number})", flush=True)
+        print(f"=======================================================", flush=True)
+        print(f"📊 PROD STATUS: Total={summary.get('total_universe')}, FRESH={len(fresh_list)}, STALE={len(stale_list)}", flush=True)
+        print(f"📋 Stale remaining: {len(backward_stale)}, Unattempted: {len(unattempted)}", flush=True)
 
         current_batch = unattempted[:10]
         attempted_stocks.update(current_batch)
@@ -144,24 +149,32 @@ def run_continuous(max_batches=50):
             continue
 
         # Monitor execution
-        print("⏳ Monitoring batch execution in prod container...", flush=True)
+        batch_start_utc = datetime.now(timezone.utc)
+        batch_start_iso = batch_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        print(f"⏳ Monitoring batch execution in prod container (started at {batch_start_iso})...", flush=True)
         start_wait = time.time()
         completed = False
 
+        # Enforce minimum wait of 15s so container has time to begin processing
+        time.sleep(15)
+
         while time.time() - start_wait < 180:  # 3 minutes max per batch of 10
-            time.sleep(5)
-            logs = query_axiom_logs(minutes=5, limit=50)
+            logs = query_axiom_logs(minutes=3, limit=50)
             for m in logs:
+                log_time = m.get("_time", "")
+                if log_time < batch_start_iso:
+                    continue
                 msg = m.get("data", {}).get("message") or m.get("data", {}).get("log") or ""
                 if ("Completed run" in msg and "FILING_WATCHER" in msg) or \
                    ("transition='RUNNING -> IDLE'" in msg and "FILING_WATCHER" in msg) or \
                    ("transition='RUNNING -> OK'" in msg and "FILING_WATCHER" in msg) or \
-                   ("Published" in msg and "symbols" in msg and "CANONICAL" in msg):
+                   ("Polling cycle complete" in msg and "filling scanner" in msg):
                     completed = True
                     print(f"✅ Production run completed: {msg.strip()[:140]}", flush=True)
                     break
             if completed:
                 break
+            time.sleep(5)
 
         # Re-audit health to check transitions
         print("🔄 Querying updated stock health...", flush=True)
