@@ -904,6 +904,7 @@ def notify_stream_clients(event_type: str = "alert", payload: dict = None):
 
 _todays_alerts_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
 _ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
+_ALL_ALERTS_REFRESHING = False
 _SEH_API_CACHE = {}
 
 def invalidate_seh_api_cache():
@@ -5258,8 +5259,8 @@ def api_reset_trades_to_open():
 @app.route('/api/alerts', methods=['GET'])
 @login_required
 def api_all_alerts():
-    """Return trade alerts from PostgreSQL database across all dates, newest first, with 15s micro-cache and ETag 304."""
-    global _ALL_ALERTS_CACHE
+    """Return trade alerts from PostgreSQL database across all dates, newest first, with SWR caching and ETag 304."""
+    global _ALL_ALERTS_CACHE, _ALL_ALERTS_REFRESHING
     try:
         now_ts = time.time()
         is_admin = bool(_is_valid_admin_token() or (session and session.get('role') in ('admin', 'superuser')))
@@ -5269,19 +5270,46 @@ def api_all_alerts():
 
         client_etag = request.headers.get("If-None-Match")
 
-        with _dashboard_cache_lock:
-            if _ALL_ALERTS_CACHE.get(payload_key) is not None and (now_ts - _ALL_ALERTS_CACHE.get("ts", 0)) < 15.0:
-                cached_payload = _ALL_ALERTS_CACHE[payload_key]
-                cached_etag = _ALL_ALERTS_CACHE.get(etag_key)
-                if client_etag and cached_etag and client_etag == cached_etag:
-                    return Response("", status=304, headers={
-                        "ETag": cached_etag,
-                        "Cache-Control": "public, max-age=5, must-revalidate"
-                    })
-                return Response(cached_payload, mimetype="application/json", headers={
-                    "ETag": cached_etag or "",
+        cached_payload = _ALL_ALERTS_CACHE.get(payload_key)
+        cached_etag = _ALL_ALERTS_CACHE.get(etag_key)
+        cached_ts = _ALL_ALERTS_CACHE.get("ts", 0.0)
+
+        # Stale-While-Revalidate fast path: serve immediately in <5ms
+        if cached_payload is not None:
+            if (now_ts - cached_ts) >= 15.0 and not _ALL_ALERTS_REFRESHING:
+                def _bg_refresh_alerts():
+                    global _ALL_ALERTS_CACHE, _ALL_ALERTS_REFRESHING
+                    try:
+                        _ALL_ALERTS_REFRESHING = True
+                        from database import get_all_alerts
+                        import hashlib
+                        r_rows = get_all_alerts(limit=1000) or []
+                        adm_p = json.dumps(serialize_datetimes(r_rows), default=str)
+                        usr_r = [r for r in r_rows if isinstance(r, dict) and not r.get('is_rejected', False)]
+                        usr_p = json.dumps(serialize_datetimes(usr_r), default=str)
+                        adm_et = f'"{hashlib.md5(adm_p.encode("utf-8")).hexdigest()}"'
+                        usr_et = f'"{hashlib.md5(usr_p.encode("utf-8")).hexdigest()}"'
+                        with _dashboard_cache_lock:
+                            _ALL_ALERTS_CACHE["ts"] = time.time()
+                            _ALL_ALERTS_CACHE["admin_payload"] = adm_p
+                            _ALL_ALERTS_CACHE["user_payload"] = usr_p
+                            _ALL_ALERTS_CACHE["admin_etag"] = adm_et
+                            _ALL_ALERTS_CACHE["user_etag"] = usr_et
+                    except Exception as _bg_err:
+                        logger.debug(f"[ALERTS_SWR] Background refresh notice: {_bg_err}")
+                    finally:
+                        _ALL_ALERTS_REFRESHING = False
+                threading.Thread(target=_bg_refresh_alerts, daemon=True, name="AlertsSWR").start()
+
+            if client_etag and cached_etag and client_etag == cached_etag:
+                return Response("", status=304, headers={
+                    "ETag": cached_etag,
                     "Cache-Control": "public, max-age=5, must-revalidate"
                 })
+            return Response(cached_payload, mimetype="application/json", headers={
+                "ETag": cached_etag or "",
+                "Cache-Control": "public, max-age=5, must-revalidate"
+            })
 
         from database import get_all_alerts
         import hashlib
