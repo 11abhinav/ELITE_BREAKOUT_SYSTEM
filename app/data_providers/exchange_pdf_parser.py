@@ -1094,6 +1094,9 @@ class ExchangePdfParser:
                             lay_str = lay_line.strip()
                             if not lay_str:
                                 continue
+                            # Repair split numbers with embedded space like '3,94 2' -> '3,942' or '3, 77 6' -> '3,776'
+                            lay_str = re.sub(r'(\b\d+,\s*\d{1,2})\s+(\d\b)', r'\1\2', lay_str)
+                            lay_str = re.sub(r'(\b\d+),\s+(\d{3}\b)', r'\1,\2', lay_str)
                             lay_low = lay_str.lower()
                             if "(gross)" in lay_low and "net" not in lay_low:
                                 continue
@@ -1110,13 +1113,14 @@ class ExchangePdfParser:
                             else:
                                 continue
 
-                            if rev_from_ops is None and any(k in lay_low for k in ["revenue from operations", "total revenue from operations", "net sales", "interest income"]) and not any(k in lay_low for k in ["total income", "comprehensive", "expenses", "cash flow"]):
+                            lay_norm = re.sub(r"\s+", " ", lay_low)
+                            if rev_from_ops is None and any(k in lay_norm for k in ["revenue from operations", "total revenue from operations", "net sales", "interest income"]) and not any(k in lay_norm for k in ["total income", "comprehensive", "expenses", "cash flow"]):
                                 rev_from_ops = lay_val * mult
-                            elif total_income is None and any(k in lay_low for k in ["total income", "total revenue", "income from operations"]) and not any(k in lay_low for k in ["total comprehensive", "other comprehensive", "expenses", "cash flow"]):
+                            elif total_income is None and any(k in lay_norm for k in ["total income", "total revenue", "income from operations"]) and not any(k in lay_norm for k in ["total comprehensive", "other comprehensive", "expenses", "cash flow"]):
                                 total_income = lay_val * mult
-                            elif pat is None and any(k in lay_low for k in ["profit for the period", "profit / (loss) for the period", "profit/(loss) for the period", "profit after tax", "net profit for the period", "net profit / (loss)", "net profit/(loss)", "net profit"]) and not any(k in lay_low for k in ["other comprehensive", "total comprehensive", "before", "operating", "attributable"]):
+                            elif pat is None and any(k in lay_norm for k in ["profit for the period", "profit / (loss) for the period", "profit/(loss) for the period", "profit after tax", "net profit for the period", "net profit / (loss)", "net profit/(loss)", "net profit"]) and not any(k in lay_norm for k in ["other comprehensive", "total comprehensive", "before", "operating", "attributable"]):
                                 pat = lay_val * mult
-                            elif pbt is None and any(k in lay_low for k in ["profit before tax", "profit / (loss) before tax", "profit/(loss) before tax", "profit before exceptional"]):
+                            elif pbt is None and any(k in lay_norm for k in ["profit before tax", "profit / (loss) before tax", "profit/(loss) before tax", "profit before exceptional"]):
                                 pbt = lay_val * mult
                 except Exception as _lay_err:
                     logger.debug(f"[PDF_PARSER] Layout fallback error on page {page_idx+1}: {_lay_err}")

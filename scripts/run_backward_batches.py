@@ -73,6 +73,19 @@ def trigger_batch(symbols):
         print(f"[trigger_batch] Error: {e}", flush=True)
         return {"status": "error", "message": str(e)}
 
+def is_filing_watcher_running():
+    try:
+        req = urllib.request.Request(f"{PROD_URL}/api/scanner_health", headers=HEADERS)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read()
+            if raw[:2] == b"\x1f\x8b":
+                raw = gzip.decompress(raw)
+            data = json.loads(raw.decode("utf-8"))
+            fw = data.get("FILING_WATCHER", {})
+            return fw.get("status") == "RUNNING"
+    except Exception:
+        return False
+
 def query_axiom_logs(minutes=5, limit=50):
     if not AXIOM_TOKEN:
         return []
@@ -155,10 +168,10 @@ def run_continuous(max_batches=200):
         start_wait = time.time()
         completed = False
 
-        # Enforce minimum wait of 15s so container has time to begin processing
-        time.sleep(15)
+        # Enforce minimum wait of 20s so container has time to begin processing
+        time.sleep(20)
 
-        while time.time() - start_wait < 180:  # 3 minutes max per batch of 10
+        while time.time() - start_wait < 600:  # Up to 10 minutes max per batch of 10
             logs = query_axiom_logs(minutes=3, limit=50)
             for m in logs:
                 log_time = m.get("_time", "")
@@ -168,17 +181,26 @@ def run_continuous(max_batches=200):
                 if ("Completed run" in msg and "FILING_WATCHER" in msg) or \
                    ("transition='RUNNING -> IDLE'" in msg and "FILING_WATCHER" in msg) or \
                    ("transition='RUNNING -> OK'" in msg and "FILING_WATCHER" in msg) or \
-                   ("Polling cycle complete" in msg and "filling scanner" in msg):
+                   ("Polling cycle complete" in msg and "filling scanner" in msg) or \
+                   ("Canonical PIT published" in msg):
                     completed = True
                     print(f"✅ Production run completed: {msg.strip()[:140]}", flush=True)
                     break
             if completed:
                 break
-            time.sleep(5)
+
+            # If Axiom log didn't catch event, verify direct scanner health endpoint
+            if time.time() - start_wait > 45:
+                if not is_filing_watcher_running():
+                    completed = True
+                    print("✅ Production FILING_WATCHER transitioned from RUNNING -> OK/IDLE.", flush=True)
+                    break
+
+            time.sleep(10)
 
         # Re-audit health to check transitions
-        print("🔄 Querying updated stock health...", flush=True)
-        time.sleep(3)
+        print("🔄 Waiting 5s for caches to settle then querying updated stock health...", flush=True)
+        time.sleep(5)
         new_health = get_stock_health()
         if new_health:
             new_stale = [s["symbol"].strip().upper() for s in new_health.get("stale_stocks", []) if s.get("symbol")]

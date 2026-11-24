@@ -201,11 +201,11 @@ def _start_listener(port: int):
 
 
 def start_early_health_responder():
-    """Starts the ultra-fast socket listener on 8000 and 8080 in daemon threads.
-
-    Safe to call multiple times — each port is started at most once.
+    """Starts the ultra-fast socket listener ONLY on auxiliary port 8080.
+    Port 8000 is left completely untouched for the Flask dashboard server to bind directly,
+    ensuring native HTTP/1.1 Keep-Alive, zero socket proxy overhead, and maximum throughput.
     """
-    for p in (8000, 8080):
+    for p in (8080,):
         with _STARTED_PORTS_LOCK:
             if p in _STARTED_PORTS:
                 continue

@@ -10306,7 +10306,9 @@ def remove_stale_stock_from_cooloff(symbol: str, admin_user: str = "Admin") -> D
 
     try:
         sync_raw_filings_cache_for_symbol(sym)
-        clear_unified_stock_data_health_cache()
+        # Suppress individual cache clearing during bulk rebuild unblocking passes to avoid cascading cold recalculations
+        if source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+            clear_unified_stock_data_health_cache()
     except Exception:
         pass
 
@@ -10567,7 +10569,9 @@ def check_and_restore_stale_stock(
 
     try:
         sync_raw_filings_cache_for_symbol(sym)
-        clear_unified_stock_data_health_cache()
+        # Suppress individual cache clearing during bulk rebuild unblocking passes to avoid cascading cold recalculations
+        if source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+            clear_unified_stock_data_health_cache()
     except Exception:
         pass
 
@@ -16867,7 +16871,9 @@ def upsert_corporate_filing_finding(filing: Dict[str, Any]) -> bool:
     # a fresh row — the user would see outdated data until the TTL expired.
     try:
         sync_raw_filings_cache_for_symbol(sym)
-        clear_unified_stock_data_health_cache()
+        # Suppress individual cache clearing during bulk rebuild unblocking passes to avoid cascading cold recalculations
+        if source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+            clear_unified_stock_data_health_cache()
     except Exception:
         pass
     try:
@@ -17121,7 +17127,9 @@ def batch_upsert_corporate_filings(filings: List[Dict[str, Any]]) -> int:
     # (e.g. filing scanner processing 900 symbols) never serves a stale cache window.
     try:
         sync_raw_filings_cache_for_symbol(sym)
-        clear_unified_stock_data_health_cache()
+        # Suppress individual cache clearing during bulk rebuild unblocking passes to avoid cascading cold recalculations
+        if source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+            clear_unified_stock_data_health_cache()
     except Exception:
         pass
     try:

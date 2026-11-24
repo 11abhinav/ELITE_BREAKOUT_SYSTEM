@@ -3146,7 +3146,8 @@ class FinancialFilingWatcher:
         lock_acquired = _WATCHER_LOCK.acquire(blocking=False)
         if not lock_acquired:
             held_secs = time.time() - (_WATCHER_LOCK_ACQUIRED_AT or 0) if _WATCHER_LOCK_ACQUIRED_AT else 0
-            if is_manual_or_force and held_secs > 180:
+            # [RULE 67 CHANGE-RATIONALE: Allow sufficient duration (15 min) for 10-stock PDF download & snapshot rebuild batches]
+            if is_manual_or_force and held_secs > 900:
                 logger.warning(
                     f"⚠️ [filling scanner] Stale watcher lock detected (held for {held_secs:.1f}s by {_WATCHER_LOCK_OWNER}). "
                     f"Auto-breaking stale lock for {trigger_type}..."
