@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T22:22:13.958958+05:30",
+    "last_successful_check_at": "2026-11-24T22:26:31.851459+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -577,7 +577,7 @@
         "latest_filing_timestamp": "2026-11-13T14:40:32.73"
       },
       "SIKA": {
-        "last_successful_check_at": "2026-11-23T20:00:35.080180",
+        "last_successful_check_at": "2026-11-24T22:28:57.354036",
         "latest_filing_timestamp": "2026-11-05T17:51:52.953"
       },
       "WINDLAS": {
@@ -1131,12 +1131,48 @@
       "SOMANYCERA": {
         "last_successful_check_at": "2026-11-24T22:24:31.714298",
         "latest_filing_timestamp": "2026-11-05T21:51:22.563"
+      },
+      "SIGMAADV": {
+        "last_successful_check_at": "2026-11-24T22:28:14.128477",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SIRCA": {
+        "last_successful_check_at": "2026-11-24T22:28:23.391148",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SHRIRAMFIN": {
+        "last_successful_check_at": "2026-11-24T22:28:32.532657",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SKIPPER": {
+        "last_successful_check_at": "2026-11-24T22:28:39.751636",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SIGNATURE": {
+        "last_successful_check_at": "2026-11-24T22:28:47.048147",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SIYSIL": {
+        "last_successful_check_at": "2026-11-24T22:28:51.827404",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SJS": {
+        "last_successful_check_at": "2026-11-24T22:29:03.274221",
+        "latest_filing_timestamp": "2026-11-23T17:39:58.39"
+      },
+      "SHYAMMETL": {
+        "last_successful_check_at": "2026-11-24T22:29:08.045532",
+        "latest_filing_timestamp": "31-Oct-2026 13:04:49"
+      },
+      "SIGNPOST": {
+        "last_successful_check_at": "2026-11-24T22:29:19.288178",
+        "latest_filing_timestamp": "2026-11-11T18:36:31.6"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T22:22:13.958958+05:30",
+    "last_successful_check_at": "2026-11-24T22:26:31.851459+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
