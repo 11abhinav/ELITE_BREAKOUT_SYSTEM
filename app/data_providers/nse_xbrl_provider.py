@@ -1014,7 +1014,14 @@ class NseXbrlProvider:
             d_to = (as_of_dt + timedelta(days=1)).strftime("%d-%m-%Y")
             d_from = (as_of_dt - timedelta(days=max(1, lookback_days))).strftime("%d-%m-%Y")
             ann_url = f"{_ANN_URL}?index=equities&from_date={d_from}&to_date={d_to}"
-            raw_ann = self._get(ann_url, "MARKET_ANNOUNCEMENTS", timeout=45)
+            # Expanded timeout to 90s to accommodate 2.5MB+ payloads across market-wide announcements
+            raw_ann = self._get(ann_url, "MARKET_ANNOUNCEMENTS", timeout=90)
+            if not raw_ann and lookback_days > 3:
+                # Adaptive chunking fallback: if 14-day market-wide query timed out, fetch 3-day recent window
+                d_from_recent = (as_of_dt - timedelta(days=3)).strftime("%d-%m-%Y")
+                ann_url_recent = f"{_ANN_URL}?index=equities&from_date={d_from_recent}&to_date={d_to}"
+                logger.info(f"🔄 [NSE] Retrying MARKET_ANNOUNCEMENTS with adaptive 3-day window ({d_from_recent} to {d_to})...")
+                raw_ann = self._get(ann_url_recent, "MARKET_ANNOUNCEMENTS", timeout=45)
             if raw_ann:
                 ann_rows = raw_ann if isinstance(raw_ann, list) else (raw_ann.get("data", []) if isinstance(raw_ann, dict) else [])
                 for item in ann_rows:

@@ -7825,16 +7825,17 @@ def start_dashboard_server():
         logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
         logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
 
-        # Bind Flask directly to port 8000 (PORT env) with zero socket proxy overhead
+        # Gracefully stop early health responder on this port so Flask can natively bind
         # This enables native HTTP/1.1 Keep-Alive connection pooling, instant TTFB (<20ms), and eliminates 502 Bad Gateway
         try:
             try:
-                from health_responder import mark_flask_ready
+                from health_responder import stop_early_health_responder, mark_flask_ready
             except ImportError:
-                from app.health_responder import mark_flask_ready
+                from app.health_responder import stop_early_health_responder, mark_flask_ready
+            stop_early_health_responder(port)
             mark_flask_ready(port)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning(f"⚠️ Health responder handover warning on port {port}: {_e}")
 
         logger.info(f"🌐 [HTTP] Dashboard server binding natively to 0.0.0.0:{port} with Keep-Alive")
         app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)

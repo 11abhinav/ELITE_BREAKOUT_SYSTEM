@@ -300,6 +300,7 @@ class FinancialFilingWatcher:
         self.approved_symbols = sorted(list(self.registry.approved_symbols))
         self.state: Dict[str, Dict[str, Any]] = self._load_state()
         self._state_lock = threading.RLock()
+        self._snapshot_rebuild_lock = threading.Lock()
 
     def _load_state(self) -> Dict[str, Dict[str, Any]]:
         """Loads persistent watcher state with automated healing of legacy truncated dates and DB restoration."""
@@ -2231,6 +2232,18 @@ class FinancialFilingWatcher:
                     with events_lock:
                         pending_rebuild_syms.add(sym_u)
                         actually_fetched_syms.add(sym_u)
+
+                    # Immediate delta snapshot rebuild for this symbol so computed metrics (ROCE, CAGR, Valuation)
+                    # update instantly in canonical parquet + DB cache, moving the stock to FRESH in <5s on UI!
+                    try:
+                        with self._snapshot_rebuild_lock:
+                            self.invalidate_and_rebuild_snapshot(symbol=[sym_u], run_ctx=run_ctx)
+                            with events_lock:
+                                synced_symbols.add(sym_u)
+                                pending_rebuild_syms.discard(sym_u)
+                    except Exception as _snap_err:
+                        logger.warning(f"[filling scanner] Immediate snapshot rebuild note for {sym_u}: {_snap_err}")
+
                     try:
                         try:
                             from app.financial_data_integrity import record_exchange_watermark

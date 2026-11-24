@@ -17,6 +17,8 @@ FLASK_PORT = 8001
 
 _STARTED_PORTS = set()          # Guard against double-start
 _STARTED_PORTS_LOCK = threading.Lock()
+_SERVERS = {}
+_SERVERS_LOCK = threading.Lock()
 
 HEALTH_HTTP_200 = (
     b"HTTP/1.1 200 OK\r\n"
@@ -31,6 +33,21 @@ def mark_flask_ready(port: int):
     global FLASK_READY, FLASK_PORT
     FLASK_PORT = port
     FLASK_READY = True
+
+def stop_early_health_responder(port: int):
+    """Gracefully closes early health responder listener on *port*
+    so the Flask server can natively bind to that port with zero proxy overhead.
+    """
+    with _SERVERS_LOCK:
+        server = _SERVERS.pop(port, None)
+    if server:
+        try:
+            server.close()
+            sys.stderr.write(f"🛑 [HEALTH_RESPONDER] Closed early listener on port {port} for native Flask handover\n")
+        except Exception as e:
+            sys.stderr.write(f"⚠️ [HEALTH_RESPONDER] Error closing port {port}: {e}\n")
+    with _STARTED_PORTS_LOCK:
+        _STARTED_PORTS.discard(port)
 
 def _handle_client(client_sock: socket.socket):
     target_sock = None
@@ -89,46 +106,39 @@ def _handle_client(client_sock: socket.socket):
                 except Exception:
                     pass
 
-            def _pipe_client_to_target():
-                try:
-                    client_sock.settimeout(60.0)
-                    while True:
-                        buf = client_sock.recv(8192)
-                        if not buf:
-                            break
-                        target_sock.sendall(buf)
-                except Exception:
-                    pass
-                finally:
+            if has_pending_body:
+                def _pipe_client_to_target():
                     try:
-                        target_sock.shutdown(socket.SHUT_WR)
+                        client_sock.settimeout(15.0)
+                        while True:
+                            buf = client_sock.recv(8192)
+                            if not buf:
+                                break
+                            target_sock.sendall(buf)
                     except Exception:
                         pass
+                    finally:
+                        try:
+                            target_sock.shutdown(socket.SHUT_WR)
+                        except Exception:
+                            pass
+                threading.Thread(target=_pipe_client_to_target, daemon=True).start()
 
-            def _pipe_target_to_client():
-                try:
-                    target_sock.settimeout(60.0)
-                    while True:
-                        buf = target_sock.recv(8192)
-                        if not buf:
-                            break
-                        client_sock.sendall(buf)
-                except Exception:
-                    pass
-                finally:
-                    try: client_sock.close()
-                    except Exception: pass
-                    try: target_sock.close()
-                    except Exception: pass
-
-            t2 = threading.Thread(target=_pipe_target_to_client, daemon=True)
-            t2.start()
-
-            if has_pending_body:
-                t1 = threading.Thread(target=_pipe_client_to_target, daemon=True)
-                t1.start()
-
-            t2.join(timeout=60.0)
+            # Stream target (Flask) response back to client directly in this thread
+            try:
+                target_sock.settimeout(15.0)
+                while True:
+                    buf = target_sock.recv(8192)
+                    if not buf:
+                        break
+                    client_sock.sendall(buf)
+            except Exception:
+                pass
+            finally:
+                try: client_sock.close()
+                except Exception: pass
+                try: target_sock.close()
+                except Exception: pass
         except Exception as forward_err:
             # Fallback if Flask connection fails
             try:
@@ -162,14 +172,21 @@ def _start_listener(port: int):
             server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.bind(("0.0.0.0", port))
             server.listen(128)
+            with _SERVERS_LOCK:
+                _SERVERS[port] = server
             if attempt > 1:
                 sys.stderr.write(
                     f"✅ Health responder bound on port {port} after {attempt} attempts\n"
                 )
-            # Accept loop — runs forever
+            # Accept loop — runs until server socket is closed
             while True:
-                client, _ = server.accept()
+                try:
+                    client, _ = server.accept()
+                except OSError:
+                    # Server socket closed by stop_early_health_responder for native handover
+                    break
                 threading.Thread(target=_handle_client, args=(client,), daemon=True).start()
+            return
         except OSError as e:
             # errno 48 (macOS) / 98 (Linux) = EADDRINUSE
             if e.errno in (48, 98) and attempt < max_retries:
@@ -201,11 +218,11 @@ def _start_listener(port: int):
 
 
 def start_early_health_responder():
-    """Starts the ultra-fast socket listener ONLY on auxiliary port 8080.
-    Port 8000 is left completely untouched for the Flask dashboard server to bind directly,
-    ensuring native HTTP/1.1 Keep-Alive, zero socket proxy overhead, and maximum throughput.
+    """Starts the ultra-fast socket listener on ports 8000 and 8080.
+    Immediately answers health check probes in <0.1ms so container healthcheck passes on Attempt 1.
+    When Flask is ready, Flask calls stop_early_health_responder(8000) and binds natively.
     """
-    for p in (8080,):
+    for p in (8000, 8080):
         with _STARTED_PORTS_LOCK:
             if p in _STARTED_PORTS:
                 continue

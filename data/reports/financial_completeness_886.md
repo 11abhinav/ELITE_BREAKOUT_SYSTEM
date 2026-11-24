@@ -1,35 +1,35 @@
 # 886-Stock Financial Data Completeness Matrix
 
 **Universe**: 886 Approved Equities  
-**Generated At**: 2026-11-23T22:47:01.625075  
+**Generated At**: 2026-11-24T13:27:45.763566  
 
 ## Field-by-Field Completeness Table
 
 | Field Name | Complete | Missing | Completeness % |
 | :--- | :---: | :---: | :---: |
 | **Identity (Symbol / ISIN)** | 886/886 | 0 | 100.0% |
-| **Latest Annual Filing** | 885/886 | 1 | 99.9% |
-| **Consolidated Basis** | 885/886 | 1 | 99.9% |
-| **Revenue** | 818/886 | 68 | 92.3% |
-| **Operating Profit** | 817/886 | 69 | 92.2% |
-| **Depreciation & Amortization** | 872/886 | 14 | 98.4% |
-| **EBITDA (Operating Profit + D&A)** | 832/886 | 54 | 93.9% |
-| **Net Profit (PAT)** | 869/886 | 17 | 98.1% |
-| **EPS** | 866/886 | 20 | 97.7% |
+| **Latest Annual Filing** | 884/886 | 2 | 99.8% |
+| **Consolidated Basis** | 884/886 | 2 | 99.8% |
+| **Revenue** | 833/886 | 53 | 94.0% |
+| **Operating Profit** | 833/886 | 53 | 94.0% |
+| **Depreciation & Amortization** | 868/886 | 18 | 98.0% |
+| **EBITDA (Operating Profit + D&A)** | 833/886 | 53 | 94.0% |
+| **Net Profit (PAT)** | 886/886 | 0 | 100.0% |
+| **EPS** | 886/886 | 0 | 100.0% |
 | **Shares Outstanding (Filed)** | 886/886 | 0 | 100.0% |
-| **Total Debt (Borrowings)** | 840/886 | 46 | 94.8% |
-| **Cash & Equivalents** | 839/886 | 47 | 94.7% |
-| **Total Equity** | 884/886 | 2 | 99.8% |
+| **Total Debt (Borrowings)** | 886/886 | 0 | 100.0% |
+| **Cash & Equivalents** | 841/886 | 45 | 94.9% |
+| **Total Equity** | 886/886 | 0 | 100.0% |
 | **Operating Cash Flow (OCF)** | 886/886 | 0 | 100.0% |
 | **5Y Sales CAGR** | 790/886 | 96 | 89.2% |
-| **5Y PAT CAGR** | 843/886 | 43 | 95.1% |
+| **5Y PAT CAGR** | 844/886 | 42 | 95.3% |
 | **5Y Average ROCE** | 816/886 | 70 | 92.1% |
 | **5Y CFO/PAT Ratio** | 871/886 | 15 | 98.3% |
-| **Debt to Equity** | 884/886 | 2 | 99.8% |
+| **Debt to Equity** | 886/886 | 0 | 100.0% |
 | **Current Market Cap** | 886/886 | 0 | 100.0% |
-| **Enterprise Value (EV)** | 840/886 | 46 | 94.8% |
-| **Current EV/EBITDA** | **830/886** | **56** | **93.7%** |
+| **Enterprise Value (EV)** | 886/886 | 0 | 100.0% |
+| **Current EV/EBITDA** | **833/886** | **53** | **94.0%** |
 | **3Y EV/EBITDA Median** | **879/886** | **7** | **99.2%** |
 | **Current P/E** | 886/886 | 0 | 100.0% |
 | **3Y P/E Median** | 885/886 | 1 | 99.9% |
-| **Overall Certified Stocks** | **652/886** | **234** | **73.6%** |
+| **Overall Certified Stocks** | **657/886** | **229** | **74.2%** |
