@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T21:22:26.296884+05:30",
+    "last_successful_check_at": "2026-11-24T21:45:56.860954+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -48,8 +48,8 @@
         "last_successful_check_at": "2026-11-14T17:48:05.186428"
       },
       "UTLSOLAR": {
-        "last_successful_check_at": "2026-11-24T21:12:36.705401",
-        "latest_filing_timestamp": "22-May-2026 17:14:18"
+        "last_successful_check_at": "2026-11-24T21:48:03.951810",
+        "latest_filing_timestamp": "2026-11-10T15:17:00.513"
       },
       "BASF": {
         "last_successful_check_at": "2026-10-24T19:13:09.589695"
@@ -597,7 +597,7 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "ZAGGLE": {
-        "last_successful_check_at": "2026-11-24T21:20:33.223866",
+        "last_successful_check_at": "2026-11-24T21:45:19.316565",
         "latest_filing_timestamp": "14-Nov-2026 17:14:58"
       },
       "ZFCVINDIA": {
@@ -609,7 +609,7 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "ZSARACOM": {
-        "last_successful_check_at": "2026-11-24T19:18:39.937645",
+        "last_successful_check_at": "2026-11-24T21:45:22.141384",
         "latest_filing_timestamp": "2026-11-06T12:33:34.56"
       },
       "WAAREEINDO": {
@@ -641,8 +641,8 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "WAAREERTL": {
-        "last_successful_check_at": "2026-11-23T22:46:41.503411",
-        "latest_filing_timestamp": "2026-10-20T14:49:51.037"
+        "last_successful_check_at": "2026-11-24T21:45:15.680061",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "VSTTILLERS": {
         "last_successful_check_at": "2026-11-24T20:50:21.207574",
@@ -673,7 +673,7 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "WPIL": {
-        "last_successful_check_at": "2026-11-24T20:32:26.578075",
+        "last_successful_check_at": "2026-11-24T21:45:17.747809",
         "latest_filing_timestamp": "2026-11-03T17:40:35.12"
       },
       "VGUARD": {
@@ -693,7 +693,7 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "UTIAMC": {
-        "last_successful_check_at": "2026-11-24T21:12:09.356151",
+        "last_successful_check_at": "2026-11-24T21:48:06.616869",
         "latest_filing_timestamp": "23-Oct-2026 19:38:42"
       },
       "VEEDOL": {
@@ -701,7 +701,7 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "VENKEYS": {
-        "last_successful_check_at": "2026-11-24T21:12:22.072757",
+        "last_successful_check_at": "2026-11-24T21:44:04.414269",
         "latest_filing_timestamp": "2026-10-31T12:56:55.827"
       },
       "V2RETAIL": {
@@ -729,7 +729,7 @@
         "latest_filing_timestamp": "2026-09-30"
       },
       "VIDHIING": {
-        "last_successful_check_at": "2026-11-24T21:20:49.774106",
+        "last_successful_check_at": "2026-11-24T21:44:08.451004",
         "latest_filing_timestamp": "29-Jul-2026 12:36:51"
       },
       "VAIBHAVGBL": {
@@ -747,12 +747,60 @@
       "VBL": {
         "last_successful_check_at": "2026-11-24T21:23:56.981185",
         "latest_filing_timestamp": "2026-09-30"
+      },
+      "VENUSREM": {
+        "last_successful_check_at": "2026-11-24T21:44:15.074624",
+        "latest_filing_timestamp": "26-Oct-2026 18:39:37"
+      },
+      "UNIMECH": {
+        "last_successful_check_at": "2026-11-24T21:47:40.933312",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UNIVCABLES": {
+        "last_successful_check_at": "2026-11-24T21:47:45.141047",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UNOMINDA": {
+        "last_successful_check_at": "2026-11-24T21:47:49.071926",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ULTRACEMCO": {
+        "last_successful_check_at": "2026-11-24T21:47:51.450601",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UNICHEMLAB": {
+        "last_successful_check_at": "2026-11-24T21:47:53.539337",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UNITDSPR": {
+        "last_successful_check_at": "2026-11-24T21:47:55.180457",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UBL": {
+        "last_successful_check_at": "2026-11-24T21:47:56.918383",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "UNIONBANK": {
+        "last_successful_check_at": "2026-11-24T21:47:58.621967",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ULTRAMAR": {
+        "last_successful_check_at": "2026-11-24T21:48:00.271195",
+        "latest_filing_timestamp": "2026-11-06T11:53:07.62"
+      },
+      "UNIPARTS": {
+        "last_successful_check_at": "2026-11-24T21:48:02.408540",
+        "latest_filing_timestamp": "2026-11-04T19:22:15.447"
+      },
+      "UDS": {
+        "last_successful_check_at": "2026-11-24T21:48:08.283092",
+        "latest_filing_timestamp": "30-Oct-2026 20:18:33"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T21:22:26.296884+05:30",
+    "last_successful_check_at": "2026-11-24T21:45:56.860954+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

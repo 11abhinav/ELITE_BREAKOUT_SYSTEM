@@ -10022,8 +10022,8 @@ async function initDashboard() {
 
   // Auto-refresh Stock Data Health table every 30 seconds when active tab
   setInterval(() => {
-    if (currentTab === 'stock-data-health' && typeof fetchStockDataHealth === 'function') {
-      fetchStockDataHealth(true);
+    if (activeAdminTab === 'stock-data-health' && typeof fetchStockDataHealth === 'function') {
+      fetchStockDataHealth(false);
     }
   }, 30000);
 }
