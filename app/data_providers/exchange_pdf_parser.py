@@ -36,11 +36,23 @@ except ImportError:
     _PDF_READER_CLS = pypdf.PdfReader
     logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 import threading
+import concurrent.futures
 
-# Concurrency semaphores: allow up to 30 concurrent downloads, but limit CPU-bound PDF parsing to 4
-# to prevent GIL starvation and thread lock contention across worker threads
+# Concurrency semaphores: allow up to 30 concurrent downloads, and up to 8 concurrent PDF parses
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(30)
-_PARSE_SEMAPHORE = threading.Semaphore(4)
+_PARSE_SEMAPHORE = threading.Semaphore(8)
+
+_PAGE_EXTRACTOR_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="pdf_page_extract")
+
+def _safe_extract_text(page, timeout: float = 8.0) -> str:
+    """Extracts text from a single page with a hard safety timeout to prevent hanging on corrupt font streams."""
+    try:
+        future = _PAGE_EXTRACTOR_POOL.submit(page.extract_text)
+        return future.result(timeout=timeout) or ""
+    except concurrent.futures.TimeoutError:
+        return ""
+    except Exception:
+        return ""
 
 # Size & scanning parameters:
 # Official SEBI Reg 33 outcome statements are typically 1-5MB, but high-DPI scans can reach 15-20MB.
@@ -422,9 +434,9 @@ class ExchangePdfParser:
             logger.info(f"📄 [PDF_PARSER] Skipping {symbol}: PDF exceeds {_PDF_MAX_RESULT_BYTES // (1024*1024)}MB ({len(pdf_bytes)} bytes).")
             return []
 
-        # Acquire parse semaphore with timeout (240s safety timeout to prevent dropping queued worker threads)
-        if not _PARSE_SEMAPHORE.acquire(timeout=240.0):
-            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>240s wait). Skipping PDF.")
+        # Acquire parse semaphore with timeout (90s safety timeout to prevent dropping queued worker threads)
+        if not _PARSE_SEMAPHORE.acquire(timeout=90.0):
+            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>90s wait). Skipping PDF.")
             return []
         try:
             records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
@@ -471,7 +483,7 @@ class ExchangePdfParser:
         cached_page_texts: Dict[int, str] = {}
         for p_idx, p in enumerate(reader.pages[:3]):
             try:
-                p_t = p.extract_text() or ""
+                p_t = _safe_extract_text(p, timeout=5.0)
                 cached_page_texts[p_idx] = p_t
                 if p_t:
                     doc_sample_text += "\n" + p_t
@@ -529,10 +541,7 @@ class ExchangePdfParser:
             if page_idx in cached_page_texts:
                 text = cached_page_texts[page_idx]
             else:
-                try:
-                    text = page.extract_text() or ""
-                except Exception:
-                    text = ""
+                text = _safe_extract_text(page, timeout=8.0)
                 cached_page_texts[page_idx] = text
 
             # Fast Digital Text First Invariant: 95%+ of official SEBI Reg 33 outcomes
@@ -1047,7 +1056,7 @@ class ExchangePdfParser:
                     try:
                         p_raw = cached_page_texts.get(p_idx)
                         if p_raw is None:
-                            p_raw = reader.pages[p_idx].extract_text() or ""
+                            p_raw = _safe_extract_text(reader.pages[p_idx], timeout=5.0)
                             cached_page_texts[p_idx] = p_raw
                         if not p_raw or len(p_raw.strip()) < 20:
                             continue
@@ -1127,11 +1136,8 @@ class ExchangePdfParser:
                     break
                 p_txt = cached_page_texts.get(p_idx)
                 if p_txt is None:
-                    try:
-                        p_txt = reader.pages[p_idx].extract_text() or ""
-                        cached_page_texts[p_idx] = p_txt
-                    except Exception:
-                        p_txt = ""
+                    p_txt = _safe_extract_text(reader.pages[p_idx], timeout=5.0)
+                    cached_page_texts[p_idx] = p_txt
                 if p_txt:
                     doc_text += "\n" + p_txt
 
