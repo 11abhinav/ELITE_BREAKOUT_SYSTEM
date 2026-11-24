@@ -35,6 +35,12 @@ except ImportError:
     import PyPDF2 as pypdf
     _PDF_READER_CLS = pypdf.PdfReader
     logging.getLogger("PyPDF2").setLevel(logging.ERROR)
+try:
+    from PIL import Image
+    import pytesseract
+    _OCR_AVAILABLE = True
+except ImportError:
+    _OCR_AVAILABLE = False
 import threading
 import concurrent.futures
 
@@ -724,35 +730,32 @@ class ExchangePdfParser:
         # If all scanned pages have zero digital text layer, attempt OCR before failing closed
         if zero_text_page_count >= max_scan_pages or (len(page_scores) == 0 and sum(len(t.strip()) for t in cached_page_texts.values()) < 100):
             ocr_recovered = False
-            try:
-                import pytesseract
-                from PIL import Image
-                import io
-
-                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on first {min(5, total_doc_pages)} scanned pages...")
-                for p_idx in range(min(5, total_doc_pages)):
-                    page_obj = reader.pages[p_idx]
-                    page_images = getattr(page_obj, "images", [])
-                    ocr_page_text = ""
-                    for img_obj in page_images[:2]:
-                        try:
-                            img = Image.open(io.BytesIO(img_obj.data))
-                            if img.width >= 300 and img.height >= 300:
-                                t = pytesseract.image_to_string(img, timeout=10.0)
-                                if t and len(t.strip()) > 30:
-                                    ocr_page_text += "\n" + t.strip()
-                        except Exception:
-                            pass
-                    if ocr_page_text:
-                        cached_page_texts[p_idx] = ocr_page_text
-                        sc, b = score_page_content(ocr_page_text)
-                        if sc >= 30:
-                            page_scores.append((p_idx, sc, b))
-                            ocr_recovered = True
-                if ocr_recovered:
-                    logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len(page_scores)} pages.")
-            except Exception as _ocr_err:
-                logger.debug(f"[PDF_PARSER: OCR] {symbol} OCR attempt note: {_ocr_err}")
+            if _OCR_AVAILABLE:
+                try:
+                    logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on first {min(5, total_doc_pages)} scanned pages...")
+                    for p_idx in range(min(5, total_doc_pages)):
+                        page_obj = reader.pages[p_idx]
+                        page_images = getattr(page_obj, "images", [])
+                        ocr_page_text = ""
+                        for img_obj in page_images[:2]:
+                            try:
+                                img = Image.open(io.BytesIO(img_obj.data))
+                                if img.width >= 300 and img.height >= 300:
+                                    t = pytesseract.image_to_string(img, timeout=10.0)
+                                    if t and len(t.strip()) > 30:
+                                        ocr_page_text += "\n" + t.strip()
+                            except Exception:
+                                pass
+                        if ocr_page_text:
+                            cached_page_texts[p_idx] = ocr_page_text
+                            sc, b = score_page_content(ocr_page_text)
+                            if sc >= 30:
+                                page_scores.append((p_idx, sc, b))
+                                ocr_recovered = True
+                    if ocr_recovered:
+                        logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len(page_scores)} pages.")
+                except Exception as _ocr_err:
+                    logger.debug(f"[PDF_PARSER: OCR] {symbol} OCR attempt note: {_ocr_err}")
 
             if not ocr_recovered:
                 if hasattr(self, "last_failure_reason"):
