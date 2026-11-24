@@ -498,5 +498,23 @@
     "mapped_revenue": 102.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "86c2076e1c126439d7624de84c758435c4740dcbe4e78a024f97aec544a01f78"
+  },
+  {
+    "symbol": "THELEELA",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 121.149,
+    "net_profit": 56179.709,
+    "operating_profit": 107.004,
+    "eps": 2.39,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": 333958000.0,
+    "filing_date": "2026-10-14",
+    "broadcast_timestamp": "14-Oct-2026 14:46:34",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_THELEELA_106817162_2026-09-30"
   }
 ]
