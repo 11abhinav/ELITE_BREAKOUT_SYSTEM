@@ -3581,21 +3581,14 @@ def api_admin_stock_data_health():
     - All stocks marked as stale or currently suppressed under 7-day cool-off
     - All stocks with certified, fresh data along with their latest filing and total filing counts
     - Summary metrics (total universe, stale count, fresh count, coverage %)
-    Cached with short in-memory cache for instant response with automatic disk mtime invalidation.
-    Always served with no-cache headers to ensure the admin UI reflects ground-truth live data.
+    True Stale-While-Revalidate (SWR):
+    - Always serves warm cached payload instantly in <5ms without blocking client threads.
+    - If cache is stale (>30s old) or invalidated (ts == 0.0), refreshes asynchronously in the background.
+    - If force=1, forces synchronous recomputation.
     """
     try:
         force = request.args.get("force") in ("1", "true", "True")
         now_t = time.time()
-
-        # Check if underlying filing or canonical master files have changed on disk
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        manifest_path = os.path.join(base_dir, "data", "pit_raw_filings_manifest.json")
-        canonical_path = os.path.join(base_dir, "data", "canonical_master.parquet")
-        latest_file_mtime = 0.0
-        for p in (manifest_path, canonical_path):
-            if os.path.exists(p):
-                latest_file_mtime = max(latest_file_mtime, os.path.getmtime(p))
 
         with _STOCK_DATA_HEALTH_LOCK:
             cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
@@ -3603,13 +3596,12 @@ def api_admin_stock_data_health():
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-            # Auto-invalidate cache if files changed on disk
-            if cached_ts > 0.0 and latest_file_mtime > cached_ts:
-                cached_ts = 0.0
-                _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
+        # 1. Warm cache hit: Return immediately in <5ms whenever a cached payload is available and not force
+        if cached_payload and not force:
+            # Refresh in background if cache is >30s old or was invalidated (ts == 0.0)
+            if (cached_ts == 0.0 or now_t - cached_ts > 30.0):
+                threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
 
-        # 1. Warm cache hit: return immediately in <5ms ONLY if cache is valid and fresh (<15s) and not force
-        if cached_payload and cached_ts > 0.0 and (now_t - cached_ts < 15.0) and not force:
             return _make_json_response(
                 cached_payload,
                 etag=cached_etag,
@@ -3618,7 +3610,7 @@ def api_admin_stock_data_health():
                 no_cache=True
             )
 
-        # 2. Invalidated (ts == 0.0), Forced (force=True), or Stale Cache: compute fresh payload synchronously
+        # 2. Synchronous computation (only if force=1 or cold cache with no payload)
         with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
             # Double check under compute lock
             with _STOCK_DATA_HEALTH_LOCK:
@@ -3627,7 +3619,7 @@ def api_admin_stock_data_health():
                 cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
                 cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-            if cached_payload and cached_ts > 0.0 and (now_t - cached_ts < 15.0) and not force:
+            if cached_payload and not force:
                 return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
 
             resp_json, etag, gz = _compute_stock_data_health_payload(force=force)

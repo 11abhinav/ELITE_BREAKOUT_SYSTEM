@@ -566,5 +566,23 @@
     "mapped_revenue": 150.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "d3bed4b12fddf638d9d22d71548975a36d48720a3b6086ee7dd5aa1c9f5ef463"
+  },
+  {
+    "symbol": "VERANDA",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 8.6669,
+    "net_profit": 1.7935,
+    "operating_profit": null,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-13",
+    "broadcast_timestamp": "13-Nov-2026 13:39:09",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_VERANDA_106858527_2026-09-30"
   }
 ]

@@ -14220,13 +14220,15 @@ function _applyStockDataHealthData(data) {
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
-  // SWR: Instant local hydration from localStorage ONLY if stored within the last 60 seconds
+  // SWR: Instant local hydration from localStorage (never leave screen empty)
   if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
     try {
       const cachedStr = localStorage.getItem('CACHE_SDH_DATA');
-      const cachedAt = parseInt(localStorage.getItem('CACHE_SDH_DATA_TS') || '0', 10);
-      if (cachedStr && (Date.now() - cachedAt < 60000)) {
-        _applyStockDataHealthData(JSON.parse(cachedStr));
+      if (cachedStr) {
+        const parsed = JSON.parse(cachedStr);
+        if (parsed && parsed.status === 'success') {
+          _applyStockDataHealthData(parsed);
+        }
       }
     } catch (_) {}
   }
@@ -14280,6 +14282,16 @@ async function fetchStockDataHealth(force = false) {
     try { data = await res.json(); } catch (_) {}
 
     if (!res.ok) throw new Error(data.message || data.error || `HTTP ${res.status}`);
+
+    // If server is in early boot handover or missing summary, re-try cleanly
+    if (data.service === 'elite-breakout-system' || !data.summary || data.status !== 'success') {
+      const syncBadge = document.getElementById('sdhServerSyncBadge');
+      if (syncBadge) {
+        syncBadge.innerHTML = `<span style="color:#f59e0b;">⏳ Syncing with server...</span>`;
+      }
+      setTimeout(() => fetchStockDataHealth(false), 2000);
+      return;
+    }
 
     if (data.status === 'success') {
       try {

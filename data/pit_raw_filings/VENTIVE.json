@@ -390,5 +390,23 @@
     "mapped_revenue": 543.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "3ea45a115be605e6c2fe173084dd65d1aa754b0d0b9619efcc0e2373cba891ad"
+  },
+  {
+    "symbol": "VENTIVE",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 44.749,
+    "net_profit": 24.022,
+    "operating_profit": null,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-02",
+    "broadcast_timestamp": "02-Nov-2026 21:00:50",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_VENTIVE_106840673_2026-09-30"
   }
 ]

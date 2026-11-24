@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T21:18:56.546652+05:30",
+    "last_successful_check_at": "2026-11-24T21:22:26.296884+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -160,7 +160,8 @@
         "last_successful_check_at": "2026-10-24T19:13:35.314575"
       },
       "VENTIVE": {
-        "last_successful_check_at": "2026-10-18T22:22:12.432322"
+        "last_successful_check_at": "2026-11-24T21:23:37.010089",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "VMARCIND": {
         "last_successful_check_at": "2026-11-24T19:17:25.474800",
@@ -730,12 +731,28 @@
       "VIDHIING": {
         "last_successful_check_at": "2026-11-24T21:20:49.774106",
         "latest_filing_timestamp": "29-Jul-2026 12:36:51"
+      },
+      "VAIBHAVGBL": {
+        "last_successful_check_at": "2026-11-24T21:23:41.282854",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VERANDA": {
+        "last_successful_check_at": "2026-11-24T21:23:46.382958",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VENUSPIPES": {
+        "last_successful_check_at": "2026-11-24T21:23:50.253718",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "VBL": {
+        "last_successful_check_at": "2026-11-24T21:23:56.981185",
+        "latest_filing_timestamp": "2026-09-30"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T21:18:56.546652+05:30",
+    "last_successful_check_at": "2026-11-24T21:22:26.296884+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
