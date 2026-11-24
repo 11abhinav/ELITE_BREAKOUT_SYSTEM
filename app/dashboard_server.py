@@ -7825,20 +7825,22 @@ def start_dashboard_server():
         logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
         logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
 
-        # Gracefully stop early health responder on this port so Flask can natively bind
-        # This enables native HTTP/1.1 Keep-Alive connection pooling, instant TTFB (<20ms), and eliminates 502 Bad Gateway
+        # Run Flask on internal port 8001 so early health responder on 8000/8080 can transparently
+        # reverse-proxy requests to Flask with zero socket collision or Address In Use errors!
+        flask_port = 8001
         try:
             try:
-                from health_responder import stop_early_health_responder, mark_flask_ready
+                from health_responder import mark_flask_ready, FLASK_INTERNAL_PORT
             except ImportError:
-                from app.health_responder import stop_early_health_responder, mark_flask_ready
-            stop_early_health_responder(port)
-            mark_flask_ready(port)
+                from app.health_responder import mark_flask_ready, FLASK_INTERNAL_PORT
+            flask_port = FLASK_INTERNAL_PORT
+            mark_flask_ready(flask_port)
+            logger.info(f"🌐 [PROXY] Early health responder routing traffic to Flask on internal port {flask_port}")
         except Exception as _e:
-            logger.warning(f"⚠️ Health responder handover warning on port {port}: {_e}")
+            logger.warning(f"⚠️ Could not notify early health responder: {_e}")
 
-        logger.info(f"🌐 [HTTP] Dashboard server binding natively to 0.0.0.0:{port} with Keep-Alive")
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
+        logger.info(f"🌐 [HTTP] Dashboard server binding natively to 127.0.0.1:{flask_port}")
+        app.run(host="127.0.0.1", port=flask_port, debug=False, use_reloader=False, threaded=True)
     except Exception as e:
         logger.exception(f"❌ Critical failure starting Flask dashboard server: {e}")
 

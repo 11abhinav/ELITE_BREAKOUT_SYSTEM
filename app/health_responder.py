@@ -178,15 +178,10 @@ def _start_listener(port: int):
                 sys.stderr.write(
                     f"✅ Health responder bound on port {port} after {attempt} attempts\n"
                 )
-            # Accept loop — runs until server socket is closed
+            # Accept loop — runs forever
             while True:
-                try:
-                    client, _ = server.accept()
-                except OSError:
-                    # Server socket closed by stop_early_health_responder for native handover
-                    break
+                client, _ = server.accept()
                 threading.Thread(target=_handle_client, args=(client,), daemon=True).start()
-            return
         except OSError as e:
             # errno 48 (macOS) / 98 (Linux) = EADDRINUSE
             if e.errno in (48, 98) and attempt < max_retries:
