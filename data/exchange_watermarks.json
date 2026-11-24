@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T22:07:20.547824+05:30",
+    "last_successful_check_at": "2026-11-24T22:10:35.019552+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -980,12 +980,52 @@
       "TASTYBITE": {
         "last_successful_check_at": "2026-11-24T22:08:54.124747",
         "latest_filing_timestamp": "26-Oct-2026 12:50:10"
+      },
+      "SUNPHARMA": {
+        "last_successful_check_at": "2026-11-24T22:12:07.966846",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUPRAJIT": {
+        "last_successful_check_at": "2026-11-24T22:12:14.563249",
+        "latest_filing_timestamp": "2026-06-30"
+      },
+      "SYRMA": {
+        "last_successful_check_at": "2026-11-24T22:12:21.405471",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUPREMEIND": {
+        "last_successful_check_at": "2026-11-24T22:12:25.363074",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUNDRMFAST": {
+        "last_successful_check_at": "2026-11-24T22:12:28.763499",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SUPRIYA": {
+        "last_successful_check_at": "2026-11-24T22:12:32.347826",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SURYAROSNI": {
+        "last_successful_check_at": "2026-11-24T22:12:36.009211",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SWARAJENG": {
+        "last_successful_check_at": "2026-11-24T22:12:40.037884",
+        "latest_filing_timestamp": "20-Jul-2026 11:28:50"
+      },
+      "SUNTV": {
+        "last_successful_check_at": "2026-11-24T22:12:43.850071",
+        "latest_filing_timestamp": "30-Oct-2026 16:48:19"
+      },
+      "SURAKSHA": {
+        "last_successful_check_at": "2026-11-24T22:12:47.571373",
+        "latest_filing_timestamp": "2026-11-19T13:41:07.45"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T22:07:20.547824+05:30",
+    "last_successful_check_at": "2026-11-24T22:10:35.019552+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
