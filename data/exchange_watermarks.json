@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T22:18:13.501043+05:30",
+    "last_successful_check_at": "2026-11-24T22:22:13.958958+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -160,7 +160,8 @@
         "last_successful_check_at": "2026-10-18T22:22:07.166157"
       },
       "SOLEX": {
-        "last_successful_check_at": "2026-10-24T19:13:35.314575"
+        "last_successful_check_at": "2026-11-24T22:24:35.101434",
+        "latest_filing_timestamp": "30-Jun-2021 18:20:42"
       },
       "VENTIVE": {
         "last_successful_check_at": "2026-11-24T21:23:37.010089",
@@ -1094,12 +1095,48 @@
       "SPMLINFRA": {
         "last_successful_check_at": "2026-11-24T22:20:22.022937",
         "latest_filing_timestamp": "2026-09-30"
+      },
+      "SKMEGGPROD": {
+        "last_successful_check_at": "2026-11-24T22:23:42.442641",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SMSPHARMA": {
+        "last_successful_check_at": "2026-11-24T22:23:55.238753",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SMLMAH": {
+        "last_successful_check_at": "2026-11-24T22:24:03.530322",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SONATSOFTW": {
+        "last_successful_check_at": "2026-11-24T22:24:11.568203",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SOTL": {
+        "last_successful_check_at": "2026-11-24T22:24:15.837669",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SONACOMS": {
+        "last_successful_check_at": "2026-11-24T22:24:20.196410",
+        "latest_filing_timestamp": "26-Oct-2026 17:06:13"
+      },
+      "SOLARINDS": {
+        "last_successful_check_at": "2026-11-24T22:24:24.464630",
+        "latest_filing_timestamp": "2026-11-06T17:04:12.33"
+      },
+      "SOLARWORLD": {
+        "last_successful_check_at": "2026-11-24T22:24:28.449178",
+        "latest_filing_timestamp": "2026-11-14T10:13:50.71"
+      },
+      "SOMANYCERA": {
+        "last_successful_check_at": "2026-11-24T22:24:31.714298",
+        "latest_filing_timestamp": "2026-11-05T21:51:22.563"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T22:18:13.501043+05:30",
+    "last_successful_check_at": "2026-11-24T22:22:13.958958+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
