@@ -733,15 +733,22 @@ class ExchangePdfParser:
             if _OCR_AVAILABLE:
                 try:
                     logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on first {min(5, total_doc_pages)} scanned pages...")
+                    t_ocr_start = time.time()
                     for p_idx in range(min(5, total_doc_pages)):
+                        if time.time() - t_ocr_start > 35.0:
+                            logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached 35s budget at page {p_idx+1}. Breaking.")
+                            break
                         page_obj = reader.pages[p_idx]
                         page_images = getattr(page_obj, "images", [])
                         ocr_page_text = ""
-                        for img_obj in page_images[:2]:
+                        for img_obj in page_images[:3]:
                             try:
                                 img = Image.open(io.BytesIO(img_obj.data))
-                                if img.width >= 300 and img.height >= 300:
-                                    t = pytesseract.image_to_string(img, timeout=10.0)
+                                if img.width >= 150 and img.height >= 150:
+                                    # Downscale high-resolution scans for 10x faster OCR without text quality loss
+                                    if img.width > 1600 or img.height > 2200:
+                                        img.thumbnail((1400, 1800))
+                                    t = pytesseract.image_to_string(img, timeout=8.0)
                                     if t and len(t.strip()) > 30:
                                         ocr_page_text += "\n" + t.strip()
                             except Exception:
@@ -752,6 +759,8 @@ class ExchangePdfParser:
                             if sc >= 30:
                                 page_scores.append((p_idx, sc, b))
                                 ocr_recovered = True
+                                if len(page_scores) >= 2 or sc >= 50:
+                                    break
                     if ocr_recovered:
                         logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len(page_scores)} pages.")
                 except Exception as _ocr_err:
@@ -1054,10 +1063,8 @@ class ExchangePdfParser:
                 # Col 0 is always the latest reporting period in SEBI Reg 33 format
                 if len(nums) >= num_cols:
                     last_val = nums[-num_cols]
-                elif num_cols >= 2:
-                    # In a multi-column table, a line with fewer numbers than columns is an item label/note, not data
-                    continue
                 elif len(nums) >= 1:
+                    # In OCR-recovered tables or non-standard column counts, Col 0 is the first column
                     last_val = nums[0]
                 else:
                     continue

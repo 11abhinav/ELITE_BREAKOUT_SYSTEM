@@ -962,8 +962,6 @@ def invalidate_all_dashboard_caches():
         pass
     try:
         _SCANNER_STATUS_CACHE["ts"] = 0
-        _SCANNER_STATUS_CACHE["payload"] = None
-        _SCANNER_STATUS_CACHE["gzip"] = None
     except Exception:
         pass
     try:
@@ -5680,7 +5678,6 @@ def api_acknowledge_scanner_health(scanner_name):
         acknowledge_scanner_health(scanner_name)
         global _SCANNER_STATUS_CACHE
         _SCANNER_STATUS_CACHE["ts"] = 0
-        _SCANNER_STATUS_CACHE["payload"] = None
         return jsonify({"status": "success", "scanner": scanner_name})
     except Exception as e:
         logger.exception(f"❌ /api/scanner_health/acknowledge failed for {scanner_name}")
@@ -5968,17 +5965,14 @@ def route_wealth():
     """Redirect decommissioned wealth page to admin dashboard."""
     return redirect("/admin", code=302)
 
-_SCANNER_STATUS_CACHE = {"ts": 0.0, "payload": None, "gzip": None, "etag": None}
+_SCANNER_STATUS_CACHE = {"ts": 0.0, "payload": "{}", "gzip": _gzip.compress(b"{}", compresslevel=1), "etag": '"empty"'}
 _SCANNER_STATUS_BG_REFRESHING = False
 
 def invalidate_scanner_status_cache():
-    """Immediately invalidate scanner status and health cache so UI polls see live DB state."""
+    """Immediately marks scanner status stale (ts=0.0) so next request serves SWR and refreshes in background without blocking or 502."""
     global _SCANNER_STATUS_CACHE
     with _dashboard_cache_lock:
         _SCANNER_STATUS_CACHE["ts"] = 0.0
-        _SCANNER_STATUS_CACHE["payload"] = None
-        _SCANNER_STATUS_CACHE["gzip"] = None
-        _SCANNER_STATUS_CACHE["etag"] = None
 
 
 @app.route("/api/download_shortlist")
@@ -7926,6 +7920,21 @@ def start_dashboard_server_async():
         # Async background pre-warm of stock data health cache deferred by 30s
         # This guarantees zero GIL or Postgres contention during Coolify container healthcheck boot.
         threading.Timer(30.0, _background_refresh_stock_data_health).start()
+        def _prewarm_scanner_status():
+            try:
+                payload = _compute_scanner_status_payload_sync()
+                if payload:
+                    import hashlib
+                    etag = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()}"'
+                    gz = _gzip.compress(payload.encode("utf-8"), compresslevel=1)
+                    with _dashboard_cache_lock:
+                        _SCANNER_STATUS_CACHE["payload"] = payload
+                        _SCANNER_STATUS_CACHE["etag"] = etag
+                        _SCANNER_STATUS_CACHE["gzip"] = gz
+                        _SCANNER_STATUS_CACHE["ts"] = time.time()
+            except Exception as _e:
+                logger.debug(f"Prewarm scanner status notice: {_e}")
+        threading.Timer(5.0, _prewarm_scanner_status).start()
         return t
 
 
