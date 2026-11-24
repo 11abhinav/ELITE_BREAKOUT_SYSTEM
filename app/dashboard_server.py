@@ -1816,17 +1816,40 @@ _perf_data_mem_gzip = None
 _perf_data_mem_ts = 0.0
 _perf_data_etag = None
 _perf_data_build_lock = threading.Lock()
+_perf_data_refreshing = False
+
+def _seed_performance_cache():
+    """Seed performance data cache on server boot to ensure instant <5ms responses from turn 1."""
+    global _perf_data_mem_cache, _perf_data_mem_gzip, _perf_data_mem_ts, _perf_data_etag
+    try:
+        from database import get_system_state
+        val = get_system_state("performance_data")
+        if not val and os.path.exists(PERF_JSON_PATH):
+            with open(PERF_JSON_PATH, "r", encoding="utf-8") as _pf:
+                val = _pf.read().strip()
+        if val and len(val) > 100:
+            import hashlib
+            etag_val = f'"{hashlib.md5(val.encode("utf-8")).hexdigest()}"'
+            gz_bytes = _gzip.compress(val.encode("utf-8"), compresslevel=1)
+            with _dashboard_cache_lock:
+                _perf_data_mem_cache = val
+                _perf_data_mem_gzip = gz_bytes
+                _perf_data_mem_ts = 0.0  # triggers non-blocking background refresh on first user request
+                _perf_data_etag = etag_val
+            logger.info(f"⚡ [PERF_DATA] Pre-seeded in-memory cache on startup ({len(val)} bytes)")
+    except Exception as e:
+        logger.debug(f"[PERF_DATA] Startup seed note: {e}")
+
+_seed_performance_cache()
 
 def invalidate_performance_cache():
-    """[RULE 67 CHANGE-RATIONALE]: Thread-safe cache invalidator called on alert status modifications.
-    Cascades invalidation to master_summary so new alerts/mutations are reflected instantly."""
-    global _perf_data_mem_cache, _perf_data_mem_gzip, _perf_data_mem_ts, _perf_data_etag, _INSTANT_PERF_CACHE
+    """[RULE 67 CHANGE-RATIONALE: SWR_PERFORMANCE_CACHE_INVALIDATION]:
+    Thread-safe atomic cache invalidator called on alert status modifications.
+    Sets ts = 0.0 to trigger non-blocking background refresh without destroying cached_payload,
+    guaranteeing that readers always receive instant <5ms responses."""
+    global _perf_data_mem_ts, _INSTANT_PERF_CACHE
     with _dashboard_cache_lock:
-        _perf_data_mem_cache = None
-        _perf_data_mem_gzip = None
         _perf_data_mem_ts = 0.0
-        _perf_data_etag = None
-        _INSTANT_PERF_CACHE["payload"] = None
         _INSTANT_PERF_CACHE["ts"] = 0.0
     try:
         from master_orchestrator import orchestrator_v2
@@ -1834,26 +1857,42 @@ def invalidate_performance_cache():
     except Exception:
         pass
 
+def _background_refresh_performance_payload():
+    """Asynchronous background worker for Stale-While-Revalidate of performance_data.json."""
+    global _perf_data_refreshing
+    if _perf_data_refreshing:
+        return
+    _perf_data_refreshing = True
+    try:
+        with _perf_data_build_lock:
+            _build_performance_payload(force_rebuild=False)
+    except Exception as e:
+        logger.debug(f"[PERF_DATA_BG_REFRESH] Note: {e}")
+    finally:
+        _perf_data_refreshing = False
+
 @app.route("/data/performance_data.json")
 @app.route("/api/performance_data.json")
 @login_required
 def performance_json():
-    """Serve performance JSON with 30s high-performance in-memory micro-cache, single-flight lock, live alert reconciliation, and ETag 304."""
+    """Serve performance JSON with instant Stale-While-Revalidate (SWR) in-memory cache, background worker, and ETag 304."""
     global _perf_data_mem_cache, _perf_data_mem_gzip, _perf_data_mem_ts, _perf_data_etag
     force_rebuild = request.args.get("rebuild", "").lower() == "true" or request.args.get("force", "").lower() == "true"
     now_ts = time.time()
     client_etag = request.headers.get("If-None-Match")
 
-    # Fast path: High-performance 30.0-second micro-cache check
-    if not force_rebuild:
-        with _dashboard_cache_lock:
-            if _perf_data_mem_cache is not None and (now_ts - _perf_data_mem_ts) < 30.0:
-                return _make_json_response(
-                    _perf_data_mem_cache,
-                    etag=_perf_data_etag,
-                    max_age=10,
-                    precompressed_gzip=_perf_data_mem_gzip
-                )
+    # Fast path SWR: If warm cache exists and not forcing rebuild, return immediately in <5ms
+    if not force_rebuild and _perf_data_mem_cache is not None:
+        # Check if cache is stale (>30s old) or invalidated (ts == 0.0), trigger non-blocking background refresh
+        if (now_ts - _perf_data_mem_ts) >= 30.0 or _perf_data_mem_ts == 0.0:
+            threading.Thread(target=_background_refresh_performance_payload, daemon=True, name="PerfDataSWR").start()
+
+        return _make_json_response(
+            _perf_data_mem_cache,
+            etag=_perf_data_etag,
+            max_age=10,
+            precompressed_gzip=_perf_data_mem_gzip
+        )
 
     # Slow path: Single-flight lock to eliminate thundering herd / cache stampede
     with _perf_data_build_lock:
