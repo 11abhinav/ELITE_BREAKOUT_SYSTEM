@@ -1052,22 +1052,27 @@ class NseXbrlProvider:
                 windows.append((cur_start, cur_end))
                 cur_end = cur_start - timedelta(days=1)
 
+            sweep_start_ts = time.time()
+            _SWEEP_MAX_BUDGET_S = 45.0
+
             def _fetch_window(win: Tuple[date, date]) -> List[Dict[str, Any]]:
+                if time.time() - sweep_start_ts > _SWEEP_MAX_BUDGET_S:
+                    return []
                 w_start, w_end = win
                 c_from = w_start.strftime("%d-%m-%Y")
                 c_to = w_end.strftime("%d-%m-%Y")
                 chunk_url = f"{_ANN_URL}?index=equities&from_date={c_from}&to_date={c_to}"
-                # Create lightweight isolated session wrapper or use self._get (direct thread-safe path)
-                raw_chunk = self._get(chunk_url, "MARKET_ANNOUNCEMENTS", timeout=20)
+                raw_chunk = self._get(chunk_url, "MARKET_ANNOUNCEMENTS", timeout=15)
                 if raw_chunk:
                     return raw_chunk if isinstance(raw_chunk, list) else (raw_chunk.get("data", []) if isinstance(raw_chunk, dict) else [])
+                # Only do 3-day sub-chunk fallback if we still have ample sweep budget remaining
                 out_sub: List[Dict[str, Any]] = []
-                if (w_end - w_start).days > 3:
+                if (w_end - w_start).days > 3 and (time.time() - sweep_start_ts) < 25.0:
                     sub_end = w_end
-                    while sub_end > w_start:
+                    while sub_end > w_start and (time.time() - sweep_start_ts) < _SWEEP_MAX_BUDGET_S:
                         sub_start = max(w_start, sub_end - timedelta(days=3))
                         s_url = f"{_ANN_URL}?index=equities&from_date={sub_start.strftime('%d-%m-%Y')}&to_date={sub_end.strftime('%d-%m-%Y')}"
-                        sub_raw = self._get(s_url, "MARKET_ANNOUNCEMENTS", timeout=15)
+                        sub_raw = self._get(s_url, "MARKET_ANNOUNCEMENTS", timeout=12)
                         if sub_raw:
                             sub_list = sub_raw if isinstance(sub_raw, list) else (sub_raw.get("data", []) if isinstance(sub_raw, dict) else [])
                             out_sub.extend(sub_list)
@@ -1078,11 +1083,22 @@ class NseXbrlProvider:
             # Ensure session is pre-initialized once before parallel chunk workers run
             if not self._initialized:
                 self._init_session()
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=min(3, max(1, len(windows))), thread_name_prefix="NseSweep") as ex:
-                for chunk_list in ex.map(_fetch_window, windows):
-                    if chunk_list:
-                        ann_rows.extend(chunk_list)
+            from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+            ex = ThreadPoolExecutor(max_workers=min(4, max(1, len(windows))), thread_name_prefix="NseSweep")
+            try:
+                futs = [ex.submit(_fetch_window, w) for w in windows]
+                try:
+                    for fut in as_completed(futs, timeout=_SWEEP_MAX_BUDGET_S):
+                        try:
+                            chunk_list = fut.result(timeout=2)
+                            if chunk_list:
+                                ann_rows.extend(chunk_list)
+                        except Exception:
+                            pass
+                except FuturesTimeoutError:
+                    logger.warning(f"⚠️ [NSE:SWEEP] Market sweep reached {_SWEEP_MAX_BUDGET_S:.0f}s budget; proceeding with {len(ann_rows)} rows collected so far.")
+            finally:
+                ex.shutdown(wait=False, cancel_futures=True)
 
             seen_ann_keys: Set[Tuple[str, str, str]] = set()
             if ann_rows:
