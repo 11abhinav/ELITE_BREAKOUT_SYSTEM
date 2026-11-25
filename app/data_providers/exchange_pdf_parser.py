@@ -966,16 +966,16 @@ class ExchangePdfParser:
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
         is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 85)
 
-        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 22.0):
+        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 35.0):
             ocr_recovered = False
             try:
-                scan_candidates = [p for p in range(min(12, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
+                scan_candidates = [p for p in range(min(14, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
                 # For hybrid PDFs where cover pages 1-2 had digital text, scan statement pages (>=2) before cover pages
                 scan_candidates.sort(key=lambda p: (0 if p >= 1 else 1, p))
                 logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
                 t_ocr_start = time.time()
                 for p_idx in scan_candidates[:6]:
-                    if time.time() - t_ocr_start > 18.0 or time.time() - t_parse_start > 28.0:
+                    if time.time() - t_ocr_start > 28.0 or time.time() - t_parse_start > 45.0:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
                     ocr_page_text = ""
