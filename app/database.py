@@ -7543,8 +7543,19 @@ DATASET_SCHEMA_IDENTITY = {
     },
 }
 
+def _is_local_mac_sync_blocked(artifact_name: str) -> bool:
+    """Prevent local macOS dev runs from overwriting production Postgres parquet_cache."""
+    import sys
+    if sys.platform == "darwin" and os.getenv("ALLOW_LOCAL_PROD_DB_SYNC") != "1":
+        logger.info(f"🛡️ [LOCAL_SYNC_GUARD] Skipped uploading local '{artifact_name}' to prod Postgres parquet_cache (macOS dev). Set ALLOW_LOCAL_PROD_DB_SYNC=1 to override.")
+        return True
+    return False
+
+
 def upload_parquet_to_db(name: str, file_path: str) -> bool:
     """Upload a binary parquet file to the database for today."""
+    if _is_local_mac_sync_blocked(name):
+        return False
     if not os.path.exists(file_path):
         logger.warning(f"⚠️ [PARQUET DB SYNC SKIPPED] Cannot upload '{name}': file does not exist at {file_path}")
         return False
@@ -7882,6 +7893,9 @@ def upload_pit_raw_bundle_to_db() -> bool:
     import psycopg2
     from pathlib import Path
 
+    if _is_local_mac_sync_blocked("pit_raw_bundle"):
+        return False
+
     raw_dir = Path(__file__).resolve().parent.parent / "data" / "pit_raw_filings"
     if not raw_dir.exists():
         return False
@@ -8094,6 +8108,8 @@ def save_stock_data_health_to_db(payload_json: str) -> bool:
     Persists the authoritative unified stock data health cache directly into PostgreSQL parquet_cache
     so cold reboots restore from the authoritative DB state instead of stale git files.
     """
+    if _is_local_mac_sync_blocked("stock_data_health_cache"):
+        return False
     if not payload_json:
         return False
     init_db()
