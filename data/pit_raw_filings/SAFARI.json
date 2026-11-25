@@ -770,5 +770,23 @@
     "mapped_revenue": 587.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "2020444e61958ef3063b173d922cd715dcf2e459cc3dd0c1718223ec26b43e2a"
+  },
+  {
+    "symbol": "SAFARI",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 579.83,
+    "net_profit": 17.55,
+    "operating_profit": null,
+    "eps": 3.58,
+    "total_debt": null,
+    "total_equity": 1009.19,
+    "operating_cash_flow": null,
+    "shares_outstanding": 9800000.0,
+    "filing_date": "2026-11-05",
+    "broadcast_timestamp": "05-Nov-2026 14:07:37",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_SAFARI_106846923_2026-09-30"
   }
 ]

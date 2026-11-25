@@ -424,5 +424,23 @@
     "mapped_revenue": 154.46,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "cd9ca6a3318766bbcacabd605e216090d97ff0ad2708ec82ae1f0bb533c28e58"
+  },
+  {
+    "symbol": "ROSSTECH",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 74.46,
+    "net_profit": null,
+    "operating_profit": null,
+    "eps": 212.0,
+    "total_debt": null,
+    "total_equity": 16688.54,
+    "operating_cash_flow": null,
+    "shares_outstanding": 14462920000.0,
+    "filing_date": "2026-11-06",
+    "broadcast_timestamp": "06-Nov-2026 13:26:49",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_ROSSTECH_106849948_2026-09-30"
   }
 ]

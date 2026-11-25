@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-25T08:29:31.070713+05:30",
+    "last_successful_check_at": "2026-11-25T08:33:17.500808+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -153,7 +153,8 @@
         "last_successful_check_at": "2026-10-18T22:22:02.442654"
       },
       "ROSSTECH": {
-        "last_successful_check_at": "2026-10-18T22:22:04.188897"
+        "last_successful_check_at": "2026-11-25T08:35:06.404709",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "SANOFICONR": {
         "last_successful_check_at": "2026-11-25T08:31:16.584936",
@@ -577,8 +578,8 @@
         "latest_filing_timestamp": "2026-11-07T17:37:38.793"
       },
       "RPTECH": {
-        "last_successful_check_at": "2026-11-23T19:58:37.192002",
-        "latest_filing_timestamp": "2026-11-13T14:40:32.73"
+        "last_successful_check_at": "2026-11-25T08:35:15.168112",
+        "latest_filing_timestamp": "2026-09-25T10:38:18.303"
       },
       "SIKA": {
         "last_successful_check_at": "2026-11-24T22:28:57.354036",
@@ -1295,12 +1296,64 @@
       "SAMHI": {
         "last_successful_check_at": "2026-11-25T08:31:28.851105",
         "latest_filing_timestamp": "2026-11-12T18:44:34.197"
+      },
+      "SAILIFE": {
+        "last_successful_check_at": "2026-11-25T08:34:43.249695",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "RVNL": {
+        "last_successful_check_at": "2026-11-25T08:34:46.944906",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "RPEL": {
+        "last_successful_check_at": "2026-11-25T08:34:49.418000",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SAATVIKGL": {
+        "last_successful_check_at": "2026-11-25T08:34:51.692140",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ROSSARI": {
+        "last_successful_check_at": "2026-11-25T08:34:53.698954",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SAFARI": {
+        "last_successful_check_at": "2026-11-25T08:34:55.992359",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SAKAR": {
+        "last_successful_check_at": "2026-11-25T08:34:57.896160",
+        "latest_filing_timestamp": "2026-06-30"
+      },
+      "RSYSTEMS": {
+        "last_successful_check_at": "2026-11-25T08:35:00.221520",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ROLEXRINGS": {
+        "last_successful_check_at": "2026-11-25T08:35:02.192571",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "RRKABEL": {
+        "last_successful_check_at": "2026-11-25T08:35:04.186062",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ROUTE": {
+        "last_successful_check_at": "2026-11-25T08:35:08.588155",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "RUBICON": {
+        "last_successful_check_at": "2026-11-25T08:35:10.691117",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "RPGLIFE": {
+        "last_successful_check_at": "2026-11-25T08:35:12.806447",
+        "latest_filing_timestamp": "23-Oct-2026 19:43:03"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-25T08:29:31.070713+05:30",
+    "last_successful_check_at": "2026-11-25T08:33:17.500808+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
