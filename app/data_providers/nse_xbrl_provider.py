@@ -692,7 +692,7 @@ class NseXbrlProvider:
 
         is_bulk = symbol.startswith("MARKET_") or "corporate-announcements" in url or "period=" in url
         effective_timeout = timeout or (_BULK_TIMEOUT if is_bulk else _TIMEOUT)
-        scraper_timeout = 8  # Fast failover: cap at 8s to prevent worker thread stalling
+        scraper_timeout = 20 if is_bulk else 8  # Allow 20s for chunked bulk sweeps; cap per-symbol at 8s
 
         # 1. DIRECTLY TRY WITH SCRAPER API FIRST
         try:
@@ -1021,19 +1021,34 @@ class NseXbrlProvider:
             else:
                 as_of_dt = as_of_date
 
-            d_to = (as_of_dt + timedelta(days=1)).strftime("%d-%m-%Y")
-            d_from = (as_of_dt - timedelta(days=max(1, lookback_days))).strftime("%d-%m-%Y")
-            ann_url = f"{_ANN_URL}?index=equities&from_date={d_from}&to_date={d_to}"
-            # Expanded timeout to 90s to accommodate 2.5MB+ payloads across market-wide announcements
-            raw_ann = self._get(ann_url, "MARKET_ANNOUNCEMENTS", timeout=90)
-            if not raw_ann and lookback_days > 3:
-                # Adaptive chunking fallback: if 14-day market-wide query timed out, fetch 3-day recent window
-                d_from_recent = (as_of_dt - timedelta(days=3)).strftime("%d-%m-%Y")
-                ann_url_recent = f"{_ANN_URL}?index=equities&from_date={d_from_recent}&to_date={d_to}"
-                logger.info(f"🔄 [NSE] Retrying MARKET_ANNOUNCEMENTS with adaptive 3-day window ({d_from_recent} to {d_to})...")
-                raw_ann = self._get(ann_url_recent, "MARKET_ANNOUNCEMENTS", timeout=45)
-            if raw_ann:
-                ann_rows = raw_ann if isinstance(raw_ann, list) else (raw_ann.get("data", []) if isinstance(raw_ann, dict) else [])
+            # Chunk lookback into 7-day windows so each payload stays ~350-500KB and never hits 102s curl timeouts
+            ann_rows = []
+            end_dt = as_of_dt + timedelta(days=1)
+            start_dt = as_of_dt - timedelta(days=max(1, lookback_days))
+            cur_end = end_dt
+            while cur_end > start_dt:
+                cur_start = max(start_dt, cur_end - timedelta(days=7))
+                c_from = cur_start.strftime("%d-%m-%Y")
+                c_to = cur_end.strftime("%d-%m-%Y")
+                chunk_url = f"{_ANN_URL}?index=equities&from_date={c_from}&to_date={c_to}"
+                raw_chunk = self._get(chunk_url, "MARKET_ANNOUNCEMENTS", timeout=25)
+                if raw_chunk:
+                    chunk_list = raw_chunk if isinstance(raw_chunk, list) else (raw_chunk.get("data", []) if isinstance(raw_chunk, dict) else [])
+                    ann_rows.extend(chunk_list)
+                elif (cur_end - cur_start).days > 3:
+                    # Sub-chunk fallback (split into 3-day windows) if 7-day chunk timed out
+                    sub_end = cur_end
+                    while sub_end > cur_start:
+                        sub_start = max(cur_start, sub_end - timedelta(days=3))
+                        s_url = f"{_ANN_URL}?index=equities&from_date={sub_start.strftime('%d-%m-%Y')}&to_date={sub_end.strftime('%d-%m-%Y')}"
+                        sub_raw = self._get(s_url, "MARKET_ANNOUNCEMENTS", timeout=20)
+                        if sub_raw:
+                            sub_list = sub_raw if isinstance(sub_raw, list) else (sub_raw.get("data", []) if isinstance(sub_raw, dict) else [])
+                            ann_rows.extend(sub_list)
+                        sub_end = sub_start
+                cur_end = cur_start
+
+            if ann_rows:
                 for item in ann_rows:
                     if not isinstance(item, dict):
                         continue
