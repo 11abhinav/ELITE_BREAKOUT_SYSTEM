@@ -275,6 +275,7 @@ def _normalize_iso_date(val: Any) -> Optional[str]:
 _WATCHER_LOCK = threading.Lock()
 _WATCHER_LOCK_ACQUIRED_AT: Optional[float] = None
 _WATCHER_LOCK_OWNER: Optional[str] = None
+_ACTIVE_WATCHER_STOP_CTX: Any = None
 
 
 class FinancialFilingWatcher:
@@ -3190,7 +3191,7 @@ class FinancialFilingWatcher:
                 get_connection,
             )
 
-        global _WATCHER_LOCK_ACQUIRED_AT, _WATCHER_LOCK_OWNER
+        global _WATCHER_LOCK_ACQUIRED_AT, _WATCHER_LOCK_OWNER, _ACTIVE_WATCHER_STOP_CTX
 
         is_manual_or_force = (
             trigger_type in ("MANUAL", "CLI", "ADMIN_ON_DEMAND", "API", "NON_MARKET_BOOT")
@@ -3209,6 +3210,9 @@ class FinancialFilingWatcher:
                     f"Auto-breaking stale lock for {trigger_type}..."
                 )
                 try:
+                    prev_ctx = globals().get("_ACTIVE_WATCHER_STOP_CTX")
+                    if prev_ctx is not None:
+                        prev_ctx.is_stopped = True
                     _WATCHER_LOCK.release()
                 except Exception:
                     pass
@@ -3282,6 +3286,8 @@ class FinancialFilingWatcher:
                 except Exception as _fb_err:
                     logger.debug(f"[filling scanner] Fallback run_ctx creation note: {_fb_err}")
 
+            if run_ctx:
+                _ACTIVE_WATCHER_STOP_CTX = run_ctx
             if run_ctx and hasattr(run_ctx, "start_heartbeat_worker"):
                 try:
                     run_ctx.start_heartbeat_worker()
@@ -3530,13 +3536,21 @@ class FinancialFilingWatcher:
                     run_ctx.stop_heartbeat_worker()
                 except Exception:
                     pass
-            _WATCHER_LOCK_ACQUIRED_AT = None
-            _WATCHER_LOCK_OWNER = None
-            if _WATCHER_LOCK.locked():
-                try:
-                    _WATCHER_LOCK.release()
-                except Exception:
-                    pass
+            # Only release _WATCHER_LOCK if we are still the active run (prevents a force-evicted thread from unlocking a newer run)
+            still_owner = (
+                (_ACTIVE_WATCHER_STOP_CTX is run_ctx)
+                if run_ctx is not None
+                else (_WATCHER_LOCK_OWNER == f"{trigger_type}:{scheduler_name}:{symbol or 'ALL'}")
+            )
+            if still_owner:
+                _ACTIVE_WATCHER_STOP_CTX = None
+                _WATCHER_LOCK_ACQUIRED_AT = None
+                _WATCHER_LOCK_OWNER = None
+                if _WATCHER_LOCK.locked():
+                    try:
+                        _WATCHER_LOCK.release()
+                    except Exception:
+                        pass
 
 
 # -----------------------------------------------------------------------------

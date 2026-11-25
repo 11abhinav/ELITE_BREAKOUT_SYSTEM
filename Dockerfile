@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     curl \
     wget \
+    poppler-utils \
     tesseract-ocr \
     tesseract-ocr-eng \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf -f /var/lib/apt/lists/* 2>/dev/null || rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

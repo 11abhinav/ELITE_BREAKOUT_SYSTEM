@@ -5848,9 +5848,11 @@ def api_admin_trigger_filing_watcher():
         force = bool(req_json.get("force", False) or request.args.get("force") in ("true", "1"))
         if force:
             try:
-                from scripts.financial_filing_watcher import _WATCHER_LOCK
-                if _WATCHER_LOCK.locked():
-                    _WATCHER_LOCK.release()
+                import scripts.financial_filing_watcher as _ffw_mod
+                if getattr(_ffw_mod, "_ACTIVE_WATCHER_STOP_CTX", None) is not None:
+                    _ffw_mod._ACTIVE_WATCHER_STOP_CTX.is_stopped = True
+                if _ffw_mod._WATCHER_LOCK.locked():
+                    _ffw_mod._WATCHER_LOCK.release()
                     logger.warning("🔓 [ADMIN] Forced release of _WATCHER_LOCK requested by admin.")
             except Exception as _fe:
                 logger.debug(f"Forced lock release note: {_fe}")

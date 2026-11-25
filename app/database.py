@@ -14637,11 +14637,14 @@ _PROCESS_BOOT_TIME = datetime.now(ZoneInfo('Asia/Kolkata'))
 # "Cleaned orphaned RUNNING run" messages even after the rows are already fixed.
 _ORPHAN_CLEANUP_LAST_RUN_TS: float = 0.0
 _ORPHAN_CLEANUP_INTERVAL_S: float = 300.0  # 5 minutes
+from datetime import datetime as _boot_dt, timezone as _boot_tz
+_PROCESS_BOOT_UTC = _boot_dt.now(_boot_tz.utc)
 
 def cleanup_orphaned_scanner_runs_on_boot(cur=None):
     """
     On server boot, finds any scanner runs left in 'RUNNING' or 'QUEUED' status
     from previous server processes and updates them to 'SERVER_RESTARTED'.
+    Preserves runs initiated within the current process after _PROCESS_BOOT_UTC.
     """
     def _execute_cleanup(c):
         try:
@@ -14649,6 +14652,7 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         except Exception:
             pass
 
+        rows_updated = 0
         try:
             c.execute("""
                 UPDATE scanner_execution_history
@@ -14656,20 +14660,24 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                     lifecycle_status = 'SERVER_RESTARTED',
                     error_summary = 'Server restarted while scan was in progress',
                     error_details = 'Automated boot cleanup detected unclosed RUNNING/QUEUED state from previous server process'
-                WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
-            """)
+                WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                  AND started_at < %s
+                  AND (heartbeat_at IS NULL OR heartbeat_at < NOW() - INTERVAL '20 seconds');
+            """, (_PROCESS_BOOT_UTC,))
+            rows_updated = c.rowcount or 0
             c.execute("""
                 UPDATE scanner_health
                 SET status = 'IDLE',
                     updated_at = NOW(),
                     error_msg = 'Server restarted. Reset to IDLE.'
                 WHERE status IN ('RUNNING', 'QUEUED', 'DOWN') 
-                  AND status NOT IN ('PAUSED', 'STOPPED');
-            """)
+                  AND status NOT IN ('PAUSED', 'STOPPED')
+                  AND updated_at < %s;
+            """, (_PROCESS_BOOT_UTC,))
         except Exception as e:
             logger.warning(f"Failed to reset scanner_execution_history on boot: {e}")
 
-        return 0
+        return rows_updated
 
     try:
         if cur is not None:

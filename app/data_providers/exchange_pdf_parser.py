@@ -21,8 +21,11 @@ import io
 import os
 import re
 import time
+import shutil
 import hashlib
 import logging
+import subprocess
+import tempfile
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any, Set
 
@@ -46,15 +49,120 @@ import concurrent.futures
 
 os.environ.setdefault("OMP_THREAD_LIMIT", "1")
 
+_HAS_PDFTOTEXT = bool(shutil.which("pdftotext"))
+_HAS_PDFTOPPM = bool(shutil.which("pdftoppm"))
+
 # Concurrency semaphores: cap simultaneous heavy PDF parses on cloud containers to prevent CPU/RAM thrash
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(12)
-_PARSE_SEMAPHORE = threading.Semaphore(4)
-
-_PAGE_EXTRACTOR_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=24, thread_name_prefix="pdf_page_extract")
+_PARSE_SEMAPHORE = threading.Semaphore(int(os.getenv("PDF_PARSE_CONCURRENCY", "3")))
 
 
-def _safe_extract_text(page, timeout: float = 3.5, extraction_mode: Optional[str] = None) -> str:
-    """Extracts text from a single page with strict thread-pool timeout enforcement."""
+def _extract_pdf_pages_fast(pdf_path: str, max_pages: int = 20, timeout: float = 8.0) -> Optional[Dict[int, str]]:
+    """
+    Uses Poppler C++ `pdftotext` subprocess to extract pages 1..max_pages in ~0.1-0.4s with
+    zero Python GIL overhead and OS-level SIGKILL enforcement on timeout (zero wedged threads).
+    """
+    if not _HAS_PDFTOTEXT or not pdf_path:
+        return None
+    try:
+        res = subprocess.run(
+            ["pdftotext", "-f", "1", "-l", str(max_pages), pdf_path, "-"],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        if res.returncode != 0 or not res.stdout:
+            return None
+        raw = res.stdout.decode("utf-8", errors="ignore")
+        # Poppler separates pages with form-feed (\x0c)
+        chunks = raw.split("\x0c")
+        if chunks and chunks[-1] == "":
+            chunks = chunks[:-1]
+        return {idx: txt for idx, txt in enumerate(chunks[:max_pages])}
+    except Exception:
+        return None
+
+
+def _extract_page_layout_fast(pdf_path: str, page_idx: int, timeout: float = 3.5) -> str:
+    """Runs Poppler `pdftotext -layout` for a single 0-indexed page with SIGKILL timeout."""
+    if not _HAS_PDFTOTEXT or not pdf_path:
+        return ""
+    try:
+        p1 = str(page_idx + 1)
+        res = subprocess.run(
+            ["pdftotext", "-layout", "-f", p1, "-l", p1, pdf_path, "-"],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout:
+            return res.stdout.decode("utf-8", errors="ignore")
+    except Exception:
+        pass
+    return ""
+
+
+def _render_page_image_fast(pdf_path: str, page_idx: int, timeout: float = 6.0) -> Optional["Image.Image"]:
+    """Renders a composite full-page PNG via `pdftoppm` for multi-strip scanned PDFs."""
+    if not _OCR_AVAILABLE or not _HAS_PDFTOPPM or not pdf_path:
+        return None
+    tmp_dir = None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="pdfppm_")
+        out_prefix = os.path.join(tmp_dir, "page")
+        p1 = str(page_idx + 1)
+        res = subprocess.run(
+            ["pdftoppm", "-png", "-r", "150", "-singlefile", "-f", p1, "-l", p1, pdf_path, out_prefix],
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        png_path = f"{out_prefix}.png"
+        if res.returncode == 0 and os.path.exists(png_path):
+            with Image.open(png_path) as im:
+                return im.copy()
+    except Exception:
+        pass
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+    return None
+
+
+def _safe_extract_text(
+    page,
+    timeout: float = 3.5,
+    extraction_mode: Optional[str] = None,
+    pdf_path: Optional[str] = None,
+    page_idx: Optional[int] = None,
+) -> str:
+    """
+    Extracts text from a single PDF page with hard timeout isolation.
+    Prefers Poppler `pdftotext` subprocess (SIGKILL on hang, zero thread leaks);
+    falls back to an isolated per-call executor that never poisons a global thread pool.
+    """
+    if pdf_path and page_idx is not None and _HAS_PDFTOTEXT:
+        if extraction_mode == "layout":
+            txt = _extract_page_layout_fast(pdf_path, page_idx, timeout=timeout)
+            if txt:
+                return txt
+        else:
+            try:
+                p1 = str(page_idx + 1)
+                res = subprocess.run(
+                    ["pdftotext", "-f", p1, "-l", p1, pdf_path, "-"],
+                    capture_output=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                if res.returncode == 0 and res.stdout is not None:
+                    return res.stdout.decode("utf-8", errors="ignore")
+            except Exception:
+                pass
+
+    if page is None:
+        return ""
+
     def _do_extract():
         try:
             if extraction_mode:
@@ -65,13 +173,17 @@ def _safe_extract_text(page, timeout: float = 3.5, extraction_mode: Optional[str
                 return page.extract_text() or ""
             except Exception:
                 return ""
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="pdf_pg_iso")
     try:
-        future = _PAGE_EXTRACTOR_POOL.submit(_do_extract)
+        future = pool.submit(_do_extract)
         return future.result(timeout=timeout) or ""
     except concurrent.futures.TimeoutError:
         return ""
     except Exception:
         return ""
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _is_char_fragmented(text: str) -> bool:
@@ -163,6 +275,8 @@ def _parse_exchange_date(val: Optional[str]) -> Optional[str]:
         return val_str
     # Remove ordinal suffixes: 30th -> 30, 31st -> 31, 1st -> 1, 2nd -> 2, 3rd -> 3
     clean_d = re.sub(r"(?i)\b(\d{1,2})(?:st|nd|rd|th)\b", r"\1", val_str)
+    # Normalize "Sept" -> "Sep" so datetime.strptime("%b") matches
+    clean_d = re.sub(r"(?i)\bsept\.?(?=\s+\d|\s*202)", "Sep", clean_d)
     # Normalize commas and extra whitespace
     clean_d = re.sub(r",", " ", clean_d)
     clean_d = re.sub(r"\s+", " ", clean_d).strip()
@@ -256,6 +370,9 @@ def _normalize_ocr_text(text: str) -> str:
     # --- Spaced-out numbers cleanup (e.g. '17,483 .09' -> '17,483.09', '4 ,385.86' -> '4,385.86') ---
     text = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', text)
     text = re.sub(r'(\d+[\d,]*)\s*\.\s*(\d+)', r'\1.\2', text)
+    # Repair OCR dot/comma swaps in Indian numbers: '1.29,783' -> '1,29,783', '68.547.37' -> '68,547.37'
+    text = re.sub(r'\b(\d{1,3})\.(\d{2,3}),(\d{3})\b', r'\1,\2,\3', text)
+    text = re.sub(r'\b(\d{1,3})\.(\d{3})\.(\d{2})\b', r'\1,\2.\3', text)
     # Fix spaced numbers in Indian balance sheets: "1 747.30" -> "1747.30", "4 882.27" -> "4882.27"
     text = re.sub(r"(?<![\d\.])(\d{1,2})\s+(\d{3}(?:[,\.]\d{2})?\b)", r"\1\2", text)
 
@@ -291,6 +408,8 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\bSEP[RT]E?MBER\b", "SEPTEMBER", text)
     text = re.sub(r"(?i)\bsep[rt]e?mber\b", "September", text)
     text = re.sub(r"(?i)\bseptermber\b", "September", text)         # septermber
+    text = re.sub(r"(?i)\bseptember\s+jo\b", "September 30", text)  # OCR: SEPTEMBER JO -> SEPTEMBER 30
+    text = re.sub(r"(?i)\b(september|june|december)\s*[,\./\*]+\s*(\d{2})\b", r"\1 \2", text)
     text = re.sub(r"(?i)\bfeburary\b", "February", text)
     text = re.sub(r"(?i)\bjanurary\b", "January", text)
     text = re.sub(r"(?i)\bDecemher\b", "December", text)            # h<->b
@@ -327,6 +446,7 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\bopomtions\b", "operations", text, flags=re.I)
     text = re.sub(r"\boperal[il]ons\b", "operations", text, flags=re.I)
     text = re.sub(r"\boperaiions\b", "operations", text, flags=re.I)
+    text = re.sub(r"\bop[ce]r[a-z]{2,6}ns\b", "operations", text, flags=re.I)
     text = re.sub(r"\bopera\s+tions\b", "operations", text, flags=re.I)
     text = re.sub(r"\boper[--\.\d]+tions\b", "operations", text, flags=re.I)
     text = re.sub(r"\bfinan\s+cial\b", "financial", text, flags=re.I)
@@ -339,14 +459,17 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\bpro\s*fit\b", "profit", text, flags=re.I)
     text = re.sub(r"\bprofl[~t]\b", "profit", text, flags=re.I)
     text = re.sub(r"\bp\'ofit\b", "profit", text, flags=re.I)
+    text = re.sub(r"\bprofi[1tl]\b|\bprof[il1]t\b", "profit", text, flags=re.I)
     text = re.sub(r"\bproft\b", "profit", text, flags=re.I)
-    text = re.sub(r"\(lo\s*ss\)", "(loss)", text, flags=re.I)
+    text = re.sub(r"[\(\{\[]\s*lo\s*ss\s*[\)\}\]]", "(loss)", text, flags=re.I)
     text = re.sub(r"\bnet profit[!/|]\s*\(loss\)", "net profit / (loss)", text, flags=re.I)
     text = re.sub(r"\bl+nter[ueo]t\s*income\b", "interest income", text, flags=re.I)
     text = re.sub(r"\blotber\s*income\b", "other income", text, flags=re.I)
     text = re.sub(r"\bfotal\s*expenses\b", "total expenses", text, flags=re.I)
     text = re.sub(r"\bexce[op]tional\b", "exceptional", text, flags=re.I)
-    text = re.sub(r"\bth\s+e\b", "the", text, flags=re.I)
+    text = re.sub(r"\bth\s+e\b|\b1he\b|\blhe\b", "the", text, flags=re.I)
+    text = re.sub(r"\bb[ce]f[ao]re\b", "before", text, flags=re.I)
+    text = re.sub(r"\bprofic\b", "profit", text, flags=re.I)
     text = re.sub(r"\byea\s+r\b", "year", text, flags=re.I)
     text = re.sub(r"\bparti\s+culars\b", "particulars", text, flags=re.I)
     text = re.sub(r"\bstanda\s*lone\b", "standalone", text, flags=re.I)
@@ -433,6 +556,11 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
         if not any(k in header_area for k in ["statement of", "financial results", "revenue from operations", "total income"]):
             score -= 30
 
+    # 8. Penalty for standalone Notes pages (prose paragraphs explaining revenue/tax figures, not financial table rows)
+    first_6_lower = " ".join(text_norm.split("\n")[:6]).lower()
+    if re.search(r"\bnotes?\s*:", first_6_lower) and not any(k in norm_text_lower for k in ["1.\trevenue", "total expenses", "profit before tax", "paid-up equity"]):
+        score -= 60
+
     return score, basis
 
 
@@ -447,11 +575,12 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     url_fn = os.path.basename(str(pdf_url).split("?")[0]).lower()
     combined = f"{desc} {text} {fn} {url_fn}"
 
-    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, non-financial board actions)
+    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, monitoring agency, investor handouts, non-financial board actions)
     if any(k in combined for k in [
         "newspaper", "clipping", "advertisement", "publication of",
-        "investor presentation", "investor update", "earnings call",
-        "transcript", "audio recording", "video recording", "concall", "con. call", "press release"
+        "investor presentation", "investor update", "investor handout", "investor_handout", "investorhandout",
+        "monitoring agency", "monitoringagency",
+        "earnings call", "transcript", "audio recording", "video recording", "concall", "con. call", "press release"
     ]):
         return False
 
@@ -551,6 +680,8 @@ class ExchangePdfParser:
         self.session = requests.Session()
         self.session.headers.update(_HEADERS)
         self.last_failure_reason: Dict[str, Tuple[str, str]] = {}
+        self._failed_pdf_hashes: Set[Tuple[str, str]] = set()
+        self._failed_hash_lock = threading.Lock()
 
     def download_pdf(
         self,
@@ -569,7 +700,8 @@ class ExchangePdfParser:
         If not confirmed as financial results, cap at 4MB to prevent downloading
         unrelated large documents.
         """
-        if not pdf_url or not str(pdf_url).lower().endswith(".pdf"):
+        pdf_url_low = str(pdf_url or "").lower()
+        if not pdf_url or not (".pdf" in pdf_url_low or "annpdfopen" in pdf_url_low):
             return None
 
         is_result = is_financial_result_announcement(announcement_metadata, pdf_url)
@@ -679,14 +811,27 @@ class ExchangePdfParser:
             logger.info(f"📄 [PDF_PARSER] Skipping {symbol}: PDF exceeds {_PDF_MAX_RESULT_BYTES // (1024*1024)}MB ({len(pdf_bytes)} bytes).")
             return []
 
-        # Acquire parse semaphore with timeout (90s safety timeout to prevent dropping queued worker threads)
+        # Acquire parse semaphore with timeout (180s safety timeout to prevent dropping queued worker threads)
         if not _PARSE_SEMAPHORE.acquire(timeout=180.0):
             logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>180s wait). Skipping PDF.")
             if hasattr(self, "last_failure_reason"):
                 self.last_failure_reason[symbol] = ("SEMAPHORE_TIMEOUT", "Parse semaphore busy (>180s wait). Skipping PDF.")
             return []
+        tmp_pdf_path: Optional[str] = None
         try:
-            records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
+            if _HAS_PDFTOTEXT or (_OCR_AVAILABLE and _HAS_PDFTOPPM):
+                try:
+                    clean_bytes = pdf_bytes
+                    eof_pos = clean_bytes.rfind(b"%%EOF")
+                    if eof_pos != -1:
+                        clean_bytes = clean_bytes[:eof_pos + 5]
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:
+                        tf.write(clean_bytes)
+                        tmp_pdf_path = tf.name
+                except Exception:
+                    tmp_pdf_path = None
+
+            records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol, tmp_pdf_path=tmp_pdf_path)
             if records:
                 logger.info(f"📄 [PDF_PARSER] {symbol}: Successfully extracted {len(records)} record(s) from PDF ({len(pdf_bytes)} bytes)")
             else:
@@ -696,6 +841,11 @@ class ExchangePdfParser:
             logger.warning(f"[PDF_PARSER] {symbol}: Error during PDF parsing: {e}")
             return []
         finally:
+            if tmp_pdf_path and os.path.exists(tmp_pdf_path):
+                try:
+                    os.unlink(tmp_pdf_path)
+                except Exception:
+                    pass
             _PARSE_SEMAPHORE.release()
 
     def _parse_sebi_reg33_pdf_inner(
@@ -704,6 +854,7 @@ class ExchangePdfParser:
         pdf_hash: str,
         ann_meta: Dict[str, Any],
         symbol: str,
+        tmp_pdf_path: Optional[str] = None,
     ) -> List["RawFinancialRecord"]:
         """Inner parse logic, runs under _PARSE_SEMAPHORE — do not call directly."""
         records: List["RawFinancialRecord"] = []
@@ -723,19 +874,37 @@ class ExchangePdfParser:
                 logger.warning(f"[PDF_PARSER] Failed to open PDF for {symbol}: {pdf_err}")
                 return []
 
+        total_doc_pages = len(reader.pages)
+        max_scan_pages = min(20, total_doc_pages)
+
+        # Fast C++ batch page text extraction via Poppler `pdftotext` (~0.1-0.4s for 20 pages, SIGKILL on hang)
+        cached_page_texts: Dict[int, str] = {}
+        if tmp_pdf_path and _HAS_PDFTOTEXT:
+            fast_pages = _extract_pdf_pages_fast(tmp_pdf_path, max_pages=max_scan_pages, timeout=8.0)
+            if fast_pages:
+                for p_idx, p_t in fast_pages.items():
+                    if _is_char_fragmented(p_t):
+                        lay_t = _extract_page_layout_fast(tmp_pdf_path, p_idx, timeout=3.5)
+                        if lay_t and len(lay_t.strip()) >= 50:
+                            p_t = lay_t
+                    cached_page_texts[p_idx] = p_t
+
         # Determine document-wide unit and multiplier if individual pages omit the unit header
         doc_mult = 1.0
         doc_unit = "crore"
         doc_sample_text = ""
-        cached_page_texts: Dict[int, str] = {}
-        for p_idx, p in enumerate(reader.pages[:3]):
+        for p_idx in range(min(3, total_doc_pages)):
+            if time.time() - t_parse_start > 10.0:
+                break
             try:
-                p_t = _safe_extract_text(p, timeout=3.5)
-                if _is_char_fragmented(p_t):
-                    lay_t = _safe_extract_text(p, timeout=3.5, extraction_mode="layout")
-                    if lay_t and len(lay_t.strip()) >= 50:
-                        p_t = lay_t
-                cached_page_texts[p_idx] = p_t
+                p_t = cached_page_texts.get(p_idx)
+                if p_t is None:
+                    p_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, pdf_path=tmp_pdf_path, page_idx=p_idx)
+                    if _is_char_fragmented(p_t):
+                        lay_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, extraction_mode="layout", pdf_path=tmp_pdf_path, page_idx=p_idx)
+                        if lay_t and len(lay_t.strip()) >= 50:
+                            p_t = lay_t
+                    cached_page_texts[p_idx] = p_t
                 if p_t:
                     doc_sample_text += "\n" + p_t
             except Exception:
@@ -743,30 +912,28 @@ class ExchangePdfParser:
         if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", doc_sample_text, re.I):
             doc_mult = 0.1
             doc_unit = "million"
-        elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?", doc_sample_text, re.I):
+        elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex", doc_sample_text, re.I):
             doc_mult = 0.01
             doc_unit = "lakh"
-        elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)", doc_sample_text, re.I):
+        elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)|<n\s*crore", doc_sample_text, re.I):
             doc_mult = 1.0
             doc_unit = "crore"
 
         # Phase 2: Lightweight document-wide text pre-scan & candidate scoring
         # Enforces Safeguard A: Multi-signal weighted scoring under strict bounded budget
-        total_doc_pages = len(reader.pages)
-        max_scan_pages = min(10, total_doc_pages)
         page_scores: List[Tuple[int, int, ConsolidationType]] = []
         zero_text_page_count = 0
 
         t_prescan_start = time.time()
         for p_idx in range(max_scan_pages):
-            if time.time() - t_prescan_start > 8.0 or time.time() - t_parse_start > 10.0:
-                logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached 8s budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
+            if p_idx not in cached_page_texts and (time.time() - t_prescan_start > 18.0 or time.time() - t_parse_start > 22.0):
+                logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
                 break
             p_text = cached_page_texts.get(p_idx)
             if p_text is None:
-                p_text = _safe_extract_text(reader.pages[p_idx], timeout=3.5)
+                p_text = _safe_extract_text(reader.pages[p_idx], timeout=3.5, pdf_path=tmp_pdf_path, page_idx=p_idx)
                 if _is_char_fragmented(p_text):
-                    lay_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, extraction_mode="layout")
+                    lay_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, extraction_mode="layout", pdf_path=tmp_pdf_path, page_idx=p_idx)
                     if lay_t and len(lay_t.strip()) >= 50:
                         p_text = lay_t
                 cached_page_texts[p_idx] = p_text
@@ -778,41 +945,57 @@ class ExchangePdfParser:
                 page_scores.append((p_idx, sc, b))
 
         # Scanned Image PDF / Hybrid Scanned Document Early Detection & OCR Fallback:
+        # Never spend OCR budget if digital pages ALREADY scored >= 70 (real digital statements present!)
         doc_total_chars = sum(len(t.strip()) for t in cached_page_texts.values())
+        best_digital_score = max((sc for _, sc, _ in page_scores), default=0)
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
-        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and len([p for p in page_scores if p[1] >= 45]) <= 1)
+        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 70)
 
-        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 18.0):
+        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 22.0):
             ocr_recovered = False
             try:
-                scan_candidates = [p for p in range(min(10, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
-                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:3])} scanned image pages (hybrid={is_hybrid_scanned})...")
+                scan_candidates = [p for p in range(min(12, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
+                # For hybrid PDFs where cover pages 1-2 had digital text, scan statement pages (>=2) before cover pages
+                scan_candidates.sort(key=lambda p: (0 if p >= 1 else 1, p))
+                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
                 t_ocr_start = time.time()
-                for p_idx in scan_candidates[:3]:
-                    if time.time() - t_ocr_start > 12.0 or time.time() - t_parse_start > 24.0:
+                for p_idx in scan_candidates[:6]:
+                    if time.time() - t_ocr_start > 18.0 or time.time() - t_parse_start > 28.0:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
-                    page_obj = reader.pages[p_idx]
-                    page_images = getattr(page_obj, "images", [])
                     ocr_page_text = ""
-                    for img_obj in page_images[:1]:
+                    # Prefer rendering composite page image via pdftoppm (handles multi-strip scanned PDFs like INTERARCH)
+                    comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=6.0) if tmp_pdf_path else None
+                    if comp_img is not None:
                         try:
-                            img = Image.open(io.BytesIO(img_obj.data))
-                            if img.width >= 150 and img.height >= 150:
-                                if img.width > 1400 or img.height > 1800:
-                                    img.thumbnail((1200, 1600))
-                                t = pytesseract.image_to_string(img, timeout=4.0, config="--psm 6")
-                                if t and len(t.strip()) > 30:
-                                    ocr_page_text += "\n" + t.strip()
+                            if comp_img.width > 1400 or comp_img.height > 1800:
+                                comp_img.thumbnail((1400, 1800))
+                            t = pytesseract.image_to_string(comp_img, timeout=6.0, config="--psm 6")
+                            if t and len(t.strip()) > 30:
+                                ocr_page_text = t.strip()
                         except Exception:
                             pass
+                    if not ocr_page_text:
+                        page_obj = reader.pages[p_idx]
+                        page_images = getattr(page_obj, "images", [])
+                        for img_obj in page_images[:2]:
+                            try:
+                                img = Image.open(io.BytesIO(img_obj.data))
+                                if img.width >= 150 and img.height >= 150:
+                                    if img.width > 1400 or img.height > 1800:
+                                        img.thumbnail((1200, 1600))
+                                    t = pytesseract.image_to_string(img, timeout=4.0, config="--psm 6")
+                                    if t and len(t.strip()) > 30:
+                                        ocr_page_text += "\n" + t.strip()
+                            except Exception:
+                                pass
                     if ocr_page_text:
                         cached_page_texts[p_idx] = ocr_page_text
                         sc, b = score_page_content(ocr_page_text)
                         if sc >= 30:
                             page_scores.append((p_idx, sc, b))
                             ocr_recovered = True
-                            if len(page_scores) >= 2 or sc >= 50:
+                            if len([p for p in page_scores if p[1] >= 60]) >= 2:
                                 break
                 if ocr_recovered:
                     logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len([p for p in page_scores if p[0] in scan_candidates])} scanned pages.")
@@ -840,14 +1023,14 @@ class ExchangePdfParser:
                 candidate_page_indices.append(p_idx + 1)
 
         if not candidate_page_indices:
-            logger.debug(f"[PDF_PARSER] {symbol}: No page scored >= 45. Executing bounded fallback to first {min(10, total_doc_pages)} pages.")
-            candidate_page_indices = list(range(min(10, total_doc_pages)))
+            logger.debug(f"[PDF_PARSER] {symbol}: No page scored >= 45. Executing bounded fallback to first {min(12, total_doc_pages)} pages.")
+            candidate_page_indices = list(range(min(12, total_doc_pages)))
 
         t_start = time.time()
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
-            if time.time() - t_start > 22.0 or time.time() - t_parse_start > 32.0:
-                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 32s parse budget on page {page_idx+1}. Breaking early.")
+            if time.time() - t_start > 30.0 or time.time() - t_parse_start > 55.0:
+                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded parse budget on page {page_idx+1}. Breaking early.")
                 break
 
             # Smart early exit: finish immediately if both Consolidated and Standalone statements were extracted
@@ -859,9 +1042,9 @@ class ExchangePdfParser:
             if page_idx in cached_page_texts:
                 text = cached_page_texts[page_idx]
             else:
-                text = _safe_extract_text(page, timeout=3.5)
+                text = _safe_extract_text(page, timeout=3.5, pdf_path=tmp_pdf_path, page_idx=page_idx)
                 if _is_char_fragmented(text):
-                    lay_t = _safe_extract_text(page, timeout=3.5, extraction_mode="layout")
+                    lay_t = _safe_extract_text(page, timeout=3.5, extraction_mode="layout", pdf_path=tmp_pdf_path, page_idx=page_idx)
                     if lay_t and len(lay_t.strip()) >= 50:
                         text = lay_t
                 cached_page_texts[page_idx] = text
@@ -875,11 +1058,20 @@ class ExchangePdfParser:
             text_lower = text.lower()
             norm_text_lower = re.sub(r"\s+", " ", text_lower)
 
-            # Skip standalone auditor review report pages that lack financial statement tables
+            # Skip standalone auditor review report or pure prose Notes pages that lack financial statement tables
             first_12_lines = text.split("\n")[:12]
             header_preamble = " ".join(first_12_lines).lower()
             if any(k in header_preamble for k in ["independent auditor", "auditor's review report", "limited review report", "auditor's report"]):
                 if not any(k in header_preamble for k in ["statement of", "financial results", "unaudited financial", "audited financial"]):
+                    continue
+            first_8_lines_low = [ln.strip().lower() for ln in text.split("\n")[:8] if ln.strip()]
+            if any(re.match(r"^notes?\s*[:\-]?$", ln) for ln in first_8_lines_low):
+                has_tab_rows = sum(1 for ln in text.split("\n")[:35] if re.match(r"^\s*(?:1\.|i\.|total income|revenue from operations)", ln.strip(), re.I)) >= 2
+                if not has_tab_rows:
+                    continue
+            # Pass 1 extracts P&L statements; skip standalone Balance Sheet / Cash Flow / Segment pages (handled in Pass 2)
+            if any(k in header_preamble for k in ["statement of assets and liabilities", "assets and liabilities", "statement of cash flows", "cash flows -", "segment wise information", "segment revenue", "capital employed"]):
+                if not any(k in header_preamble for k in ["financial results for", "profit and loss"]):
                     continue
 
             # Must contain SEBI Regulation 33 Statement header keywords
@@ -914,48 +1106,64 @@ class ExchangePdfParser:
             # 2. Determine Unit and Multiplier to Crores
             mult = doc_mult
             unit = doc_unit
+            explicit_unit = False
             header_text = "\n".join(text.split("\n")[:25])
+            _lakh_pat = r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex"
+            _crore_pat = r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)|<n\s*crore"
             if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", header_text, re.I):
                 mult = 0.1  # 1 Million = 0.1 Crore (10 Lakhs)
                 unit = "million"
-            elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?", header_text, re.I):
+                explicit_unit = True
+            elif re.search(_lakh_pat, header_text, re.I):
                 mult = 0.01  # 1 Lakh = 0.01 Crore
                 unit = "lakh"
-            elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)", header_text, re.I):
+                explicit_unit = True
+            elif re.search(_crore_pat, header_text, re.I):
                 mult = 1.0
                 unit = "crore"
+                explicit_unit = True
             else:
                 if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", text, re.I):
                     mult = 0.1
                     unit = "million"
-                elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|inr\s*in\s*lakhs?", text, re.I):
+                    explicit_unit = True
+                elif re.search(_lakh_pat, text, re.I):
                     mult = 0.01
                     unit = "lakh"
-                elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?", text, re.I):
+                    explicit_unit = True
+                elif re.search(_crore_pat, text, re.I):
                     mult = 1.0
                     unit = "crore"
+                    explicit_unit = True
 
             # 3. Determine Period End Date (Safeguard B: Precedence Rule)
-            # Precedence: (1) Explicit in-table date regex, (2) Official filing metadata, (3) Description regex
+            # Precedence: (1) Explicit fiscal in-table date regex, (2) Official filing metadata, (3) Description regex
             in_table_period = None
+            first_non_fiscal_period = None
             _date_patterns = [
                 r"(?:quarter|half\s*year|year|\d+\s*months?|months?|period)\s*ended\s*(?:(?:and|to)\s*[^\n]*ended\s*)?(?:on\s*)?([a-zA-Z]+\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d|\d{1,2}(?:st|nd|rd|th)?\s*[a-zA-Z]+,?\s*202\d|\d{2}[\./-]\d{2}[\./-]202\d)",
-                r"\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December),?\s*202\d)\b",
-                r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d)\b",
-                r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
+                r"\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sept|Sep|October|Oct|November|Nov|December|Dec)\.?,?\s*202\d)\b",
+                r"\b((?:January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sept|Sep|October|Oct|November|Nov|December|Dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s*202\d)\b",
+                r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
                 r"\b(\d{2}[\./-]\d{2}[\./-]202\d)\b",
             ]
             for d_pat in _date_patterns:
-                dm = re.search(d_pat, text, re.I | re.DOTALL)
-                if dm:
+                for dm in re.finditer(d_pat, text, re.I | re.DOTALL):
                     if dm.lastindex and dm.lastindex >= 2:
                         raw_d = f"{dm.group(1)} {dm.group(2)}".strip()
                     else:
                         raw_d = dm.group(1).strip()
-                    in_table_period = _parse_exchange_date(raw_d)
-                    if in_table_period and len(in_table_period) == 10:
-                        break
-                    in_table_period = None
+                    cand_p = _parse_exchange_date(raw_d)
+                    if cand_p and len(cand_p) == 10:
+                        if _is_fiscal_period_end(cand_p):
+                            in_table_period = cand_p
+                            break
+                        elif first_non_fiscal_period is None:
+                            first_non_fiscal_period = cand_p
+                if in_table_period:
+                    break
+            if not in_table_period:
+                in_table_period = first_non_fiscal_period
 
             meta_period = None
             if ann_meta.get("toDate"):
@@ -1081,8 +1289,12 @@ class ExchangePdfParser:
             # Strategy A: Line-by-line inspection (Standard inline tables where numbers are adjacent to row label)
             for line in raw_lines:
                 line_str = line.strip()
-                # Strip formula equations in row labels like (7-8), (1+2), (3-4), (III+IV)
+                # Strip formula equations like (7-8), (1+2) and note refs like (Refer Note 4)
                 line_clean = re.sub(r"\(\s*[\d\wIVivxX]+\s*[-+*/\s]\s*[\d\wIVivxX]+\s*\)", "", line_str)
+                line_clean = re.sub(r"\(\s*refer\s+notes?[^\)]*\)", "", line_clean, flags=re.I)
+                line_clean = re.sub(r"(\d+,\d{2})\s+(\d)\s+(\d{2}\b)", r"\1\2.\3", line_clean)
+                line_clean = re.sub(r"(\d,\d{3})\s+(\d{2}\b)", r"\1.\2", line_clean)
+                line_clean = re.sub(r"(\d{2}),(\d{3})(\d{2}\b)", r"\1,\2.\3", line_clean)
                 norm = re.sub(r"\s+", " ", line_clean)
                 norm = re.sub(r"\b[l|1iI](total|income|revenue|other|profit|expenses)\b", r"\1", norm, flags=re.I)
                 norm = re.sub(r"([a-z])([A-Z])", r"\1 \2", norm)
@@ -1098,9 +1310,15 @@ class ExchangePdfParser:
                 for t in tokens:
                     cl_val = _clean_token_number(t)
                     if cl_val is not None:
+                        if "." not in t and 2020 <= cl_val <= 2030 and abs(cl_val - int(cl_val)) < 1e-6:
+                            continue
                         nums.append(cl_val)
 
                 if not nums:
+                    continue
+
+                # Skip prose narrative sentences that happen to mention financial keywords & 1 note figure (e.g. INTELLECT Notes p8)
+                if len(line_clean) > 160 and len(nums) <= 2:
                     continue
 
                 first_t = tokens[0].strip(".)][(")
@@ -1144,10 +1362,13 @@ class ExchangePdfParser:
                 elif pat is None and any(k in line_lower for k in [
                     "profit for the period", "profit / (loss) for the period", "profit/(loss) for the period",
                     "profit/ (loss) for the period", "profit i (loss) for the period", "profit | (loss) for the period",
-                    "profit/ (loss)", "profit/(loss)", "profit i (loss)", "profit | (loss)", "profit/ {loss)",
+                    "profit / (loss)", "profit/ (loss)", "profit/(loss)", "profit i (loss)", "profit | (loss)", "profit/ {loss)",
                     "profit/{loss)", "profit (loss)", "net profit for the period", "profit after tax",
                     "net profit / (loss)", "net profit/(loss)", "net profit/ (loss)", "net profit"
-                ]) and not any(k in line_lower for k in ["other comprehensive", "total comprehensive", "before", "operating", "attributable"]):
+                ]) and not any(k in line_lower for k in [
+                    "other comprehensive", "total comprehensive", "before", "operating", "attributable",
+                    "share of profit", "share of net profit", "share of loss", "jointly controlled", "joint venture", "associates"
+                ]):
                     pat = last_val * mult
 
                 elif pbt is None and any(k in line_lower for k in [
@@ -1183,7 +1404,7 @@ class ExchangePdfParser:
             # retry with layout-mode extraction for decoupled tables (e.g. AARTIIND, NATCOPHARM)
             if (rev_from_ops is None and total_income is None) or pat is None:
                 try:
-                    text_lay = _safe_extract_text(page, timeout=4.0, extraction_mode="layout")
+                    text_lay = _safe_extract_text(page, timeout=4.0, extraction_mode="layout", pdf_path=tmp_pdf_path, page_idx=page_idx)
                     if text_lay and len(text_lay.strip()) >= 50:
                         norm_lay = _normalize_ocr_text(text_lay)
                         for lay_line in norm_lay.split("\n"):
@@ -1198,7 +1419,7 @@ class ExchangePdfParser:
                                 continue
                             lay_toks = lay_str.split()
                             lay_nums = [_clean_token_number(t) for t in lay_toks if _clean_token_number(t) is not None]
-                            if not lay_nums:
+                            if not lay_nums or (len(lay_str) > 160 and len(lay_nums) <= 2):
                                 continue
                             if lay_toks[0].strip(".)][(").isdigit():
                                 if len(lay_nums) == 1:
@@ -1214,7 +1435,7 @@ class ExchangePdfParser:
                                 rev_from_ops = lay_val * mult
                             elif total_income is None and any(k in lay_norm for k in ["total income", "total revenue", "income from operations"]) and not any(k in lay_norm for k in ["total comprehensive", "other comprehensive", "expenses", "cash flow"]):
                                 total_income = lay_val * mult
-                            elif pat is None and any(k in lay_norm for k in ["profit for the period", "profit / (loss) for the period", "profit/(loss) for the period", "profit after tax", "net profit for the period", "net profit / (loss)", "net profit/(loss)", "net profit"]) and not any(k in lay_norm for k in ["other comprehensive", "total comprehensive", "before", "operating", "attributable"]):
+                            elif pat is None and any(k in lay_norm for k in ["profit for the period", "profit / (loss) for the period", "profit/(loss) for the period", "profit after tax", "net profit for the period", "net profit / (loss)", "net profit/(loss)", "net profit"]) and not any(k in lay_norm for k in ["other comprehensive", "total comprehensive", "before", "operating", "attributable", "share of profit", "share of net profit", "share of loss", "jointly controlled", "joint venture", "associates"]):
                                 pat = lay_val * mult
                             elif pbt is None and any(k in lay_norm for k in ["profit before tax", "profit / (loss) before tax", "profit/(loss) before tax", "profit before exceptional"]):
                                 pbt = lay_val * mult
@@ -1306,10 +1527,13 @@ class ExchangePdfParser:
                     if rev_from_ops is None and total_income is None and pbt_idx != -1:
                         all_cand_nums = [
                             n for n in parsed_nums[:pbt_idx]
-                            if n >= 50.0 and int(n) not in (2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030)
+                            if n >= 50.0 and not (2020 <= n <= 2030 and abs(n - int(n)) < 1e-6)
                         ]
                         if not all_cand_nums:
-                            all_cand_nums = [n for n in parsed_nums[:pbt_idx] if n > 0]
+                            all_cand_nums = [
+                                n for n in parsed_nums[:pbt_idx]
+                                if n > 0 and not (2020 <= n <= 2030 and abs(n - int(n)) < 1e-6)
+                            ]
 
                         found_rev_row = None
                         for r_i in range(min(12, len(all_cand_nums))):
@@ -1360,6 +1584,8 @@ class ExchangePdfParser:
             # Sanity check: Accounting cross-check
             if rev is not None and rev <= 0:
                 rev = None
+            if rev is not None and pat is not None and rev < 10.0 and pat > 50.0:
+                rev = None
 
             if rev is None and pat is None:
                 continue
@@ -1399,6 +1625,8 @@ class ExchangePdfParser:
                 raw_fact_details={
                     "page_number": page_idx + 1,
                     "extracted_via": "ExchangePdfParser_v2.0_Adaptive",
+                    "unit_detected": unit,
+                    "explicit_unit": explicit_unit,
                     "rev_from_ops_cr": round(rev_from_ops, 4) if rev_from_ops is not None else None,
                     "other_income_cr": round(other_income, 4) if other_income is not None else None,
                     "total_income_cr": round(total_income, 4) if total_income is not None else None,
@@ -1413,26 +1641,61 @@ class ExchangePdfParser:
 
             is_valid, _ = validate_semantic_record(record)
             if is_valid:
-                records.append(record)
+                existing_idx = next(
+                    (i for i, r in enumerate(records) if r.period_end_date == record.period_end_date and r.consolidation == record.consolidation),
+                    None,
+                )
+                if existing_idx is None:
+                    records.append(record)
+                else:
+                    ex_r = records[existing_idx]
+                    ex_score = (1 if ex_r.revenue is not None else 0) + (1 if ex_r.net_profit is not None else 0)
+                    new_score = (1 if record.revenue is not None else 0) + (1 if record.net_profit is not None else 0)
+                    if new_score > ex_score:
+                        records[existing_idx] = record
                 has_cons = any(r.consolidation == ConsolidationType.CONSOLIDATED for r in records)
                 has_std = any(r.consolidation == ConsolidationType.STANDALONE for r in records)
-                if has_cons:
-                    logger.debug(f"🎯 [PDF_PARSER] {symbol}: Consolidated financial statement extracted on page {page_idx + 1}. Halting further page extraction.")
+                if has_cons and has_std:
+                    logger.debug(f"🎯 [PDF_PARSER] {symbol}: Both Consolidated and Standalone extracted cleanly by page {page_idx + 1}.")
                     break
+
+        # Cross-statement unit consistency safeguard:
+        # If one statement in this PDF explicitly declared Lakhs (mult=0.01) while the companion statement
+        # defaulted to Crores (explicit_unit=False due to OCR-mangled header like "n /11 Luc") and appears 25x-500x larger, rescale by 0.01.
+        lakh_revs = [
+            float(r.revenue) for r in records
+            if r.revenue and float(r.revenue) > 0 and (r.raw_fact_details or {}).get("unit_detected") == "lakh"
+        ]
+        if lakh_revs:
+            ref_rev = min(lakh_revs)
+            for rec in records:
+                det = rec.raw_fact_details or {}
+                if det.get("unit_detected") == "crore" and not det.get("explicit_unit") and rec.revenue and ref_rev > 0:
+                    ratio = float(rec.revenue) / ref_rev
+                    if 25.0 <= ratio <= 500.0 and float(rec.revenue) > 5000.0:
+                        logger.info(f"🔧 [PDF_PARSER] {symbol}: Auto-normalized companion {rec.consolidation.value} statement unit from Lakh to Crore (ratio={ratio:.1f}x).")
+                        rec.revenue = round(float(rec.revenue) * 0.01, 4)
+                        if rec.net_profit is not None and abs(float(rec.net_profit)) > 500.0:
+                            rec.net_profit = round(float(rec.net_profit) * 0.01, 4)
+                        if rec.ebit is not None and abs(float(rec.ebit)) > 500.0:
+                            rec.ebit = round(float(rec.ebit) * 0.01, 4)
+                        if rec.total_equity is not None:
+                            rec.total_equity = round(float(rec.total_equity) * 0.01, 4)
+                        det["unit_detected"] = "lakh"
 
         # Enrich extracted records with Balance Sheet (Debt & Equity) and Cash Flow from subsequent pages if present
         t_pass2_start = time.time()
         for rec in records:
-            if time.time() - t_pass2_start > 8.0 or time.time() - t_parse_start > 36.0:
+            if time.time() - t_pass2_start > 10.0 or time.time() - t_parse_start > 62.0:
                 break
             if rec.total_debt is None or rec.total_equity is None or rec.operating_cash_flow is None:
                 for p_idx in candidate_page_indices:
-                    if time.time() - t_pass2_start > 8.0 or time.time() - t_parse_start > 38.0:
+                    if time.time() - t_pass2_start > 10.0 or time.time() - t_parse_start > 65.0:
                         break
                     try:
                         p_raw = cached_page_texts.get(p_idx)
                         if p_raw is None:
-                            p_raw = _safe_extract_text(reader.pages[p_idx], timeout=3.5)
+                            p_raw = _safe_extract_text(reader.pages[p_idx], timeout=3.5, pdf_path=tmp_pdf_path, page_idx=p_idx)
                             cached_page_texts[p_idx] = p_raw
                         if not p_raw or len(p_raw.strip()) < 20:
                             continue
@@ -1512,7 +1775,7 @@ class ExchangePdfParser:
                     break
                 p_txt = cached_page_texts.get(p_idx)
                 if p_txt is None:
-                    p_txt = _safe_extract_text(reader.pages[p_idx], timeout=5.0)
+                    p_txt = _safe_extract_text(reader.pages[p_idx], timeout=5.0, pdf_path=tmp_pdf_path, page_idx=p_idx)
                     cached_page_texts[p_idx] = p_txt
                 if p_txt:
                     doc_text += "\n" + p_txt
@@ -1709,6 +1972,10 @@ class ExchangePdfParser:
             if not is_financial_result_announcement(ann, att_file):
                 continue
 
+            # Deduplicate identical URLs within the same announcements list
+            skip_set.add(att_norm_key)
+            skip_raw_set.add(att_file)
+
             logger.info(
                 f"📄 [PDF_FALLBACK] {sym_u}: Official exchange PDF found for period {p_end or 'UNKNOWN'} "
                 f"(XML missing on NSE & BSE). Downloading {os.path.basename(att_file)}..."
@@ -1718,6 +1985,15 @@ class ExchangePdfParser:
             pdf_bytes = self.download_pdf(att_file, announcement_metadata=ann)
             if not pdf_bytes:
                 record_extraction_failure_rca(sym_u, "UNABLE_TO_FETCH", f"Failed to download announcement PDF from {os.path.basename(att_file)}")
+                continue
+
+            pdf_sha = hashlib.sha256(pdf_bytes).hexdigest()
+            hash_key = (sym_u, pdf_sha)
+            with getattr(self, "_failed_hash_lock", threading.Lock()):
+                already_failed_hash = hash_key in getattr(self, "_failed_pdf_hashes", set())
+            if already_failed_hash:
+                self.last_attempted_urls[sym_u].append(att_file)
+                logger.debug(f"⏭️ [PDF_FALLBACK] {sym_u}: Skipping identical PDF sha256={pdf_sha[:10]} already known to yield 0 facts.")
                 continue
 
             if hasattr(self, "last_failure_reason"):
@@ -1730,6 +2006,11 @@ class ExchangePdfParser:
             if rca_code != "SEMAPHORE_TIMEOUT":
                 self.last_attempted_urls[sym_u].append(att_file)
             if not parsed:
+                if rca_code != "SEMAPHORE_TIMEOUT" and hasattr(self, "_failed_pdf_hashes"):
+                    with getattr(self, "_failed_hash_lock", threading.Lock()):
+                        if len(self._failed_pdf_hashes) > 2000:
+                            self._failed_pdf_hashes.clear()
+                        self._failed_pdf_hashes.add(hash_key)
                 record_extraction_failure_rca(sym_u, rca_code, f"{rca_desc} (File: {os.path.basename(att_file)})")
                 logger.warning(
                     f"⚠️ [PDF_FALLBACK: {rca_code}] {sym_u}: Downloaded {os.path.basename(att_file)} ({len(pdf_bytes)} bytes) "

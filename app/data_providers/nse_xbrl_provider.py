@@ -99,6 +99,10 @@ _CONSECUTIVE_TIMEOUTS = 0
 _MAX_CONSECUTIVE_TIMEOUTS = 4
 _COOLDOWN_PERIOD = 45.0  # seconds cooldown if NSE WAF drops multiple connections
 
+_SWEEP_CACHE_LOCK = threading.Lock()
+_GLOBAL_MARKET_SWEEP_CACHE: Dict[Tuple[str, int], Tuple[float, Dict[str, List[Dict[str, Any]]]]] = {}
+_MARKET_SWEEP_TTL_SECONDS = 900.0  # Reuse recent 45-day sweep for 15 minutes across batches
+
 # Known symbol mappings where company was renamed/restructured on NSE
 _NSE_SYMBOL_ALIASES: Dict[str, str] = {
     "GUJGASLTD": "GUJENERGY",
@@ -990,6 +994,7 @@ class NseXbrlProvider:
         self,
         as_of_date: Optional[Union[date, str]] = None,
         lookback_days: int = 14,
+        force_refresh: bool = False,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Discovers all recently published corporate financial results and announcements
@@ -1000,54 +1005,86 @@ class NseXbrlProvider:
         """
         if not hasattr(self, "_discovered_cache"):
             self._discovered_cache = {}
+        if not hasattr(self, "_sweep_announcements_cache"):
+            self._sweep_announcements_cache = {}
+
+        if as_of_date is None:
+            try:
+                from zoneinfo import ZoneInfo
+                now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+                as_of_dt = now_ist.date()
+            except Exception:
+                as_of_dt = date.today()
+        elif isinstance(as_of_date, str):
+            try:
+                as_of_dt = datetime.strptime(as_of_date[:10], "%Y-%m-%d").date()
+            except Exception:
+                as_of_dt = date.today()
+        else:
+            as_of_dt = as_of_date
+
+        cache_key = (as_of_dt.isoformat(), int(lookback_days))
+        if not force_refresh:
+            with _SWEEP_CACHE_LOCK:
+                cached_entry = _GLOBAL_MARKET_SWEEP_CACHE.get(cache_key)
+                if cached_entry is not None:
+                    cached_ts, cached_map = cached_entry
+                    if (time.time() - cached_ts) < _MARKET_SWEEP_TTL_SECONDS and cached_map:
+                        self._sweep_announcements_cache.update(cached_map)
+                        logger.info(
+                            f"⚡ [NSE:SWEEP_CACHE] Reused in-memory 45d market sweep "
+                            f"({len(cached_map)} symbols, age={int(time.time() - cached_ts)}s)."
+                        )
+                        return dict(cached_map)
 
         market_filings: Dict[str, List[Dict[str, Any]]] = {}
 
         # 1. Fetch market-wide corporate announcements (real-time same-day & recent filings)
         # Using date range parameters (from_date, to_date) ensures NSE returns all recent disclosures
         try:
-            if as_of_date is None:
-                try:
-                    from zoneinfo import ZoneInfo
-                    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
-                    as_of_dt = now_ist.date()
-                except Exception:
-                    as_of_dt = date.today()
-            elif isinstance(as_of_date, str):
-                try:
-                    as_of_dt = datetime.strptime(as_of_date[:10], "%Y-%m-%d").date()
-                except Exception:
-                    as_of_dt = date.today()
-            else:
-                as_of_dt = as_of_date
-
-            # Chunk lookback into 7-day windows so each payload stays ~350-500KB and never hits 102s curl timeouts
-            ann_rows = []
+            # Chunk lookback into 7-day non-overlapping windows so payloads stay ~350-500KB and never hit 102s curl timeouts
+            windows: List[Tuple[date, date]] = []
             end_dt = as_of_dt + timedelta(days=1)
             start_dt = as_of_dt - timedelta(days=max(1, lookback_days))
             cur_end = end_dt
             while cur_end > start_dt:
                 cur_start = max(start_dt, cur_end - timedelta(days=7))
-                c_from = cur_start.strftime("%d-%m-%Y")
-                c_to = cur_end.strftime("%d-%m-%Y")
+                windows.append((cur_start, cur_end))
+                cur_end = cur_start - timedelta(days=1)
+
+            def _fetch_window(win: Tuple[date, date]) -> List[Dict[str, Any]]:
+                w_start, w_end = win
+                c_from = w_start.strftime("%d-%m-%Y")
+                c_to = w_end.strftime("%d-%m-%Y")
                 chunk_url = f"{_ANN_URL}?index=equities&from_date={c_from}&to_date={c_to}"
-                raw_chunk = self._get(chunk_url, "MARKET_ANNOUNCEMENTS", timeout=25)
+                # Create lightweight isolated session wrapper or use self._get (direct thread-safe path)
+                raw_chunk = self._get(chunk_url, "MARKET_ANNOUNCEMENTS", timeout=20)
                 if raw_chunk:
-                    chunk_list = raw_chunk if isinstance(raw_chunk, list) else (raw_chunk.get("data", []) if isinstance(raw_chunk, dict) else [])
-                    ann_rows.extend(chunk_list)
-                elif (cur_end - cur_start).days > 3:
-                    # Sub-chunk fallback (split into 3-day windows) if 7-day chunk timed out
-                    sub_end = cur_end
-                    while sub_end > cur_start:
-                        sub_start = max(cur_start, sub_end - timedelta(days=3))
+                    return raw_chunk if isinstance(raw_chunk, list) else (raw_chunk.get("data", []) if isinstance(raw_chunk, dict) else [])
+                out_sub: List[Dict[str, Any]] = []
+                if (w_end - w_start).days > 3:
+                    sub_end = w_end
+                    while sub_end > w_start:
+                        sub_start = max(w_start, sub_end - timedelta(days=3))
                         s_url = f"{_ANN_URL}?index=equities&from_date={sub_start.strftime('%d-%m-%Y')}&to_date={sub_end.strftime('%d-%m-%Y')}"
-                        sub_raw = self._get(s_url, "MARKET_ANNOUNCEMENTS", timeout=20)
+                        sub_raw = self._get(s_url, "MARKET_ANNOUNCEMENTS", timeout=15)
                         if sub_raw:
                             sub_list = sub_raw if isinstance(sub_raw, list) else (sub_raw.get("data", []) if isinstance(sub_raw, dict) else [])
-                            ann_rows.extend(sub_list)
-                        sub_end = sub_start
-                cur_end = cur_start
+                            out_sub.extend(sub_list)
+                        sub_end = sub_start - timedelta(days=1)
+                return out_sub
 
+            ann_rows = []
+            # Ensure session is pre-initialized once before parallel chunk workers run
+            if not self._initialized:
+                self._init_session()
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(3, max(1, len(windows))), thread_name_prefix="NseSweep") as ex:
+                for chunk_list in ex.map(_fetch_window, windows):
+                    if chunk_list:
+                        ann_rows.extend(chunk_list)
+
+            seen_ann_keys: Set[Tuple[str, str, str]] = set()
             if ann_rows:
                 for item in ann_rows:
                     if not isinstance(item, dict):
@@ -1069,6 +1106,13 @@ class NseXbrlProvider:
                     )
                     if not is_fin_ann:
                         continue
+                    att_f = str(item.get("attchmntFile") or "")
+                    seq_s = str(item.get("seq_id") or "")
+                    dedup_key = (sym, att_f.split("?")[0].lower() if att_f else seq_s, str(item.get("an_dt") or "")[:11])
+                    if dedup_key in seen_ann_keys:
+                        continue
+                    seen_ann_keys.add(dedup_key)
+
                     p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
                     if not p_end or p_end < "2020-01-01":
                         # Attempt to infer reporting period end from filing date if clearly a financial results announcement
@@ -1102,11 +1146,11 @@ class NseXbrlProvider:
                         "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
                         "statement_type": st_type,
                         "consolidated": basis,
-                        "seqNumber": str(item.get("seq_id") or ""),
+                        "seqNumber": seq_s,
                         "broadCastDate": str(item.get("an_dt") or item.get("exchdisstime") or item.get("sort_date") or ""),
                         "filingDate": str(item.get("an_dt") or "")[:11],
                         "xbrl": item.get("xbrl") or "",
-                        "attchmntFile": item.get("attchmntFile") or "",
+                        "attchmntFile": att_f,
                         "desc": desc,
                         "attchmntText": txt,
                         "exchange": "NSE",
@@ -1115,10 +1159,11 @@ class NseXbrlProvider:
             logger.debug(f"[NSE] Market sweep announcements error: {_e_ann}")
 
         # Cache market announcements in dedicated sweep cache (do NOT overwrite _discovered_cache so per-symbol XBRL discovery is never blocked)
-        if not hasattr(self, "_sweep_announcements_cache"):
-            self._sweep_announcements_cache = {}
         self._sweep_announcements_cache.update(market_filings)
         self.filing_records_discovered += sum(len(flist) for flist in market_filings.values())
+        if market_filings:
+            with _SWEEP_CACHE_LOCK:
+                _GLOBAL_MARKET_SWEEP_CACHE[cache_key] = (time.time(), dict(market_filings))
 
         return market_filings
 
