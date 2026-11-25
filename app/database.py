@@ -11124,13 +11124,23 @@ def _load_canonical_snapshot_df(allow_gateway: bool = False) -> Optional[Any]:
     """
     Resilient loader for canonical_pit_rebuilt.parquet with multi-tier self-healing
     and in-memory mtime caching for sub-millisecond retrieval.
+
+    Boot-safe tier ordering:
+      Tier 0  — ScannerDataGateway (if allow_gateway)
+      Tier 1  — PostgreSQL DB download (always tried first; authoritative over any local file)
+      Tier 2  — Local file at data/canonical_pit_rebuilt.parquet (only if not a baked seed copy)
+      Tier 3  — data_seed fallback (read-only; NEVER written to snap_path to avoid stale Tier-2 hits on next boot)
+      Tier 4  — Emergency on-demand rebuild
+
+    The root-cause of 500+ stale items on redeploy was Tier 3 copying the Docker build-time
+    seed into snap_path, which caused every subsequent boot to hit Tier 1/2 and serve the
+    stale baked snapshot instead of downloading the live DB version.
     """
     global _CANONICAL_DF_CACHE, _CANONICAL_DF_MTIME
     import os, shutil
     import pandas as pd
 
     if allow_gateway:
-        # Try Tier 0: Single Point of Truth (ScannerDataGateway: Base + Layer B Validated Overlay)
         try:
             try:
                 from app.scanner_data_gateway import ScannerDataGateway
@@ -11145,9 +11155,39 @@ def _load_canonical_snapshot_df(allow_gateway: bool = False) -> Optional[Any]:
 
     base_dir = Path(__file__).resolve().parent.parent
     snap_path = base_dir / "data" / "canonical_pit_rebuilt.parquet"
+    seed_paths = [
+        base_dir / "data_seed" / "canonical_pit_rebuilt.parquet",
+        Path("/app/data_seed/canonical_pit_rebuilt.parquet"),
+    ]
 
-    # Try Tier 1: Primary local snapshot
-    if snap_path.exists():
+    def _is_seed_copy(path: Path) -> bool:
+        """Returns True if snap_path is byte-identical to any seed file (i.e. the baked Docker copy)."""
+        try:
+            snap_bytes = path.read_bytes()
+            for sp in seed_paths:
+                if sp.exists() and sp.read_bytes() == snap_bytes:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    # Tier 1: PostgreSQL DB (always authoritative — tried unconditionally so redeploys get the live snapshot)
+    try:
+        tmp_db_path = str(snap_path) + ".db_loader_tmp"
+        if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_path):
+            df_db = pd.read_parquet(tmp_db_path)
+            if df_db is not None and not df_db.empty and "symbol" in df_db.columns:
+                shutil.move(tmp_db_path, str(snap_path))
+                with _CANONICAL_DF_LOCK:
+                    _CANONICAL_DF_CACHE = df_db
+                    _CANONICAL_DF_MTIME = snap_path.stat().st_mtime
+                logger.info(f"✅ [CANONICAL_LOADER] Loaded authoritative snapshot from Postgres DB ({len(df_db)} rows)")
+                return df_db
+    except Exception as db_err:
+        logger.debug(f"[CANONICAL_LOADER] DB download note: {db_err}")
+
+    # Tier 2: Local file — only if it exists AND is NOT a stale seed copy
+    if snap_path.exists() and not _is_seed_copy(snap_path):
         try:
             mtime = snap_path.stat().st_mtime
             with _CANONICAL_DF_LOCK:
@@ -11158,46 +11198,48 @@ def _load_canonical_snapshot_df(allow_gateway: bool = False) -> Optional[Any]:
                 with _CANONICAL_DF_LOCK:
                     _CANONICAL_DF_CACHE = df
                     _CANONICAL_DF_MTIME = mtime
+                logger.info(f"✅ [CANONICAL_LOADER] Loaded local snapshot ({len(df)} rows, mtime={mtime})")
                 return df
         except Exception as e:
-            logger.warning(f"⚠️ [CANONICAL_LOADER] Primary snapshot corrupted at {snap_path}: {e}. Initiating self-healing...")
+            logger.warning(f"⚠️ [CANONICAL_LOADER] Local snapshot corrupted at {snap_path}: {e}. Trying seed fallback...")
 
-    # Try Tier 2: Postgres DB cache download (Authoritative over static git seeds)
-    try:
-        tmp_db_path = str(snap_path) + ".db_loader_tmp"
-        if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_path):
-            df_db = pd.read_parquet(tmp_db_path)
-            if df_db is not None and not df_db.empty and "symbol" in df_db.columns:
-                shutil.move(tmp_db_path, str(snap_path))
-                logger.info(f"✅ [CANONICAL_LOADER] Self-healed snapshot from Postgres DB ({len(df_db)} rows)")
-                return df_db
-    except Exception as db_err:
-        logger.debug(f"[CANONICAL_LOADER] DB download attempt note: {db_err}")
-
-    # Try Tier 3: Seed directory fallback (Docker /app/data_seed or local data_seed)
+    # Tier 3: Seed directory fallback — read-only bootstrap, NEVER written to snap_path
+    # (writing seeds to snap_path caused 500+ stale items on every redeploy)
     for seed_cand in [
-        base_dir / "data_seed" / "canonical_pit_rebuilt.parquet",
-        Path("/app/data_seed/canonical_pit_rebuilt.parquet"),
+        *seed_paths,
         base_dir / "data" / "pit_fundamentals_v1" / "pit_fundamentals_v1.parquet",
     ]:
         if seed_cand.exists():
             try:
                 df_seed = pd.read_parquet(seed_cand)
                 if df_seed is not None and not df_seed.empty and "symbol" in df_seed.columns:
-                    logger.info(f"✅ [CANONICAL_LOADER] Self-healed snapshot from seed {seed_cand} ({len(df_seed)} rows)")
-                    try:
-                        snap_path.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(seed_cand, snap_path)
-                        meta_seed = seed_cand.parent / "canonical_pit_rebuilt_meta.json"
-                        if meta_seed.exists():
-                            shutil.copy2(meta_seed, snap_path.parent / "canonical_pit_rebuilt_meta.json")
-                    except Exception:
-                        pass
+                    logger.warning(
+                        f"⚠️ [CANONICAL_LOADER] Using SEED fallback from {seed_cand} ({len(df_seed)} rows). "
+                        f"This is a build-time baked snapshot — a background DB download will replace it."
+                    )
+                    # Schedule a background download so the live DB version replaces the seed ASAP
+                    def _bg_db_refresh():
+                        try:
+                            tmp = str(snap_path) + ".seed_refresh_tmp"
+                            if download_parquet_from_db("canonical_pit_rebuilt", tmp):
+                                df_live = pd.read_parquet(tmp)
+                                if df_live is not None and not df_live.empty and "symbol" in df_live.columns:
+                                    shutil.move(tmp, str(snap_path))
+                                    with _CANONICAL_DF_LOCK:
+                                        global _CANONICAL_DF_CACHE, _CANONICAL_DF_MTIME
+                                        _CANONICAL_DF_CACHE = df_live
+                                        _CANONICAL_DF_MTIME = snap_path.stat().st_mtime
+                                    logger.info(f"✅ [CANONICAL_LOADER] Background seed-replace: DB snapshot ({len(df_live)} rows) written to {snap_path}")
+                                    clear_unified_stock_data_health_cache()
+                        except Exception as _bg_e:
+                            logger.debug(f"[CANONICAL_LOADER] Background seed-replace note: {_bg_e}")
+                    import threading as _threading
+                    _threading.Thread(target=_bg_db_refresh, daemon=True, name="CanonicalSeedReplace").start()
                     return df_seed
             except Exception:
                 pass
 
-    # Try Tier 4: Quick rebuild if raw filings exist
+    # Tier 4: Emergency on-demand rebuild
     try:
         from scripts.canonical_pit_publisher import rebuild_and_publish_canonical_pit
         logger.info("⚡ [CANONICAL_LOADER] Initiating emergency on-demand canonical PIT rebuild...")

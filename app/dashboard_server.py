@@ -3177,12 +3177,37 @@ def _seed_stock_data_health_cache():
     """
     Seeds _STOCK_DATA_HEALTH_CACHE directly from PostgreSQL DB on process startup for instant <5ms responses.
     Authoritative state is always loaded from DB, NEVER from stale hardcoded git files.
+    Payloads computed more than 24 hours ago are rejected — a background recompute is scheduled instead,
+    so the UI never shows stale counts on redeploy.
     """
     global _STOCK_DATA_HEALTH_CACHE
+    _MAX_CACHE_AGE_SECONDS = 24 * 3600  # reject DB payloads older than 24h
     try:
         from database import restore_stock_data_health_from_db
         raw_json = restore_stock_data_health_from_db()
         if raw_json and len(raw_json) > 100:
+            # Reject payloads that are older than 24h (computed from a stale baked snapshot)
+            try:
+                _payload_obj = json.loads(raw_json)
+                _srv_time_str = (_payload_obj.get("summary") or {}).get("server_time") or ""
+                if _srv_time_str:
+                    from datetime import datetime as _dt
+                    import pytz as _pytz
+                    _srv_dt = _dt.fromisoformat(_srv_time_str)
+                    if _srv_dt.tzinfo is None:
+                        _srv_dt = _srv_dt.replace(tzinfo=IST)
+                    _age_s = (datetime.now(IST) - _srv_dt).total_seconds()
+                    if _age_s > _MAX_CACHE_AGE_SECONDS:
+                        logger.warning(
+                            f"⚠️ [STOCK_DATA_HEALTH] DB cache payload is {_age_s/3600:.1f}h old — "
+                            f"rejecting stale boot cache; scheduling fresh recompute."
+                        )
+                        raise ValueError("DB cache too old")
+            except ValueError:
+                raise
+            except Exception:
+                pass  # If we can't parse server_time, serve it anyway (safe default)
+
             import hashlib
             etag = f'"{hashlib.md5(raw_json.encode("utf-8")).hexdigest()}"'
             gz = _gzip.compress(raw_json.encode("utf-8"), compresslevel=1)
@@ -3195,13 +3220,14 @@ def _seed_stock_data_health_cache():
                 _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
             logger.info(f"⚡ [STOCK_DATA_HEALTH] Loaded authoritative cache from PostgreSQL DB ({len(raw_json)} bytes)")
             return
+    except ValueError:
+        pass  # Stale payload rejected — fall through to background recompute
     except Exception as e:
         logger.debug(f"[STOCK_DATA_HEALTH] DB restore error on boot: {e}")
 
-    # If DB has no cached payload, compute fresh authoritative cache directly from canonical snapshot
-    # Never load stale disk scratch files (data/stock_data_health_cache.json) that cause temporary count spikes
+    # No valid DB cache or payload was too old — compute fresh from canonical snapshot in background
     try:
-        logger.info("⚡ [STOCK_DATA_HEALTH] No DB cache found on boot; scheduling background compute from canonical snapshot.")
+        logger.info("⚡ [STOCK_DATA_HEALTH] Scheduling background recompute from canonical snapshot.")
         threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthBoot").start()
     except Exception as e:
         logger.debug(f"[STOCK_DATA_HEALTH] Boot schedule note: {e}")
