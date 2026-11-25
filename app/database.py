@@ -11607,15 +11607,20 @@ def clear_unified_stock_data_health_cache() -> None:
                 _we_mod.clear_orphan_fundamental_cache()
     except Exception:
         pass
-    # Invalidate dashboard server caches across both possible module names
+    # Invalidate dashboard server caches across both possible module names and proactively refresh
     import sys
     for mod_name in ("dashboard_server", "app.dashboard_server"):
         mod = sys.modules.get(mod_name)
         if mod and hasattr(mod, "_STOCK_DATA_HEALTH_CACHE") and hasattr(mod, "_STOCK_DATA_HEALTH_LOCK"):
             try:
                 with mod._STOCK_DATA_HEALTH_LOCK:
-                    # Invalidate TTL to trigger background refresh, but PRESERVE payload for instant SWR (<2ms)
                     mod._STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
+                if hasattr(mod, "_background_refresh_stock_data_health") and not getattr(mod, "_STOCK_DATA_HEALTH_REFRESHING", False):
+                    threading.Thread(
+                        target=mod._background_refresh_stock_data_health,
+                        daemon=True,
+                        name="StockDataHealthAutoRefresh",
+                    ).start()
             except Exception:
                 pass
 

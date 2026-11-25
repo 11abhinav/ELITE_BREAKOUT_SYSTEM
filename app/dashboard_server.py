@@ -3644,10 +3644,12 @@ def api_admin_stock_data_health():
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-        # 1. Warm cache hit: Return immediately in <5ms whenever a cached payload is available and not force
-        if cached_payload and not force:
-            # Refresh in background if cache is >30s old or was invalidated (ts == 0.0)
-            if (cached_ts == 0.0 or now_t - cached_ts > 30.0):
+        # 1. Warm cache hit: Return immediately in <5ms ONLY if cache was NOT explicitly invalidated (cached_ts > 0.0)
+        # When cached_ts == 0.0 (data changed via filing ingestion / restoration), recompute synchronously (~0.15s)
+        # so the UI immediately reflects the latest FRESH/STALE counts on the very first refresh.
+        if cached_payload and not force and cached_ts > 0.0:
+            # Refresh in background if cache is >30s old
+            if (now_t - cached_ts > 30.0):
                 threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
 
             return _make_json_response(
