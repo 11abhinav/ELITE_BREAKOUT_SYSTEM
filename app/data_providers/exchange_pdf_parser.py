@@ -432,21 +432,30 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     url_fn = os.path.basename(str(pdf_url).split("?")[0]).lower()
     combined = f"{desc} {text} {fn} {url_fn}"
 
-    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper)
+    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, non-financial board actions)
     if any(k in combined for k in [
         "newspaper", "clipping", "advertisement", "publication of",
         "investor presentation", "investor update", "earnings call",
-        "transcript", "audio recording", "concall", "con. call", "press release"
+        "transcript", "audio recording", "video recording", "concall", "con. call", "press release"
+    ]):
+        return False
+
+    has_explicit_fin_keyword = any(k in combined for k in [
+        "financial result", "financial results", "reg 33", "regulation 33",
+        "unaudited financial", "audited financial", "results for the quarter",
+        "results for the period", "quick results", "quickresult", "statement of financial"
+    ])
+    if not has_explicit_fin_keyword and any(k in combined for k in [
+        "acquisition", "disinvestment", "sale or disposal", "retirement",
+        "allotment", "esop", "postal ballot", "agm", "egm", "record date",
+        "credit rating", "resignation", "appointment of", "trading window"
     ]):
         return False
 
     # Positive check: subject / description / filename indicates financial results
-    return any(k in combined for k in [
-        "financial result", "financial results", "reg 33", "regulation 33",
-        "outcome of board meeting", "board meeting outcome", "unaudited financial",
-        "audited financial", "results for the quarter", "results for the period",
-        "quarter ended", "period ended", "quick results", "quickresult",
-        "ufr", "afr", "fr_dsc", "results", "statement of financial"
+    return has_explicit_fin_keyword or any(k in combined for k in [
+        "outcome of board meeting", "board meeting outcome",
+        "quarter ended", "period ended", "ufr", "afr", "fr_dsc", "results"
     ]) or bool(ann and ann.get("hasXbrl"))
 
 

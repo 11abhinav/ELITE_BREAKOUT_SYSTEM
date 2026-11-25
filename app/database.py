@@ -11745,8 +11745,18 @@ def reconcile_and_purge_restored_cooloffs() -> List[str]:
                     if purged:
                         unique_purges = list(set(purged))
                         cur.execute("DELETE FROM symbol_cooloff_journal WHERE symbol = ANY(%s)", (unique_purges,))
+                        cur.execute("DELETE FROM fetch_errors WHERE scanner_name = 'FILING_WATCHER' AND symbol = ANY(%s)", (unique_purges,))
                         conn.commit()
                         logger.info(f"🧹 [COOLOFF_RECONCILIATION] Purged {len(unique_purges)} restored symbols from DB cool-off journal: {unique_purges}")
+
+                    # Also clear stale FILING_WATCHER fetch_errors for symbols already fresh in canonical snapshot
+                    cur.execute("SELECT DISTINCT symbol FROM fetch_errors WHERE scanner_name = 'FILING_WATCHER' AND is_acknowledged = FALSE")
+                    err_syms = [str(r[0]).strip().upper() for r in cur.fetchall() if r[0]]
+                    fresh_err_syms = [s for s in err_syms if _is_symbol_restored_or_exempt(s, snap_lookup.get(s), "FILING_RESTORED")]
+                    if fresh_err_syms:
+                        cur.execute("DELETE FROM fetch_errors WHERE scanner_name = 'FILING_WATCHER' AND symbol = ANY(%s)", (fresh_err_syms,))
+                        conn.commit()
+                        logger.info(f"🧹 [FETCH_ERRORS_RECONCILIATION] Cleared {len(fresh_err_syms)} resolved FILING_WATCHER fetch_errors: {fresh_err_syms}")
     except Exception as e:
         logger.debug(f"[COOLOFF_RECONCILIATION] DB purge note: {e}")
 
