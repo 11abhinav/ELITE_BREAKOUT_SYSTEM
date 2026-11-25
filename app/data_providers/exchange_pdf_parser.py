@@ -584,9 +584,28 @@ class ExchangePdfParser:
             logger.warning(f"[PDF_PARSER] Download semaphore busy (>45s wait) for {base_name}. Skipping download.")
             return None
         try:
-            # 1. Direct fetch from exchange static archives (streamed to enforce ceiling_bytes)
+            # 1. Try ScraperAPI first (Indian proxy bypasses foreign VPS Akamai/NSE tarpitting)
+            fetch_via_scraperapi, get_scraper_api_key = _get_scraperapi_fetcher()
+            if fetch_via_scraperapi and get_scraper_api_key():
+                try:
+                    s_resp = fetch_via_scraperapi(pdf_url, timeout=18, country_code="in")
+                    if s_resp is not None and s_resp.status_code == 200 and s_resp.content and s_resp.content.startswith(b"%PDF"):
+                        if len(s_resp.content) <= ceiling_bytes and b"%%EOF" in s_resp.content[-2048:]:
+                            with open(cache_path, "wb") as f_out:
+                                f_out.write(s_resp.content)
+                            logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes, is_result={is_result})")
+                            return s_resp.content
+                        elif len(s_resp.content) > ceiling_bytes:
+                            logger.warning(f"[PDF_PARSER] Skipping PDF {base_name}: ScraperAPI size {len(s_resp.content)/1024/1024:.1f}MB exceeds limit.")
+                            return None
+                        else:
+                            logger.warning(f"[PDF_PARSER] ScraperAPI download for {base_name} truncated ({len(s_resp.content)} bytes, missing %%EOF).")
+                except Exception as s_err:
+                    logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
+
+            # 2. Direct fetch fallback from exchange static archives (fast-fail (6, 15)s timeout)
             try:
-                with self.session.get(pdf_url, headers=_HEADERS, timeout=35, stream=True) as resp:
+                with self.session.get(pdf_url, headers=_HEADERS, timeout=(6, 15), stream=True) as resp:
                     if resp.status_code == 200:
                         cl = resp.headers.get("Content-Length")
                         if cl and int(cl) > ceiling_bytes:
@@ -617,22 +636,6 @@ class ExchangePdfParser:
                                 logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
             except Exception as direct_err:
                 logger.debug(f"[PDF_PARSER] Direct download failed for {base_name}: {direct_err}")
-
-            # 2. Fallback to ScraperAPI if available
-            fetch_via_scraperapi, get_scraper_api_key = _get_scraperapi_fetcher()
-            if fetch_via_scraperapi and get_scraper_api_key():
-                try:
-                    s_resp = fetch_via_scraperapi(pdf_url, timeout=12, country_code="in")
-                    if s_resp is not None and s_resp.status_code == 200 and s_resp.content and s_resp.content.startswith(b"%PDF"):
-                        if b"%%EOF" in s_resp.content[-2048:]:
-                            with open(cache_path, "wb") as f_out:
-                                f_out.write(s_resp.content)
-                            logger.info(f"✅ [PDF:SCRAPERAPI] Downloaded exchange PDF {base_name} ({len(s_resp.content)} bytes, is_result={is_result})")
-                            return s_resp.content
-                        else:
-                            logger.warning(f"[PDF_PARSER] ScraperAPI download for {base_name} truncated ({len(s_resp.content)} bytes, missing %%EOF).")
-                except Exception as s_err:
-                    logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
 
             return None
         finally:
