@@ -1335,17 +1335,25 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
         clean_sym.replace(' ', '-'),
     ]))
 
-    # 1. Search in cached local universe DataFrames (temp_universe.parquet, etc.)
+    # 1. Search in cached local universe DataFrames
     found_row_dict = None
 
     # Load / refresh local parquet cache if older than 15 minutes
     global _orphan_fundamental_cache, _orphan_cache_timestamp
     now_mono = time.monotonic()
     if now_mono - _orphan_cache_timestamp > 900 or not _orphan_fundamental_cache:
-        # [RULE 67 CHANGE-RATIONALE: VECTORIZED_ORPHAN_CACHE_v1.0]
         # Fast vectorized dataframe dictionary conversion instead of slow row-by-row iterrows() loop
+        # daily_builder_master_v2.parquet is listed FIRST — it covers the entire tracked universe (860+ symbols)
+        # and is the authoritative fundamental data source for all open positions.
+        # The other files cover subsets only (elite/near-qualified watchlists, excluded list).
         merged_cache = {}
-        for fname in ["temp_universe.parquet", "elite_universe_v2.parquet", "near_qualified_v2.parquet", "elite_fundamental_watchlist_excluded.csv"]:
+        for fname in [
+            "daily_builder_master_v2.parquet",           # PRIMARY: full tracked universe — always first
+            "temp_universe.parquet",
+            "elite_universe_v2.parquet",
+            "near_qualified_v2.parquet",
+            "elite_fundamental_watchlist_excluded.csv",
+        ]:
             fpath = os.path.join(DATA_DIR, fname)
             if os.path.exists(fpath):
                 try:
@@ -1353,7 +1361,11 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
                         c_df = pd.read_parquet(fpath)
                     else:
                         c_df = pd.read_csv(fpath)
-                    sym_col = "Stock" if "Stock" in c_df.columns else ("Symbol" if "Symbol" in c_df.columns else None)
+                    # Detect symbol column — handles Stock, Symbol, symbol, stock
+                    sym_col = next(
+                        (c for c in ["Stock", "Symbol", "symbol", "stock", "ticker"] if c in c_df.columns),
+                        None,
+                    )
                     if sym_col and not c_df.empty:
                         c_df = c_df.dropna(subset=[sym_col])
                         c_df[sym_col] = c_df[sym_col].astype(str).str.strip().str.upper()
