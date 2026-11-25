@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-25T09:07:34.909299",
+    "last_successful_check_at": "2026-11-25T09:25:07.146281+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -149,7 +149,8 @@
         "last_successful_check_at": "2026-10-18T22:21:45.295005"
       },
       "PATANJALI": {
-        "last_successful_check_at": "2026-10-24T19:12:52.558498"
+        "last_successful_check_at": "2026-11-25T09:26:56.575589",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "RATNAVEER": {
         "last_successful_check_at": "2026-11-25T08:39:12.595463",
@@ -1500,12 +1501,72 @@
       "PIIND": {
         "last_successful_check_at": "2026-11-25T09:11:35.156418",
         "latest_filing_timestamp": "2026-11-04T19:44:26.903"
+      },
+      "ORKLAINDIA": {
+        "last_successful_check_at": "2026-11-25T09:26:41.015525",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ORIENTELEC": {
+        "last_successful_check_at": "2026-11-25T09:26:43.749505",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PACEDIGITK": {
+        "last_successful_check_at": "2026-11-25T09:26:46.517696",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PANAMAPET": {
+        "last_successful_check_at": "2026-11-25T09:26:49.619903",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PERSISTENT": {
+        "last_successful_check_at": "2026-11-25T09:26:51.496707",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PAUSHAKLTD": {
+        "last_successful_check_at": "2026-11-25T09:26:53.146320",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PAGEIND": {
+        "last_successful_check_at": "2026-11-25T09:26:54.971187",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ORIENTCEM": {
+        "last_successful_check_at": "2026-11-25T09:26:57.991631",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ORIENTHOT": {
+        "last_successful_check_at": "2026-11-25T09:26:59.456524",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "OSWALPUMPS": {
+        "last_successful_check_at": "2026-11-25T09:27:00.894994",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PARAS": {
+        "last_successful_check_at": "2026-11-25T09:27:02.319793",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PARAGMILK": {
+        "last_successful_check_at": "2026-11-25T09:27:04.498328",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "PARADEEP": {
+        "last_successful_check_at": "2026-11-25T09:27:06.755838",
+        "latest_filing_timestamp": "28-Jul-2026 18:25:53"
+      },
+      "PENIND": {
+        "last_successful_check_at": "2026-11-25T09:27:08.846750",
+        "latest_filing_timestamp": "2026-11-20T21:07:26.99"
+      },
+      "ORIANA": {
+        "last_successful_check_at": "2026-11-25T09:27:10.913094",
+        "latest_filing_timestamp": "2026-09-30"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-25T09:07:34.909299",
+    "last_successful_check_at": "2026-11-25T09:25:07.146281+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

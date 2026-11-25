@@ -702,5 +702,23 @@
     "mapped_revenue": 11337.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "1f4e17c114a8c1498b9028a412f339da5633e0b526f4aef87501cd6b14fdb5ca"
+  },
+  {
+    "symbol": "PATANJALI",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 11322.5827,
+    "net_profit": 1353.9368,
+    "operating_profit": 1552.9393,
+    "eps": 2.0,
+    "total_debt": null,
+    "total_equity": 0.08,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-14",
+    "broadcast_timestamp": "14-Nov-2026 13:52:22",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_PATANJALI_106860494_2026-09-30"
   }
 ]

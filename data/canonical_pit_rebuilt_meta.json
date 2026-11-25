@@ -12,8 +12,8 @@
   "current_ev_ebitda_complete": 833,
   "ev_ebitda_3y_median_complete": 879,
   "gaps_detected": 0,
-  "sha256": "d30e63ae9644cfaa23293e1d619115e2528f4120dbc4007d84ac1015bb469850",
-  "built_at": "2026-11-25T09:11:33.171209",
+  "sha256": "b0fceec47fdc09eec40794a3cd2d5be9e1a22db641e8878b2bc3ccac250cc515",
+  "built_at": "2026-11-25T09:27:12.424229",
   "audit_summary": {},
-  "snapshot_status_updated_at": "2026-11-25T09:11:33.172888"
+  "snapshot_status_updated_at": "2026-11-25T09:27:12.425822"
 }
