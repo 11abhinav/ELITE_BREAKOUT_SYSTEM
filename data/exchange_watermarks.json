@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-25T09:25:07.146281+05:30",
+    "last_successful_check_at": "2026-11-25T09:28:46.893858+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -146,7 +146,8 @@
         "last_successful_check_at": "2026-10-18T22:21:44.163920"
       },
       "NINSYS": {
-        "last_successful_check_at": "2026-10-18T22:21:45.295005"
+        "last_successful_check_at": "2026-11-25T09:31:32.448148",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "PATANJALI": {
         "last_successful_check_at": "2026-11-25T09:26:56.575589",
@@ -1561,12 +1562,88 @@
       "ORIANA": {
         "last_successful_check_at": "2026-11-25T09:27:10.913094",
         "latest_filing_timestamp": "2026-09-30"
+      },
+      "NRBBEARING": {
+        "last_successful_check_at": "2026-11-25T09:30:48.257996",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NYKAA": {
+        "last_successful_check_at": "2026-11-25T09:30:59.810056",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "OIL": {
+        "last_successful_check_at": "2026-11-25T09:31:05.746287",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NUVAMA": {
+        "last_successful_check_at": "2026-11-25T09:31:11.343595",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NUCLEUS": {
+        "last_successful_check_at": "2026-11-25T09:31:15.553681",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "ONGC": {
+        "last_successful_check_at": "2026-11-25T09:31:20.403431",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NLCINDIA": {
+        "last_successful_check_at": "2026-11-25T09:31:24.563692",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "OBEROIRLTY": {
+        "last_successful_check_at": "2026-11-25T09:31:28.418442",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NORTHARC": {
+        "last_successful_check_at": "2026-11-25T09:31:36.435210",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "OLECTRA": {
+        "last_successful_check_at": "2026-11-25T09:31:41.452425",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NTPC": {
+        "last_successful_check_at": "2026-11-25T09:31:47.015597",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "OBSCP": {
+        "last_successful_check_at": "2026-11-25T09:31:50.930135",
+        "latest_filing_timestamp": "2024-09-30"
+      },
+      "OFSS": {
+        "last_successful_check_at": "2026-11-25T09:31:54.421548",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NIRLON": {
+        "last_successful_check_at": "2026-11-25T09:31:58.293153",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "OPTIEMUS": {
+        "last_successful_check_at": "2026-11-25T09:32:02.577388",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NOVARTIND": {
+        "last_successful_check_at": "2026-11-25T09:32:05.921843",
+        "latest_filing_timestamp": "2026-11-16T15:21:22.953"
+      },
+      "NITINSPIN": {
+        "last_successful_check_at": "2026-11-25T09:32:10.034468",
+        "latest_filing_timestamp": "31-Oct-2026 14:24:48"
+      },
+      "NPST": {
+        "last_successful_check_at": "2026-11-25T09:32:14.351245",
+        "latest_filing_timestamp": "2026-11-11T18:29:26.48"
+      },
+      "NITTAGELA": {
+        "last_successful_check_at": "2026-11-25T09:32:18.501820",
+        "latest_filing_timestamp": "2026-11-07T11:34:14.023"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-25T09:25:07.146281+05:30",
+    "last_successful_check_at": "2026-11-25T09:28:46.893858+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

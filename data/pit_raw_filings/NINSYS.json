@@ -390,5 +390,23 @@
     "mapped_revenue": 45.86,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "51e1305dbb96dc1cfd50a651572fd10e540fc46c6a0fc799b4623c47c17b60c3"
+  },
+  {
+    "symbol": "NINSYS",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 25.6218,
+    "net_profit": 8.2415,
+    "operating_profit": 12.5922,
+    "eps": 4.44,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-10-29",
+    "broadcast_timestamp": "29-Oct-2026 16:38:11",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_NINSYS_106834532_2026-09-30"
   }
 ]
