@@ -1038,12 +1038,15 @@ class ExchangePdfParser:
 
         if not candidate_page_indices:
             logger.debug(f"[PDF_PARSER] {symbol}: No page scored >= 45. Executing bounded fallback to first {min(12, total_doc_pages)} pages.")
-            candidate_page_indices = list(range(min(12, total_doc_pages)))
+            # Prioritize pages 3..12 before cover/auditor pages 1..2 so large PDFs reach statement tables before budget expires
+            _fallback_end = min(12, total_doc_pages)
+            candidate_page_indices = list(range(2, _fallback_end)) + [p for p in (0, 1) if p < _fallback_end]
 
         t_start = time.time()
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
-            if time.time() - t_start > 30.0 or time.time() - t_parse_start > 55.0:
+            _p3_elapsed = time.time() - t_start
+            if _p3_elapsed > 45.0 or (_p3_elapsed > 25.0 and time.time() - t_parse_start > 90.0):
                 logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded parse budget on page {page_idx+1}. Breaking early.")
                 break
 
