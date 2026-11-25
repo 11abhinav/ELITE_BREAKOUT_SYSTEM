@@ -11615,12 +11615,15 @@ def clear_unified_stock_data_health_cache() -> None:
             try:
                 with mod._STOCK_DATA_HEALTH_LOCK:
                     mod._STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
-                if hasattr(mod, "_background_refresh_stock_data_health") and not getattr(mod, "_STOCK_DATA_HEALTH_REFRESHING", False):
-                    threading.Thread(
-                        target=mod._background_refresh_stock_data_health,
-                        daemon=True,
-                        name="StockDataHealthAutoRefresh",
-                    ).start()
+                if hasattr(mod, "_background_refresh_stock_data_health"):
+                    if getattr(mod, "_STOCK_DATA_HEALTH_REFRESHING", False):
+                        setattr(mod, "_STOCK_DATA_HEALTH_DIRTY", True)
+                    else:
+                        threading.Thread(
+                            target=mod._background_refresh_stock_data_health,
+                            daemon=True,
+                            name="StockDataHealthAutoRefresh",
+                        ).start()
             except Exception:
                 pass
 

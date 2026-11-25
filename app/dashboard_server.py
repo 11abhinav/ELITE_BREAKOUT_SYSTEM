@@ -3555,6 +3555,7 @@ def api_get_recent_forensic_reports():
 
 
 _STOCK_DATA_HEALTH_REFRESHING = False
+_STOCK_DATA_HEALTH_DIRTY = False
 
 
 def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, bytes]:
@@ -3607,12 +3608,17 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
 
 def _background_refresh_stock_data_health():
     """Asynchronous background refresh for stale-while-revalidate."""
-    global _STOCK_DATA_HEALTH_REFRESHING
+    global _STOCK_DATA_HEALTH_REFRESHING, _STOCK_DATA_HEALTH_DIRTY
     if _STOCK_DATA_HEALTH_REFRESHING:
+        _STOCK_DATA_HEALTH_DIRTY = True
         return
     _STOCK_DATA_HEALTH_REFRESHING = True
     try:
-        _compute_stock_data_health_payload(force=True)
+        for _ in range(3):
+            _STOCK_DATA_HEALTH_DIRTY = False
+            _compute_stock_data_health_payload(force=True)
+            if not _STOCK_DATA_HEALTH_DIRTY:
+                break
     except Exception as e:
         logger.debug(f"[STOCK_DATA_HEALTH_BG_REFRESH] Note: {e}")
     finally:
@@ -3669,7 +3675,7 @@ def api_admin_stock_data_health():
                 cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
                 cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-            if cached_payload and not force:
+            if cached_payload and not force and cached_ts > 0.0:
                 return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
 
             resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
