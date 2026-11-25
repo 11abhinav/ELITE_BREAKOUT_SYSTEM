@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-25T09:28:46.893858+05:30",
+    "last_successful_check_at": "2026-11-25T09:34:57.882160+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -1638,12 +1638,92 @@
       "NITTAGELA": {
         "last_successful_check_at": "2026-11-25T09:32:18.501820",
         "latest_filing_timestamp": "2026-11-07T11:34:14.023"
+      },
+      "NATCOPHARM": {
+        "last_successful_check_at": "2026-11-25T09:36:57.738250",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MUTHOOTFIN": {
+        "last_successful_check_at": "2026-11-25T09:37:01.482191",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NATIONALUM": {
+        "last_successful_check_at": "2026-11-25T09:37:04.206190",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NEULANDLAB": {
+        "last_successful_check_at": "2026-11-25T09:37:09.431359",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NIITMTS": {
+        "last_successful_check_at": "2026-11-25T09:37:12.761722",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NDRAUTO": {
+        "last_successful_check_at": "2026-11-25T09:37:14.789620",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NESTLEIND": {
+        "last_successful_check_at": "2026-11-25T09:37:16.393848",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NELCAST": {
+        "last_successful_check_at": "2026-11-25T09:37:18.005693",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NH": {
+        "last_successful_check_at": "2026-11-25T09:37:19.550791",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NAVINFLUOR": {
+        "last_successful_check_at": "2026-11-25T09:37:20.966767",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NBCC": {
+        "last_successful_check_at": "2026-11-25T09:37:22.471049",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NESCO": {
+        "last_successful_check_at": "2026-11-25T09:37:24.776226",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MWL": {
+        "last_successful_check_at": "2026-11-25T09:37:26.206155",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "NETWEB": {
+        "last_successful_check_at": "2026-11-25T09:37:27.704969",
+        "latest_filing_timestamp": "28-Jul-2026 15:18:29"
+      },
+      "NAVA": {
+        "last_successful_check_at": "2026-11-25T09:37:29.397121",
+        "latest_filing_timestamp": "2026-11-03T10:03:28.67"
+      },
+      "NAVNETEDUL": {
+        "last_successful_check_at": "2026-11-25T09:37:31.013126",
+        "latest_filing_timestamp": "28-Jul-2026 14:14:34"
+      },
+      "NGLFINE": {
+        "last_successful_check_at": "2026-11-25T09:37:32.769736",
+        "latest_filing_timestamp": "2026-11-12T22:47:34"
+      },
+      "NEWGEN": {
+        "last_successful_check_at": "2026-11-25T09:37:34.942945",
+        "latest_filing_timestamp": "24-Oct-2026 13:05:37"
+      },
+      "MUKANDLTD": {
+        "last_successful_check_at": "2026-11-25T09:37:36.769953",
+        "latest_filing_timestamp": "2026-11-12T14:06:41.693"
+      },
+      "NCC": {
+        "last_successful_check_at": "2026-11-25T09:37:43.016311",
+        "latest_filing_timestamp": "2026-11-06T14:43:24.597"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-25T09:28:46.893858+05:30",
+    "last_successful_check_at": "2026-11-25T09:34:57.882160+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
