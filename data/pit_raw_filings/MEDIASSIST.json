@@ -74,5 +74,23 @@
     "unit": "crore",
     "currency": "INR",
     "source_record_hash": "77d5456deeb1d539e55942075b4289cddb4d8d7af8ba04d3d50647945ca7aa47"
+  },
+  {
+    "symbol": "MEDIASSIST",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 423.103,
+    "net_profit": 30.698,
+    "operating_profit": 56.353,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": 8867.68,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-10-30",
+    "broadcast_timestamp": "30-Oct-2026 18:26:54",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_MEDIASSIST_106837111_2026-09-30"
   }
 ]

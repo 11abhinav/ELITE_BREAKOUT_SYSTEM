@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-25T09:39:07.630990+05:30",
+    "last_successful_check_at": "2026-11-25T09:48:34.972166",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -69,7 +69,8 @@
         "last_successful_check_at": "2026-10-24T19:12:49.960742"
       },
       "MARSONS": {
-        "last_successful_check_at": "2026-10-18T22:20:28.114871"
+        "last_successful_check_at": "2026-11-25T09:47:44.712813",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "STYRENIX": {
         "last_successful_check_at": "2026-11-24T22:17:09.518598",
@@ -137,10 +138,12 @@
         "last_successful_check_at": "2026-10-18T22:21:25.052249"
       },
       "MANORAMA": {
-        "last_successful_check_at": "2026-10-18T22:21:28.834568"
+        "last_successful_check_at": "2026-11-25T09:48:31.233261",
+        "latest_filing_timestamp": "2026-11-17T16:57:52.363"
       },
       "MEDIASSIST": {
-        "last_successful_check_at": "2026-10-18T22:21:30.573507"
+        "last_successful_check_at": "2026-11-25T09:47:36.939135",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "MONOLITH": {
         "last_successful_check_at": "2026-11-25T09:42:01.481008",
@@ -200,7 +203,8 @@
         "last_successful_check_at": "2026-10-15T20:25:50.103728"
       },
       "MANYAVAR": {
-        "last_successful_check_at": "2026-10-19T11:49:21.756078"
+        "last_successful_check_at": "2026-11-25T09:47:58.939499",
+        "latest_filing_timestamp": "26-Jul-2026 23:43:46"
       },
       "MOLDTKPAC": {
         "last_successful_check_at": "2026-11-25T09:41:29.045363",
@@ -1789,12 +1793,72 @@
       "MHRIL": {
         "last_successful_check_at": "2026-11-25T09:42:10.320562",
         "latest_filing_timestamp": "27-Oct-2026 11:29:38"
+      },
+      "MAXHEALTH": {
+        "last_successful_check_at": "2026-11-25T09:46:41.290396",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MBAPL": {
+        "last_successful_check_at": "2026-11-25T09:47:09.969821",
+        "latest_filing_timestamp": "14-Nov-2026 13:12:35"
+      },
+      "METROBRAND": {
+        "last_successful_check_at": "2026-11-25T09:47:26.440892",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MARUTI": {
+        "last_successful_check_at": "2026-11-25T09:47:42.225328",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "METROPOLIS": {
+        "last_successful_check_at": "2026-11-25T09:47:46.715318",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MARATHON": {
+        "last_successful_check_at": "2026-11-25T09:47:49.670880",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MARKSANS": {
+        "last_successful_check_at": "2026-11-25T09:47:52.260627",
+        "latest_filing_timestamp": "2026-11-23T09:04:52.927"
+      },
+      "MASTEK": {
+        "last_successful_check_at": "2026-11-25T09:47:55.807668",
+        "latest_filing_timestamp": "28-Oct-2026 10:35:44"
+      },
+      "MCX": {
+        "last_successful_check_at": "2026-11-25T09:48:01.694999",
+        "latest_filing_timestamp": "2026-11-20T14:05:34.847"
+      },
+      "MASFIN": {
+        "last_successful_check_at": "2026-11-25T09:48:05.649400",
+        "latest_filing_timestamp": "30-Jul-2026 17:40:36"
+      },
+      "MAPMYINDIA": {
+        "last_successful_check_at": "2026-11-25T09:48:10.447940",
+        "latest_filing_timestamp": "2026-11-07T11:44:25.397"
+      },
+      "MANKIND": {
+        "last_successful_check_at": "2026-11-25T09:48:14.020146",
+        "latest_filing_timestamp": "30-Jul-2026 15:21:51"
+      },
+      "MAYURUNIQ": {
+        "last_successful_check_at": "2026-11-25T09:48:17.006349",
+        "latest_filing_timestamp": "2026-10-28T17:39:46.513"
+      },
+      "MANINFRA": {
+        "last_successful_check_at": "2026-11-25T09:48:19.996973",
+        "latest_filing_timestamp": "29-Oct-2026 15:00:03"
+      },
+      "MARICO": {
+        "last_successful_check_at": "2026-11-25T09:48:24.889966",
+        "latest_filing_timestamp": "2026-09-30"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-25T09:39:07.630990+05:30",
+    "last_successful_check_at": "2026-11-25T09:48:34.972166",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

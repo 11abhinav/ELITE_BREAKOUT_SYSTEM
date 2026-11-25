@@ -600,5 +600,23 @@
     "mapped_revenue": 49.26,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "94981dbe4b8f8fd523d5a963f9cc0c8ce4fda995c460d161fdb98f79f4b89a9e"
+  },
+  {
+    "symbol": "MARSONS",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 145.817,
+    "net_profit": 1722.61,
+    "operating_profit": 26.3899,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": 0.01,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-13",
+    "broadcast_timestamp": "13-Nov-2026 17:01:18",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_MARSONS_106859048_2026-09-30"
   }
 ]
