@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-25T08:40:14.605749+05:30",
+    "last_successful_check_at": "2026-11-25T09:07:34.909299",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -1488,12 +1488,24 @@
       "PRSMJOHNSN": {
         "last_successful_check_at": "2026-11-25T08:42:29.368951",
         "latest_filing_timestamp": "2026-11-06T13:03:07.75"
+      },
+      "PGHL": {
+        "last_successful_check_at": "2026-11-25T09:11:29.519760",
+        "latest_filing_timestamp": "2026-11-02T14:43:39.027"
+      },
+      "PETRONET": {
+        "last_successful_check_at": "2026-11-25T09:11:32.174333",
+        "latest_filing_timestamp": "14-Oct-2026 15:04:20"
+      },
+      "PIIND": {
+        "last_successful_check_at": "2026-11-25T09:11:35.156418",
+        "latest_filing_timestamp": "2026-11-04T19:44:26.903"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-25T08:40:14.605749+05:30",
+    "last_successful_check_at": "2026-11-25T09:07:34.909299",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {
