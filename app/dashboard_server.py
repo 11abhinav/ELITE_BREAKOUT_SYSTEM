@@ -1865,7 +1865,7 @@ def _background_refresh_performance_payload():
     _perf_data_refreshing = True
     try:
         with _perf_data_build_lock:
-            _build_performance_payload(force_rebuild=False)
+            _build_performance_payload(force_rebuild=False, build_only=True)
     except Exception as e:
         logger.debug(f"[PERF_DATA_BG_REFRESH] Note: {e}")
     finally:
@@ -1899,12 +1899,14 @@ def performance_json():
         return _build_performance_payload(force_rebuild, client_etag)
 
 
-def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
+def _build_performance_payload(force_rebuild: bool, client_etag: str = None, build_only: bool = False):
     global _perf_data_mem_cache, _perf_data_mem_gzip, _perf_data_mem_ts, _perf_data_etag
     now_ts = time.time()
     if not force_rebuild:
         with _dashboard_cache_lock:
             if _perf_data_mem_cache is not None and (now_ts - _perf_data_mem_ts) < 30.0:
+                if build_only:
+                    return None
                 return _make_json_response(
                     _perf_data_mem_cache,
                     etag=_perf_data_etag,
@@ -2073,6 +2075,8 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
                 _perf_data_mem_ts = now_ts
                 _perf_data_etag = etag_val
 
+            if build_only:
+                return None
             return _make_json_response(val, etag=etag_val, max_age=5, precompressed_gzip=gz_bytes)
     except Exception as e:
         logger.warning(f"Failed to load performance data from DB: {e}")
@@ -2090,10 +2094,14 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
                         _perf_data_mem_gzip = d_gz
                         _perf_data_mem_ts = now_ts
                         _perf_data_etag = d_etag
+                    if build_only:
+                        return None
                     return _make_json_response(disk_val, etag=d_etag, max_age=5, precompressed_gzip=d_gz)
             except Exception as _disk_err:
                 logger.debug(f"Disk performance fallback read error: {_disk_err}")
 
+    if build_only:
+        return None
     # Fallback to stale memory cache if available
     with _dashboard_cache_lock:
         if _perf_data_mem_cache is not None:
@@ -3190,29 +3198,13 @@ def _seed_stock_data_health_cache():
     except Exception as e:
         logger.debug(f"[STOCK_DATA_HEALTH] DB restore error on boot: {e}")
 
-    # Fallback to local scratch file if present on volume (not from git), else schedule background DB computation
+    # If DB has no cached payload, compute fresh authoritative cache directly from canonical snapshot
+    # Never load stale disk scratch files (data/stock_data_health_cache.json) that cause temporary count spikes
     try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        p = os.path.join(base_dir, "data", "stock_data_health_cache.json")
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f_in:
-                raw_json = f_in.read()
-            if raw_json and len(raw_json) > 100:
-                import hashlib
-                etag = f'"{hashlib.md5(raw_json.encode("utf-8")).hexdigest()}"'
-                gz = _gzip.compress(raw_json.encode("utf-8"), compresslevel=1)
-                mtime = os.path.getmtime(p)
-                with _STOCK_DATA_HEALTH_LOCK:
-                    _STOCK_DATA_HEALTH_CACHE["payload"] = raw_json
-                    _STOCK_DATA_HEALTH_CACHE["etag"] = etag
-                    _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
-                    _STOCK_DATA_HEALTH_CACHE["ts"] = mtime
-                logger.info(f"⚡ [STOCK_DATA_HEALTH] Pre-seeded in-memory cache from local volume file ({len(raw_json)} bytes)")
-                return
+        logger.info("⚡ [STOCK_DATA_HEALTH] No DB cache found on boot; scheduling background compute from canonical snapshot.")
+        threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthBoot").start()
     except Exception as e:
-        logger.debug(f"[STOCK_DATA_HEALTH] Local file seed error: {e}")
-
-    logger.info("ℹ️ [STOCK_DATA_HEALTH] No pre-existing health cache in DB or volume. Background compute will run after server startup.")
+        logger.debug(f"[STOCK_DATA_HEALTH] Boot schedule note: {e}")
 
 _seed_stock_data_health_cache()
 
@@ -3583,15 +3575,6 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
         save_stock_data_health_to_db(resp_json)
     except Exception as _db_err:
         logger.debug(f"[STOCK_DATA_HEALTH] DB persist note: {_db_err}")
-
-    # Also persist to local volume disk scratch for single-node backup
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        cache_path = os.path.join(base_dir, "data", "stock_data_health_cache.json")
-        with open(cache_path, "w", encoding="utf-8") as f_out:
-            f_out.write(resp_json)
-    except Exception as _p_err:
-        logger.debug(f"[STOCK_DATA_HEALTH] Disk persist note: {_p_err}")
 
     return resp_json, etag, gz
 

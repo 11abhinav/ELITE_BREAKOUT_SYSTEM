@@ -8109,7 +8109,8 @@ def save_stock_data_health_to_db(payload_json: str) -> bool:
                         VALUES (%s, %s, %s)
                         ON CONFLICT (name, date) DO UPDATE SET data = EXCLUDED.data
                     """, ("stock_data_health_cache", today, psycopg2.Binary(binary_data)))
-                    cur.execute("DELETE FROM parquet_cache WHERE name = 'stock_data_health_cache' AND date < %s", (today,))
+                    # Keep rolling 7-day window so midnight date changes never wipe the latest valid health cache
+                    cur.execute("DELETE FROM parquet_cache WHERE name = 'stock_data_health_cache' AND date < (%s::date - INTERVAL '7 days')::text", (today,))
                 conn.commit()
         logger.info(f"💾 [STOCK_DATA_HEALTH DB SYNC] Persisted authoritative health cache ({len(binary_data)/1024.0:.1f} KB) to DB parquet_cache for {today}")
         return True
