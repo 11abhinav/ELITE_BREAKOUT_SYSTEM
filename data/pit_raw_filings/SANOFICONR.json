@@ -424,5 +424,23 @@
     "mapped_revenue": 236.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "831eaffbbccdff9d829a9ec7d4ca884fd0a2880d7ed524ed48a21f969fe1c9f7"
+  },
+  {
+    "symbol": "SANOFICONR",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 263.1,
+    "net_profit": 76.6,
+    "operating_profit": 103.0,
+    "eps": 33.26,
+    "total_debt": null,
+    "total_equity": 361.0,
+    "operating_cash_flow": null,
+    "shares_outstanding": 23000000.0,
+    "filing_date": "2026-10-28",
+    "broadcast_timestamp": "28-Oct-2026 18:46:42",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_SANOFICONR_106832910_2026-09-30"
   }
 ]

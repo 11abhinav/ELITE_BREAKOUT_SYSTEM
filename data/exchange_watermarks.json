@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-24T23:26:30.800061+05:30",
+    "last_successful_check_at": "2026-11-25T08:29:31.070713+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -90,10 +90,12 @@
         "last_successful_check_at": "2026-10-18T22:20:52.664005"
       },
       "SANDUMA": {
-        "last_successful_check_at": "2026-10-18T22:20:54.129915"
+        "last_successful_check_at": "2026-11-25T08:30:59.062853",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "SANGHVIMOV": {
-        "last_successful_check_at": "2026-10-18T22:20:56.071350"
+        "last_successful_check_at": "2026-11-25T08:31:11.714712",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "SPARC": {
         "last_successful_check_at": "2026-11-24T22:20:52.001304",
@@ -154,7 +156,8 @@
         "last_successful_check_at": "2026-10-18T22:22:04.188897"
       },
       "SANOFICONR": {
-        "last_successful_check_at": "2026-10-18T22:22:05.751887"
+        "last_successful_check_at": "2026-11-25T08:31:16.584936",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "SHREEJISPG": {
         "last_successful_check_at": "2026-11-24T22:33:13.117697",
@@ -1240,12 +1243,64 @@
       "SHANTIGEAR": {
         "last_successful_check_at": "2026-11-24T23:28:35.333516",
         "latest_filing_timestamp": "2024-12-31"
+      },
+      "SATIN": {
+        "last_successful_check_at": "2026-11-24T23:31:15.317923",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SAREGAMA": {
+        "last_successful_check_at": "2026-11-24T23:31:21.098265",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SCHNEIDER": {
+        "last_successful_check_at": "2026-11-24T23:31:26.185684",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SANSERA": {
+        "last_successful_check_at": "2026-11-24T23:31:28.706248",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SBICARD": {
+        "last_successful_check_at": "2026-11-24T23:31:28.924989",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SARDAEN": {
+        "last_successful_check_at": "2026-11-24T23:31:31.579532",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SBILIFE": {
+        "last_successful_check_at": "2026-11-25T08:31:24.868051",
+        "latest_filing_timestamp": "27-Oct-2026 18:55:27"
+      },
+      "SAKSOFT": {
+        "last_successful_check_at": "2026-11-25T08:30:54.632446",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SAMBHV": {
+        "last_successful_check_at": "2026-11-25T08:31:18.481301",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SALZERELEC": {
+        "last_successful_check_at": "2026-11-25T08:31:20.383822",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SCHAEFFLER": {
+        "last_successful_check_at": "2026-11-25T08:31:22.262591",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "SANDHAR": {
+        "last_successful_check_at": "2026-11-25T08:31:26.912797",
+        "latest_filing_timestamp": "2026-11-16T19:52:36.923"
+      },
+      "SAMHI": {
+        "last_successful_check_at": "2026-11-25T08:31:28.851105",
+        "latest_filing_timestamp": "2026-11-12T18:44:34.197"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-24T23:26:30.800061+05:30",
+    "last_successful_check_at": "2026-11-25T08:29:31.070713+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

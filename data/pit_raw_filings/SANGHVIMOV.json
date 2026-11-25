@@ -532,5 +532,23 @@
     "mapped_revenue": 380.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "6f61d3a5b31051f035b68a77624ec3a5a213efecbdaca171403f9a287a51d3cd"
+  },
+  {
+    "symbol": "SANGHVIMOV",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 136.4925,
+    "net_profit": null,
+    "operating_profit": 30.5181,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": 1305.9095,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-02",
+    "broadcast_timestamp": "02-Nov-2026 14:21:44",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_SANGHVIMOV_106839465_2026-09-30"
   }
 ]
