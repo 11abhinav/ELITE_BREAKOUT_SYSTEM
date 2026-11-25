@@ -1100,11 +1100,31 @@ class ExchangePdfParser:
                 continue
 
             # Must contain actual operational revenue indicators (or banking/NBFC total income / interest income / interest earned)
-            if not any(k in norm_text_lower for k in [
+            _rev_indicators = (
                 "revenue from operations", "net sales", "total income", "income from operations",
-                "interest earned", "interest income", "total revenue from operations", "total revenue"
-            ]):
-                continue
+                "interest earned", "interest income", "total revenue from operations", "total revenue",
+            )
+            if not any(k in norm_text_lower for k in _rev_indicators):
+                # Garbled embedded OCR layers (e.g. "lnterest Earned", "Kevenue om oersions") pass len>=50
+                # yet fail keyword matching. Re-render this single statement page via pdftoppm+tesseract.
+                _re_ocr_ok = False
+                if _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 35.0):
+                    try:
+                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=6.0)
+                        if _comp_img is not None:
+                            if _comp_img.width > 1400 or _comp_img.height > 1800:
+                                _comp_img.thumbnail((1400, 1800))
+                            _fresh_ocr = pytesseract.image_to_string(_comp_img, timeout=6.0, config="--psm 6")
+                            if _fresh_ocr and len(_fresh_ocr.strip()) >= 50:
+                                text = _normalize_ocr_text(_fresh_ocr.strip())
+                                text_lower = text.lower()
+                                norm_text_lower = re.sub(r"\s+", " ", text_lower)
+                                cached_page_texts[page_idx] = text
+                                _re_ocr_ok = any(k in norm_text_lower for k in _rev_indicators)
+                    except Exception:
+                        pass
+                if not _re_ocr_ok:
+                    continue
 
             # 1. Determine Consolidation Basis (STANDALONE vs CONSOLIDATED)
             basis = ConsolidationType.STANDALONE
