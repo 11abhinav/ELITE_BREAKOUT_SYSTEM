@@ -421,6 +421,23 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\b(\d{1,2})nd\b", r"\1nd", text)                # keep nd
     text = re.sub(r"\b(\d{1,2})rd\b", r"\1rd", text)                # keep rd
 
+    # --- VENKEYS-specific OCR damage (garbled scan: RESTJLTS, SEPIEMBER, LaRU, operatioas, roral, rNcoME) ---
+    text = re.sub(r"(?i)\bRESTJLTS\b", "results", text)              # RESTJLTS -> results
+    text = re.sub(r"(?i)\bSepiember\b|\bSEPIEMBER\b", "September", text)  # SEPIEMBER -> September
+    text = re.sub(r"\b(30|31)\s*SEPIEMBER\b", r"\1 September", text, flags=re.I)
+    text = re.sub(r"(?i)\boperatioas\b", "operations", text)         # operatioas -> operations
+    text = re.sub(r"(?i)\broral\b", "total", text)                   # roral -> total (OCR r≡t)
+    text = re.sub(r"(?i)\brncome\b|\brNcoME\b", "income", text)     # rNcoME -> income
+    text = re.sub(r"(?i)\bPERTOD\b", "period", text)                 # PERTOD -> period
+    # Date OCR: "1010912026" -> "10/09/2026" (1 confused with /)
+    text = re.sub(r"\b(\d{2})1(\d{2})1(202\d)\b", r"\1/\2/\3", text)
+    # UTLSOLAR-specific OCR damage (mllllon, Unaudlted)
+    text = re.sub(r"(?i)\bmllllon\b|m[il1]{3,5}on\b", "million", text)  # mllllon -> million
+    text = re.sub(r"(?i)\bUnaudlted\b|\bUNAUDlTED\b", "unaudited", text)  # Unaudlted -> unaudited
+    # LaRU -> Lakhs (unit OCR confusion)
+    text = re.sub(r"(?i)\bin\s+LaRU\b", "in Lakhs", text)
+    text = re.sub(r"(?i)\bLaRU\b", "Lakhs", text)
+
     # --- Common OCR word confusions in statement headers ---
     text = re.sub(r"(?i)\beod\.?d\b", "ended", text)                 # eod.d -> ended
     text = re.sub(r"(?i)\bend\.?d\b", "ended", text)                 # end.d -> ended
@@ -575,12 +592,14 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     url_fn = os.path.basename(str(pdf_url).split("?")[0]).lower()
     combined = f"{desc} {text} {fn} {url_fn}"
 
-    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, monitoring agency, investor handouts, non-financial board actions)
+    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, monitoring agency, investor handouts, non-financial board actions, nomenclature corrections)
     if any(k in combined for k in [
         "newspaper", "clipping", "advertisement", "publication of",
         "investor presentation", "investor update", "investor handout", "investor_handout", "investorhandout",
         "monitoring agency", "monitoringagency",
-        "earnings call", "transcript", "audio recording", "video recording", "concall", "con. call", "press release"
+        "earnings call", "transcript", "audio recording", "video recording", "concall", "con. call", "press release",
+        "correction_of_nomenclature", "correction of nomenclature", "nomenclature_correction", "nomenclature correction",
+        "change in management", "change_in_management", "change of management"
     ]):
         return False
 
@@ -949,7 +968,9 @@ class ExchangePdfParser:
         doc_total_chars = sum(len(t.strip()) for t in cached_page_texts.values())
         best_digital_score = max((sc for _, sc, _ in page_scores), default=0)
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
-        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 70)
+        # Fix: threshold raised from 70→85 so cover-letter pages (sc=70, no numeric tables) still trigger OCR
+        # on remaining scanned image pages (INTERARCH: p1=sc70 digital cover, p3-p7 pure image → OCR must fire)
+        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 85)
 
         if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 22.0):
             ocr_recovered = False
@@ -1109,7 +1130,9 @@ class ExchangePdfParser:
             explicit_unit = False
             header_text = "\n".join(text.split("\n")[:25])
             _lakh_pat = r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex"
-            _crore_pat = r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)|<n\s*crore"
+            # Fix: Extended _crore_pat to catch OCR variants like "ln Croree" (VENUSREM: "Rs. ln Croree except EPS")
+            # "ln" is OCR for "in"; "Croree" is OCR for "Crore" → must map to mult=1.0
+            _crore_pat = r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)|<n\s*crore|(?:in|\bin|\bln|rs\.?\s*(?:in|ln))\s*cr[o0]ree?s?"
             if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", header_text, re.I):
                 mult = 0.1  # 1 Million = 0.1 Crore (10 Lakhs)
                 unit = "million"
@@ -1197,6 +1220,22 @@ class ExchangePdfParser:
                 period_end = desc_period
             elif in_table_period:
                 period_end = in_table_period
+
+            # Safeguard B Extension: Never let an OCR-misread historical in-table date override a valid, newer fiscal metadata date.
+            # E.g. UNIPARTS: OCR misreads in-table "2026" as "2020" → in_table_period=2020-09-30, but meta_period=2026-09-30 is correct.
+            # Rule: if meta_period is a valid fiscal end AND period_end < meta_period by >60 days → trust metadata.
+            if period_end and meta_period and _is_fiscal_period_end(meta_period) and period_end != meta_period:
+                try:
+                    from datetime import datetime as _sfb_dt
+                    _days_diff = (_sfb_dt.strptime(meta_period, "%Y-%m-%d") - _sfb_dt.strptime(period_end, "%Y-%m-%d")).days
+                    if _days_diff > 60:
+                        logger.warning(
+                            f"⚠️ [PDF_PARSER] {symbol}: Safeguard B Extension: in-table period {period_end} is "
+                            f"{_days_diff}d older than valid fiscal metadata {meta_period}. Overriding → using meta_period."
+                        )
+                        period_end = meta_period
+                except Exception:
+                    pass
 
             if not period_end or len(period_end) != 10:
                 continue

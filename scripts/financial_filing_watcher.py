@@ -893,21 +893,36 @@ class FinancialFilingWatcher:
 
             # If rebuilding for specific symbol(s), check and restore if previously stale
             if sym_list:
-                for sym_u in sym_list:
+                try:
                     try:
-                        try:
-                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
-                        except ImportError:
-                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
-                        check_and_restore_stale_stock(
-                            symbol=sym_u,
-                            source="SNAPSHOT_REBUILD",
-                            notify_admin=True,
-                            force=True,
+                        from app.database import (
+                            check_and_restore_stale_stock,
+                            clear_unified_stock_data_health_cache,
+                            reconcile_and_purge_restored_cooloffs,
                         )
+                    except ImportError:
+                        from database import (
+                            check_and_restore_stale_stock,
+                            clear_unified_stock_data_health_cache,
+                            reconcile_and_purge_restored_cooloffs,
+                        )
+                    for sym_u in sym_list:
+                        try:
+                            check_and_restore_stale_stock(
+                                symbol=sym_u,
+                                source="SNAPSHOT_REBUILD",
+                                notify_admin=True,
+                                force=True,
+                            )
+                        except Exception:
+                            pass
+                    try:
+                        reconcile_and_purge_restored_cooloffs()
                         clear_unified_stock_data_health_cache()
                     except Exception:
                         pass
+                except Exception:
+                    pass
 
             return True
         except Exception as e:
@@ -1172,7 +1187,9 @@ class FinancialFilingWatcher:
         last_synced_time = [time.time()]
         TIME_SYNC_INTERVAL = float(os.getenv("FILING_WATCHER_TIME_SYNC_INTERVAL", "300.0"))  # 5 minutes periodic heartbeat sync
         BATCH_SYNC_SIZE = int(os.getenv("FILING_WATCHER_BATCH_SYNC_SIZE", "25"))  # Progress sync after every 25 completed stocks
-        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", "5"))  # Batch DB sync whenever 5 new stocks are fetched
+        # For targeted <=50-stock batches, rebuild ONCE cleanly at final completion instead of rebuilding every 5 symbols
+        _default_fetch_thresh = max(25, len(symbols) + 1) if len(symbols) <= 50 else 25
+        FETCHED_SYNC_THRESHOLD = int(os.getenv("FILING_WATCHER_FETCHED_THRESHOLD", str(_default_fetch_thresh)))
 
         # [FIX-6] Cache latest_concluded_quarter ONCE per run (called 861 times otherwise with same arg)
         _run_latest_concluded_qtr: str = get_latest_concluded_quarter(as_of)
@@ -1699,6 +1716,7 @@ class FinancialFilingWatcher:
                     )
 
                 raw_filings_list: List[Dict[str, Any]] = []
+                nse_disc_anns: List[Dict[str, Any]] = []
                 nse_fetch_count = 0
                 nse_disc_count = 0
                 bse_count = 0
@@ -1852,7 +1870,8 @@ class FinancialFilingWatcher:
                                     "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
                                 })
 
-                        # Only call discover_filings as supplement if fetch_raw_financials returned 0 records
+                        # Only call discover_filings as announcement metadata supplement if fetch_raw_financials returned 0 records
+                        # Store metadata-only rows in nse_disc_anns for Tier-3 PDF fallback (NEVER merge factless stubs into raw_filings_list)
                         if nse_fetch_count == 0:
                             try:
                                 nse_rows = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)
@@ -1868,7 +1887,10 @@ class FinancialFilingWatcher:
                                                 st = classify_statement_type(raw_period, period_end_date=p_end)
                                                 r_copy["period_end_date"] = p_end
                                                 r_copy["statement_type"] = st
-                                                raw_filings_list.append(r_copy)
+                                                if r_copy.get("revenue") is not None or r_copy.get("net_profit") is not None:
+                                                    raw_filings_list.append(r_copy)
+                                                elif r_copy.get("attchmntFile") or r_copy.get("attachmentUrl"):
+                                                    nse_disc_anns.append(r_copy)
                             except Exception as disc_err:
                                 logger.warning(f"[filling scanner] NSE discover_filings supplement warning for {sym_u}: {disc_err}")
                     except Exception as nse_err:
@@ -1929,28 +1951,22 @@ class FinancialFilingWatcher:
                                         "filing_date": r.availability_date or f"{norm_p}T00:00:00",
                                         "broadcast_timestamp": getattr(r, "broadcast_timestamp", None) or f"{norm_p}T00:00:00",
                                     })
-                            # 3b. BSE Corporate Announcements (same-day results & board meetings)
+                            # 3b. BSE Corporate Announcements (same-day results & board meetings -> Tier-3 PDF candidates only)
                             try:
                                 bse_disc_rows = bse_prov.discover_filings(sym_u)
                                 if bse_disc_rows:
                                     bse_count += len(bse_disc_rows)
-                                    existing_periods = {
-                                        (_normalize_iso_date(it.get("period_end_date")), str(it.get("statement_type", "")).upper())
-                                        for it in raw_filings_list
-                                        if it.get("exchange") == "BSE"
-                                    }
                                     for r in bse_disc_rows:
-                                        if isinstance(r, dict):
+                                        if isinstance(r, dict) and (r.get("revenue") is not None or r.get("net_profit") is not None):
                                             r_copy = dict(r)
                                             r_copy["exchange"] = "BSE"
                                             p_end = _normalize_iso_date(r_copy.get("period_end_date") or r_copy.get("toDate"))
                                             if p_end and p_end >= min_cutoff:
                                                 raw_period = str(r_copy.get("period") or r_copy.get("statement_type") or "").upper()
                                                 st = classify_statement_type(raw_period, period_end_date=p_end)
-                                                if (p_end, st) not in existing_periods:
-                                                    r_copy["period_end_date"] = p_end
-                                                    r_copy["statement_type"] = st
-                                                    raw_filings_list.append(r_copy)
+                                                r_copy["period_end_date"] = p_end
+                                                r_copy["statement_type"] = st
+                                                raw_filings_list.append(r_copy)
                             except Exception as bse_disc_err:
                                 logger.warning(f"[filling scanner] BSE discover_filings warning for {sym_u}: {bse_disc_err}")
                             if bse_count > 0:
@@ -1986,7 +2002,10 @@ class FinancialFilingWatcher:
                         elif nse_prov and hasattr(nse_prov, "_discovered_cache") and sym_u in nse_prov._discovered_cache:
                             candidate_anns.extend(nse_prov._discovered_cache[sym_u])
 
-                        # Also include any filings/announcements already gathered in raw_filings_list that carry PDF links
+                        # Include NSE discovery metadata announcements + any filings carrying PDF links
+                        for _na in nse_disc_anns:
+                            if _na not in candidate_anns:
+                                candidate_anns.append(_na)
                         for _rf in raw_filings_list:
                             if _rf.get("attchmntFile") and _rf not in candidate_anns:
                                 candidate_anns.append(_rf)
@@ -2141,8 +2160,17 @@ class FinancialFilingWatcher:
                     return
 
                 import re as _re_poll
+                _METRIC_KEYS = (
+                    "revenue", "revenueFromOperations", "totalIncome", "revenue_cr",
+                    "net_profit", "netProfitLossForPeriod", "netProfit", "pat", "pat_cr",
+                    "operating_profit", "ebit", "operatingProfit",
+                    "total_debt", "debt", "total_equity", "equity",
+                    "operating_cash_flow", "ocf", "eps", "basicEps",
+                )
                 valid_items = []
                 for item in raw_filings_list:
+                    if not isinstance(item, dict) or not any(item.get(k) is not None for k in _METRIC_KEYS):
+                        continue
                     raw_p = item.get("toDate") or item.get("period_end_date") or item.get("periodEnd") or ""
                     period_end = _normalize_iso_date(str(raw_p).strip())
                     if period_end and _re_poll.match(r'^\d{4}-\d{2}-\d{2}$', period_end) and period_end >= get_historical_cutoff_date(as_of_date):
@@ -2233,21 +2261,11 @@ class FinancialFilingWatcher:
                             f"Saved to local raw cache data/pit_raw/{sym_u}.json & queued for DB sync"
                         )
 
+                # 1. Remove per-symbol serialized rebuild; rebuild happens once per batch at completion / threshold.
                 if sym_new_events > 0:
                     with events_lock:
                         pending_rebuild_syms.add(sym_u)
                         actually_fetched_syms.add(sym_u)
-
-                    # Immediate delta snapshot rebuild for this symbol so computed metrics (ROCE, CAGR, Valuation)
-                    # update instantly in canonical parquet + DB cache, moving the stock to FRESH in <5s on UI!
-                    try:
-                        with self._snapshot_rebuild_lock:
-                            self.invalidate_and_rebuild_snapshot(symbol=[sym_u], run_ctx=run_ctx)
-                            with events_lock:
-                                synced_symbols.add(sym_u)
-                                pending_rebuild_syms.discard(sym_u)
-                    except Exception as _snap_err:
-                        logger.warning(f"[filling scanner] Immediate snapshot rebuild note for {sym_u}: {_snap_err}")
 
                     try:
                         try:
@@ -2265,31 +2283,12 @@ class FinancialFilingWatcher:
                     )
                     try:
                         try:
-                            from app.database import (
-                                sync_raw_filings_cache_for_symbol,
-                                check_and_restore_stale_stock,
-                                reconcile_and_purge_restored_cooloffs,
-                                clear_unified_stock_data_health_cache,
-                            )
+                            from app.database import sync_raw_filings_cache_for_symbol
                         except ImportError:
-                            from database import (
-                                sync_raw_filings_cache_for_symbol,
-                                check_and_restore_stale_stock,
-                                reconcile_and_purge_restored_cooloffs,
-                                clear_unified_stock_data_health_cache,
-                            )
+                            from database import sync_raw_filings_cache_for_symbol
                         sync_raw_filings_cache_for_symbol(sym_u)
-                        check_and_restore_stale_stock(
-                            symbol=sym_u,
-                            source="EXCHANGE_FILING_WATCHER_INGESTED",
-                            period_end=latest_local_period,
-                            notify_admin=False,
-                            force=True,
-                        )
-                        reconcile_and_purge_restored_cooloffs()
-                        clear_unified_stock_data_health_cache()
                     except Exception as _rst_e:
-                        logger.debug(f"[filling scanner] Immediate sync/restore note for {sym_u}: {_rst_e}")
+                        logger.debug(f"[filling scanner] Immediate sync note for {sym_u}: {_rst_e}")
                 else:
                     if not needs_bootstrap:
                         with counter_lock:
