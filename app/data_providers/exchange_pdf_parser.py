@@ -421,20 +421,16 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\b(\d{1,2})nd\b", r"\1nd", text)                # keep nd
     text = re.sub(r"\b(\d{1,2})rd\b", r"\1rd", text)                # keep rd
 
-    # --- VENKEYS-specific OCR damage (garbled scan: RESTJLTS, SEPIEMBER, LaRU, operatioas, roral, rNcoME) ---
-    text = re.sub(r"(?i)\bRESTJLTS\b", "results", text)              # RESTJLTS -> results
-    text = re.sub(r"(?i)\bSepiember\b|\bSEPIEMBER\b", "September", text)  # SEPIEMBER -> September
+    text = re.sub(r"(?i)\bRESTJLTS\b", "results", text)
+    text = re.sub(r"(?i)\bSepiember\b|\bSEPIEMBER\b", "September", text)
     text = re.sub(r"\b(30|31)\s*SEPIEMBER\b", r"\1 September", text, flags=re.I)
-    text = re.sub(r"(?i)\boperatioas\b", "operations", text)         # operatioas -> operations
-    text = re.sub(r"(?i)\broral\b", "total", text)                   # roral -> total (OCR r≡t)
-    text = re.sub(r"(?i)\brncome\b|\brNcoME\b", "income", text)     # rNcoME -> income
-    text = re.sub(r"(?i)\bPERTOD\b", "period", text)                 # PERTOD -> period
-    # Date OCR: "1010912026" -> "10/09/2026" (1 confused with /)
+    text = re.sub(r"(?i)\boperatioas\b", "operations", text)
+    text = re.sub(r"(?i)\broral\b", "total", text)
+    text = re.sub(r"(?i)\brncome\b|\brNcoME\b", "income", text)
+    text = re.sub(r"(?i)\bPERTOD\b", "period", text)
     text = re.sub(r"\b(\d{2})1(\d{2})1(202\d)\b", r"\1/\2/\3", text)
-    # UTLSOLAR-specific OCR damage (mllllon, Unaudlted)
-    text = re.sub(r"(?i)\bmllllon\b|m[il1]{3,5}on\b", "million", text)  # mllllon -> million
-    text = re.sub(r"(?i)\bUnaudlted\b|\bUNAUDlTED\b", "unaudited", text)  # Unaudlted -> unaudited
-    # LaRU -> Lakhs (unit OCR confusion)
+    text = re.sub(r"(?i)\bmllllon\b|m[il1]{3,5}on\b", "million", text)
+    text = re.sub(r"(?i)\bUnaudlted\b|\bUNAUDlTED\b", "unaudited", text)
     text = re.sub(r"(?i)\bin\s+LaRU\b", "in Lakhs", text)
     text = re.sub(r"(?i)\bLaRU\b", "Lakhs", text)
 
@@ -968,8 +964,6 @@ class ExchangePdfParser:
         doc_total_chars = sum(len(t.strip()) for t in cached_page_texts.values())
         best_digital_score = max((sc for _, sc, _ in page_scores), default=0)
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
-        # Fix: threshold raised from 70→85 so cover-letter pages (sc=70, no numeric tables) still trigger OCR
-        # on remaining scanned image pages (INTERARCH: p1=sc70 digital cover, p3-p7 pure image → OCR must fire)
         is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 85)
 
         if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 22.0):
@@ -985,7 +979,6 @@ class ExchangePdfParser:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
                     ocr_page_text = ""
-                    # Prefer rendering composite page image via pdftoppm (handles multi-strip scanned PDFs like INTERARCH)
                     comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=6.0) if tmp_pdf_path else None
                     if comp_img is not None:
                         try:
