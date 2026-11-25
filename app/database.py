@@ -8005,6 +8005,7 @@ def restore_pit_raw_bundle_from_db() -> bool:
 
                             def _latest_fact_period(recs):
                                 best_p = ""
+                                non_null_facts = 0
                                 for r in recs:
                                     if not isinstance(r, dict):
                                         continue
@@ -8012,12 +8013,18 @@ def restore_pit_raw_bundle_from_db() -> bool:
                                     has_facts = (r.get("revenue") is not None or r.get("net_profit") is not None)
                                     if has_facts and p > best_p:
                                         best_p = p
-                                return best_p
+                                    for fk in ("revenue", "net_profit", "operating_cash_flow", "total_debt", "ebit", "eps", "roce", "roe"):
+                                        if r.get(fk) is not None:
+                                            non_null_facts += 1
+                                return best_p, non_null_facts
 
-                            local_best = _latest_fact_period(local_data)
-                            tar_best = _latest_fact_period(tar_data)
+                            local_best, local_facts = _latest_fact_period(local_data)
+                            tar_best, tar_facts = _latest_fact_period(tar_data)
 
-                            if local_best >= tar_best and len(local_data) >= len(tar_data):
+                            if local_best > tar_best and len(local_data) >= len(tar_data) and local_facts >= tar_facts:
+                                skipped_count += 1
+                                continue
+                            if local_best == tar_best and len(local_data) >= len(tar_data) and local_facts > tar_facts:
                                 skipped_count += 1
                                 continue
 
@@ -8029,6 +8036,11 @@ def restore_pit_raw_bundle_from_db() -> bool:
                             }
 
                             modified = False
+                            _MERGE_FACT_KEYS = (
+                                "revenue", "net_profit", "operating_cash_flow", "total_debt",
+                                "total_equity", "ebit", "operating_profit", "eps", "roce", "roe",
+                                "interest_expense", "depreciation", "cash_and_equivalents",
+                            )
                             for tr in tar_data:
                                 if not isinstance(tr, dict):
                                     continue
@@ -8040,12 +8052,10 @@ def restore_pit_raw_bundle_from_db() -> bool:
                                     modified = True
                                 elif tk in local_keys:
                                     loc_r = local_data[local_keys[tk]]
-                                    if loc_r.get("revenue") is None and tr.get("revenue") is not None:
-                                        loc_r["revenue"] = tr.get("revenue")
-                                        modified = True
-                                    if loc_r.get("net_profit") is None and tr.get("net_profit") is not None:
-                                        loc_r["net_profit"] = tr.get("net_profit")
-                                        modified = True
+                                    for fk in _MERGE_FACT_KEYS:
+                                        if loc_r.get(fk) is None and tr.get(fk) is not None:
+                                            loc_r[fk] = tr.get(fk)
+                                            modified = True
 
                             if modified:
                                 with open(dest_path, "w", encoding="utf-8") as out_f:
@@ -8155,6 +8165,143 @@ def restore_stock_data_health_from_db() -> Optional[str]:
     except Exception as e:
         logger.warning(f"⚠️ [STOCK_DATA_HEALTH BOOT] Failed to restore health cache from DB: {e}")
     return None
+
+
+def restore_all_boot_caches_from_db() -> Dict[str, Any]:
+    """
+    [AUTHORITATIVE DB-FIRST BOOT RESTORATION ORCHESTRATOR]
+    On container restart/redeploy, Docker images carry stale files in /app/data/ from git/build time
+    (with mtime = build timestamp). PostgreSQL parquet_cache holds the continuously updated live state.
+
+    This orchestrator runs once on boot and unconditionally restores the latest authoritative DB copies
+    to local disk BEFORE any scanner or dashboard endpoint reads them, seeding DB only if DB has no copy.
+    """
+    import json
+    import shutil
+    from pathlib import Path
+
+    base_dir = Path(__file__).resolve().parent.parent
+    data_dir = base_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    summary: Dict[str, Any] = {"restored": [], "seeded_to_db": [], "errors": []}
+
+    init_db()
+
+    # 1. Watcher state & raw filings bundle
+    try:
+        if restore_filing_watcher_state_from_db():
+            summary["restored"].append("filing_watcher_state")
+    except Exception as e:
+        summary["errors"].append(f"filing_watcher_state: {e}")
+
+    try:
+        if restore_pit_raw_bundle_from_db():
+            summary["restored"].append("pit_raw_bundle")
+    except Exception as e:
+        summary["errors"].append(f"pit_raw_bundle: {e}")
+
+    # 2. Canonical PIT Rebuilt Snapshot (strictly > for local override; DB wins on tie/newer)
+    try:
+        canonical_path = data_dir / "canonical_pit_rebuilt.parquet"
+        if parquet_exists_in_db("canonical_pit_rebuilt"):
+            tmp_canon = str(canonical_path) + ".boot_tmp"
+            if download_parquet_from_db("canonical_pit_rebuilt", tmp_canon):
+                adopt_db = True
+                try:
+                    import pandas as pd
+                    df_db = pd.read_parquet(tmp_canon)
+                    df_local = pd.read_parquet(canonical_path) if canonical_path.exists() else None
+                    if df_local is not None and not df_local.empty and df_db is not None and not df_db.empty:
+                        db_q2 = int((df_db["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in df_db.columns else 0
+                        local_q2 = int((df_local["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in df_local.columns else 0
+                        db_fresh = int((df_db["pit_freshness_status"].astype(str) == "FRESH").sum()) if "pit_freshness_status" in df_db.columns else 0
+                        local_fresh = int((df_local["pit_freshness_status"].astype(str) == "FRESH").sum()) if "pit_freshness_status" in df_local.columns else 0
+                        # Only keep local over DB if local is STRICTLY better (more Q2+ or same Q2+ with more FRESH)
+                        if (local_q2 > db_q2 or (local_q2 == db_q2 and local_fresh > db_fresh)) and len(df_local) >= len(df_db):
+                            adopt_db = False
+                            upload_parquet_to_db("canonical_pit_rebuilt", str(canonical_path))
+                            summary["seeded_to_db"].append("canonical_pit_rebuilt")
+                            logger.info(f"✅ [BOOT_SYNC] Local canonical snapshot strictly newer (Q2: {local_q2}>{db_q2}, FRESH: {local_fresh}>{db_fresh}); upgraded DB.")
+                except Exception as _cmp_err:
+                    logger.debug(f"[BOOT_SYNC] Canonical comparison fallback to DB: {_cmp_err}")
+                if adopt_db:
+                    shutil.move(tmp_canon, str(canonical_path))
+                    summary["restored"].append("canonical_pit_rebuilt")
+                    logger.info("✅ [BOOT_SYNC] Restored authoritative canonical_pit_rebuilt from Postgres DB.")
+                elif os.path.exists(tmp_canon):
+                    os.remove(tmp_canon)
+        elif canonical_path.exists():
+            upload_parquet_to_db("canonical_pit_rebuilt", str(canonical_path))
+            summary["seeded_to_db"].append("canonical_pit_rebuilt")
+    except Exception as e:
+        summary["errors"].append(f"canonical_pit_rebuilt: {e}")
+
+    # 3. Direct DB-authoritative artifacts (DB always overwrites baked Docker files if DB has an entry)
+    direct_artifacts = [
+        ("daily_builder_master_v2", data_dir / "daily_builder_master_v2.parquet", True),
+        ("daily_builder", data_dir / "elite_fundamental_watchlist.parquet", True),
+        ("daily_builder_excluded", data_dir / "elite_fundamental_watchlist_excluded.csv", True),
+        ("pit_fundamentals_v1", data_dir / "pit_fundamentals_v1" / "pit_fundamentals_v1.parquet", True),
+        ("pit_valuation_history_cache", data_dir / "pit_valuation_history_cache.parquet", True),
+        ("bse_security_master", data_dir / "bse_security_master.json", True),
+        ("exchange_watermarks", data_dir / "exchange_watermarks.json", True),
+        ("pit_recovery_status", data_dir / "pit_recovery_status.parquet", True),
+        ("wealth_engine", data_dir / "elite_wealth_system.parquet", True),
+    ]
+
+    for cache_name, dest_path, seed_if_missing_in_db in direct_artifacts:
+        try:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if parquet_exists_in_db(cache_name):
+                tmp_dl = str(dest_path) + ".boot_tmp"
+                if download_parquet_from_db(cache_name, tmp_dl) and os.path.exists(tmp_dl) and os.path.getsize(tmp_dl) > 0:
+                    shutil.move(tmp_dl, str(dest_path))
+                    summary["restored"].append(cache_name)
+                elif os.path.exists(tmp_dl):
+                    os.remove(tmp_dl)
+            elif seed_if_missing_in_db and dest_path.exists() and dest_path.stat().st_size > 0:
+                if upload_parquet_to_db(cache_name, str(dest_path)):
+                    summary["seeded_to_db"].append(cache_name)
+        except Exception as e:
+            summary["errors"].append(f"{cache_name}: {e}")
+
+    # 4. Sync pit_valuation_history_cache.json from restored pit_valuation_history_cache.parquet
+    try:
+        pit_val_pq = data_dir / "pit_valuation_history_cache.parquet"
+        pit_val_json = data_dir / "pit_valuation_history_cache.json"
+        if "pit_valuation_history_cache" in summary["restored"] and pit_val_pq.exists():
+            import pandas as pd
+            df_vc = pd.read_parquet(pit_val_pq)
+            if not df_vc.empty and "symbol" in df_vc.columns:
+                vc_dict = {r["symbol"]: r for r in df_vc.to_dict(orient="records")}
+                both_c = sum(
+                    1 for r in vc_dict.values()
+                    if (r.get("ev_ebitda_3y_median") is not None and not pd.isna(r.get("ev_ebitda_3y_median")) and float(r.get("ev_ebitda_3y_median") or 0) > 0)
+                    and (r.get("pe_3y_median") is not None and not pd.isna(r.get("pe_3y_median")) and float(r.get("pe_3y_median") or 0) > 0)
+                )
+                cert_st = "CERTIFIED" if both_c == len(vc_dict) and len(vc_dict) > 0 else "PARTIAL_INCOMPLETE"
+                with open(pit_val_json, "w", encoding="utf-8") as f_vc:
+                    json.dump({
+                        "generated_at": datetime.now(IST).isoformat(),
+                        "total_symbols": len(vc_dict),
+                        "both_required_complete_count": both_c,
+                        "certification_status": cert_st,
+                        "data": vc_dict,
+                    }, f_vc, indent=2, default=str)
+                summary["restored"].append("pit_valuation_history_cache_json")
+    except Exception as e:
+        summary["errors"].append(f"pit_valuation_history_cache_json: {e}")
+
+    # 5. Invalidate all in-memory caches so readers pick up restored files immediately
+    clear_canonical_snapshot_cache()
+    clear_unified_stock_data_health_cache()
+
+    logger.info(
+        f"✅ [BOOT_SYNC] Authoritative DB boot restore complete | "
+        f"Restored={len(summary['restored'])} ({', '.join(summary['restored'])}) | "
+        f"SeededToDB={len(summary['seeded_to_db'])} | Errors={len(summary['errors'])}"
+    )
+    return summary
 
 
 
@@ -11452,6 +11599,14 @@ def clear_unified_stock_data_health_cache() -> None:
             clear_shared_snapshot_cache()
         except Exception:
             pass
+    try:
+        import sys as _sys
+        for _mod_name in ("app.wealth_engine", "wealth_engine"):
+            _we_mod = _sys.modules.get(_mod_name)
+            if _we_mod and hasattr(_we_mod, "clear_orphan_fundamental_cache"):
+                _we_mod.clear_orphan_fundamental_cache()
+    except Exception:
+        pass
     # Invalidate dashboard server caches across both possible module names
     import sys
     for mod_name in ("dashboard_server", "app.dashboard_server"):

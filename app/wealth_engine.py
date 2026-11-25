@@ -1295,6 +1295,14 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
 # Cached DataFrames in module-level memory for fast 0ms lookups in 5m intraday loop
 _orphan_fundamental_cache = {}
 _orphan_cache_timestamp = 0.0
+_orphan_cache_mtimes: Dict[str, float] = {}
+
+def clear_orphan_fundamental_cache() -> None:
+    """Atomically invalidates the in-memory orphan fundamental cache."""
+    global _orphan_fundamental_cache, _orphan_cache_timestamp, _orphan_cache_mtimes
+    _orphan_fundamental_cache = {}
+    _orphan_cache_timestamp = 0.0
+    _orphan_cache_mtimes = {}
 
 def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
     """
@@ -1338,22 +1346,40 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
     # 1. Search in cached local universe DataFrames
     found_row_dict = None
 
-    # Load / refresh local parquet cache if older than 15 minutes
-    global _orphan_fundamental_cache, _orphan_cache_timestamp
+    # Load / refresh local parquet cache if any file mtime changed, cache is empty, or older than 15 minutes
+    global _orphan_fundamental_cache, _orphan_cache_timestamp, _orphan_cache_mtimes
+    _orphan_sources = [
+        "daily_builder_master_v2.parquet",           # PRIMARY: full tracked universe — always first
+        "temp_universe.parquet",
+        "elite_universe_v2.parquet",
+        "near_qualified_v2.parquet",
+        "elite_fundamental_watchlist_excluded.csv",
+    ]
+    # If primary master parquet is missing locally, attempt DB restore before building cache
+    _primary_master_path = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+    if not os.path.exists(_primary_master_path):
+        try:
+            from database import download_parquet_from_db
+            download_parquet_from_db("daily_builder_master_v2", _primary_master_path)
+        except Exception:
+            pass
+
+    current_mtimes = {
+        fname: (os.path.getmtime(os.path.join(DATA_DIR, fname)) if os.path.exists(os.path.join(DATA_DIR, fname)) else 0.0)
+        for fname in _orphan_sources
+    }
     now_mono = time.monotonic()
-    if now_mono - _orphan_cache_timestamp > 900 or not _orphan_fundamental_cache:
+    if (
+        not _orphan_fundamental_cache
+        or current_mtimes != _orphan_cache_mtimes
+        or (now_mono - _orphan_cache_timestamp > 900)
+    ):
         # Fast vectorized dataframe dictionary conversion instead of slow row-by-row iterrows() loop
         # daily_builder_master_v2.parquet is listed FIRST — it covers the entire tracked universe (860+ symbols)
         # and is the authoritative fundamental data source for all open positions.
         # The other files cover subsets only (elite/near-qualified watchlists, excluded list).
         merged_cache = {}
-        for fname in [
-            "daily_builder_master_v2.parquet",           # PRIMARY: full tracked universe — always first
-            "temp_universe.parquet",
-            "elite_universe_v2.parquet",
-            "near_qualified_v2.parquet",
-            "elite_fundamental_watchlist_excluded.csv",
-        ]:
+        for fname in _orphan_sources:
             fpath = os.path.join(DATA_DIR, fname)
             if os.path.exists(fpath):
                 try:
@@ -1379,6 +1405,7 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
                     logger.debug(f"Could not read {fname} for orphan cache: {_ce}")
         _orphan_fundamental_cache = merged_cache
         _orphan_cache_timestamp = now_mono
+        _orphan_cache_mtimes = current_mtimes
 
     for key in possible_keys:
         if key in _orphan_fundamental_cache:

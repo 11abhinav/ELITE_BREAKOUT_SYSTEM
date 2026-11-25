@@ -596,35 +596,79 @@ def run_performance_tracker():
         time.sleep(2400)  # [ARCHITECTURAL FIX v2] Increased from 15m (900) to 40m (2400) to match actual PT run duration (~30 min). Prevents trigger storm where watchdog fires again before the previous run finishes.
 
 _watchlist_build_lock = threading.Lock()
+_boot_watchlist_db_synced = False
 
 def verify_watchlist_is_pristine() -> bool:
     """
     Check if local disk has today's watchlist.
-    Logic: Cache → DB (today) → Delete stale from DB → Fresh rebuild → Save to DB → Start scanner
+    Logic: On first boot in process, ALWAYS restore latest from DB first so baked Docker files
+    never shadow live DB state. Thereafter: Cache → DB → Fresh rebuild.
     """
+    global _boot_watchlist_db_synced
     from config import WATCHLIST_PATH
     import pandas as pd
-    from database import download_parquet_from_db_today, delete_stale_parquet_from_db
+    from database import download_parquet_from_db_today, download_parquet_from_db, upload_parquet_to_db, parquet_exists_in_db
     import os
     
     now = datetime.now(IST)
     today_str = now.strftime("%Y-%m-%d")
-    
-    def is_disk_fresh():
-        """Returns True if local disk has watchlist from today."""
-        if not os.path.exists(WATCHLIST_PATH): return False
-        try:
-            df = pd.read_parquet(WATCHLIST_PATH)
-            if "Scan Time" in df.columns and not df.empty:
-                scan_date_str = str(df["Scan Time"].iloc[0])[:10]
-                scan_date = datetime.strptime(scan_date_str, "%Y-%m-%d").date()
-                return scan_date >= now.date()
-        except Exception:
-            pass
-        return False
 
     with _watchlist_build_lock:
-        # STEP 1: Check if local file exists and is usable (valid parquet with symbols)
+        # STEP 1: On first check in this process, always sync authoritative DB copies first
+        if not _boot_watchlist_db_synced:
+            _boot_watchlist_db_synced = True
+            db_master_v2 = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+            if parquet_exists_in_db("daily_builder_master_v2"):
+                try:
+                    download_parquet_from_db("daily_builder_master_v2", db_master_v2)
+                except Exception:
+                    pass
+            elif os.path.exists(db_master_v2) and os.path.getsize(db_master_v2) > 0:
+                try:
+                    upload_parquet_to_db("daily_builder_master_v2", db_master_v2)
+                except Exception:
+                    pass
+
+            pit_val_json = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
+            pit_val_parquet = os.path.join(DATA_DIR, "pit_valuation_history_cache.parquet")
+            if parquet_exists_in_db("pit_valuation_history_cache"):
+                try:
+                    if download_parquet_from_db("pit_valuation_history_cache", pit_val_parquet):
+                        _df_vc = pd.read_parquet(pit_val_parquet)
+                        if not _df_vc.empty and "symbol" in _df_vc.columns:
+                            _vc_dict = {r["symbol"]: r for r in _df_vc.to_dict(orient="records")}
+                            _b_c = sum(1 for r in _vc_dict.values() if (r.get('ev_ebitda_3y_median') is not None and not pd.isna(r.get('ev_ebitda_3y_median')) and float(r.get('ev_ebitda_3y_median') or 0) > 0) and (r.get('pe_3y_median') is not None and not pd.isna(r.get('pe_3y_median')) and float(r.get('pe_3y_median') or 0) > 0))
+                            _c_st = "CERTIFIED" if _b_c == len(_vc_dict) and len(_vc_dict) > 0 else "PARTIAL_INCOMPLETE"
+                            with open(pit_val_json, "w") as _f_vc:
+                                json.dump({
+                                    "total_symbols": len(_vc_dict),
+                                    "both_required_complete_count": _b_c,
+                                    "certification_status": _c_st,
+                                    "data": _vc_dict
+                                }, _f_vc, indent=2)
+                            logger.info(f"✅ [DB] Synced {len(_vc_dict)} PIT valuation medians from DB on boot")
+                except Exception as _vc_err:
+                    logger.debug(f"PIT valuation DB restore notice: {_vc_err}")
+            elif os.path.exists(pit_val_parquet) and os.path.getsize(pit_val_parquet) > 0:
+                try:
+                    upload_parquet_to_db("pit_valuation_history_cache", pit_val_parquet)
+                except Exception:
+                    pass
+
+            if parquet_exists_in_db("daily_builder"):
+                try:
+                    if download_parquet_from_db("daily_builder", WATCHLIST_PATH):
+                        exclusion_path = WATCHLIST_PATH.replace(".parquet", "_excluded.csv")
+                        if parquet_exists_in_db("daily_builder_excluded"):
+                            download_parquet_from_db("daily_builder_excluded", exclusion_path)
+                        from watchlist_cache import get_watchlist
+                        get_watchlist()
+                        logger.info("✅ [DB] Watchlist synced from authoritative DB cache on boot.")
+                        return True
+                except Exception:
+                    pass
+
+        # STEP 2: Check if local file exists and is usable (valid parquet with symbols)
         if os.path.exists(WATCHLIST_PATH):
             try:
                 df = pd.read_parquet(WATCHLIST_PATH)
@@ -637,50 +681,6 @@ def verify_watchlist_is_pristine() -> bool:
                 pass
         
         logger.warning(f"⚠️ [CACHE] Local disk missing/invalid watchlist. Checking DB for latest watchlist data...")
-        
-        # STEP 2: Restore latest watchlist from DB (today first, then fallback to most recent)
-        from database import download_parquet_from_db_today, download_parquet_from_db, upload_parquet_to_db
-        db_master_v2 = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
-        if not os.path.exists(db_master_v2):
-            try:
-                download_parquet_from_db_today("daily_builder_master_v2", db_master_v2) or download_parquet_from_db("daily_builder_master_v2", db_master_v2)
-            except Exception:
-                pass
-        elif os.path.exists(db_master_v2) and os.path.getsize(db_master_v2) > 0:
-            try:
-                upload_parquet_to_db("daily_builder_master_v2", db_master_v2)
-            except Exception:
-                pass
-
-        # Restore PIT valuation history cache from DB if missing locally
-        pit_val_json = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
-        pit_val_parquet = os.path.join(DATA_DIR, "pit_valuation_history_cache.parquet")
-        if not os.path.exists(pit_val_json) or os.path.getsize(pit_val_json) == 0:
-            try:
-                if download_parquet_from_db_today("pit_valuation_history_cache", pit_val_parquet) or download_parquet_from_db("pit_valuation_history_cache", pit_val_parquet):
-                    import pandas as _pd
-                    _df_vc = _pd.read_parquet(pit_val_parquet)
-                    if not _df_vc.empty and "symbol" in _df_vc.columns:
-                        _vc_dict = {r["symbol"]: r for r in _df_vc.to_dict(orient="records")}
-                        _b_c = sum(1 for r in _vc_dict.values() if (r.get('ev_ebitda_3y_median') is not None and not pd.isna(r.get('ev_ebitda_3y_median')) and float(r.get('ev_ebitda_3y_median') or 0) > 0) and (r.get('pe_3y_median') is not None and not pd.isna(r.get('pe_3y_median')) and float(r.get('pe_3y_median') or 0) > 0))
-                        _c_st = "CERTIFIED" if _b_c == len(_vc_dict) and len(_vc_dict) > 0 else "PARTIAL_INCOMPLETE"
-                        with open(pit_val_json, "w") as _f_vc:
-                            json.dump({
-                                "total_symbols": len(_vc_dict),
-                                "both_required_complete_count": _b_c,
-                                "certification_status": _c_st,
-                                "data": _vc_dict
-                            }, _f_vc, indent=2)
-                        _c_icon = "✅" if _c_st == "CERTIFIED" else "⚠️"
-                        logger.info(f"{_c_icon} [DB] Restored {len(_vc_dict)} PIT valuation medians from database | certification_status={_c_st} | both_required={_b_c}/{len(_vc_dict)}")
-            except Exception as _vc_err:
-                logger.debug(f"PIT valuation DB restore notice: {_vc_err}")
-        elif os.path.exists(pit_val_parquet) and os.path.getsize(pit_val_parquet) > 0:
-            try:
-                upload_parquet_to_db("pit_valuation_history_cache", pit_val_parquet)
-            except Exception:
-                pass
-
         if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH) or download_parquet_from_db("daily_builder", WATCHLIST_PATH):
             if os.path.exists(WATCHLIST_PATH):
                 logger.info(f"✅ [DB] Watchlist successfully restored from DB to local disk.")
@@ -1288,16 +1288,16 @@ def run_system_scheduler():
                 if not local_canonical_valid or _df_local is None:
                     adopt_db = True
                 else:
-                    # Never-downgrade comparison: check Q2+ period count and symbol count
+                    # Never-downgrade comparison: check Q2+ period count, FRESH count, and symbol count
                     local_q2 = int((_df_local["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in _df_local.columns else 0
                     db_q2 = int((_df_db["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if "latest_quarterly_period" in _df_db.columns else 0
+                    local_fresh = int((_df_local["pit_freshness_status"].astype(str) == "FRESH").sum()) if "pit_freshness_status" in _df_local.columns else 0
+                    db_fresh = int((_df_db["pit_freshness_status"].astype(str) == "FRESH").sum()) if "pit_freshness_status" in _df_db.columns else 0
 
-                    if db_q2 > local_q2 or (db_q2 == local_q2 and len(_df_db) >= len(_df_local)):
-                        adopt_db = True
-                    elif local_q2 > db_q2:
+                    if local_q2 > db_q2 or (local_q2 == db_q2 and local_fresh > db_fresh):
                         logger.info(
-                            f"🛡️ [CANONICAL BOOT] Local certified image snapshot is newer/superior "
-                            f"(local_q2={local_q2} vs db_q2={db_q2}). "
+                            f"🛡️ [CANONICAL BOOT] Local certified image snapshot is strictly newer/superior "
+                            f"(local_q2={local_q2} vs db_q2={db_q2}, local_fresh={local_fresh} vs db_fresh={db_fresh}). "
                             f"Preserving local snapshot and synchronizing up to DB."
                         )
                         upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
@@ -1409,32 +1409,13 @@ def run_system_scheduler():
                 except Exception as _pit_dl_err:
                     logger.debug(f"PIT fundamentals DB restore notice: {_pit_dl_err}")
 
-            # Step 3: Restore or on-fly-build pit_valuation_history_cache
+            # Step 3: Restore pit_valuation_history_cache from DB first (never let baked Docker file overwrite DB)
             pit_val_json = os.path.join(DATA_DIR, "pit_valuation_history_cache.json")
             pit_val_parquet = os.path.join(DATA_DIR, "pit_valuation_history_cache.parquet")
-            cache_missing = not os.path.exists(pit_val_json) or os.path.getsize(pit_val_json) == 0
-
-            if not cache_missing:
-                # Cache exists locally → upload to DB so containers can restore it
-                import json as _json
+            db_restored = False
+            if parquet_exists_in_db("pit_valuation_history_cache"):
                 try:
-                    with open(pit_val_json) as _f_vc:
-                        _vc_payload = _json.load(_f_vc)
-                    _vc_data = _vc_payload.get("data", {})
-                    if _vc_data:
-                        import pandas as _pd_vc
-                        _df_vc_up = _pd_vc.DataFrame(list(_vc_data.values()))
-                        _df_vc_up.to_parquet(pit_val_parquet, index=False)
-                        upload_parquet_to_db("pit_valuation_history_cache", pit_val_parquet)
-                        logger.info(f"⚡ [PIT BOOT] Uploaded {len(_vc_data)} valuation medians to DB parquet_cache")
-                except Exception as _vc_up_err:
-                    logger.debug(f"Valuation cache upload notice: {_vc_up_err}")
-            else:
-                # Cache missing locally → try DB restore first
-                db_restored = False
-                try:
-                    if download_parquet_from_db_today("pit_valuation_history_cache", pit_val_parquet) or \
-                       download_parquet_from_db("pit_valuation_history_cache", pit_val_parquet):
+                    if download_parquet_from_db("pit_valuation_history_cache", pit_val_parquet):
                         import pandas as _pd_vc
                         import json as _json
                         _df_vc = _pd_vc.read_parquet(pit_val_parquet)
@@ -1448,7 +1429,23 @@ def run_system_scheduler():
                 except Exception as _vc_dl_err:
                     logger.debug(f"Valuation cache DB restore notice: {_vc_dl_err}")
 
-                if not db_restored:
+            if not db_restored:
+                cache_missing = not os.path.exists(pit_val_json) or os.path.getsize(pit_val_json) == 0
+                if not cache_missing:
+                    import json as _json
+                    try:
+                        with open(pit_val_json) as _f_vc:
+                            _vc_payload = _json.load(_f_vc)
+                        _vc_data = _vc_payload.get("data", {})
+                        if _vc_data:
+                            import pandas as _pd_vc
+                            _df_vc_up = _pd_vc.DataFrame(list(_vc_data.values()))
+                            _df_vc_up.to_parquet(pit_val_parquet, index=False)
+                            upload_parquet_to_db("pit_valuation_history_cache", pit_val_parquet)
+                            logger.info(f"⚡ [PIT BOOT] Seeded {len(_vc_data)} valuation medians to empty DB parquet_cache")
+                    except Exception as _vc_up_err:
+                        logger.debug(f"Valuation cache upload notice: {_vc_up_err}")
+                else:
                     # DB also empty → build from 1D history + PIT filings (self-healing)
                     try:
                         from pit_valuation_history_builder import build_pit_valuation_history
@@ -2600,49 +2597,19 @@ if __name__ == "__main__":
 
             # [AUTHORITATIVE DB RESTORATION PROTOCOL]
             # Container disk is ephemeral on restarts/deploys. PostgreSQL contains the authoritative,
-            # continuously processed filings and canonical state. Unconditionally restore DB state first!
+            # continuously processed filings and canonical state. Unconditionally restore ALL DB state first!
             try:
-                restore_filing_watcher_state_from_db()
-                restore_pit_raw_bundle_from_db()
-
-                canonical_path = os.path.join(DATA_DIR, "canonical_pit_rebuilt.parquet")
-                if parquet_exists_in_db("canonical_pit_rebuilt"):
-                    tmp_db_canon = canonical_path + ".boot_tmp"
-                    if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_canon):
-                        try:
-                            import pandas as pd
-                            df_db = pd.read_parquet(tmp_db_canon)
-                            df_local = pd.read_parquet(canonical_path) if os.path.exists(canonical_path) else None
-
-                            db_q2 = int((df_db["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if (df_db is not None and "latest_quarterly_period" in df_db.columns) else 0
-                            local_q2 = int((df_local["latest_quarterly_period"].astype(str) >= "2026-09-30").sum()) if (df_local is not None and "latest_quarterly_period" in df_local.columns) else 0
-
-                            if df_local is not None and not df_local.empty and local_q2 >= db_q2 and len(df_local) >= len(df_db):
-                                upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                                logger.info(f"✅ [BOOT] Preserved newer local canonical snapshot (Q2 count: {local_q2} >= DB: {db_q2}). Upgraded DB cache.")
-                                if os.path.exists(tmp_db_canon):
-                                    os.remove(tmp_db_canon)
-                            else:
-                                shutil.move(tmp_db_canon, canonical_path)
-                                logger.info(f"✅ [BOOT] Adopted authoritative canonical_pit_rebuilt from Postgres DB (DB Q2: {db_q2} > local: {local_q2}).")
-                        except Exception as _cmp_err:
-                            logger.warning(f"[BOOT] Parquet comparison error ({_cmp_err}). Adopting DB copy.")
-                            shutil.move(tmp_db_canon, canonical_path)
-
-                        clear_canonical_snapshot_cache()
-                        try:
-                            from app.financial_data_integrity import set_financial_snapshot_status, FinancialSnapshotStatus
-                            set_financial_snapshot_status(FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER, {
-                                "source": "POSTGRES_DB_SNAPSHOT",
-                                "adopted_at": datetime.now(IST).isoformat(),
-                            }, data_dir=DATA_DIR)
-                        except Exception as _meta_e:
-                            logger.debug(f"Meta status write error: {_meta_e}")
-                elif os.path.exists(canonical_path):
-                    upload_parquet_to_db("canonical_pit_rebuilt", canonical_path)
-                    logger.info("✅ [BOOT] Initialized DB parquet cache from local canonical snapshot.")
-
-                clear_unified_stock_data_health_cache()
+                from database import restore_all_boot_caches_from_db
+                boot_sync_res = restore_all_boot_caches_from_db()
+                try:
+                    from app.financial_data_integrity import set_financial_snapshot_status, FinancialSnapshotStatus
+                    set_financial_snapshot_status(FinancialSnapshotStatus.SNAPSHOT_READY_FOR_SCANNER, {
+                        "source": "POSTGRES_DB_BOOT_SYNC",
+                        "adopted_at": datetime.now(IST).isoformat(),
+                        "restored": boot_sync_res.get("restored", []),
+                    }, data_dir=DATA_DIR)
+                except Exception as _meta_e:
+                    logger.debug(f"Meta status write error: {_meta_e}")
 
                 # [CRASH-RECOVERY INVARIANT]: Reconcile Authoritative DB Outbox with Alerts Parquet on Boot
                 try:

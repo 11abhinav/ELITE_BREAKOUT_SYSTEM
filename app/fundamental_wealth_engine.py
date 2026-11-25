@@ -605,15 +605,19 @@ class FundamentalWealthEngine:
             watchlist_counts[wl_name] = len(wl_df)
             logger.info(f"   📋 [WATCHLIST] {wl_name}: {len(wl_df)} candidates")
 
-        # 3. Database Backup in Background
+        # 3. Database Backup in Background (both relational table AND binary parquet_cache)
         try:
-            from database import submit_background_upload, save_df_to_table
+            from database import submit_background_upload, save_df_to_table, upload_parquet_to_db
             def _bg_db_backup(df_copy):
                 try:
                     save_df_to_table("daily_builder_master_v2", df_copy)
-                    logger.info("☁️ [DB] Successfully backed up daily_builder_master_v2 to PostgreSQL.")
+                    logger.info("☁️ [DB] Successfully backed up daily_builder_master_v2 table to PostgreSQL.")
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to upload daily_builder_master_v2 to PostgreSQL: {e}")
+                    logger.warning(f"⚠️ Failed to upload daily_builder_master_v2 table to PostgreSQL: {e}")
+                try:
+                    upload_parquet_to_db("daily_builder_master_v2", MASTER_OUTPUT_PARQUET)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to upload daily_builder_master_v2 parquet to DB cache: {e}")
             submit_background_upload(_bg_db_backup, master_df.copy())
         except Exception as e:
             logger.warning(f"Background DB submission not available: {e}")

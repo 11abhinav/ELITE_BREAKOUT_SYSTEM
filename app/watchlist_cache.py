@@ -13,6 +13,7 @@ IST = ZoneInfo("Asia/Kolkata")
 # The watchlist dataset is managed by DatasetRegistry
 # We still keep the file date logic for now.
 _watchlist_date = None
+_watchlist_mtime = 0.0
 
 class StaleWatchlistError(Exception):
     """Raised when watchlist parquet file modification date is older than today's 00:00 IST."""
@@ -45,7 +46,8 @@ def validate_watchlist_freshness(require_fresh: bool = False) -> bool:
     return True
 
 def get_watchlist(requester: object = None, require_fresh: bool = False) -> pd.DataFrame:
-    global _watchlist_date
+    global _watchlist_date, _watchlist_mtime
+    import os
     from data_registry import registry
     current_date = datetime.now(IST).date()
     
@@ -58,13 +60,13 @@ def get_watchlist(requester: object = None, require_fresh: bool = False) -> pd.D
         validate_watchlist_freshness(require_fresh=require_fresh)
 
     _NON_EQUITY_BLOCKLIST = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
+    disk_mtime = os.path.getmtime(WATCHLIST_PATH) if os.path.exists(WATCHLIST_PATH) else 0.0
     cache = registry.get("watchlist")
-    if cache is not None and _watchlist_date == current_date:
+    if cache is not None and _watchlist_date == current_date and (disk_mtime == 0.0 or disk_mtime == _watchlist_mtime):
         if "Stock" in cache.columns:
             cache = cache[~cache["Stock"].str.upper().isin(_NON_EQUITY_BLOCKLIST)].copy()
         return cache.copy()
 
-    import os
     if os.path.exists(WATCHLIST_PATH) and os.path.getsize(WATCHLIST_PATH) > 0:
         try:
             df = pd.read_parquet(WATCHLIST_PATH)
@@ -73,6 +75,7 @@ def get_watchlist(requester: object = None, require_fresh: bool = False) -> pd.D
                     df = df[~df["Stock"].str.upper().isin(_NON_EQUITY_BLOCKLIST)].copy()
                 registry.put("watchlist", df)
                 _watchlist_date = current_date
+                _watchlist_mtime = os.path.getmtime(WATCHLIST_PATH)
                 logger.info(f"📁 Watchlist loaded into DatasetRegistry ({len(df)} symbols)")
                 return df.copy()
         except Exception as e:

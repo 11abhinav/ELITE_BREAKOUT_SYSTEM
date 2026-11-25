@@ -2043,6 +2043,19 @@ def record_source_watermark(
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             os.replace(tmp_path, wm_path)
+            # Debounced background upload to Postgres DB parquet_cache (at most once per 60s)
+            global _LAST_WATERMARK_DB_UPLOAD_TS
+            now_wm_ts = time.time()
+            if now_wm_ts - globals().get("_LAST_WATERMARK_DB_UPLOAD_TS", 0.0) >= 60.0:
+                _LAST_WATERMARK_DB_UPLOAD_TS = now_wm_ts
+                try:
+                    try:
+                        from app.database import submit_background_upload, upload_parquet_to_db
+                    except ImportError:
+                        from database import submit_background_upload, upload_parquet_to_db
+                    submit_background_upload(lambda: upload_parquet_to_db("exchange_watermarks", wm_path))
+                except Exception:
+                    pass
         except Exception:
             if os.path.exists(tmp_path):
                 try:
