@@ -1,7 +1,7 @@
 {
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-25T09:34:57.882160+05:30",
+    "last_successful_check_at": "2026-11-25T09:39:07.630990+05:30",
     "latest_filing_timestamp": "31-Oct-2026 23:41:04",
     "symbols": {
       "CANON_CONT": {
@@ -143,7 +143,8 @@
         "last_successful_check_at": "2026-10-18T22:21:30.573507"
       },
       "MONOLITH": {
-        "last_successful_check_at": "2026-10-18T22:21:44.163920"
+        "last_successful_check_at": "2026-11-25T09:42:01.481008",
+        "latest_filing_timestamp": "25-Jul-2026 19:49:48"
       },
       "NINSYS": {
         "last_successful_check_at": "2026-11-25T09:31:32.448148",
@@ -202,7 +203,8 @@
         "last_successful_check_at": "2026-10-19T11:49:21.756078"
       },
       "MOLDTKPAC": {
-        "last_successful_check_at": "2026-10-15T20:25:51.998551"
+        "last_successful_check_at": "2026-11-25T09:41:29.045363",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "VIMTALABS": {
         "last_successful_check_at": "2026-11-24T21:20:16.485779",
@@ -215,7 +217,8 @@
         "last_successful_check_at": "2026-10-21T07:51:23.696443"
       },
       "MOIL": {
-        "last_successful_check_at": "2026-10-21T21:11:58.825265"
+        "last_successful_check_at": "2026-11-25T09:41:57.330188",
+        "latest_filing_timestamp": "2026-09-30"
       },
       "INFY": {
         "last_successful_check_at": "2026-10-24T19:12:47.068335"
@@ -1718,12 +1721,80 @@
       "NCC": {
         "last_successful_check_at": "2026-11-25T09:37:43.016311",
         "latest_filing_timestamp": "2026-11-06T14:43:24.597"
+      },
+      "MOTHERSON": {
+        "last_successful_check_at": "2026-11-25T09:41:02.950443",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MRPL": {
+        "last_successful_check_at": "2026-11-25T09:41:10.279651",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MONARCH": {
+        "last_successful_check_at": "2026-11-25T09:41:16.428664",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MGL": {
+        "last_successful_check_at": "2026-11-25T09:41:20.737035",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MIDHANI": {
+        "last_successful_check_at": "2026-11-25T09:41:23.946294",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MPHASIS": {
+        "last_successful_check_at": "2026-11-25T09:41:26.239062",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MONTECARLO": {
+        "last_successful_check_at": "2026-11-25T09:41:32.368760",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MPSLTD": {
+        "last_successful_check_at": "2026-11-25T09:41:37.624908",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MTARTECH": {
+        "last_successful_check_at": "2026-11-25T09:41:41.628229",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MIDWESTLTD": {
+        "last_successful_check_at": "2026-11-25T09:41:44.910546",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MOSCHIP": {
+        "last_successful_check_at": "2026-11-25T09:41:48.751715",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MSTCLTD": {
+        "last_successful_check_at": "2026-11-25T09:41:52.517865",
+        "latest_filing_timestamp": "2026-06-30"
+      },
+      "MINDACORP": {
+        "last_successful_check_at": "2026-11-25T09:41:54.961808",
+        "latest_filing_timestamp": "2026-06-30"
+      },
+      "MRF": {
+        "last_successful_check_at": "2026-11-25T09:41:59.397185",
+        "latest_filing_timestamp": "2026-09-30"
+      },
+      "MMFL": {
+        "last_successful_check_at": "2026-11-25T09:42:03.335220",
+        "latest_filing_timestamp": "2026-11-13T15:58:46.207"
+      },
+      "MOTILALOFS": {
+        "last_successful_check_at": "2026-11-25T09:42:06.734267",
+        "latest_filing_timestamp": "29-Oct-2026 17:51:54"
+      },
+      "MHRIL": {
+        "last_successful_check_at": "2026-11-25T09:42:10.320562",
+        "latest_filing_timestamp": "27-Oct-2026 11:29:38"
       }
     }
   },
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-25T09:34:57.882160+05:30",
+    "last_successful_check_at": "2026-11-25T09:39:07.630990+05:30",
     "latest_filing_timestamp": "2026-10-03T21:00:00+05:30",
     "symbols": {
       "CANON_CONT": {

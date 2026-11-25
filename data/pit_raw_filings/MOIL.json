@@ -1045,5 +1045,41 @@
     "broadcast_timestamp": "29-Jul-2026 16:41:51",
     "exchange": "NSE",
     "filing_id": "NSE_PDF_MOIL_106715470_2026-06-30"
+  },
+  {
+    "symbol": "MOIL",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 369.1328,
+    "net_profit": 61.7776,
+    "operating_profit": null,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-02",
+    "broadcast_timestamp": "02-Nov-2026 16:16:57",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_MOIL_106839743_2026-09-30"
+  },
+  {
+    "symbol": "MOIL",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "CONSOLIDATED",
+    "revenue": 369.1328,
+    "net_profit": 61.7746,
+    "operating_profit": null,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-11-02",
+    "broadcast_timestamp": "02-Nov-2026 16:16:57",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_MOIL_106839743_2026-09-30"
   }
 ]
