@@ -1340,6 +1340,11 @@ class ExchangePdfParser:
 
                 nums = []
                 for t in tokens:
+                    if t.count(".") >= 2:
+                        continue
+                    t_digits = re.sub(r"[,()\s]", "", t)
+                    if re.match(r"^(?:28|29|30|31)(?:0[1-9]|1[0-2])?202\d$", t_digits) or re.match(r"^202\d(?:0[1-9]|1[0-2])(?:28|29|30|31)$", t_digits):
+                        continue
                     cl_val = _clean_token_number(t)
                     if cl_val is not None:
                         if "." not in t and 2020 <= cl_val <= 2030 and abs(cl_val - int(cl_val)) < 1e-6:
@@ -1838,19 +1843,21 @@ class ExchangePdfParser:
                                 break
 
                 if period_end and len(period_end) == 10:
+                    # Require explicit currency/scale unit (crore/cr/lakh/million) and reject percentages (%)
+                    # so prose like "Revenue grew 2.0%" or "PAT up 7.56%" is never misread as Crores.
                     pr_pat_m = re.search(
-                        r"(?:consolidated\s+)?profit after tax[^:\d\n]{0,35}[:\s]+(?:₹|rs\.?)?\s*([\d,]+\.?\d*)\s*(crore|cr|lakh|million)?",
+                        r"(?:consolidated\s+)?profit after tax[^:\d\n%]{0,35}[:\s]+(?:₹|rs\.?\s*)?([\d,]+\.?\d*)\s*(crores?|cr\.?|lakhs?|lacs?|millions?|mn)\b(?!\s*%)",
                         clean_doc, re.I
                     )
                     pr_rev_m = re.search(
-                        r"(?:consolidated\s+)?revenue\d?[^:\d\n]{0,35}[:\s]+(?:₹|rs\.?)?\s*([\d,]+\.?\d*)\s*(crore|cr|lakh|million)?",
+                        r"(?:consolidated\s+)?revenue(?:\s+from\s+operations)?[^:\d\n%]{0,35}[:\s]+(?:₹|rs\.?\s*)?([\d,]+\.?\d*)\s*(crores?|cr\.?|lakhs?|lacs?|millions?|mn)\b(?!\s*%)",
                         clean_doc, re.I
                     )
                     if pr_pat_m and pr_rev_m:
                         pat_val = _clean_token_number(pr_pat_m.group(1))
                         rev_val = _clean_token_number(pr_rev_m.group(1))
-                        pat_unit = (pr_pat_m.group(2) or "crore").lower()
-                        rev_unit = (pr_rev_m.group(2) or "crore").lower()
+                        pat_unit = (pr_pat_m.group(2) or "").lower()
+                        rev_unit = (pr_rev_m.group(2) or "").lower()
 
                         def _pr_mult(u: str) -> float:
                             if "lakh" in u:
