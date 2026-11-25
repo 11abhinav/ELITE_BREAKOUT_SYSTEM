@@ -690,7 +690,7 @@ class NseXbrlProvider:
         """GET corporate results. Per user directive: Directly tries ScraperAPI first. Only if scraper token not working, falls back to direct NSE session."""
         global _LAST_REQUEST_TIME, _CONSECUTIVE_TIMEOUTS, _CIRCUIT_BREAKER_UNTIL
 
-        is_bulk = symbol.startswith("MARKET_") or "corporate-announcements" in url or "period=" in url
+        is_bulk = symbol.startswith("MARKET_") or (("corporate-announcements" in url or "period=" in url) and "symbol=" not in url)
         effective_timeout = timeout or (_BULK_TIMEOUT if is_bulk else _TIMEOUT)
         scraper_timeout = 20 if is_bulk else 8  # Allow 20s for chunked bulk sweeps; cap per-symbol at 8s
 

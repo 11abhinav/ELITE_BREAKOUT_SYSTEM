@@ -881,8 +881,12 @@ class FinancialFilingWatcher:
                     from database import upload_parquet_to_db, upload_pit_raw_bundle_to_db
                 if SNAPSHOT_PATH.exists():
                     upload_parquet_to_db("canonical_pit_rebuilt", str(SNAPSHOT_PATH))
-                upload_pit_raw_bundle_to_db()
-                logger.info("💾 [filling scanner] Uploaded latest canonical snapshot & raw filings bundle to Postgres DB.")
+                # Upload full 892-file raw bundle only for broad/batch rebuilds; small per-symbol deltas sync via sync_raw_filings_cache_for_symbol
+                if not target_list or len(target_list) >= 15:
+                    upload_pit_raw_bundle_to_db()
+                    logger.info("💾 [filling scanner] Uploaded latest canonical snapshot & raw filings bundle to Postgres DB.")
+                else:
+                    logger.info(f"💾 [filling scanner] Uploaded incremental canonical snapshot ({len(target_list)} symbols) to Postgres DB.")
             except Exception as _db_up_err:
                 logger.warning(f"[filling scanner] DB snapshot upload notice: {_db_up_err}")
 
@@ -992,8 +996,8 @@ class FinancialFilingWatcher:
         targeted_symbols_set = {str(s).strip().upper() for s in target_symbols} if (target_symbols and len(target_symbols) < len(self.approved_symbols)) else set()
 
         if max_workers is None:
-            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "30"))
-        max_workers = max(1, min(max_workers, 40))
+            max_workers = int(os.getenv("FILING_WATCHER_WORKERS", "8"))
+        max_workers = max(1, min(max_workers, 12))
 
         logger.info(f"🌐 [filling scanner] Actively polling exchange filings (NSE/BSE) for {len(symbols)} symbols as of {as_of_str} (concurrency={max_workers}, targeted={bool(targeted_symbols_set)})...")
 
@@ -1702,6 +1706,7 @@ class FinancialFilingWatcher:
                 # If market sweep discovered a newer filing for this symbol, extract it directly
                 # from the in-memory announcement attachment (XBRL XML in 0.5s or SEBI Reg 33 PDF in 1s)
                 # to avoid wasting 45-60s per stock on failing legacy corporates-financial-results calls!
+                tried_pdf_urls: Set[str] = set()
                 direct_sweep_success = False
                 direct_sweep_attempted = False
                 if market_sweep_ok and (has_newer_sweep_filing or not has_latest_concluded_quarter):
@@ -1754,19 +1759,17 @@ class FinancialFilingWatcher:
                         for r in raw_filings_list
                     )
                     if not has_sweep_facts:
+                        try:
+                            from app.data_providers.exchange_pdf_parser import ExchangePdfParser, is_financial_result_announcement
+                        except ImportError:
+                            from data_providers.exchange_pdf_parser import ExchangePdfParser, is_financial_result_announcement
                         cand_pdf_anns = [
                             it for it in sym_sweep_disclosures
                             if (".pdf" in str(it.get("attchmntFile") or "").lower() or "annpdfopen" in str(it.get("attchmntFile") or "").lower())
-                            and not any(k in f"{it.get('desc', '')} {it.get('attchmntText', '')} {it.get('attchmntFile', '')}".lower() for k in (
-                                "newspaper", "clipping", "advertisement", "publication of", "press release", "investor presentation", "transcript"
-                            ))
+                            and is_financial_result_announcement(it, str(it.get("attchmntFile") or ""))
                         ]
                         if cand_pdf_anns:
                             try:
-                                try:
-                                    from app.data_providers.exchange_pdf_parser import ExchangePdfParser
-                                except ImportError:
-                                    from data_providers.exchange_pdf_parser import ExchangePdfParser
                                 pdf_parser = getattr(_tls, "pdf_parser", None) or ExchangePdfParser()
                                 pdf_recs = pdf_parser.fetch_pdf_fallback_records(
                                     symbol=sym_u,
@@ -1774,6 +1777,7 @@ class FinancialFilingWatcher:
                                     existing_xml_periods=set(),
                                     min_cutoff=min_cutoff,
                                 )
+                                tried_pdf_urls.update(getattr(pdf_parser, "last_attempted_urls", {}).get(sym_u, []))
                                 for r in pdf_recs:
                                     norm_p = _normalize_iso_date(r.period_end_date)
                                     if norm_p and norm_p >= min_cutoff:
@@ -1809,8 +1813,8 @@ class FinancialFilingWatcher:
                         )
 
                 # 1. Poll NSE XBRL / Corporate Results (Primary Source) - if direct sweep did not ingest facts
-                # [RULE 67 CHANGE-RATIONALE]: When announcement PDF is scanned/unreadable (direct_sweep_success=False),
-                # always poll official NSE XBRL results API, which contains authoritative machine-readable XML.
+                # [RULE 67 CHANGE-RATIONALE]: Preserve in-memory _sweep_announcements_cache when market_sweep_ok
+                # so discover_filings avoids redundant legacy www.nseindia.com HTTP timeouts when sweep already holds disclosures.
                 should_poll_nse_legacy = bool(
                     nse_prov
                     and not direct_sweep_success
@@ -1821,8 +1825,6 @@ class FinancialFilingWatcher:
                         logger.info(f"🔍 [filling scanner] {sym_u}: Polling Tier-1 NSE XBRL results (cutoff={min_cutoff})...")
                         if hasattr(nse_prov, "_discovered_cache") and (needs_bootstrap or not has_latest_concluded_quarter):
                             nse_prov._discovered_cache.pop(sym_u, None)
-                        if hasattr(nse_prov, "_sweep_announcements_cache") and (needs_bootstrap or not has_latest_concluded_quarter):
-                            nse_prov._sweep_announcements_cache.pop(sym_u, None)
                         nse_records = nse_prov.fetch_raw_financials(sym_u, min_period_end_date=min_cutoff)
                         if nse_records:
                             nse_fetch_count = len(nse_records)
@@ -2016,20 +2018,28 @@ class FinancialFilingWatcher:
                                     if _lp:
                                         existing_local_covered.add(_lp)
 
+                        try:
+                            from app.data_providers.exchange_pdf_parser import ExchangePdfParser, is_financial_result_announcement
+                        except ImportError:
+                            from data_providers.exchange_pdf_parser import ExchangePdfParser, is_financial_result_announcement
+
                         uncovered_pdf_anns = []
                         for ann in candidate_anns:
                             if not isinstance(ann, dict):
                                 continue
-                            att_f = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").lower()
+                            raw_att = str(ann.get("attchmntFile") or ann.get("attachmentUrl") or "").strip()
+                            att_f = raw_att.lower()
                             if not (".pdf" in att_f or "annpdfopen" in att_f):
                                 continue
-                            desc_comb = f"{ann.get('desc', '')} {ann.get('attchmntText', '')} {att_f}".lower()
-                            if any(k in desc_comb for k in (
-                                "newspaper", "clipping", "advertisement", "publication of", "press release", "investor presentation", "transcript"
-                            )):
+                            # Skip exact URLs already attempted & parsed in Step 0 direct sweep (prevents duplicate PDF downloads; still tries BSE/other URLs!)
+                            norm_att_key = raw_att.split("?")[0].lower() if "nseindia" in att_f else raw_att.lower()
+                            if norm_att_key in tried_pdf_urls or raw_att in tried_pdf_urls:
+                                continue
+                            if not is_financial_result_announcement(ann, raw_att):
                                 continue
                             p_cand = _normalize_iso_date(ann.get("period_end_date") or ann.get("toDate"))
                             if not p_cand:
+                                desc_comb = f"{ann.get('desc', '')} {ann.get('attchmntText', '')} {att_f}".lower()
                                 try:
                                     try:
                                         from app.data_providers.nse_xbrl_provider import _parse_period_end_from_announcement_text
@@ -2047,23 +2057,16 @@ class FinancialFilingWatcher:
                                 if min_cutoff and p_cand < min_cutoff:
                                     continue
                                 ann["period_end_date"] = p_cand
-                            else:
-                                if not any(k in desc_comb for k in ("financial result", "financial results", "outcome of board meeting")):
-                                    continue
                             uncovered_pdf_anns.append(ann)
 
                         if uncovered_pdf_anns:
-                            try:
-                                from app.data_providers.exchange_pdf_parser import ExchangePdfParser
-                            except ImportError:
-                                from data_providers.exchange_pdf_parser import ExchangePdfParser
-
                             pdf_parser = getattr(_tls, "pdf_parser", None) or ExchangePdfParser()
                             pdf_recs = pdf_parser.fetch_pdf_fallback_records(
                                 symbol=sym_u,
                                 announcements=uncovered_pdf_anns,
                                 existing_xml_periods=set(already_covered_periods),
                                 min_cutoff=min_cutoff,
+                                skip_urls=tried_pdf_urls,
                             )
                             for r in pdf_recs:
                                 norm_p = _normalize_iso_date(r.period_end_date)
@@ -2373,7 +2376,8 @@ class FinancialFilingWatcher:
                     elapsed_since_sync = time.time() - last_synced_time[0]
                     should_update_progress = (
                         should_batch_sync
-                        or (curr_c % 5 == 0)
+                        or (curr_c == 1)
+                        or (curr_c % 2 == 0)
                         or (curr_c == total_syms)
                         or (elapsed_since_sync >= 10.0 and curr_c - last_synced_count[0] >= 5)
                     )

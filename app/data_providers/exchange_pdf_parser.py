@@ -44,26 +44,17 @@ except ImportError:
 import threading
 import concurrent.futures
 
-# Concurrency semaphores: allow up to 30 concurrent downloads, and up to 8 concurrent PDF parses
-_DOWNLOAD_SEMAPHORE = threading.Semaphore(30)
-_PARSE_SEMAPHORE = threading.Semaphore(8)
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
 
-_PAGE_EXTRACTOR_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="pdf_page_extract")
+# Concurrency semaphores: cap simultaneous heavy PDF parses on cloud containers to prevent CPU/RAM thrash
+_DOWNLOAD_SEMAPHORE = threading.Semaphore(12)
+_PARSE_SEMAPHORE = threading.Semaphore(4)
 
-def _safe_extract_text(page, timeout: float = 3.0, extraction_mode: Optional[str] = None) -> str:
-    """Extracts text from a single page with fast direct path and safety timeout fallback."""
-    # Fast path: direct in-thread extraction. In pypdf, in-memory string extraction executes
-    # in <0.05s for 99.99% of valid PDF pages without queuing delays or thread pool contention.
-    try:
-        if extraction_mode:
-            t = page.extract_text(extraction_mode=extraction_mode)
-        else:
-            t = page.extract_text()
-        if t is not None:
-            return t
-    except Exception:
-        pass
+_PAGE_EXTRACTOR_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=24, thread_name_prefix="pdf_page_extract")
 
+
+def _safe_extract_text(page, timeout: float = 3.5, extraction_mode: Optional[str] = None) -> str:
+    """Extracts text from a single page with strict thread-pool timeout enforcement."""
     def _do_extract():
         try:
             if extraction_mode:
@@ -81,6 +72,30 @@ def _safe_extract_text(page, timeout: float = 3.0, extraction_mode: Optional[str
         return ""
     except Exception:
         return ""
+
+
+def _is_char_fragmented(text: str) -> bool:
+    """Detects PDFs where pypdf extracts one character per line (e.g. 'A\\nY\\nE\\n...')."""
+    if not text:
+        return False
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 40:
+        return False
+    short_lines = sum(1 for ln in lines[:200] if len(ln) <= 2)
+    sample_len = min(len(lines), 200)
+    return (short_lines / max(1, sample_len)) >= 0.35
+
+
+def _is_fiscal_period_end(iso_date: Optional[str]) -> bool:
+    """Returns True only if YYYY-MM-DD represents a standard Indian fiscal quarter/year end date."""
+    if not iso_date or len(iso_date) != 10:
+        return False
+    try:
+        mm = int(iso_date[5:7])
+        dd = int(iso_date[8:10])
+    except Exception:
+        return False
+    return mm in (3, 6, 9, 12) and dd >= 28
 
 # Size & scanning parameters:
 # Official SEBI Reg 33 outcome statements are typically 1-5MB, but high-DPI scans can reach 15-20MB.
@@ -448,7 +463,9 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     if not has_explicit_fin_keyword and any(k in combined for k in [
         "acquisition", "disinvestment", "sale or disposal", "retirement",
         "allotment", "esop", "postal ballot", "agm", "egm", "record date",
-        "credit rating", "resignation", "appointment of", "trading window"
+        "credit rating", "resignation", "appointment of", "_app_of_", " app of ",
+        "trading window", "bm_app_", "re-appointment", "reappointment",
+        "business update", "businessupdate"
     ]):
         return False
 
@@ -663,8 +680,10 @@ class ExchangePdfParser:
             return []
 
         # Acquire parse semaphore with timeout (90s safety timeout to prevent dropping queued worker threads)
-        if not _PARSE_SEMAPHORE.acquire(timeout=90.0):
-            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>90s wait). Skipping PDF.")
+        if not _PARSE_SEMAPHORE.acquire(timeout=180.0):
+            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>180s wait). Skipping PDF.")
+            if hasattr(self, "last_failure_reason"):
+                self.last_failure_reason[symbol] = ("SEMAPHORE_TIMEOUT", "Parse semaphore busy (>180s wait). Skipping PDF.")
             return []
         try:
             records = self._parse_sebi_reg33_pdf_inner(pdf_bytes, pdf_hash, ann_meta, symbol)
@@ -688,7 +707,7 @@ class ExchangePdfParser:
     ) -> List["RawFinancialRecord"]:
         """Inner parse logic, runs under _PARSE_SEMAPHORE — do not call directly."""
         records: List["RawFinancialRecord"] = []
-        t_start = time.time()
+        t_parse_start = time.time()
 
         try:
             # Strip trailing garbage bytes after %%EOF to prevent 'negative seek value -1'
@@ -711,7 +730,11 @@ class ExchangePdfParser:
         cached_page_texts: Dict[int, str] = {}
         for p_idx, p in enumerate(reader.pages[:3]):
             try:
-                p_t = _safe_extract_text(p, timeout=5.0)
+                p_t = _safe_extract_text(p, timeout=3.5)
+                if _is_char_fragmented(p_t):
+                    lay_t = _safe_extract_text(p, timeout=3.5, extraction_mode="layout")
+                    if lay_t and len(lay_t.strip()) >= 50:
+                        p_t = lay_t
                 cached_page_texts[p_idx] = p_t
                 if p_t:
                     doc_sample_text += "\n" + p_t
@@ -728,21 +751,25 @@ class ExchangePdfParser:
             doc_unit = "crore"
 
         # Phase 2: Lightweight document-wide text pre-scan & candidate scoring
-        # Enforces Safeguard A: Multi-signal weighted scoring under 2s without sequential heavy table parsing
+        # Enforces Safeguard A: Multi-signal weighted scoring under strict bounded budget
         total_doc_pages = len(reader.pages)
         max_scan_pages = min(10, total_doc_pages)
-        cached_page_texts: Dict[int, str] = {}
         page_scores: List[Tuple[int, int, ConsolidationType]] = []
         zero_text_page_count = 0
 
         t_prescan_start = time.time()
         for p_idx in range(max_scan_pages):
-            if time.time() - t_prescan_start > 10.0:
-                logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached 10s budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
+            if time.time() - t_prescan_start > 8.0 or time.time() - t_parse_start > 10.0:
+                logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached 8s budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
                 break
-            page = reader.pages[p_idx]
-            p_text = _safe_extract_text(page, timeout=8.0)
-            cached_page_texts[p_idx] = p_text
+            p_text = cached_page_texts.get(p_idx)
+            if p_text is None:
+                p_text = _safe_extract_text(reader.pages[p_idx], timeout=3.5)
+                if _is_char_fragmented(p_text):
+                    lay_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, extraction_mode="layout")
+                    if lay_t and len(lay_t.strip()) >= 50:
+                        p_text = lay_t
+                cached_page_texts[p_idx] = p_text
             raw_len = len(p_text.strip())
             if raw_len < 50:
                 zero_text_page_count += 1
@@ -751,35 +778,30 @@ class ExchangePdfParser:
                 page_scores.append((p_idx, sc, b))
 
         # Scanned Image PDF / Hybrid Scanned Document Early Detection & OCR Fallback:
-        # Trigger OCR if:
-        # 1. Pure scanned PDF: doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts))
-        # 2. Hybrid scanned PDF: The vast majority of pages are image scans with 0 text (zero_text_page_count >= len(cached_page_texts) - 3),
-        #    meaning page 1 is just a typed letterhead cover letter, but all actual financial result statements are scanned bitmaps.
         doc_total_chars = sum(len(t.strip()) for t in cached_page_texts.values())
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
-        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) - 3) and len([p for p in page_scores if p[1] >= 45]) <= 1)
+        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and len([p for p in page_scores if p[1] >= 45]) <= 1)
 
-        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE:
+        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 18.0):
             ocr_recovered = False
             try:
-                scan_candidates = [p for p in range(min(12, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
-                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
+                scan_candidates = [p for p in range(min(10, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
+                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:3])} scanned image pages (hybrid={is_hybrid_scanned})...")
                 t_ocr_start = time.time()
-                for p_idx in scan_candidates[:6]:
-                    if time.time() - t_ocr_start > 30.0:
-                        logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached 30s budget at page {p_idx+1}. Breaking.")
+                for p_idx in scan_candidates[:3]:
+                    if time.time() - t_ocr_start > 12.0 or time.time() - t_parse_start > 24.0:
+                        logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
                     page_obj = reader.pages[p_idx]
                     page_images = getattr(page_obj, "images", [])
                     ocr_page_text = ""
-                    for img_obj in page_images[:2]:
+                    for img_obj in page_images[:1]:
                         try:
                             img = Image.open(io.BytesIO(img_obj.data))
                             if img.width >= 150 and img.height >= 150:
-                                # Downscale high-resolution scans for 10x faster OCR without text quality loss
-                                if img.width > 1600 or img.height > 2200:
-                                    img.thumbnail((1400, 1800))
-                                t = pytesseract.image_to_string(img, timeout=8.0)
+                                if img.width > 1400 or img.height > 1800:
+                                    img.thumbnail((1200, 1600))
+                                t = pytesseract.image_to_string(img, timeout=4.0, config="--psm 6")
                                 if t and len(t.strip()) > 30:
                                     ocr_page_text += "\n" + t.strip()
                         except Exception:
@@ -790,7 +812,7 @@ class ExchangePdfParser:
                         if sc >= 30:
                             page_scores.append((p_idx, sc, b))
                             ocr_recovered = True
-                            if len(page_scores) >= 3 or sc >= 50:
+                            if len(page_scores) >= 2 or sc >= 50:
                                 break
                 if ocr_recovered:
                     logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len([p for p in page_scores if p[0] in scan_candidates])} scanned pages.")
@@ -810,8 +832,6 @@ class ExchangePdfParser:
                 return []
 
         # Candidate selection (Safeguard A):
-        # 1. Highest scoring pages first
-        # 2. Add adjacent continuation pages (p + 1) for multi-page tables
         candidate_page_indices: List[int] = []
         for p_idx, sc, b in sorted(page_scores, key=lambda x: x[1], reverse=True):
             if p_idx not in candidate_page_indices:
@@ -819,7 +839,6 @@ class ExchangePdfParser:
             if p_idx + 1 < total_doc_pages and (p_idx + 1) not in candidate_page_indices:
                 candidate_page_indices.append(p_idx + 1)
 
-        # Bounded Fallback (Safeguard A): 100% fallback eligibility if no page scored >= 45
         if not candidate_page_indices:
             logger.debug(f"[PDF_PARSER] {symbol}: No page scored >= 45. Executing bounded fallback to first {min(10, total_doc_pages)} pages.")
             candidate_page_indices = list(range(min(10, total_doc_pages)))
@@ -827,9 +846,8 @@ class ExchangePdfParser:
         t_start = time.time()
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
-            # Adaptive document parse timeout (90s ceiling allows thorough multi-page extraction on cloud vCPUs)
-            if time.time() - t_start > 90.0:
-                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 90s parse timeout on page {page_idx+1}. Breaking early.")
+            if time.time() - t_start > 22.0 or time.time() - t_parse_start > 32.0:
+                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded 32s parse budget on page {page_idx+1}. Breaking early.")
                 break
 
             # Smart early exit: finish immediately if both Consolidated and Standalone statements were extracted
@@ -841,12 +859,14 @@ class ExchangePdfParser:
             if page_idx in cached_page_texts:
                 text = cached_page_texts[page_idx]
             else:
-                text = _safe_extract_text(page, timeout=8.0)
+                text = _safe_extract_text(page, timeout=3.5)
+                if _is_char_fragmented(text):
+                    lay_t = _safe_extract_text(page, timeout=3.5, extraction_mode="layout")
+                    if lay_t and len(lay_t.strip()) >= 50:
+                        text = lay_t
                 cached_page_texts[page_idx] = text
 
-            # Fast Digital Text First Invariant: 95%+ of official SEBI Reg 33 outcomes
-            # contain pure digital text statement tables (even if cover letters on pages 1-3 have scanned letterheads).
-            # If page text is minimal (<50 chars), skip it in Pass 1 to prevent blocking worker threads on heavy OCR.
+            # Fast Digital Text First Invariant
             raw_text_len = len(text.strip())
             if raw_text_len < 50:
                 continue
@@ -870,10 +890,10 @@ class ExchangePdfParser:
             if not is_stmt_header:
                 continue
 
-            # Must contain actual operational revenue indicators (or banking total income / interest earned)
+            # Must contain actual operational revenue indicators (or banking/NBFC total income / interest income / interest earned)
             if not any(k in norm_text_lower for k in [
-                "revenue from operations", "net sales", "total income", "income from operations", "interest earned",
-                "total revenue from operations"
+                "revenue from operations", "net sales", "total income", "income from operations",
+                "interest earned", "interest income", "total revenue from operations", "total revenue"
             ]):
                 continue
 
@@ -954,10 +974,11 @@ class ExchangePdfParser:
                 desc_period = _parse_exchange_date(dm_ann.group(1).strip())
 
             # Apply Safeguard B Precedence:
+            # Prefer explicit fiscal quarter/annual period-end dates (never let a board-meeting signing date like 2026-11-03 override 2026-09-30).
             period_end = None
-            if in_table_period:
+            if in_table_period and (_is_fiscal_period_end(in_table_period) or not meta_period or not _is_fiscal_period_end(meta_period)):
                 period_end = in_table_period
-                if meta_period and meta_period != in_table_period:
+                if meta_period and meta_period != in_table_period and _is_fiscal_period_end(in_table_period):
                     logger.warning(
                         f"⚠️ [PDF_PARSER] {symbol}: Period discrepancy on page {page_idx+1}: "
                         f"in-table={in_table_period} vs metadata={meta_period}. Respecting explicit in-table date (Safeguard B)."
@@ -966,6 +987,8 @@ class ExchangePdfParser:
                 period_end = meta_period
             elif desc_period:
                 period_end = desc_period
+            elif in_table_period:
+                period_end = in_table_period
 
             if not period_end or len(period_end) != 10:
                 continue
@@ -1400,16 +1423,16 @@ class ExchangePdfParser:
         # Enrich extracted records with Balance Sheet (Debt & Equity) and Cash Flow from subsequent pages if present
         t_pass2_start = time.time()
         for rec in records:
-            if time.time() - t_pass2_start > 15.0:
+            if time.time() - t_pass2_start > 8.0 or time.time() - t_parse_start > 36.0:
                 break
             if rec.total_debt is None or rec.total_equity is None or rec.operating_cash_flow is None:
                 for p_idx in candidate_page_indices:
-                    if time.time() - t_pass2_start > 20.0:
+                    if time.time() - t_pass2_start > 8.0 or time.time() - t_parse_start > 38.0:
                         break
                     try:
                         p_raw = cached_page_texts.get(p_idx)
                         if p_raw is None:
-                            p_raw = _safe_extract_text(reader.pages[p_idx], timeout=5.0)
+                            p_raw = _safe_extract_text(reader.pages[p_idx], timeout=3.5)
                             cached_page_texts[p_idx] = p_raw
                         if not p_raw or len(p_raw.strip()) < 20:
                             continue
@@ -1601,6 +1624,7 @@ class ExchangePdfParser:
         announcements: List[Dict[str, Any]],
         existing_xml_periods: Set[str],
         min_cutoff: Optional[str] = None,
+        skip_urls: Optional[Set[str]] = None,
     ) -> List[RawFinancialRecord]:
         """
         Executes the Tier-3 Fallback:
@@ -1609,6 +1633,11 @@ class ExchangePdfParser:
         """
         sym_u = symbol.strip().upper()
         pdf_records: List[RawFinancialRecord] = []
+        if not hasattr(self, "last_attempted_urls"):
+            self.last_attempted_urls: Dict[str, List[str]] = {}
+        self.last_attempted_urls[sym_u] = []
+        skip_set = {str(u).split("?")[0].lower() if "nseindia" in str(u).lower() else str(u).lower() for u in (skip_urls or set()) if u}
+        skip_raw_set = {str(u) for u in (skip_urls or set()) if u}
 
         def _score_ann(ann: Dict[str, Any]) -> int:
             d = str(ann.get("desc") or ann.get("headline") or ann.get("NEWSSUB") or "").lower()
@@ -1656,6 +1685,10 @@ class ExchangePdfParser:
             if not (".pdf" in att_lower or "annpdfopen" in att_lower):
                 continue
 
+            att_norm_key = att_file.split("?")[0].lower() if "nseindia" in att_lower else att_lower
+            if att_norm_key in skip_set or att_file in skip_raw_set:
+                continue
+
             # Period end
             p_end = _parse_exchange_date(ann.get("period_end_date") or ann.get("toDate"))
             if not p_end or len(p_end) != 10:
@@ -1673,22 +1706,7 @@ class ExchangePdfParser:
             if min_cutoff and p_end and p_end < min_cutoff:
                 continue
 
-            # Check if this announcement is a financial results / board meeting outcome
-            desc_comb = f"{ann.get('desc', '')} {ann.get('attchmntText', '')}".lower()
-            att_lower = att_file.lower()
-
-            # Exclude non-statement attachments (newspaper publications, earnings calls, presentations, transcripts)
-            if any(k in desc_comb or k in att_lower for k in [
-                "newspaper", "clipping", "advertisement", "publication of",
-                "investor presentation", "investor update", "earnings call",
-                "transcript", "audio recording", "concall", "con. call", "press release"
-            ]):
-                continue
-
-            if not (ann.get("hasXbrl") or any(k in desc_comb for k in [
-                "financial result", "financial results", "outcome of board meeting",
-                "unaudited financial", "audited financial", "period ended"
-            ])):
+            if not is_financial_result_announcement(ann, att_file):
                 continue
 
             logger.info(
@@ -1702,12 +1720,16 @@ class ExchangePdfParser:
                 record_extraction_failure_rca(sym_u, "UNABLE_TO_FETCH", f"Failed to download announcement PDF from {os.path.basename(att_file)}")
                 continue
 
+            if hasattr(self, "last_failure_reason"):
+                self.last_failure_reason.pop(sym_u, None)
             parsed = self.parse_sebi_reg33_pdf(pdf_bytes, sym_u, announcement_metadata=ann)
+            rca_code, rca_desc = getattr(self, "last_failure_reason", {}).get(
+                sym_u,
+                ("ZERO_VALIDATED_FACTS", f"Downloaded {os.path.basename(att_file)} but 0 facts could be extracted.")
+            )
+            if rca_code != "SEMAPHORE_TIMEOUT":
+                self.last_attempted_urls[sym_u].append(att_file)
             if not parsed:
-                rca_code, rca_desc = getattr(self, "last_failure_reason", {}).get(
-                    sym_u,
-                    ("ZERO_VALIDATED_FACTS", f"Downloaded {os.path.basename(att_file)} but 0 facts could be extracted.")
-                )
                 record_extraction_failure_rca(sym_u, rca_code, f"{rca_desc} (File: {os.path.basename(att_file)})")
                 logger.warning(
                     f"⚠️ [PDF_FALLBACK: {rca_code}] {sym_u}: Downloaded {os.path.basename(att_file)} ({len(pdf_bytes)} bytes) "

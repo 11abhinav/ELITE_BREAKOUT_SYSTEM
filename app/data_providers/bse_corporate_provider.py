@@ -78,7 +78,7 @@ DEFAULT_BSE_CACHE_DIR = os.path.join(BASE_DIR, "data", "xbrl_cache", "bse")
 
 _BSE_FIN_RESULTS_URL = "https://api.bseindia.com/BseIndiaAPI/api/FinResults/w"
 _BSE_ANN_URL = "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w"
-_TIMEOUT = 12
+_TIMEOUT = 8
 _MAX_RETRIES = 2
 
 _BSE_HEADERS = {
