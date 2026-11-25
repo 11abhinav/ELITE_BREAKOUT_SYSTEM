@@ -920,10 +920,10 @@
     "mapping_rule": "REVENUE_DIRECT"
   },
   {
-    "filing_id": "PRECWIRE_20260630_Q_v1",
+    "filing_id": "106738790",
     "symbol": "PRECWIRE",
     "period_end_date": "2026-06-30",
-    "filing_date": "2026-08-14",
+    "filing_date": "2026-08-12",
     "actual_publication_timestamp": "2026-08-14 23:59:59",
     "conservative_availability_timestamp": "2026-08-14 23:59:59",
     "timestamp_basis": "LODR_STATUTORY_DEADLINE_CONSERVATIVE",
@@ -950,6 +950,9 @@
     "source_provider": "SCREENER",
     "raw_NII": null,
     "mapped_revenue": 1779.0,
-    "mapping_rule": "REVENUE_DIRECT"
+    "mapping_rule": "REVENUE_DIRECT",
+    "basis": "STANDALONE",
+    "broadcast_timestamp": "12-Aug-2026 14:08:17",
+    "exchange": "NSE"
   }
 ]

@@ -478,5 +478,23 @@
     "filing_date": "2026-07-28",
     "exchange": "NSE",
     "filing_id": "RAILTEL_20260630_Q_v1"
+  },
+  {
+    "symbol": "RAILTEL",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 1146.14,
+    "net_profit": 68.56,
+    "operating_profit": 124.47,
+    "eps": null,
+    "total_debt": null,
+    "total_equity": null,
+    "operating_cash_flow": null,
+    "shares_outstanding": null,
+    "filing_date": "2026-10-25",
+    "broadcast_timestamp": "25-Oct-2026 14:24:26",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_RAILTEL_106827836_2026-09-30"
   }
 ]

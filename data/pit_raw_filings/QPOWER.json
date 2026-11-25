@@ -464,5 +464,23 @@
     "mapped_revenue": 233.0,
     "mapping_rule": "REVENUE_DIRECT",
     "source_record_hash": "08116e624359559bb61a328b45ba06a2ff1a1bc3c1f53b37016e3702be5862a8"
+  },
+  {
+    "symbol": "QPOWER",
+    "period_end_date": "2026-09-30",
+    "statement_type": "QUARTERLY",
+    "basis": "STANDALONE",
+    "revenue": 740.48,
+    "net_profit": 58.72,
+    "operating_profit": 300.46,
+    "eps": 2.89,
+    "total_debt": -101.16,
+    "total_equity": null,
+    "operating_cash_flow": 489.66,
+    "shares_outstanding": null,
+    "filing_date": "2026-10-31",
+    "broadcast_timestamp": "31-Oct-2026 19:22:52",
+    "exchange": "NSE",
+    "filing_id": "NSE_PDF_QPOWER_106838521_2026-09-30"
   }
 ]
