@@ -8167,6 +8167,9 @@ def restore_stock_data_health_from_db() -> Optional[str]:
     return None
 
 
+_BOOT_SYNC_COMPLETE = False
+
+
 def restore_all_boot_caches_from_db() -> Dict[str, Any]:
     """
     [AUTHORITATIVE DB-FIRST BOOT RESTORATION ORCHESTRATOR]
@@ -8292,7 +8295,9 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
     except Exception as e:
         summary["errors"].append(f"pit_valuation_history_cache_json: {e}")
 
-    # 5. Invalidate all in-memory caches so readers pick up restored files immediately
+    # 5. Mark boot sync complete and invalidate all in-memory caches so readers pick up restored files immediately
+    global _BOOT_SYNC_COMPLETE
+    _BOOT_SYNC_COMPLETE = True
     clear_canonical_snapshot_cache()
     clear_unified_stock_data_health_cache()
 
@@ -11615,7 +11620,7 @@ def clear_unified_stock_data_health_cache() -> None:
             try:
                 with mod._STOCK_DATA_HEALTH_LOCK:
                     mod._STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
-                if hasattr(mod, "_background_refresh_stock_data_health"):
+                if _BOOT_SYNC_COMPLETE and hasattr(mod, "_background_refresh_stock_data_health"):
                     if getattr(mod, "_STOCK_DATA_HEALTH_REFRESHING", False):
                         setattr(mod, "_STOCK_DATA_HEALTH_DIRTY", True)
                     else:

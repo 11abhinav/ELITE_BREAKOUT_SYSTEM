@@ -3215,9 +3215,9 @@ def _seed_stock_data_health_cache():
                 _STOCK_DATA_HEALTH_CACHE["payload"] = raw_json
                 _STOCK_DATA_HEALTH_CACHE["etag"] = etag
                 _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
-                # Set ts to 0.0 so restored DB cache is served immediately for fast boot,
-                # but triggers an immediate background SWR refresh on the first user request.
-                _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
+                # Keep DB-seeded cache warm until restore_all_boot_caches_from_db() finishes and invalidates it,
+                # preventing pre-BOOT_SYNC requests from computing stale 499 counts from an un-restored disk.
+                _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
             logger.info(f"⚡ [STOCK_DATA_HEALTH] Loaded authoritative cache from PostgreSQL DB ({len(raw_json)} bytes)")
             return
     except ValueError:
@@ -3649,6 +3649,22 @@ def api_admin_stock_data_health():
             cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
+
+        # 0. Pre-BOOT_SYNC guard: never recompute from incomplete disk before pit_raw_bundle is restored
+        try:
+            import database as _db_boot_chk
+        except ImportError:
+            from app import database as _db_boot_chk
+        if not getattr(_db_boot_chk, "_BOOT_SYNC_COMPLETE", True):
+            if cached_payload and not force:
+                return _make_json_response(
+                    cached_payload,
+                    etag=cached_etag,
+                    max_age=0,
+                    precompressed_gzip=cached_gz,
+                    no_cache=True
+                )
+            return jsonify({"status": "initializing", "message": "Restoring authoritative DB caches, please retry in a few seconds."}), 503
 
         # 1. Warm cache hit: Return immediately in <5ms ONLY if cache was NOT explicitly invalidated (cached_ts > 0.0)
         # When cached_ts == 0.0 (data changed via filing ingestion / restoration), recompute synchronously (~0.15s)
