@@ -212,7 +212,7 @@ def _is_fiscal_period_end(iso_date: Optional[str]) -> bool:
 # Size & scanning parameters:
 # Official SEBI Reg 33 outcome statements are typically 1-5MB, but high-DPI scans can reach 15-20MB.
 # We set a generous 25MB ceiling for results to ensure zero valid disclosures are dropped.
-_PDF_MAX_RESULT_BYTES = 25 * 1024 * 1024  # 25 MB for confirmed Financial Results (covers high-DPI scans)
+_PDF_MAX_RESULT_BYTES = 50 * 1024 * 1024  # 50 MB for confirmed Financial Results (covers high-DPI scans)
 _PDF_MAX_NON_RESULT_BYTES = 8 * 1024 * 1024  # 8 MB for non-result announcements
 _PDF_MAX_PAGES_SCAN = 15  # Inspect up to first 15 pages (guarantees results are captured even with long board preambles)
 
@@ -767,9 +767,9 @@ class ExchangePdfParser:
                 except Exception as s_err:
                     logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
 
-            # 2. Direct fetch fallback from exchange static archives (fast-fail (6, 15)s timeout)
+            # 2. Direct fetch fallback from exchange static archives (6s connect, 30s read for up to 50MB PDFs)
             try:
-                with self.session.get(pdf_url, headers=_HEADERS, timeout=(6, 15), stream=True) as resp:
+                with self.session.get(pdf_url, headers=_HEADERS, timeout=(6, 30), stream=True) as resp:
                     if resp.status_code == 200:
                         cl = resp.headers.get("Content-Length")
                         if cl and int(cl) > ceiling_bytes:
