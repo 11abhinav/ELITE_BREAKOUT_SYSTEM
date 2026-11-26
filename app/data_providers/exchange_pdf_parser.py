@@ -1118,7 +1118,16 @@ class ExchangePdfParser:
             page = reader.pages[page_idx]
             _p3_elapsed = time.time() - t_start
             if (records and _p3_elapsed > 15.0) or _p3_elapsed > 55.0 or (_p3_elapsed > 40.0 and time.time() - t_parse_start > 110.0):
-                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded parse budget on page {page_idx+1}. Breaking early.")
+                if records:
+                    logger.info(
+                        f"✅ [PDF_PARSER] {symbol}: Extracted {len(records)} record(s); "
+                        f"stopping remaining tail scan at page {page_idx+1} ({_p3_elapsed:.1f}s)."
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️ [PDF_PARSER] {symbol}: Exceeded parse budget on page {page_idx+1} "
+                        f"(0 records extracted). Breaking early."
+                    )
                 break
 
             # Smart early exit: finish immediately if both Consolidated and Standalone statements were extracted
