@@ -8182,8 +8182,13 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
     """
     import json
     import shutil
+    import sys as _sys_boot
     global _BOOT_SYNC_STARTED, _BOOT_SYNC_COMPLETE
     _BOOT_SYNC_STARTED = True
+    for _db_mname in ("database", "app.database"):
+        _db_m = _sys_boot.modules.get(_db_mname)
+        if _db_m:
+            setattr(_db_m, "_BOOT_SYNC_STARTED", True)
     from pathlib import Path
 
     base_dir = Path(__file__).resolve().parent.parent
@@ -8298,8 +8303,12 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
     except Exception as e:
         summary["errors"].append(f"pit_valuation_history_cache_json: {e}")
 
-    # 5. Mark boot sync complete and invalidate all in-memory caches so readers pick up restored files immediately
+    # 5. Mark boot sync complete across all module aliases and invalidate in-memory caches
     _BOOT_SYNC_COMPLETE = True
+    for _db_mname in ("database", "app.database"):
+        _db_m = _sys_boot.modules.get(_db_mname)
+        if _db_m:
+            setattr(_db_m, "_BOOT_SYNC_COMPLETE", True)
     clear_canonical_snapshot_cache()
     clear_unified_stock_data_health_cache()
 
@@ -11614,6 +11623,24 @@ def clear_unified_stock_data_health_cache() -> None:
                 _we_mod.clear_orphan_fundamental_cache()
     except Exception:
         pass
+    import sys as _sys_clr
+    for _db_mname in ("database", "app.database"):
+        _db_m = _sys_clr.modules.get(_db_mname)
+        if _db_m is not None:
+            try:
+                with _db_m._UNIFIED_AUDIT_LOCK:
+                    _db_m._UNIFIED_AUDIT_CACHE = None
+                    _db_m._UNIFIED_AUDIT_CACHE_TS = 0.0
+                with _db_m._AUDIT_RAW_LOCK:
+                    _db_m._AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
+                _db_m._WATCHER_STATE_MTIME = 0.0
+                _db_m._CANONICAL_DF_MTIME = 0.0
+            except Exception:
+                pass
+    _boot_done = any(
+        getattr(_sys_clr.modules.get(_n), "_BOOT_SYNC_COMPLETE", False)
+        for _n in ("database", "app.database")
+    )
     # Invalidate dashboard server caches across both possible module names and proactively refresh
     import sys
     for mod_name in ("dashboard_server", "app.dashboard_server"):
@@ -11622,7 +11649,7 @@ def clear_unified_stock_data_health_cache() -> None:
             try:
                 with mod._STOCK_DATA_HEALTH_LOCK:
                     mod._STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
-                if _BOOT_SYNC_COMPLETE and hasattr(mod, "_background_refresh_stock_data_health"):
+                if _boot_done and hasattr(mod, "_background_refresh_stock_data_health"):
                     if getattr(mod, "_STOCK_DATA_HEALTH_REFRESHING", False):
                         setattr(mod, "_STOCK_DATA_HEALTH_DIRTY", True)
                     else:

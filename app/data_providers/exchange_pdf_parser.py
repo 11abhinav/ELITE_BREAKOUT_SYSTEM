@@ -54,7 +54,7 @@ _HAS_PDFTOPPM = bool(shutil.which("pdftoppm"))
 
 # Concurrency semaphores: cap simultaneous heavy PDF parses on cloud containers to prevent CPU/RAM thrash
 _DOWNLOAD_SEMAPHORE = threading.Semaphore(12)
-_PARSE_SEMAPHORE = threading.Semaphore(int(os.getenv("PDF_PARSE_CONCURRENCY", "3")))
+_PARSE_SEMAPHORE = threading.Semaphore(int(os.getenv("PDF_PARSE_CONCURRENCY", "4")))
 
 
 def _extract_pdf_pages_fast(pdf_path: str, max_pages: int = 20, timeout: float = 8.0) -> Optional[Dict[int, str]]:
@@ -102,7 +102,7 @@ def _extract_page_layout_fast(pdf_path: str, page_idx: int, timeout: float = 3.5
     return ""
 
 
-def _render_page_image_fast(pdf_path: str, page_idx: int, timeout: float = 6.0) -> Optional["Image.Image"]:
+def _render_page_image_fast(pdf_path: str, page_idx: int, timeout: float = 6.0, dpi: int = 150) -> Optional["Image.Image"]:
     """Renders a composite full-page PNG via `pdftoppm` for multi-strip scanned PDFs."""
     if not _OCR_AVAILABLE or not _HAS_PDFTOPPM or not pdf_path:
         return None
@@ -112,7 +112,7 @@ def _render_page_image_fast(pdf_path: str, page_idx: int, timeout: float = 6.0) 
         out_prefix = os.path.join(tmp_dir, "page")
         p1 = str(page_idx + 1)
         res = subprocess.run(
-            ["pdftoppm", "-png", "-r", "150", "-singlefile", "-f", p1, "-l", p1, pdf_path, out_prefix],
+            ["pdftoppm", "-png", "-r", str(dpi), "-singlefile", "-f", p1, "-l", p1, pdf_path, out_prefix],
             capture_output=True,
             timeout=timeout,
             check=False,
@@ -826,11 +826,11 @@ class ExchangePdfParser:
             logger.info(f"📄 [PDF_PARSER] Skipping {symbol}: PDF exceeds {_PDF_MAX_RESULT_BYTES // (1024*1024)}MB ({len(pdf_bytes)} bytes).")
             return []
 
-        # Acquire parse semaphore with timeout (180s safety timeout to prevent dropping queued worker threads)
-        if not _PARSE_SEMAPHORE.acquire(timeout=180.0):
-            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>180s wait). Skipping PDF.")
+        # Acquire parse semaphore with timeout (300s safety timeout to prevent dropping queued worker threads)
+        if not _PARSE_SEMAPHORE.acquire(timeout=300.0):
+            logger.warning(f"[PDF_PARSER] {symbol}: Parse semaphore busy (>300s wait). Skipping PDF.")
             if hasattr(self, "last_failure_reason"):
-                self.last_failure_reason[symbol] = ("SEMAPHORE_TIMEOUT", "Parse semaphore busy (>180s wait). Skipping PDF.")
+                self.last_failure_reason[symbol] = ("SEMAPHORE_TIMEOUT", "Parse semaphore busy (>300s wait). Skipping PDF.")
             return []
         tmp_pdf_path: Optional[str] = None
         try:
@@ -1091,11 +1091,14 @@ class ExchangePdfParser:
                 if not any(k in header_preamble for k in ["financial results for", "profit and loss"]):
                     continue
 
-            # Must contain SEBI Regulation 33 Statement header keywords
+            # Must contain SEBI Regulation 33 Statement header keywords (or unambiguous P&L table structure when header has OCR typos)
             is_stmt_header = any(k in norm_text_lower for k in [
                 "statement of", "financial results", "financial result", "results for the quarter", "results for the period",
                 "unaudited results", "audited results", "financial performance"
-            ])
+            ]) or (
+                any(k in norm_text_lower for k in ("revenue from operations", "total income", "interest income", "gross premium"))
+                and any(k in norm_text_lower for k in ("profit before tax", "profit for the period", "net profit", "profit after tax"))
+            )
             if not is_stmt_header:
                 continue
 
@@ -1107,14 +1110,21 @@ class ExchangePdfParser:
             )
             if not any(k in norm_text_lower for k in _rev_indicators):
                 # Garbled embedded OCR layers (e.g. "lnterest Earned", "Kevenue om oersions") pass len>=50
-                # yet fail keyword matching. Re-render this single statement page via pdftoppm+tesseract.
+                # yet fail keyword matching. Skip cover letters & auditor review reports before re-rendering.
+                _is_cover_or_auditor = any(
+                    k in header_preamble
+                    for k in (
+                        "dear sir", "dear madam", "listing department", "sub:", "subject:",
+                        "independent auditor", "limited review", "review report", "auditor's report",
+                    )
+                )
                 _re_ocr_ok = False
-                if _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 35.0):
+                if not _is_cover_or_auditor and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 35.0):
                     try:
-                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=10.0)
+                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=10.0, dpi=200)
                         if _comp_img is not None:
-                            if _comp_img.width > 1400 or _comp_img.height > 1800:
-                                _comp_img.thumbnail((1400, 1800))
+                            if _comp_img.width > 2200 or _comp_img.height > 2600:
+                                _comp_img.thumbnail((2200, 2600))
                             _fresh_ocr = pytesseract.image_to_string(_comp_img, timeout=12.0, config="--psm 6")
                             if _fresh_ocr and len(_fresh_ocr.strip()) >= 50:
                                 text = _normalize_ocr_text(_fresh_ocr.strip())
@@ -1374,7 +1384,7 @@ class ExchangePdfParser:
                         continue
                     cl_val = _clean_token_number(t)
                     if cl_val is not None:
-                        if ("," not in t) and ("." not in t or t.endswith(".")) and 2020 <= cl_val <= 2030 and abs(cl_val - int(cl_val)) < 1e-6:
+                        if (not re.search(r"\d,\d", t)) and ("." not in t or t.endswith(".")) and 2020 <= cl_val <= 2030 and abs(cl_val - int(cl_val)) < 1e-6:
                             continue
                         nums.append(cl_val)
 

@@ -3702,7 +3702,7 @@ def api_admin_stock_data_health():
             if cached_payload and not force and cached_ts > 0.0:
                 return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
 
-            resp_json, etag, gz = _compute_stock_data_health_payload(force=force)
+            resp_json, etag, gz = _compute_stock_data_health_payload(force=bool(force or cached_ts == 0.0))
             return _make_json_response(resp_json, etag=etag, max_age=0, precompressed_gzip=gz, no_cache=True)
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
