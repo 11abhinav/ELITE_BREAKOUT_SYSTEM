@@ -368,7 +368,11 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"(\d)[tIl](\d)", r"\g<1>1\g<2>", text)
 
     # --- Spaced-out numbers cleanup (e.g. '17,483 .09' -> '17,483.09', '4 ,385.86' -> '4,385.86') ---
+    text = re.sub(r"\b(\d{1,2}),(\d{2})\.(202\d)\b", r"\1.\2.\3", text)  # OCR date comma: 30,09.2026 -> 30.09.2026
+    text = re.sub(r"(?<=\d);(?=\d)", ",", text)                         # OCR semicolon: 13;646.84 -> 13,646.84
+    text = re.sub(r"(?<=\d):(?=\d{2}(?:\s|$|\)))", ".", text)           # OCR colon decimal: 1,069:04 -> 1,069.04
     text = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', text)
+    text = re.sub(r"(?<=\d),(?=\d{2}(?:\s|$|\)))", ".", text)           # OCR comma decimal: 276,90 -> 276.90
     text = re.sub(r'(\d+[\d,]*)\s*\.\s*(\d+)', r'\1.\2', text)
     # Repair OCR dot/comma swaps in Indian numbers: '1.29,783' -> '1,29,783', '68.547.37' -> '68,547.37'
     text = re.sub(r'\b(\d{1,3})\.(\d{2,3}),(\d{3})\b', r'\1,\2,\3', text)
@@ -972,8 +976,8 @@ class ExchangePdfParser:
             ocr_recovered = False
             try:
                 scan_candidates = [p for p in range(min(14, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
-                # For hybrid PDFs where cover pages 1-2 had digital text, scan statement pages (>=2) before cover pages
-                scan_candidates.sort(key=lambda p: (0 if p >= 1 else 1, p))
+                # For hybrid/scanned PDFs, scan statement pages (p>=2, i.e. page 3+) before cover/auditor pages (p=0,1)
+                scan_candidates.sort(key=lambda p: (0 if p >= 2 else 1, p))
                 logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
                 t_ocr_start = time.time()
                 for p_idx in scan_candidates[:6]:
@@ -1069,10 +1073,24 @@ class ExchangePdfParser:
                         text = lay_t
                 cached_page_texts[page_idx] = text
 
-            # Fast Digital Text First Invariant
+            # Fast Digital Text First Invariant (with on-demand OCR fallback for un-OCR'd scanned statement pages)
             raw_text_len = len(text.strip())
             if raw_text_len < 50:
-                continue
+                if _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 2 and _p3_elapsed < 35.0 and (time.time() - t_parse_start < 85.0):
+                    try:
+                        _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
+                        if _p3_img is not None:
+                            if _p3_img.width > 1600 or _p3_img.height > 2000:
+                                _p3_img.thumbnail((1600, 2000))
+                            _p3_ocr = pytesseract.image_to_string(_p3_img, timeout=10.0, config="--psm 6")
+                            if _p3_ocr and len(_p3_ocr.strip()) >= 50:
+                                text = _p3_ocr.strip()
+                                cached_page_texts[page_idx] = text
+                                raw_text_len = len(text)
+                    except Exception:
+                        pass
+                if raw_text_len < 50:
+                    continue
 
             text = _normalize_ocr_text(text)
             text_lower = text.lower()
