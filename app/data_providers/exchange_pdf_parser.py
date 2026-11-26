@@ -616,7 +616,8 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
         "allotment", "esop", "postal ballot", "agm", "egm", "record date",
         "credit rating", "resignation", "appointment of", "_app_of_", " app of ",
         "trading window", "bm_app_", "re-appointment", "reappointment",
-        "business update", "businessupdate"
+        "business update", "businessupdate",
+        "incorporation of", "wholly-owned subsidiary", "wholly owned subsidiary",
     ]):
         return False
 
@@ -774,55 +775,71 @@ class ExchangePdfParser:
                 except Exception as s_err:
                     logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
 
-            # 2. Direct fetch fallback from exchange static archives (8s connect, 60s read, with Range resume for large PDFs)
+            # 2. Direct fetch fallback from exchange static archives (8s connect, 60s read, with bounded 4MB Range resume for large PDFs)
             try:
                 content = b""
                 expected_cl = None
-                with self.session.get(pdf_url, headers=_HEADERS, timeout=(8, 60), stream=True) as resp:
-                    if resp.status_code == 200:
-                        cl = resp.headers.get("Content-Length")
-                        if cl:
-                            expected_cl = int(cl)
-                            if expected_cl > ceiling_bytes:
-                                logger.warning(
-                                    f"[PDF_PARSER] Skipping PDF {base_name}: size {expected_cl/1024/1024:.1f}MB exceeds "
-                                    f"{ceiling_bytes//1024//1024}MB limit (is_result={is_result})"
-                                )
-                                return None
-                        chunks = []
-                        tot = 0
-                        for chunk in resp.iter_content(chunk_size=65536):
-                            tot += len(chunk)
-                            if tot > ceiling_bytes:
-                                logger.warning(
-                                    f"[PDF_PARSER] Skipping PDF {base_name}: exceeded "
-                                    f"{ceiling_bytes//1024//1024}MB limit during stream (is_result={is_result})"
-                                )
-                                return None
-                            chunks.append(chunk)
-                        content = b"".join(chunks)
+                _chunks: List[bytes] = []
+                _tot = 0
+                try:
+                    with self.session.get(pdf_url, headers=_HEADERS, timeout=(8, 60), stream=True) as resp:
+                        if resp.status_code == 200:
+                            cl = resp.headers.get("Content-Length")
+                            if cl:
+                                expected_cl = int(cl)
+                                if expected_cl > ceiling_bytes:
+                                    logger.warning(
+                                        f"[PDF_PARSER] Skipping PDF {base_name}: size {expected_cl/1024/1024:.1f}MB exceeds "
+                                        f"{ceiling_bytes//1024//1024}MB limit (is_result={is_result})"
+                                    )
+                                    return None
+                            for chunk in resp.iter_content(chunk_size=65536):
+                                if not chunk:
+                                    continue
+                                _tot += len(chunk)
+                                if _tot > ceiling_bytes:
+                                    logger.warning(
+                                        f"[PDF_PARSER] Skipping PDF {base_name}: exceeded "
+                                        f"{ceiling_bytes//1024//1024}MB limit during stream (is_result={is_result})"
+                                    )
+                                    return None
+                                _chunks.append(chunk)
+                except Exception as _stream_err:
+                    logger.debug(f"[PDF_PARSER] Initial stream interrupted for {base_name} at {_tot} bytes: {_stream_err}")
+                content = b"".join(_chunks)
 
-                # If a large exchange PDF stream truncated mid-transfer, resume via HTTP Range up to 2 times
-                for _rng_attempt in range(2):
+                # If a large exchange PDF stream truncated mid-transfer (e.g. Akamai 8MB cap), resume in 4MB Range chunks
+                for _rng_attempt in range(12):
                     if not (content.startswith(b"%PDF") and b"%%EOF" not in content[-8192:]):
                         break
                     if expected_cl and len(content) >= expected_cl:
                         break
-                    _rng_hdrs = {**_HEADERS, "Range": f"bytes={len(content)}-"}
-                    with self.session.get(pdf_url, headers=_rng_hdrs, timeout=(8, 60), stream=True) as r_res:
-                        if r_res.status_code not in (200, 206):
-                            break
-                        if r_res.status_code == 200:
-                            # Server ignored Range and restarted from byte 0
-                            content = b""
-                        _extra = []
-                        _tot = len(content)
-                        for chunk in r_res.iter_content(chunk_size=65536):
-                            _tot += len(chunk)
-                            if _tot > ceiling_bytes:
-                                return None
-                            _extra.append(chunk)
-                        content = content + b"".join(_extra)
+                    _start = len(content)
+                    _end = _start + (4 * 1024 * 1024) - 1
+                    if expected_cl:
+                        _end = min(_end, expected_cl - 1)
+                    _rng_hdrs = {**_HEADERS, "Range": f"bytes={_start}-{_end}"}
+                    _extra: List[bytes] = []
+                    _extra_tot = 0
+                    try:
+                        with self.session.get(pdf_url, headers=_rng_hdrs, timeout=(8, 60), stream=True) as r_res:
+                            if r_res.status_code not in (200, 206):
+                                break
+                            if r_res.status_code == 200:
+                                # Server ignored Range; only accept if it didn't restart smaller than what we have
+                                break
+                            for chunk in r_res.iter_content(chunk_size=65536):
+                                if not chunk:
+                                    continue
+                                _extra_tot += len(chunk)
+                                if len(content) + _extra_tot > ceiling_bytes:
+                                    return None
+                                _extra.append(chunk)
+                    except Exception as _rng_err:
+                        logger.debug(f"[PDF_PARSER] Range chunk {_rng_attempt+1} interrupted for {base_name}: {_rng_err}")
+                    if not _extra:
+                        break
+                    content = content + b"".join(_extra)
 
                 if content.startswith(b"%PDF"):
                     if b"%%EOF" in content[-8192:]:
@@ -1081,7 +1098,7 @@ class ExchangePdfParser:
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
             _p3_elapsed = time.time() - t_start
-            if _p3_elapsed > 45.0 or (_p3_elapsed > 25.0 and time.time() - t_parse_start > 90.0):
+            if _p3_elapsed > 55.0 or (_p3_elapsed > 40.0 and time.time() - t_parse_start > 110.0):
                 logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded parse budget on page {page_idx+1}. Breaking early.")
                 break
 
