@@ -822,11 +822,12 @@ class ExchangePdfParser:
                     _extra: List[bytes] = []
                     _extra_tot = 0
                     try:
-                        with requests.get(pdf_url, headers=_rng_hdrs, timeout=(8, 60), stream=True) as r_res:
+                        with requests.get(pdf_url, headers=_rng_hdrs, cookies=self.session.cookies, timeout=(8, 60), stream=True) as r_res:
                             if r_res.status_code not in (200, 206):
+                                logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} returned status={r_res.status_code}")
                                 break
                             if r_res.status_code == 200:
-                                # Server ignored Range; only accept if it didn't restart smaller than what we have
+                                logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} ignored Range (status=200)")
                                 break
                             for chunk in r_res.iter_content(chunk_size=65536):
                                 if not chunk:
@@ -836,7 +837,7 @@ class ExchangePdfParser:
                                     return None
                                 _extra.append(chunk)
                     except Exception as _rng_err:
-                        logger.debug(f"[PDF_PARSER] Range chunk {_rng_attempt+1} interrupted for {base_name}: {_rng_err}")
+                        logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} interrupted for {base_name}: {_rng_err}")
                     if not _extra:
                         break
                     content = content + b"".join(_extra)
@@ -1157,7 +1158,7 @@ class ExchangePdfParser:
                     continue
             # Pass 1 extracts P&L statements; skip standalone Balance Sheet / Cash Flow / Segment pages (handled in Pass 2)
             if any(k in header_preamble for k in ["statement of assets and liabilities", "assets and liabilities", "statement of cash flows", "cash flows -", "segment wise information", "segment revenue", "capital employed"]):
-                if not any(k in header_preamble for k in ["financial results for", "profit and loss"]):
+                if "profit and loss" not in header_preamble:
                     continue
 
             # Must contain SEBI Regulation 33 Statement header keywords (or unambiguous P&L table structure when header has OCR typos)
