@@ -8135,6 +8135,9 @@ def save_stock_data_health_to_db(payload_json: str) -> bool:
     """
     if _is_local_mac_sync_blocked("stock_data_health_cache"):
         return False
+    if _BOOT_SYNC_STARTED and not _BOOT_SYNC_COMPLETE:
+        logger.debug("🛡️ [STOCK_DATA_HEALTH DB SYNC] Skipped DB persist while BOOT_SYNC is still in progress.")
+        return False
     if not payload_json:
         return False
     init_db()
@@ -8213,18 +8216,12 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
 
     init_db()
 
-    # 1. Watcher state & raw filings bundle
+    # 1. Watcher state & Canonical PIT Rebuilt Snapshot FIRST (fast <1s restore of authoritative snapshot)
     try:
         if restore_filing_watcher_state_from_db():
             summary["restored"].append("filing_watcher_state")
     except Exception as e:
         summary["errors"].append(f"filing_watcher_state: {e}")
-
-    try:
-        if restore_pit_raw_bundle_from_db():
-            summary["restored"].append("pit_raw_bundle")
-    except Exception as e:
-        summary["errors"].append(f"pit_raw_bundle: {e}")
 
     # 2. Canonical PIT Rebuilt Snapshot (strictly > for local override; DB wins on tie/newer)
     try:
@@ -8261,6 +8258,13 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
             summary["seeded_to_db"].append("canonical_pit_rebuilt")
     except Exception as e:
         summary["errors"].append(f"canonical_pit_rebuilt: {e}")
+
+    # 3. Raw filings bundle (larger archive, takes longer to extract/merge)
+    try:
+        if restore_pit_raw_bundle_from_db():
+            summary["restored"].append("pit_raw_bundle")
+    except Exception as e:
+        summary["errors"].append(f"pit_raw_bundle: {e}")
 
     # 3. Direct DB-authoritative artifacts (DB always overwrites baked Docker files if DB has an entry)
     direct_artifacts = [
