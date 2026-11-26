@@ -941,7 +941,7 @@ class ExchangePdfParser:
 
         t_prescan_start = time.time()
         for p_idx in range(max_scan_pages):
-            if p_idx not in cached_page_texts and (time.time() - t_prescan_start > 18.0 or time.time() - t_parse_start > 22.0):
+            if p_idx not in cached_page_texts and (time.time() - t_prescan_start > 10.0 or time.time() - t_parse_start > 16.0):
                 logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
                 break
             p_text = cached_page_texts.get(p_idx)
@@ -966,7 +966,7 @@ class ExchangePdfParser:
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
         is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 85)
 
-        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 35.0):
+        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 45.0):
             ocr_recovered = False
             try:
                 scan_candidates = [p for p in range(min(14, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
@@ -975,7 +975,7 @@ class ExchangePdfParser:
                 logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
                 t_ocr_start = time.time()
                 for p_idx in scan_candidates[:6]:
-                    if time.time() - t_ocr_start > 28.0 or time.time() - t_parse_start > 45.0:
+                    if time.time() - t_ocr_start > 35.0 or time.time() - t_parse_start > 65.0:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
                     ocr_page_text = ""
@@ -1103,6 +1103,7 @@ class ExchangePdfParser:
             _rev_indicators = (
                 "revenue from operations", "net sales", "total income", "income from operations",
                 "interest earned", "interest income", "total revenue from operations", "total revenue",
+                "premium earned", "gross premium", "net premium",
             )
             if not any(k in norm_text_lower for k in _rev_indicators):
                 # Garbled embedded OCR layers (e.g. "lnterest Earned", "Kevenue om oersions") pass len>=50
@@ -1402,7 +1403,8 @@ class ExchangePdfParser:
                     continue
 
                 if rev_from_ops is None and any(k in line_lower for k in [
-                    "revenue from operations", "total revenue from operations", "net sales", "interest income"
+                    "revenue from operations", "total revenue from operations", "net sales", "interest income",
+                    "premium earned", "gross premium written", "net premium written"
                 ]) and not any(k in line_lower for k in ["total income", "comprehensive", "expenses", "cash flow"]):
                     rev_from_ops = last_val * mult
 
