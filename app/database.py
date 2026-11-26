@@ -6404,6 +6404,21 @@ def get_system_state(key: str) -> Optional[str]:
                 logger.exception(f"❌ get_system_state failed for key={key}")
                 return None
 
+_AUTO_RUN_RESTART_KEY = "auto_run_scanners_on_restart"
+
+def is_auto_run_scanners_on_restart_enabled() -> bool:
+    """Return whether scanners should automatically run on server startup/restart (defaults to True)."""
+    val = get_system_state(_AUTO_RUN_RESTART_KEY)
+    if val is None:
+        return True
+    return str(val).strip().lower() in ("1", "true", "yes", "on", "enabled")
+
+def set_auto_run_scanners_on_restart(enabled: bool) -> bool:
+    """Persist admin toggle for auto-running all scanners on server startup/restart."""
+    flag = bool(enabled)
+    save_system_state(_AUTO_RUN_RESTART_KEY, "true" if flag else "false")
+    return flag
+
 # ── AI CONCALL CACHE ────────────────────────────────────────────────────────
 def get_cached_concall_analysis(symbol: str, pdf_url: str):
     """Retrieves cached AI analysis for a specific PDF url."""

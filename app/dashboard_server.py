@@ -5848,6 +5848,45 @@ def api_resume_all_scanners():
         logger.exception("❌ /api/scanner_health/resume_all failed")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/admin/scanner_restart_auto_run", methods=["GET", "POST"])
+@admin_required
+@csrf.exempt
+def api_admin_scanner_restart_auto_run():
+    """Admin endpoint to get or toggle auto-running all scanners on server startup/restart."""
+    try:
+        from database import (
+            is_auto_run_scanners_on_restart_enabled,
+            set_auto_run_scanners_on_restart,
+        )
+        if request.method == "GET":
+            return jsonify({
+                "status": "ok",
+                "enabled": is_auto_run_scanners_on_restart_enabled(),
+            }), 200
+
+        data = request.get_json(silent=True) or {}
+        raw_enabled = data.get("enabled")
+        if raw_enabled is None:
+            return jsonify({"status": "error", "message": "Missing 'enabled' boolean in request body"}), 400
+        if isinstance(raw_enabled, bool):
+            enabled = raw_enabled
+        elif isinstance(raw_enabled, str) and raw_enabled.strip().lower() in ("true", "false", "1", "0"):
+            enabled = raw_enabled.strip().lower() in ("true", "1")
+        else:
+            return jsonify({"status": "error", "message": "Invalid 'enabled' value; expected boolean"}), 400
+
+        saved = set_auto_run_scanners_on_restart(enabled)
+        state_label = "ENABLED" if saved else "DISABLED"
+        logger.info(f"⚙️ [ADMIN] Auto-run all scanners on server restart set to {state_label}")
+        return jsonify({
+            "status": "ok",
+            "enabled": saved,
+            "message": f"Auto-run scanners on server restart {state_label}.",
+        }), 200
+    except Exception as e:
+        logger.exception("❌ /api/admin/scanner_restart_auto_run failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/api/admin/trigger_scanner/<scanner_name>", methods=["POST"])
 @admin_required
 @csrf.exempt

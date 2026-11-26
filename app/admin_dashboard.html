@@ -3821,6 +3821,7 @@ function changeAdminPage(type, delta) {
               </span>
             </div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <button id="auto-restart-scanners-btn" onclick="toggleAutoRunOnRestart()" data-enabled="true" title="Control whether all scanners automatically run on server restart" style="padding:5px 12px; border-radius:6px; background:rgba(16,185,129,0.12); color:var(--win); border:1px solid rgba(16,185,129,0.3); font-size:11px; font-weight:700; cursor:pointer;">🔁 Auto-Run on Restart: ON</button>
               <button onclick="toggleAllScanners('resume')" style="padding:5px 12px; border-radius:6px; background:rgba(16,185,129,0.12); color:var(--win); border:1px solid rgba(16,185,129,0.3); font-size:11px; font-weight:700; cursor:pointer;">▶ Start All</button>
               <button onclick="toggleAllScanners('pause')" style="padding:5px 12px; border-radius:6px; background:rgba(239,68,68,0.1); color:var(--loss); border:1px solid rgba(239,68,68,0.25); font-size:11px; font-weight:700; cursor:pointer;">⏸ Pause All</button>
               <button id="refresh-master-symbols-btn" onclick="refreshMasterSymbolsUniverse()" style="padding:5px 12px; border-radius:6px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; font-size:11px; font-weight:700; cursor:pointer;">⚡ Sync Master Stock List</button>
@@ -5184,6 +5185,7 @@ function changeAdminPage(type, delta) {
       const p6 = loadValidationHealth();
 
       loadPledgeWorkerMode();
+      loadAutoRunOnRestartState();
 
       await Promise.all([p1, p2, p3, p4, p5, p6]);
     }
@@ -5210,6 +5212,7 @@ function changeAdminPage(type, delta) {
         });
         if(res.ok) {
           loadPledgeWorkerMode();
+      loadAutoRunOnRestartState();
           setTimeout(() => loadDiagnostics(), 1000);
         } else {
           const err = await res.json();
@@ -5746,6 +5749,62 @@ function changeAdminPage(type, delta) {
         if (res.ok && (data.status === 'success' || data.success)) {
           showCustomToast(data.message || `All scanners ${action === 'pause' ? 'PAUSED' : 'STARTED'} successfully`, 'success');
           doRefresh();
+        } else {
+          showCustomToast(`Failed: ${data.message || data.error || 'Server error'}`, 'error');
+        }
+      } catch (e) {
+        showCustomToast(`Error: ${e.message || e}`, 'error');
+      }
+    }
+
+    function updateAutoRunOnRestartBtn(enabled) {
+      const btn = document.getElementById('auto-restart-scanners-btn');
+      if (!btn) return;
+      const isOn = Boolean(enabled);
+      btn.dataset.enabled = isOn ? 'true' : 'false';
+      btn.textContent = isOn ? '🔁 Auto-Run on Restart: ON' : '🔁 Auto-Run on Restart: OFF';
+      if (isOn) {
+        btn.style.background = 'rgba(16,185,129,0.12)';
+        btn.style.color = 'var(--win)';
+        btn.style.border = '1px solid rgba(16,185,129,0.3)';
+      } else {
+        btn.style.background = 'rgba(239,68,68,0.1)';
+        btn.style.color = 'var(--loss)';
+        btn.style.border = '1px solid rgba(239,68,68,0.25)';
+      }
+    }
+
+    async function loadAutoRunOnRestartState() {
+      try {
+        const res = await fetch('/api/admin/scanner_restart_auto_run');
+        if (res.ok) {
+          const data = await res.json();
+          updateAutoRunOnRestartBtn(data.enabled !== false);
+        }
+      } catch (e) {
+        console.error('Failed to load auto-run on restart state', e);
+      }
+    }
+
+    async function toggleAutoRunOnRestart() {
+      const btn = document.getElementById('auto-restart-scanners-btn');
+      const currentlyEnabled = !btn || btn.dataset.enabled !== 'false';
+      const nextEnabled = !currentlyEnabled;
+      const actionLabel = nextEnabled ? 'ENABLE' : 'DISABLE';
+      const confirmed = await showCustomConfirm(
+        `Are you sure you want to <strong>${actionLabel}</strong> auto-running all scanners on server restart?<br><br>${nextEnabled ? 'On future server restarts, all primary scanners will automatically run a 1-pass catch-up scan.' : 'On future server restarts, scanners will NOT auto-run on startup (scheduled & manual runs still work normally).'}`
+      );
+      if (!confirmed) return;
+      try {
+        const res = await fetch('/api/admin/scanner_restart_auto_run', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ enabled: nextEnabled })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.status === 'ok') {
+          updateAutoRunOnRestartBtn(data.enabled);
+          showCustomToast(data.message || `Auto-run on restart ${nextEnabled ? 'ENABLED' : 'DISABLED'}`, 'success');
         } else {
           showCustomToast(`Failed: ${data.message || data.error || 'Server error'}`, 'error');
         }

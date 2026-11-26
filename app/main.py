@@ -846,6 +846,14 @@ def run_all_seven_scanners_non_market_boot():
       - Evaluates exact same strategy predicates across all universe stocks.
       - Enforces exact same alert generation & same-day alert deduplication (zero duplicate alerts if already generated today).
     """
+    try:
+        from database import is_auto_run_scanners_on_restart_enabled
+        if not is_auto_run_scanners_on_restart_enabled():
+            logger.info("⏸️ [SERVER RESTART BOOT] Auto-run on restart is DISABLED by Admin — skipping non-market boot scanner batch.")
+            return
+    except Exception as _chk_err:
+        logger.warning(f"⚠️ [SERVER RESTART BOOT] Could not check auto_run_scanners_on_restart flag (defaulting to ON): {_chk_err}")
+
     def _run_batch():
         logger.info("======================================================================")
         logger.info("🌙 [NON-MARKET HOURS BOOT] Server restarted outside market hours.")
@@ -1512,18 +1520,28 @@ def run_system_scheduler():
 
     logger.info("🕒 SCHEDULER | Started (custom time-based scheduler)")
     
-    # [MANDATORY SERVER RESTART INVARIANT]
-    # Irrespective of market hours, holidays, or weekends, every server restart triggers a full 1-pass execution for ALL SCANNERS.
-    logger.info("🚀 [SERVER RESTART BOOT] Server restarted — Triggering mandatory 1-pass execution for ALL SCANNERS (irrespective of market hours or holidays)...")
+    # [SERVER RESTART BOOT]
+    # Restore price history bundles unconditionally, then trigger 1-pass scanner execution only if Admin auto-run on restart is enabled.
     verify_scans()
-    run_all_seven_scanners_non_market_boot()
+    _auto_run_restart = True
     try:
-        from telemetry_manager import telemetry
-        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
-        _run_performance_tracker_single()
-        telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
-    except Exception as e:
-        logger.error(f"Boot perf tracker failed: {e}")
+        from database import is_auto_run_scanners_on_restart_enabled
+        _auto_run_restart = is_auto_run_scanners_on_restart_enabled()
+    except Exception as _boot_flag_err:
+        logger.warning(f"⚠️ [SERVER RESTART BOOT] Failed to read auto_run_scanners_on_restart flag (defaulting to True): {_boot_flag_err}")
+
+    if _auto_run_restart:
+        logger.info("🚀 [SERVER RESTART BOOT] Auto-run on restart is ENABLED — triggering 1-pass execution for ALL SCANNERS...")
+        run_all_seven_scanners_non_market_boot()
+        try:
+            from telemetry_manager import telemetry
+            telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
+            _run_performance_tracker_single()
+            telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_COMPLETE")
+        except Exception as e:
+            logger.error(f"Boot perf tracker failed: {e}")
+    else:
+        logger.info("⏸️ [SERVER RESTART BOOT] Auto-run on restart is DISABLED by Admin — skipping boot scanner pass & boot performance tracker.")
 
     # Main scheduler loop state variables
     from market_utils import is_within_custom_hours
