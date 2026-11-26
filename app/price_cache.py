@@ -1178,6 +1178,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     t_broker_total = 0.0
     t_merge_total = 0.0
     t_write_total = 0.0
+    attempted_syms: set = set()
 
     for group_key, items in coalesced_groups.items():
         group_symbols = [item[0] for item in items]
@@ -1194,6 +1195,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 )
                 break
             batch = group_symbols[i : i + batch_size]
+            attempted_syms.update(batch)
             batch_end = min(i + batch_size, group_total)
             import random
             sample_str = ", ".join(random.sample(batch, min(3, len(batch))))
@@ -1633,20 +1635,21 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         df = all_data.get(sym)
         if df is None or isinstance(df, ProviderResult) or not isinstance(df, pd.DataFrame) or df.empty:
             failed_syms.append(sym)
-            try:
-                import config
-                active_providers = getattr(config, "PROVIDER_ROUTING_POLICY", {}).get(f"price_{interval}", ["fyers", "upstox"])
-                provider_desc = "+".join(active_providers)
-                upsert_fetch_error(
-                    'UNIFIED_PIPELINE',
-                    'PRICE_CACHE',
-                    sym,
-                    interval,
-                    'no_data_after_fetch',
-                    f"Exhausted active providers [{provider_desc}] for {sym} [{interval}]"
-                )
-            except Exception:
-                pass
+            if sym in attempted_syms:
+                try:
+                    import config
+                    active_providers = getattr(config, "PROVIDER_ROUTING_POLICY", {}).get(f"price_{interval}", ["fyers", "upstox"])
+                    provider_desc = "+".join(active_providers)
+                    upsert_fetch_error(
+                        'UNIFIED_PIPELINE',
+                        'PRICE_CACHE',
+                        sym,
+                        interval,
+                        'no_data_after_fetch',
+                        f"Exhausted active providers [{provider_desc}] for {sym} [{interval}]"
+                    )
+                except Exception:
+                    pass
             all_data[sym] = None
         else:
             successful_syms.append(sym)
