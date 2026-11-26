@@ -3609,6 +3609,12 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
 def _background_refresh_stock_data_health():
     """Asynchronous background refresh for stale-while-revalidate."""
     global _STOCK_DATA_HEALTH_REFRESHING, _STOCK_DATA_HEALTH_DIRTY
+    try:
+        import database as _db_boot_chk
+    except ImportError:
+        from app import database as _db_boot_chk
+    if not getattr(_db_boot_chk, "_BOOT_SYNC_COMPLETE", True):
+        return
     if _STOCK_DATA_HEALTH_REFRESHING:
         _STOCK_DATA_HEALTH_DIRTY = True
         return
