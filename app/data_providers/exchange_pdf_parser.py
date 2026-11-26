@@ -601,6 +601,7 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
         "correction_of_nomenclature", "correction of nomenclature", "nomenclature_correction", "nomenclature correction",
         "change in management", "change_in_management", "change of management",
         "regulation 74", "reg 74", "reg. 74", "74(5)", "74_5",
+        "dp_regulation", "dp regulation", "depository participant",
         "asset cover", "assetcover", "security cover", "securitycover",
     ]):
         return False
@@ -773,17 +774,21 @@ class ExchangePdfParser:
                 except Exception as s_err:
                     logger.debug(f"[PDF_PARSER] ScraperAPI download failed for {base_name}: {s_err}")
 
-            # 2. Direct fetch fallback from exchange static archives (6s connect, 30s read for up to 50MB PDFs)
+            # 2. Direct fetch fallback from exchange static archives (8s connect, 60s read, with Range resume for large PDFs)
             try:
-                with self.session.get(pdf_url, headers=_HEADERS, timeout=(6, 30), stream=True) as resp:
+                content = b""
+                expected_cl = None
+                with self.session.get(pdf_url, headers=_HEADERS, timeout=(8, 60), stream=True) as resp:
                     if resp.status_code == 200:
                         cl = resp.headers.get("Content-Length")
-                        if cl and int(cl) > ceiling_bytes:
-                            logger.warning(
-                                f"[PDF_PARSER] Skipping PDF {base_name}: size {int(cl)/1024/1024:.1f}MB exceeds "
-                                f"{ceiling_bytes//1024//1024}MB limit (is_result={is_result})"
-                            )
-                            return None
+                        if cl:
+                            expected_cl = int(cl)
+                            if expected_cl > ceiling_bytes:
+                                logger.warning(
+                                    f"[PDF_PARSER] Skipping PDF {base_name}: size {expected_cl/1024/1024:.1f}MB exceeds "
+                                    f"{ceiling_bytes//1024//1024}MB limit (is_result={is_result})"
+                                )
+                                return None
                         chunks = []
                         tot = 0
                         for chunk in resp.iter_content(chunk_size=65536):
@@ -796,14 +801,37 @@ class ExchangePdfParser:
                                 return None
                             chunks.append(chunk)
                         content = b"".join(chunks)
-                        if content.startswith(b"%PDF"):
-                            if b"%%EOF" in content[-8192:]:
-                                with open(cache_path, "wb") as f_out:
-                                    f_out.write(content)
-                                logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes, is_result={is_result})")
-                                return content
-                            else:
-                                logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
+
+                # If a large exchange PDF stream truncated mid-transfer, resume via HTTP Range up to 2 times
+                for _rng_attempt in range(2):
+                    if not (content.startswith(b"%PDF") and b"%%EOF" not in content[-8192:]):
+                        break
+                    if expected_cl and len(content) >= expected_cl:
+                        break
+                    _rng_hdrs = {**_HEADERS, "Range": f"bytes={len(content)}-"}
+                    with self.session.get(pdf_url, headers=_rng_hdrs, timeout=(8, 60), stream=True) as r_res:
+                        if r_res.status_code not in (200, 206):
+                            break
+                        if r_res.status_code == 200:
+                            # Server ignored Range and restarted from byte 0
+                            content = b""
+                        _extra = []
+                        _tot = len(content)
+                        for chunk in r_res.iter_content(chunk_size=65536):
+                            _tot += len(chunk)
+                            if _tot > ceiling_bytes:
+                                return None
+                            _extra.append(chunk)
+                        content = content + b"".join(_extra)
+
+                if content.startswith(b"%PDF"):
+                    if b"%%EOF" in content[-8192:]:
+                        with open(cache_path, "wb") as f_out:
+                            f_out.write(content)
+                        logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes, is_result={is_result})")
+                        return content
+                    else:
+                        logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
             except Exception as direct_err:
                 logger.debug(f"[PDF_PARSER] Direct download failed for {base_name}: {direct_err}")
 
