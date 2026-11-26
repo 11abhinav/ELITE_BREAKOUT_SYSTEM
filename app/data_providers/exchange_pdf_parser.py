@@ -1745,8 +1745,11 @@ class ExchangePdfParser:
                 ebit = pbt
 
             # Sanity check: Accounting cross-check
-            if rev is not None and rev <= 0:
+            if rev is not None and (rev <= 0 or rev > 500_000.0):
                 rev = None
+            if pat is not None and (abs(pat) > 100_000.0 or (rev is not None and rev > 0 and abs(pat) > max(500.0, rev * 5.0))):
+                logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Rejecting physically implausible PAT={pat} Cr (rev={rev} Cr)")
+                pat = None
             if rev is not None and pat is not None and rev < 10.0 and pat > 50.0:
                 rev = None
 
