@@ -843,12 +843,23 @@ def rebuild_canonical_pit_dataset(
     except ImportError:
         from canonical_pit_publisher import publish_canonical_pit
 
-    pub_result = publish_canonical_pit(
-        candidate_path=candidate_file,
-        reason=f"FILING_WATCHER_REBUILD_{trigger_source}",
-        publisher_version="v3.0",
-    )
-    publication_decision = pub_result.get("publication_decision", "UNKNOWN")
+    pub_result = {}
+    publication_decision = "UNKNOWN"
+    for _pub_attempt in range(3):
+        pub_result = publish_canonical_pit(
+            candidate_path=candidate_file,
+            reason=f"FILING_WATCHER_REBUILD_{trigger_source}",
+            publisher_version="v3.0",
+        )
+        publication_decision = pub_result.get("publication_decision", "UNKNOWN")
+        if publication_decision != "ABORTED_CONCURRENT_CHANGE":
+            break
+        logger.warning(
+            f"🔄 [REBUILD] Canonical file changed concurrently during gate evaluation "
+            f"(attempt {_pub_attempt + 1}/3). Re-evaluating against updated baseline..."
+        )
+        import time as _pub_time
+        _pub_time.sleep(0.5)
     if publication_decision == "PUBLISHED":
         logger.info(f"✅ [REBUILD] Canonical PIT published. SHA256: {pub_result.get('dataset_sha256', 'N/A')[:16]}...")
         # Auto-restore any stocks that are now certified and fresh
