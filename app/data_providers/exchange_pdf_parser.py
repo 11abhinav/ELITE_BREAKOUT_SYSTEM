@@ -991,6 +991,12 @@ class ExchangePdfParser:
         page_scores: List[Tuple[int, int, ConsolidationType]] = []
         zero_text_page_count = 0
 
+        def _is_scanned_or_sig_only(txt: str) -> bool:
+            s = (txt or "").strip()
+            if len(s) < 50:
+                return True
+            return len(s) < 300 and "digitally signed" in s.lower()
+
         t_prescan_start = time.time()
         for p_idx in range(max_scan_pages):
             if p_idx not in cached_page_texts and (time.time() - t_prescan_start > 10.0 or time.time() - t_parse_start > 16.0):
@@ -1004,8 +1010,7 @@ class ExchangePdfParser:
                     if lay_t and len(lay_t.strip()) >= 50:
                         p_text = lay_t
                 cached_page_texts[p_idx] = p_text
-            raw_len = len(p_text.strip())
-            if raw_len < 50:
+            if _is_scanned_or_sig_only(p_text):
                 zero_text_page_count += 1
             sc, b = score_page_content(p_text)
             if sc >= 45:
@@ -1013,7 +1018,7 @@ class ExchangePdfParser:
 
         # Scanned Image PDF / Hybrid Scanned Document Early Detection & OCR Fallback:
         # Never spend OCR budget if digital pages ALREADY scored >= 70 (real digital statements present!)
-        doc_total_chars = sum(len(t.strip()) for t in cached_page_texts.values())
+        doc_total_chars = sum(0 if _is_scanned_or_sig_only(t) else len(t.strip()) for t in cached_page_texts.values())
         best_digital_score = max((sc for _, sc, _ in page_scores), default=0)
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
         is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 85)
@@ -1021,7 +1026,7 @@ class ExchangePdfParser:
         if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 45.0):
             ocr_recovered = False
             try:
-                scan_candidates = [p for p in range(min(14, total_doc_pages)) if len(cached_page_texts.get(p, "").strip()) < 50]
+                scan_candidates = [p for p in range(min(14, total_doc_pages)) if _is_scanned_or_sig_only(cached_page_texts.get(p, ""))]
                 # For hybrid/scanned PDFs, scan statement pages (p>=2, i.e. page 3+) before cover/auditor pages (p=0,1)
                 scan_candidates.sort(key=lambda p: (0 if p >= 2 else 1, p))
                 logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
@@ -1133,8 +1138,7 @@ class ExchangePdfParser:
                 cached_page_texts[page_idx] = text
 
             # Fast Digital Text First Invariant (with on-demand OCR fallback when no P&L record extracted yet)
-            raw_text_len = len(text.strip())
-            if raw_text_len < 50:
+            if _is_scanned_or_sig_only(text):
                 if (not records) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 2 and _p3_elapsed < 35.0 and (time.time() - t_parse_start < 85.0):
                     try:
                         _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
@@ -1142,13 +1146,12 @@ class ExchangePdfParser:
                             if _p3_img.width > 1600 or _p3_img.height > 2000:
                                 _p3_img.thumbnail((1600, 2000))
                             _p3_ocr = pytesseract.image_to_string(_p3_img, timeout=10.0, config="--psm 6")
-                            if _p3_ocr and len(_p3_ocr.strip()) >= 50:
+                            if _p3_ocr and not _is_scanned_or_sig_only(_p3_ocr):
                                 text = _p3_ocr.strip()
                                 cached_page_texts[page_idx] = text
-                                raw_text_len = len(text)
                     except Exception:
                         pass
-                if raw_text_len < 50:
+                if _is_scanned_or_sig_only(text):
                     continue
 
             text = _normalize_ocr_text(text)
@@ -1179,7 +1182,7 @@ class ExchangePdfParser:
                 any(k in norm_text_lower for k in ("revenue from operations", "total income", "interest income", "gross premium"))
                 and any(k in norm_text_lower for k in ("profit before tax", "profit for the period", "net profit", "profit after tax"))
             )
-            if not is_stmt_header:
+            if not is_stmt_header and (page_idx < 2 or records):
                 continue
 
             # Must contain actual operational revenue indicators (or banking/NBFC total income / interest income / interest earned)
@@ -1188,7 +1191,7 @@ class ExchangePdfParser:
                 "interest earned", "interest income", "total revenue from operations", "total revenue",
                 "premium earned", "gross premium", "net premium", "insurance revenue", "total insurance revenue",
             )
-            if not any(k in norm_text_lower for k in _rev_indicators):
+            if (not is_stmt_header) or (not any(k in norm_text_lower for k in _rev_indicators)):
                 # Garbled embedded OCR layers (e.g. "lnterest Earned", "Kevenue om oersions") pass len>=50
                 # yet fail keyword matching. Skip cover letters & auditor review reports before re-rendering.
                 _is_cover_or_auditor = any(
