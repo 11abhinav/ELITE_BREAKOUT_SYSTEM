@@ -818,11 +818,11 @@ class ExchangePdfParser:
                     _end = _start + (4 * 1024 * 1024) - 1
                     if expected_cl:
                         _end = min(_end, expected_cl - 1)
-                    _rng_hdrs = {**_HEADERS, "Range": f"bytes={_start}-{_end}"}
+                    _rng_hdrs = {**_HEADERS, "Range": f"bytes={_start}-{_end}", "Connection": "close"}
                     _extra: List[bytes] = []
                     _extra_tot = 0
                     try:
-                        with self.session.get(pdf_url, headers=_rng_hdrs, timeout=(8, 60), stream=True) as r_res:
+                        with requests.get(pdf_url, headers=_rng_hdrs, timeout=(8, 60), stream=True) as r_res:
                             if r_res.status_code not in (200, 206):
                                 break
                             if r_res.status_code == 200:
@@ -1026,15 +1026,15 @@ class ExchangePdfParser:
                 logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
                 t_ocr_start = time.time()
                 for p_idx in scan_candidates[:6]:
-                    if time.time() - t_ocr_start > 35.0 or time.time() - t_parse_start > 65.0:
+                    if time.time() - t_ocr_start > 45.0 or time.time() - t_parse_start > 70.0:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
                     ocr_page_text = ""
-                    comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=10.0) if tmp_pdf_path else None
+                    comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=10.0, dpi=200) if tmp_pdf_path else None
                     if comp_img is not None:
                         try:
-                            if comp_img.width > 1400 or comp_img.height > 1800:
-                                comp_img.thumbnail((1400, 1800))
+                            if comp_img.width > 2000 or comp_img.height > 2400:
+                                comp_img.thumbnail((2000, 2400))
                             t = pytesseract.image_to_string(comp_img, timeout=12.0, config="--psm 6")
                             if t and len(t.strip()) > 30:
                                 ocr_page_text = t.strip()
@@ -1079,11 +1079,14 @@ class ExchangePdfParser:
                 )
                 return []
 
-        # Candidate selection (Safeguard A):
+        # Candidate selection (Safeguard A): visit all scored pages in descending score order first,
+        # then their +1 neighbors, so a low-scoring Notes page next to Cash Flows never precedes a P&L page.
         candidate_page_indices: List[int] = []
-        for p_idx, sc, b in sorted(page_scores, key=lambda x: x[1], reverse=True):
+        _sorted_scores = sorted(page_scores, key=lambda x: x[1], reverse=True)
+        for p_idx, sc, b in _sorted_scores:
             if p_idx not in candidate_page_indices:
                 candidate_page_indices.append(p_idx)
+        for p_idx, sc, b in _sorted_scores:
             if p_idx + 1 < total_doc_pages and (p_idx + 1) not in candidate_page_indices:
                 candidate_page_indices.append(p_idx + 1)
 
