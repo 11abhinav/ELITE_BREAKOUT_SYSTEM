@@ -1081,9 +1081,19 @@ class ExchangePdfParser:
                 return []
 
         # Candidate selection (Safeguard A): visit all scored pages in descending score order first,
-        # then their +1 neighbors, so a low-scoring Notes page next to Cash Flows never precedes a P&L page.
+        # but demote cover/auditor pages (p=0,1) that lack revenue indicators behind statement pages (p>=2).
         candidate_page_indices: List[int] = []
-        _sorted_scores = sorted(page_scores, key=lambda x: x[1], reverse=True)
+        _rev_kws = (
+            "revenue from operations", "net sales", "total income", "income from operations",
+            "interest earned", "interest income", "total revenue", "premium earned", "insurance revenue",
+        )
+        _sorted_scores = sorted(
+            page_scores,
+            key=lambda x: (
+                0 if (x[0] >= 2 or any(k in (cached_page_texts.get(x[0], "")).lower() for k in _rev_kws)) else 1,
+                -x[1],
+            ),
+        )
         for p_idx, sc, b in _sorted_scores:
             if p_idx not in candidate_page_indices:
                 candidate_page_indices.append(p_idx)
