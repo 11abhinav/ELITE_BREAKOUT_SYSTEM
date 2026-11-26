@@ -938,7 +938,12 @@ class ExchangePdfParser:
             try:
                 reader = _PDF_READER_CLS(io.BytesIO(pdf_bytes), strict=False)
             except Exception as pdf_err:
-                logger.warning(f"[PDF_PARSER] Failed to open PDF for {symbol}: {pdf_err}")
+                if hasattr(self, "last_failure_reason"):
+                    self.last_failure_reason[symbol] = (
+                        "PDF_CANNOT_BE_READ",
+                        f"PDF cannot be read (corrupt or invalid PDF structure: {pdf_err}).",
+                    )
+                logger.warning(f"[PDF_PARSER] PDF cannot be read for {symbol}: {pdf_err}")
                 return []
 
         total_doc_pages = len(reader.pages)
@@ -1076,12 +1081,12 @@ class ExchangePdfParser:
             if is_pure_scanned and not ocr_recovered:
                 if hasattr(self, "last_failure_reason"):
                     self.last_failure_reason[symbol] = (
-                        "SCANNED_IMAGE_PDF_UNREADABLE",
-                        f"Scanned image PDF without readable digital text layer ({zero_text_page_count}/{max_scan_pages} pages). Zero-synthetic-fallback enforces None.",
+                        "PDF_CANNOT_BE_READ",
+                        f"PDF cannot be read (scanned image without readable text/OCR across {zero_text_page_count}/{max_scan_pages} pages).",
                     )
                 logger.warning(
-                    f"⚠️ [PDF_PARSER: SCANNED_PDF] {symbol}: Scanned image PDF without readable digital text layer "
-                    f"({zero_text_page_count}/{max_scan_pages} pages). ZERO_SYNTHETIC_FALLBACK: retaining missing facts as None."
+                    f"⚠️ [PDF_PARSER: PDF_CANNOT_BE_READ] {symbol}: PDF cannot be read "
+                    f"(scanned image without readable text across {zero_text_page_count}/{max_scan_pages} pages)."
                 )
                 return []
 
@@ -2178,7 +2183,11 @@ class ExchangePdfParser:
             downloaded_pdf_count += 1
             pdf_bytes = self.download_pdf(att_file, announcement_metadata=ann)
             if not pdf_bytes:
-                record_extraction_failure_rca(sym_u, "UNABLE_TO_FETCH", f"Failed to download announcement PDF from {os.path.basename(att_file)}")
+                record_extraction_failure_rca(
+                    sym_u,
+                    "UNABLE_TO_FETCH",
+                    f"PDF not found or download failed from exchange ({os.path.basename(att_file)}).",
+                )
                 continue
 
             pdf_sha = hashlib.sha256(pdf_bytes).hexdigest()
@@ -2195,7 +2204,10 @@ class ExchangePdfParser:
             parsed = self.parse_sebi_reg33_pdf(pdf_bytes, sym_u, announcement_metadata=ann)
             rca_code, rca_desc = getattr(self, "last_failure_reason", {}).get(
                 sym_u,
-                ("ZERO_VALIDATED_FACTS", f"Downloaded {os.path.basename(att_file)} but 0 facts could be extracted.")
+                (
+                    "DATA_NOT_FOUND_IN_PDF",
+                    f"Data not found in PDF: {os.path.basename(att_file)} was read, but no financial statement metrics could be extracted.",
+                ),
             )
             if rca_code != "SEMAPHORE_TIMEOUT":
                 self.last_attempted_urls[sym_u].append(att_file)
@@ -2207,8 +2219,8 @@ class ExchangePdfParser:
                         self._failed_pdf_hashes.add(hash_key)
                 record_extraction_failure_rca(sym_u, rca_code, f"{rca_desc} (File: {os.path.basename(att_file)})")
                 logger.warning(
-                    f"⚠️ [PDF_FALLBACK: {rca_code}] {sym_u}: Downloaded {os.path.basename(att_file)} ({len(pdf_bytes)} bytes) "
-                    f"for period {p_end or 'UNKNOWN'}, but 0 structured statement facts could be extracted."
+                    f"⚠️ [PDF_FALLBACK: {rca_code}] {sym_u}: {rca_desc} "
+                    f"(file={os.path.basename(att_file)}, bytes={len(pdf_bytes)}, period={p_end or 'UNKNOWN'})"
                 )
             existing_scopes = {(r.period_end_date, r.consolidation) for r in pdf_records}
             for rec in parsed:
@@ -2230,8 +2242,8 @@ class ExchangePdfParser:
         elif downloaded_pdf_count == 0:
             record_extraction_failure_rca(
                 sym_u,
-                "RESULT_NOT_AVAILABLE",
-                f"No financial result announcement/PDF attachment found for period >= {min_cutoff or 'latest'}"
+                "PDF_NOT_FOUND",
+                f"PDF not found on NSE/BSE for period >= {min_cutoff or 'latest'}.",
             )
 
         return pdf_records
