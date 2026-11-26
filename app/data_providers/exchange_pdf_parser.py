@@ -979,12 +979,12 @@ class ExchangePdfParser:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
                     ocr_page_text = ""
-                    comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=6.0) if tmp_pdf_path else None
+                    comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=10.0) if tmp_pdf_path else None
                     if comp_img is not None:
                         try:
                             if comp_img.width > 1400 or comp_img.height > 1800:
                                 comp_img.thumbnail((1400, 1800))
-                            t = pytesseract.image_to_string(comp_img, timeout=6.0, config="--psm 6")
+                            t = pytesseract.image_to_string(comp_img, timeout=12.0, config="--psm 6")
                             if t and len(t.strip()) > 30:
                                 ocr_page_text = t.strip()
                         except Exception:
@@ -1111,19 +1111,22 @@ class ExchangePdfParser:
                 _re_ocr_ok = False
                 if _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 35.0):
                     try:
-                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=6.0)
+                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=10.0)
                         if _comp_img is not None:
                             if _comp_img.width > 1400 or _comp_img.height > 1800:
                                 _comp_img.thumbnail((1400, 1800))
-                            _fresh_ocr = pytesseract.image_to_string(_comp_img, timeout=6.0, config="--psm 6")
+                            _fresh_ocr = pytesseract.image_to_string(_comp_img, timeout=12.0, config="--psm 6")
                             if _fresh_ocr and len(_fresh_ocr.strip()) >= 50:
                                 text = _normalize_ocr_text(_fresh_ocr.strip())
                                 text_lower = text.lower()
                                 norm_text_lower = re.sub(r"\s+", " ", text_lower)
                                 cached_page_texts[page_idx] = text
                                 _re_ocr_ok = any(k in norm_text_lower for k in _rev_indicators)
-                    except Exception:
-                        pass
+                            logger.info(
+                                f"🔄 [PDF_PARSER: RE_OCR] {symbol} p{page_idx+1}: ok={_re_ocr_ok}, chars={len(_fresh_ocr or '')}"
+                            )
+                    except Exception as _re_err:
+                        logger.info(f"⚠️ [PDF_PARSER: RE_OCR_ERR] {symbol} p{page_idx+1}: {_re_err}")
                 if not _re_ocr_ok:
                     continue
 
