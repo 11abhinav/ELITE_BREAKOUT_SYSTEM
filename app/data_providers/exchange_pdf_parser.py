@@ -1371,7 +1371,7 @@ class ExchangePdfParser:
                         continue
                     cl_val = _clean_token_number(t)
                     if cl_val is not None:
-                        if ("." not in t or t.endswith(".")) and 2020 <= cl_val <= 2030 and abs(cl_val - int(cl_val)) < 1e-6:
+                        if ("," not in t) and ("." not in t or t.endswith(".")) and 2020 <= cl_val <= 2030 and abs(cl_val - int(cl_val)) < 1e-6:
                             continue
                         nums.append(cl_val)
 
@@ -1560,8 +1560,8 @@ class ExchangePdfParser:
                                 diff = round(cand_pbt - cand_tax, 2)
                                 for k in range(j + 1, min(j + 10, len(parsed_nums))):
                                     cand_pat = parsed_nums[k]
-                                    if cand_pat > 0.5 and abs(cand_pat - diff) < 0.25 and not (2020 <= cand_pat <= 2030 and abs(cand_pat - int(cand_pat)) < 1e-6):
-                                        valid_sols.append((cand_pbt, tax_sum if False else cand_tax, cand_pat, i, k))
+                                    if cand_pat > 0.5 and abs(cand_pat - diff) < 0.25:
+                                        valid_sols.append((cand_pbt, cand_tax, cand_pat, i, k))
                                         break
                             if j + 1 < len(parsed_nums):
                                 tax_sum = cand_tax + parsed_nums[j + 1]
@@ -1569,7 +1569,7 @@ class ExchangePdfParser:
                                     diff2 = round(cand_pbt - tax_sum, 2)
                                     for k in range(j + 2, min(j + 10, len(parsed_nums))):
                                         cand_pat = parsed_nums[k]
-                                        if cand_pat > 0.5 and abs(cand_pat - diff2) < 0.25 and not (2020 <= cand_pat <= 2030 and abs(cand_pat - int(cand_pat)) < 1e-6):
+                                        if cand_pat > 0.5 and abs(cand_pat - diff2) < 0.25:
                                             valid_sols.append((cand_pbt, tax_sum, cand_pat, i, k))
                                             break
 

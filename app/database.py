@@ -8167,6 +8167,7 @@ def restore_stock_data_health_from_db() -> Optional[str]:
     return None
 
 
+_BOOT_SYNC_STARTED = False
 _BOOT_SYNC_COMPLETE = False
 
 
@@ -8181,6 +8182,8 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
     """
     import json
     import shutil
+    global _BOOT_SYNC_STARTED, _BOOT_SYNC_COMPLETE
+    _BOOT_SYNC_STARTED = True
     from pathlib import Path
 
     base_dir = Path(__file__).resolve().parent.parent
@@ -8296,7 +8299,6 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
         summary["errors"].append(f"pit_valuation_history_cache_json: {e}")
 
     # 5. Mark boot sync complete and invalidate all in-memory caches so readers pick up restored files immediately
-    global _BOOT_SYNC_COMPLETE
     _BOOT_SYNC_COMPLETE = True
     clear_canonical_snapshot_cache()
     clear_unified_stock_data_health_cache()

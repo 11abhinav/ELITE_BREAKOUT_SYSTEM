@@ -3606,14 +3606,20 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
     return resp_json, etag, gz
 
 
+def _is_boot_sync_in_progress() -> bool:
+    """Returns True only while restore_all_boot_caches_from_db() is actively running."""
+    import sys as _sys
+    for _mname in ("database", "app.database"):
+        _m = _sys.modules.get(_mname)
+        if _m and getattr(_m, "_BOOT_SYNC_STARTED", False) and not getattr(_m, "_BOOT_SYNC_COMPLETE", True):
+            return True
+    return False
+
+
 def _background_refresh_stock_data_health():
     """Asynchronous background refresh for stale-while-revalidate."""
     global _STOCK_DATA_HEALTH_REFRESHING, _STOCK_DATA_HEALTH_DIRTY
-    try:
-        import database as _db_boot_chk
-    except ImportError:
-        from app import database as _db_boot_chk
-    if not getattr(_db_boot_chk, "_BOOT_SYNC_COMPLETE", True):
+    if _is_boot_sync_in_progress():
         return
     if _STOCK_DATA_HEALTH_REFRESHING:
         _STOCK_DATA_HEALTH_DIRTY = True
@@ -3656,12 +3662,8 @@ def api_admin_stock_data_health():
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
 
-        # 0. Pre-BOOT_SYNC guard: never recompute from incomplete disk before pit_raw_bundle is restored
-        try:
-            import database as _db_boot_chk
-        except ImportError:
-            from app import database as _db_boot_chk
-        if not getattr(_db_boot_chk, "_BOOT_SYNC_COMPLETE", True):
+        # 0. Pre-BOOT_SYNC guard: never recompute from incomplete disk while pit_raw_bundle is actively restoring
+        if _is_boot_sync_in_progress():
             if cached_payload and not force:
                 return _make_json_response(
                     cached_payload,
