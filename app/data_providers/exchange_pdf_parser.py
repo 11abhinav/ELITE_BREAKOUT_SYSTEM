@@ -1585,14 +1585,24 @@ class ExchangePdfParser:
                             pbt = found_pbt * mult
 
                     if rev_from_ops is None and total_income is None and pbt_idx != -1:
+                        def _is_non_date_num(n: float) -> bool:
+                            if abs(n - int(n)) < 1e-6:
+                                ni = int(n)
+                                if 2020 <= ni <= 2030:
+                                    return False
+                                ns = str(ni)
+                                if re.match(r"^(?:28|29|30|31)(?:0[1-9]|1[0-2])?202\d$", ns) or re.match(r"^202\d(?:0[1-9]|1[0-2])(?:28|29|30|31)$", ns):
+                                    return False
+                            return True
+
                         all_cand_nums = [
                             n for n in parsed_nums[:pbt_idx]
-                            if n >= 50.0 and not (2020 <= n <= 2030 and abs(n - int(n)) < 1e-6)
+                            if n >= 50.0 and _is_non_date_num(n)
                         ]
                         if not all_cand_nums:
                             all_cand_nums = [
                                 n for n in parsed_nums[:pbt_idx]
-                                if n > 0 and not (2020 <= n <= 2030 and abs(n - int(n)) < 1e-6)
+                                if n > 0 and _is_non_date_num(n)
                             ]
 
                         found_rev_row = None
