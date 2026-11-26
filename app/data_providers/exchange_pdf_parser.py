@@ -1106,7 +1106,7 @@ class ExchangePdfParser:
             _rev_indicators = (
                 "revenue from operations", "net sales", "total income", "income from operations",
                 "interest earned", "interest income", "total revenue from operations", "total revenue",
-                "premium earned", "gross premium", "net premium",
+                "premium earned", "gross premium", "net premium", "insurance revenue", "total insurance revenue",
             )
             if not any(k in norm_text_lower for k in _rev_indicators):
                 # Garbled embedded OCR layers (e.g. "lnterest Earned", "Kevenue om oersions") pass len>=50
@@ -1417,7 +1417,7 @@ class ExchangePdfParser:
 
                 if rev_from_ops is None and any(k in line_lower for k in [
                     "revenue from operations", "total revenue from operations", "net sales", "interest income",
-                    "premium earned", "gross premium written", "net premium written"
+                    "premium earned", "gross premium written", "net premium written", "total insurance revenue", "insurance revenue"
                 ]) and not any(k in line_lower for k in ["total income", "comprehensive", "expenses", "cash flow"]):
                     rev_from_ops = last_val * mult
 
