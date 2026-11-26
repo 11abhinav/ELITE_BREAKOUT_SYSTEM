@@ -1098,7 +1098,7 @@ class ExchangePdfParser:
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
             _p3_elapsed = time.time() - t_start
-            if _p3_elapsed > 55.0 or (_p3_elapsed > 40.0 and time.time() - t_parse_start > 110.0):
+            if (records and _p3_elapsed > 15.0) or _p3_elapsed > 55.0 or (_p3_elapsed > 40.0 and time.time() - t_parse_start > 110.0):
                 logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Exceeded parse budget on page {page_idx+1}. Breaking early.")
                 break
 
@@ -1118,10 +1118,10 @@ class ExchangePdfParser:
                         text = lay_t
                 cached_page_texts[page_idx] = text
 
-            # Fast Digital Text First Invariant (with on-demand OCR fallback for un-OCR'd scanned statement pages)
+            # Fast Digital Text First Invariant (with on-demand OCR fallback when no P&L record extracted yet)
             raw_text_len = len(text.strip())
             if raw_text_len < 50:
-                if _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 2 and _p3_elapsed < 35.0 and (time.time() - t_parse_start < 85.0):
+                if (not records) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 2 and _p3_elapsed < 35.0 and (time.time() - t_parse_start < 85.0):
                     try:
                         _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
                         if _p3_img is not None:
