@@ -588,14 +588,16 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     url_fn = os.path.basename(str(pdf_url).split("?")[0]).lower()
     combined = f"{desc} {text} {fn} {url_fn}"
 
-    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, monitoring agency, investor handouts, non-financial board actions, nomenclature corrections)
+    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, monitoring agency, investor handouts, non-financial board actions, nomenclature corrections, Reg 74(5)/Asset Cover certificates)
     if any(k in combined for k in [
         "newspaper", "clipping", "advertisement", "publication of",
         "investor presentation", "investor update", "investor handout", "investor_handout", "investorhandout",
         "monitoring agency", "monitoringagency",
         "earnings call", "transcript", "audio recording", "video recording", "concall", "con. call", "press release",
         "correction_of_nomenclature", "correction of nomenclature", "nomenclature_correction", "nomenclature correction",
-        "change in management", "change_in_management", "change of management"
+        "change in management", "change_in_management", "change of management",
+        "regulation 74", "reg 74", "reg. 74", "74(5)", "74_5",
+        "asset cover", "assetcover", "security cover", "securitycover",
     ]):
         return False
 
@@ -791,7 +793,7 @@ class ExchangePdfParser:
                             chunks.append(chunk)
                         content = b"".join(chunks)
                         if content.startswith(b"%PDF"):
-                            if b"%%EOF" in content[-2048:]:
+                            if b"%%EOF" in content[-8192:]:
                                 with open(cache_path, "wb") as f_out:
                                     f_out.write(content)
                                 logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes, is_result={is_result})")
@@ -1036,11 +1038,12 @@ class ExchangePdfParser:
             if p_idx + 1 < total_doc_pages and (p_idx + 1) not in candidate_page_indices:
                 candidate_page_indices.append(p_idx + 1)
 
-        if not candidate_page_indices:
-            logger.debug(f"[PDF_PARSER] {symbol}: No page scored >= 45. Executing bounded fallback to first {min(12, total_doc_pages)} pages.")
-            # Prioritize pages 3..12 before cover/auditor pages 1..2 so large PDFs reach statement tables before budget expires
-            _fallback_end = min(12, total_doc_pages)
-            candidate_page_indices = list(range(2, _fallback_end)) + [p for p in (0, 1) if p < _fallback_end]
+        # Always append unvisited pages 3..14 (then 1..2) as tail fallback so a cover/auditor page
+        # scoring >=30 in page_scores never starves Phase 3 from reaching statement pages.
+        _fallback_end = min(14, total_doc_pages)
+        for _fp in list(range(2, _fallback_end)) + [p for p in (0, 1) if p < _fallback_end]:
+            if _fp not in candidate_page_indices:
+                candidate_page_indices.append(_fp)
 
         t_start = time.time()
         for page_idx in candidate_page_indices:
@@ -1115,6 +1118,9 @@ class ExchangePdfParser:
                     k in header_preamble
                     for k in (
                         "dear sir", "dear madam", "listing department", "sub:", "subject:",
+                        "bse limited", "national stock exchange", "exchange plaza", "dalal street",
+                        "regulation 30", "outcome of board meeting", "outcome of the board meeting",
+                        "yours faithfully", "yours sincerely", "company secretary",
                         "independent auditor", "limited review", "review report", "auditor's report",
                     )
                 )
@@ -1200,6 +1206,7 @@ class ExchangePdfParser:
                 r"((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?)[\s\n]+.*?(202\d)",
                 r"\b(\d{2}[\./-]\d{2}[\./-]202\d)\b",
             ]
+            _today_str = datetime.now().strftime("%Y-%m-%d")
             for d_pat in _date_patterns:
                 for dm in re.finditer(d_pat, text, re.I | re.DOTALL):
                     if dm.lastindex and dm.lastindex >= 2:
@@ -1207,7 +1214,7 @@ class ExchangePdfParser:
                     else:
                         raw_d = dm.group(1).strip()
                     cand_p = _parse_exchange_date(raw_d)
-                    if cand_p and len(cand_p) == 10:
+                    if cand_p and len(cand_p) == 10 and cand_p <= _today_str:
                         if _is_fiscal_period_end(cand_p):
                             in_table_period = cand_p
                             break
@@ -1251,9 +1258,17 @@ class ExchangePdfParser:
             elif in_table_period:
                 period_end = in_table_period
 
-            # Safeguard B Extension: Never let an OCR-misread historical in-table date override a valid, newer fiscal metadata date.
-            # E.g. UNIPARTS: OCR misreads in-table "2026" as "2020" → in_table_period=2020-09-30, but meta_period=2026-09-30 is correct.
-            # Rule: if meta_period is a valid fiscal end AND period_end < meta_period by >60 days → trust metadata.
+            # Safeguard B Extension: Never let an OCR-misread historical OR future in-table date override a valid fiscal metadata date.
+            # E.g. OCR misreads in-table "2026" as "2020" or "2028" → meta_period=2026-09-30 is authoritative.
+            if period_end and period_end > _today_str:
+                _fallback_p = meta_period if (meta_period and meta_period <= _today_str) else (desc_period if (desc_period and desc_period <= _today_str) else None)
+                if _fallback_p:
+                    logger.warning(
+                        f"⚠️ [PDF_PARSER] {symbol}: Safeguard B Extension: future OCR-misread period {period_end} > today {_today_str}. Overriding → using {_fallback_p}."
+                    )
+                    period_end = _fallback_p
+                else:
+                    continue
             if period_end and meta_period and _is_fiscal_period_end(meta_period) and period_end != meta_period:
                 try:
                     from datetime import datetime as _sfb_dt
