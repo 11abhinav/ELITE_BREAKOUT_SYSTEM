@@ -760,7 +760,7 @@ class ExchangePdfParser:
             fetch_via_scraperapi, get_scraper_api_key = _get_scraperapi_fetcher()
             if fetch_via_scraperapi and get_scraper_api_key():
                 try:
-                    s_resp = fetch_via_scraperapi(pdf_url, timeout=18, country_code="in")
+                    s_resp = fetch_via_scraperapi(pdf_url, timeout=(40 if is_result else 18), country_code="in")
                     if s_resp is not None and s_resp.status_code == 200 and s_resp.content and s_resp.content.startswith(b"%PDF"):
                         if len(s_resp.content) <= ceiling_bytes and b"%%EOF" in s_resp.content[-2048:]:
                             with open(cache_path, "wb") as f_out:
@@ -1021,25 +1021,60 @@ class ExchangePdfParser:
             if sc >= 45:
                 page_scores.append((p_idx, sc, b))
 
+        _rev_kws = (
+            "revenue from operations", "net sales", "total income", "income from operations",
+            "interest earned", "interest income", "total revenue", "premium earned", "insurance revenue",
+        )
+        _auditor_markers = (
+            "independent auditor", "limited review", "review report", "auditor's report",
+            "sre 2410", "chartered accountants", "udin:", "membership no",
+        )
+
+        # Early exit for Regulation 30 non-financial announcements (e.g. subsidiary incorporation)
+        _head_sample = re.sub(
+            r"\s+", " ",
+            " ".join((cached_page_texts.get(p, "") or "") for p in range(min(3, total_doc_pages))).lower(),
+        )
+        if (
+            not page_scores
+            and len(_head_sample) >= 200
+            and any(k in _head_sample for k in (
+                "incorporation of a wholly-owned subsidiary", "details of subsidiary to be incorporated",
+                "reconciliation of share capital", "certificate under regulation 74",
+            ))
+            and not any(k in _head_sample for k in _rev_kws)
+            and "profit before tax" not in _head_sample
+        ):
+            if hasattr(self, "last_failure_reason"):
+                self.last_failure_reason[symbol] = (
+                    "NON_FINANCIAL_ANNOUNCEMENT",
+                    "Skipped non-financial Regulation 30 corporate announcement (no financial results table).",
+                )
+            logger.info(f"⏭️ [PDF_PARSER] {symbol}: Skipping non-financial Reg 30 announcement.")
+            return []
+
         # Scanned Image PDF / Hybrid Scanned Document Early Detection & OCR Fallback:
         # Never spend OCR budget if digital pages ALREADY scored >= 70 (real digital statements present!)
         doc_total_chars = sum(0 if _is_scanned_or_sig_only(t) else len(t.strip()) for t in cached_page_texts.values())
         best_digital_score = max((sc for _, sc, _ in page_scores), default=0)
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
         is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 85)
+        ocr_attempted_pages: Set[int] = set()
 
         if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 45.0):
             ocr_recovered = False
             try:
                 scan_candidates = [p for p in range(min(14, total_doc_pages)) if _is_scanned_or_sig_only(cached_page_texts.get(p, ""))]
-                # For hybrid/scanned PDFs, scan statement pages (p>=2, i.e. page 3+) before cover/auditor pages (p=0,1)
-                scan_candidates.sort(key=lambda p: (0 if p >= 2 else 1, p))
-                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:6])} scanned image pages (hybrid={is_hybrid_scanned})...")
+                # Scan statement pages starting from page 2 (p>=1) before cover letter (p=0)
+                scan_candidates.sort(key=lambda p: (0 if p >= 1 else 1, p))
+                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:8])} scanned image pages (hybrid={is_hybrid_scanned})...")
                 t_ocr_start = time.time()
-                for p_idx in scan_candidates[:6]:
-                    if time.time() - t_ocr_start > 45.0 or time.time() - t_parse_start > 70.0:
+                _ocr_rev_pages = 0
+                for p_idx in scan_candidates[:8]:
+                    if time.time() - t_ocr_start > 75.0 or time.time() - t_parse_start > 95.0:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
+                    ocr_attempted_pages.add(p_idx)
                     ocr_page_text = ""
                     comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=10.0, dpi=200) if tmp_pdf_path else None
                     if comp_img is not None:
@@ -1067,12 +1102,19 @@ class ExchangePdfParser:
                                 pass
                     if ocr_page_text:
                         cached_page_texts[p_idx] = ocr_page_text
+                        _ocr_low = re.sub(r"\s+", " ", ocr_page_text.lower())
+                        _has_rev = any(k in _ocr_low for k in _rev_kws)
+                        _is_aud = any(k in _ocr_low[:1200] for k in _auditor_markers) and not _has_rev
+                        if _is_aud:
+                            continue
                         sc, b = score_page_content(ocr_page_text)
                         if sc >= 30:
                             page_scores.append((p_idx, sc, b))
                             ocr_recovered = True
-                            if len([p for p in page_scores if p[1] >= 60]) >= 2:
-                                break
+                            if _has_rev and sc >= 60:
+                                _ocr_rev_pages += 1
+                                if _ocr_rev_pages >= 2:
+                                    break
                 if ocr_recovered:
                     logger.info(f"✅ [PDF_PARSER: OCR_SUCCESS] {symbol}: OCR successfully recovered text across {len([p for p in page_scores if p[0] in scan_candidates])} scanned pages.")
             except Exception as _ocr_err:
@@ -1090,17 +1132,14 @@ class ExchangePdfParser:
                 )
                 return []
 
-        # Candidate selection (Safeguard A): visit all scored pages in descending score order first,
-        # but demote cover/auditor pages (p=0,1) that lack revenue indicators behind statement pages (p>=2).
+        # Candidate selection (Safeguard A): prioritize pages containing revenue keywords first,
+        # then statement pages (p>=1) ahead of cover letter (p=0), in descending score order.
         candidate_page_indices: List[int] = []
-        _rev_kws = (
-            "revenue from operations", "net sales", "total income", "income from operations",
-            "interest earned", "interest income", "total revenue", "premium earned", "insurance revenue",
-        )
         _sorted_scores = sorted(
             page_scores,
             key=lambda x: (
-                0 if (x[0] >= 2 or any(k in (cached_page_texts.get(x[0], "")).lower() for k in _rev_kws)) else 1,
+                0 if any(k in (cached_page_texts.get(x[0], "")).lower() for k in _rev_kws) else 1,
+                0 if x[0] >= 1 else 1,
                 -x[1],
             ),
         )
@@ -1111,12 +1150,17 @@ class ExchangePdfParser:
             if p_idx + 1 < total_doc_pages and (p_idx + 1) not in candidate_page_indices:
                 candidate_page_indices.append(p_idx + 1)
 
-        # Always append unvisited pages 3..14 (then 1..2) as tail fallback so a cover/auditor page
-        # scoring >=30 in page_scores never starves Phase 3 from reaching statement pages.
+        # Always append unvisited pages 2..14 (then page 1) as tail fallback, visiting any cached
+        # page with revenue keywords first so non-P&L pages cannot starve the parse budget.
         _fallback_end = min(14, total_doc_pages)
-        for _fp in list(range(2, _fallback_end)) + [p for p in (0, 1) if p < _fallback_end]:
-            if _fp not in candidate_page_indices:
-                candidate_page_indices.append(_fp)
+        _tail_pages = [
+            _fp for _fp in (list(range(1, _fallback_end)) + ([0] if _fallback_end > 0 else []))
+            if _fp not in candidate_page_indices
+        ]
+        _tail_pages.sort(
+            key=lambda fp: (0 if any(k in (cached_page_texts.get(fp, "")).lower() for k in _rev_kws) else 1, fp)
+        )
+        candidate_page_indices.extend(_tail_pages)
 
         t_start = time.time()
         for page_idx in candidate_page_indices:
@@ -1183,10 +1227,18 @@ class ExchangePdfParser:
                 has_tab_rows = sum(1 for ln in text.split("\n")[:35] if re.match(r"^\s*(?:1\.|i\.|total income|revenue from operations)", ln.strip(), re.I)) >= 2
                 if not has_tab_rows:
                     continue
-            # Pass 1 extracts P&L statements; skip standalone Balance Sheet / Cash Flow / Segment pages (handled in Pass 2)
-            if any(k in header_preamble for k in ["statement of assets and liabilities", "assets and liabilities", "statement of cash flows", "cash flows -", "segment wise information", "segment revenue", "capital employed"]):
-                if "profit and loss" not in header_preamble:
+            # Pass 1 extracts P&L statements; skip standalone Balance Sheet / Cash Flow / Segment / Auditor pages (handled in Pass 2)
+            _page_head_1500 = norm_text_lower[:1500]
+            _has_pnl_anchor = any(k in norm_text_lower for k in ("revenue from operations", "total income", "profit before tax"))
+            if any(k in _page_head_1500 for k in [
+                "statement of assets and liabilities", "assets and liabilities", "balance sheet as at",
+                "statement of cash flows", "cash flows -", "cash flow from operating activities",
+                "cash flows from operating activities", "segment wise information", "segment revenue", "capital employed",
+            ]):
+                if "profit and loss" not in _page_head_1500 and not _has_pnl_anchor:
                     continue
+            if not _has_pnl_anchor and any(k in _page_head_1500 for k in _auditor_markers):
+                continue
 
             # Must contain SEBI Regulation 33 Statement header keywords (or unambiguous P&L table structure when header has OCR typos)
             is_stmt_header = any(k in norm_text_lower for k in [
@@ -1196,7 +1248,7 @@ class ExchangePdfParser:
                 any(k in norm_text_lower for k in ("revenue from operations", "total income", "interest income", "gross premium"))
                 and any(k in norm_text_lower for k in ("profit before tax", "profit for the period", "net profit", "profit after tax"))
             )
-            if not is_stmt_header and (page_idx < 2 or records):
+            if not is_stmt_header and (page_idx == 0 or records):
                 continue
 
             # Must contain actual operational revenue indicators (or banking/NBFC total income / interest income / interest earned)
@@ -1207,19 +1259,22 @@ class ExchangePdfParser:
             )
             if (not is_stmt_header) or (not any(k in norm_text_lower for k in _rev_indicators)):
                 # Garbled embedded OCR layers (e.g. "lnterest Earned", "Kevenue om oersions") pass len>=50
-                # yet fail keyword matching. Skip cover letters & auditor review reports before re-rendering.
+                # yet fail keyword matching. Skip cover letters, auditor reports & BS/CF pages before re-rendering.
                 _is_cover_or_auditor = any(
-                    k in header_preamble
+                    k in _page_head_1500
                     for k in (
                         "dear sir", "dear madam", "listing department", "sub:", "subject:",
                         "bse limited", "national stock exchange", "exchange plaza", "dalal street",
                         "regulation 30", "outcome of board meeting", "outcome of the board meeting",
                         "yours faithfully", "yours sincerely", "company secretary",
                         "independent auditor", "limited review", "review report", "auditor's report",
+                        "sre 2410", "chartered accountants", "udin:", "membership no",
+                        "assets and liabilities", "total assets", "equity and liabilities",
+                        "cash flow from operating", "cash flows from operating",
                     )
                 )
                 _re_ocr_ok = False
-                if not _is_cover_or_auditor and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 35.0):
+                if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 35.0):
                     try:
                         _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=10.0, dpi=200)
                         if _comp_img is not None:
@@ -2212,6 +2267,10 @@ class ExchangePdfParser:
             if rca_code != "SEMAPHORE_TIMEOUT":
                 self.last_attempted_urls[sym_u].append(att_file)
             if not parsed:
+                if rca_code == "NON_FINANCIAL_ANNOUNCEMENT":
+                    downloaded_pdf_count = max(0, downloaded_pdf_count - 1)
+                    logger.info(f"⏭️ [PDF_FALLBACK] {sym_u}: {rca_desc} ({os.path.basename(att_file)})")
+                    continue
                 if rca_code != "SEMAPHORE_TIMEOUT" and hasattr(self, "_failed_pdf_hashes"):
                     with getattr(self, "_failed_hash_lock", threading.Lock()):
                         if len(self._failed_pdf_hashes) > 2000:
