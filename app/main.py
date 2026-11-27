@@ -35,6 +35,19 @@ if "--worker" not in sys.argv:
         logging.getLogger(__name__).error(f"❌ Could not start health responder: {_hr_err}")
 
     try:
+        import time as _t_preboot
+        import database as _preboot_db
+        _preboot_db._BOOT_SYNC_STARTED = True
+        _preboot_db._BOOT_SYNC_COMPLETE = False
+        _preboot_db._BOOT_SYNC_STARTED_AT = _t_preboot.time()
+        if "app.database" in sys.modules:
+            sys.modules["app.database"]._BOOT_SYNC_STARTED = True
+            sys.modules["app.database"]._BOOT_SYNC_COMPLETE = False
+            sys.modules["app.database"]._BOOT_SYNC_STARTED_AT = _preboot_db._BOOT_SYNC_STARTED_AT
+    except Exception:
+        pass
+
+    try:
         from dashboard_server import start_dashboard_server_async
         start_dashboard_server_async()
         logging.getLogger(__name__).info("🌐 [BOOT] Dashboard server started asynchronously.")

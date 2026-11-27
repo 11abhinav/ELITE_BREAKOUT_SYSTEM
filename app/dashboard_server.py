@@ -3627,6 +3627,14 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
     """
     Computes unified stock data health audit JSON payload, etag, and precompressed gzip bytes.
     """
+    if _is_boot_sync_in_progress():
+        with _STOCK_DATA_HEALTH_LOCK:
+            _p = _STOCK_DATA_HEALTH_CACHE.get("payload")
+            _e = _STOCK_DATA_HEALTH_CACHE.get("etag")
+            _g = _STOCK_DATA_HEALTH_CACHE.get("gzip")
+        if _p and _e and _g:
+            return _p, _e, _g
+
     try:
         from app.database import get_unified_stock_data_health_audit
     except ImportError:
