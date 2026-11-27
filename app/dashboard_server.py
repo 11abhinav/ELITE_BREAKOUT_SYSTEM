@@ -3625,12 +3625,14 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
         _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
         _STOCK_DATA_HEALTH_CACHE["data_sig"] = _sig_before
 
-    # Persist authoritative audit directly to PostgreSQL DB parquet_cache
-    try:
-        from database import save_stock_data_health_to_db
-        save_stock_data_health_to_db(resp_json)
-    except Exception as _db_err:
-        logger.debug(f"[STOCK_DATA_HEALTH] DB persist note: {_db_err}")
+    # Persist authoritative audit asynchronously to PostgreSQL DB parquet_cache so HTTP response never blocks on _DB_WRITE_LOCK
+    def _bg_persist_sdh(payload_str: str):
+        try:
+            from database import save_stock_data_health_to_db
+            save_stock_data_health_to_db(payload_str)
+        except Exception as _db_err:
+            logger.debug(f"[STOCK_DATA_HEALTH] DB persist note: {_db_err}")
+    threading.Thread(target=_bg_persist_sdh, args=(resp_json,), daemon=True, name="StockDataHealthDBPersist").start()
 
     return resp_json, etag, gz
 

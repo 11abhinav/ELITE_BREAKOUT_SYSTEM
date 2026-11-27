@@ -11362,23 +11362,9 @@ def _load_canonical_snapshot_df(allow_gateway: bool = False) -> Optional[Any]:
             pass
         return False
 
-    # Tier 1: PostgreSQL DB (always authoritative — tried unconditionally so redeploys get the live snapshot)
-    try:
-        tmp_db_path = str(snap_path) + ".db_loader_tmp"
-        if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_path):
-            df_db = pd.read_parquet(tmp_db_path)
-            if df_db is not None and not df_db.empty and "symbol" in df_db.columns:
-                shutil.move(tmp_db_path, str(snap_path))
-                with _CANONICAL_DF_LOCK:
-                    _CANONICAL_DF_CACHE = df_db
-                    _CANONICAL_DF_MTIME = snap_path.stat().st_mtime
-                logger.info(f"✅ [CANONICAL_LOADER] Loaded authoritative snapshot from Postgres DB ({len(df_db)} rows)")
-                return df_db
-    except Exception as db_err:
-        logger.debug(f"[CANONICAL_LOADER] DB download note: {db_err}")
-
-    # Tier 2: Local file — only if it exists AND is NOT a stale seed copy
-    if snap_path.exists() and not _is_seed_copy(snap_path):
+    # Fast path (Tier 2-first after boot sync): use in-memory mtime cache or valid non-seed local file
+    # instead of re-downloading canonical_pit_rebuilt from Postgres on every audit call (which also bumped mtime).
+    if _BOOT_SYNC_COMPLETE and snap_path.exists() and not _is_seed_copy(snap_path):
         try:
             mtime = snap_path.stat().st_mtime
             with _CANONICAL_DF_LOCK:
@@ -11392,7 +11378,22 @@ def _load_canonical_snapshot_df(allow_gateway: bool = False) -> Optional[Any]:
                 logger.info(f"✅ [CANONICAL_LOADER] Loaded local snapshot ({len(df)} rows, mtime={mtime})")
                 return df
         except Exception as e:
-            logger.warning(f"⚠️ [CANONICAL_LOADER] Local snapshot corrupted at {snap_path}: {e}. Trying seed fallback...")
+            logger.warning(f"⚠️ [CANONICAL_LOADER] Local snapshot corrupted at {snap_path}: {e}. Trying DB/seed fallback...")
+
+    # Tier 1: PostgreSQL DB (authoritative fallback on boot or missing/corrupt local file)
+    try:
+        tmp_db_path = str(snap_path) + ".db_loader_tmp"
+        if download_parquet_from_db("canonical_pit_rebuilt", tmp_db_path):
+            df_db = pd.read_parquet(tmp_db_path)
+            if df_db is not None and not df_db.empty and "symbol" in df_db.columns:
+                shutil.move(tmp_db_path, str(snap_path))
+                with _CANONICAL_DF_LOCK:
+                    _CANONICAL_DF_CACHE = df_db
+                    _CANONICAL_DF_MTIME = snap_path.stat().st_mtime
+                logger.info(f"✅ [CANONICAL_LOADER] Loaded authoritative snapshot from Postgres DB ({len(df_db)} rows)")
+                return df_db
+    except Exception as db_err:
+        logger.debug(f"[CANONICAL_LOADER] DB download note: {db_err}")
 
     # Tier 3: Seed directory fallback — read-only bootstrap, NEVER written to snap_path
     # (writing seeds to snap_path caused 500+ stale items on every redeploy)
