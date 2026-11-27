@@ -773,6 +773,7 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
         "independent auditor", "limited review report", "auditor's review report",
         "chartered accountants", "we have reviewed the accompanying", "limited review conducted",
         "based on our review conducted", "procedures performed as stated", "nothing has come to our attention",
+        "this statement includes the results of the following entities", "located outside india", "have not been reviewed by us",
     ]) and not has_strict_pnl_structure:
         score -= 85
 
@@ -1618,6 +1619,7 @@ class ExchangePdfParser:
                         "yours faithfully", "yours sincerely", "company secretary",
                         "independent auditor", "limited review", "review report", "auditor's report",
                         "based on our review conducted", "procedures performed as stated", "nothing has come to our attention",
+                        "this statement includes the results of the following entities", "located outside india", "have not been reviewed by us",
                         "sre 2410", "chartered accountants", "udin:", "membership no",
                         "assets and liabilities", "a ts and liabilities", "statement of assets", "total assets",
                         "non-current assets", "non-current assels", "equity and liabilities",
