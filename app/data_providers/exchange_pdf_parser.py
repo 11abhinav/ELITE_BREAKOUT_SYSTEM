@@ -1268,6 +1268,7 @@ class ExchangePdfParser:
         # Determine document-wide unit and multiplier (explicit patterns only, scanning digital pages beyond cover letters)
         doc_mult = 1.0
         doc_unit = "crore"
+        _UNIT_BILLION_RE = r"(?:\([^\)\n]{0,8}\bin\s*billions?\)|(?:\brs\.?|\binr|₹)\s*in\s*billions?\b|\bin\s+billions?\b)"
         _UNIT_MILLION_RE = r"(?:in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?|\([\{\[\*a-z0-9\|%\s]{0,8}in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?[^\)\n]*\)|(?:rs\.?|inr|n|r|z|a)\s*(?:in\s*)?m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?\b|(?:\d[\d,]*\s*mn\b|\bin\s*mn\b|\(\s*mn\s*\)))"
         _UNIT_LAKH_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*l(?:[an]k[bh]?s?|acs?)\)|(?:\b[ztf%]{1,2}|\brs\.?|\binr)\s*in\s*l(?:[an]k[bh]?s?|acs?)\b|\bin\s+l(?:[an]k[bh]?s?|acs?|aks?)\b|\bl(?:[an]k[bh]?s?|acs?)\s*(?:except|unless)\b|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex)"
         _UNIT_CRORE_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*cr[o0]ree?s?\)|\b(?:rs\.?|inr|z|t|f)\s*(?:in|ln)?\s*cr[o0]ree?s?\b|\b(?:in|ln)\s*cr[o0]ree?s?\b|<n\s*crore|\bcr[o0]res?\s*(?:except|unless)\b)"
@@ -1316,7 +1317,10 @@ class ExchangePdfParser:
                 page_scores.append((p_idx, sc, b))
 
         doc_sample_text = "\n".join(cached_page_texts.get(p, "") or "" for p in range(max_scan_pages))
-        if re.search(_UNIT_MILLION_RE, doc_sample_text, re.I):
+        if re.search(_UNIT_BILLION_RE, doc_sample_text, re.I):
+            doc_mult = 100.0
+            doc_unit = "billion"
+        elif re.search(_UNIT_MILLION_RE, doc_sample_text, re.I):
             doc_mult = 0.1
             doc_unit = "million"
         elif re.search(_UNIT_LAKH_RE, doc_sample_text, re.I):
@@ -1659,7 +1663,7 @@ class ExchangePdfParser:
                                 _re_is_non_pnl = any(
                                     k in _cand_norm_and[:1500]
                                     for k in ("cash flow from operating", "cash flows from operating", "statement of cash flow", "assets and liabilities", "total assets", "independent auditor", "limited review", "based on our review conducted", "dear sir", "dear madam")
-                                ) and "revenue from operations" not in _cand_norm_and and "interest earned" not in _cand_norm_and and not _cand_has_ifrs
+                                ) and not _cand_rev
                                 _cand_score = _score_ocr_readability(_cand_text)
                                 if (not _re_is_non_pnl) and (_cand_rev or (_cand_score > _orig_score)):
                                     text, text_lower, norm_text_lower = _cand_text, _cand_lower, _cand_norm
@@ -1696,7 +1700,11 @@ class ExchangePdfParser:
             unit = doc_unit
             explicit_unit = False
             header_text = "\n".join(text.split("\n")[:28])
-            if re.search(_UNIT_MILLION_RE, header_text, re.I):
+            if re.search(_UNIT_BILLION_RE, header_text, re.I):
+                mult = 100.0  # 1 Billion = 100 Crores
+                unit = "billion"
+                explicit_unit = True
+            elif re.search(_UNIT_MILLION_RE, header_text, re.I):
                 mult = 0.1  # 1 Million = 0.1 Crore (10 Lakhs)
                 unit = "million"
                 explicit_unit = True
@@ -1709,7 +1717,11 @@ class ExchangePdfParser:
                 unit = "crore"
                 explicit_unit = True
             else:
-                if re.search(_UNIT_MILLION_RE, text, re.I):
+                if re.search(_UNIT_BILLION_RE, text, re.I):
+                    mult = 100.0
+                    unit = "billion"
+                    explicit_unit = True
+                elif re.search(_UNIT_MILLION_RE, text, re.I):
                     mult = 0.1
                     unit = "million"
                     explicit_unit = True
