@@ -149,7 +149,12 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0, prefer_180: b
         "dear sir", "dear madam", "listing department",
     )
     _is_ifrs_upright = ("revenues" in low and ("profit before" in low or "income tax" in low))
-    if not _has_inverted and len(txt.strip()) >= 150 and (_is_ifrs_upright or any(k in low for k in _strong_upright)):
+    _non_pnl_upright = (
+        "independent auditor", "limited review", "chartered accountants", "based on our review",
+        "dear sir", "dear madam", "assets and liabilities", "cash flows from operating",
+        "security cover", "regulation 52(4)", "regulation 54",
+    )
+    if not _has_inverted and len(txt.strip()) >= 150 and (_is_ifrs_upright or any(k in low for k in _strong_upright) or any(k in low for k in _non_pnl_upright)):
         return txt.strip()
 
     best_txt = txt.strip()
@@ -1264,7 +1269,7 @@ class ExchangePdfParser:
         doc_mult = 1.0
         doc_unit = "crore"
         _UNIT_MILLION_RE = r"(?:in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?|\([\{\[\*a-z0-9\|%\s]{0,8}in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?[^\)\n]*\)|(?:rs\.?|inr|n|r|z|a)\s*(?:in\s*)?m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?\b|(?:\d[\d,]*\s*mn\b|\bin\s*mn\b|\(\s*mn\s*\)))"
-        _UNIT_LAKH_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*l(?:[an]khs?|acs?)\)|(?:\b[ztf%]{1,2}|\brs\.?|\binr)\s*in\s*l(?:[an]khs?|acs?)\b|\bin\s+l(?:[an]khs?|acs?)\b|\bl(?:[an]khs?|acs?)\s*(?:except|unless)\b|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex)"
+        _UNIT_LAKH_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*l(?:[an]k[bh]?s?|acs?)\)|(?:\b[ztf%]{1,2}|\brs\.?|\binr)\s*in\s*l(?:[an]k[bh]?s?|acs?)\b|\bin\s+l(?:[an]k[bh]?s?|acs?|aks?)\b|\bl(?:[an]k[bh]?s?|acs?)\s*(?:except|unless)\b|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex)"
         _UNIT_CRORE_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*cr[o0]ree?s?\)|\b(?:rs\.?|inr|z|t|f)\s*(?:in|ln)?\s*cr[o0]ree?s?\b|\b(?:in|ln)\s*cr[o0]ree?s?\b|<n\s*crore|\bcr[o0]res?\s*(?:except|unless)\b)"
 
         # Phase 2: Lightweight document-wide text pre-scan & candidate scoring
@@ -1514,7 +1519,7 @@ class ExchangePdfParser:
             # Fast Digital Text First Invariant (with on-demand OCR fallback for scanned pages when digital didn't yield both statements yet)
             _prefer_180_hint = any(k in (text or "").lower() for k in _UPSIDE_DOWN_TOKENS)
             if _is_scanned_or_sig_only(text):
-                if (not (has_cons and has_std)) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 90.0 and (time.time() - t_parse_start < 130.0):
+                if (not (has_cons and has_std)) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 150.0 and (time.time() - t_parse_start < 150.0):
                     try:
                         ocr_attempted_pages.add(page_idx)
                         _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=150)
