@@ -12069,10 +12069,20 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
                 stale_cached, fresh_cached = _UNIFIED_AUDIT_CACHE
                 return stale_cached, fresh_cached[:limit_fresh]
 
+    _t_s0 = time.perf_counter()
     sec_master = _get_bse_security_master()
+    _t_s1 = time.perf_counter()
     raw_cache = _get_parsed_raw_filings_cache()
+    _t_s2 = time.perf_counter()
     snap_df = _load_canonical_snapshot_df()
+    _t_s3 = time.perf_counter()
     watcher_state = _get_watcher_state_cache()
+    _t_s4 = time.perf_counter()
+    if (_t_s4 - _t_s0) > 2.0:
+        logger.warning(
+            f"⏱️ [SDH_TRACE] Slow audit preload: sec={_t_s1-_t_s0:.2f}s, raw={_t_s2-_t_s1:.2f}s, "
+            f"snap={_t_s3-_t_s2:.2f}s, watcher={_t_s4-_t_s3:.2f}s"
+        )
 
     def _resolve_last_fetch(sym, raw_i, snap_i=None, fallback_dt=None):
         w_i = watcher_state.get(sym, {})

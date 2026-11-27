@@ -3732,7 +3732,13 @@ def api_admin_stock_data_health():
             )
 
         # 2. Synchronous computation (only if force=1 or cold cache with no payload)
-        with _STOCK_DATA_HEALTH_COMPUTE_LOCK:
+        _lock_acquired = _STOCK_DATA_HEALTH_COMPUTE_LOCK.acquire(timeout=10.0)
+        if not _lock_acquired:
+            if cached_payload:
+                logger.warning("⚠️ [API_STOCK_DATA_HEALTH] Compute lock busy >10s; serving warm cached payload.")
+                return _make_json_response(cached_payload, etag=cached_etag, max_age=0, precompressed_gzip=cached_gz, no_cache=True)
+            return jsonify({"status": "initializing", "message": "Audit computation busy, please retry in a few seconds."}), 503
+        try:
             # Double check under compute lock
             with _STOCK_DATA_HEALTH_LOCK:
                 cached_payload = _STOCK_DATA_HEALTH_CACHE.get("payload")
@@ -3745,6 +3751,8 @@ def api_admin_stock_data_health():
 
             resp_json, etag, gz = _compute_stock_data_health_payload(force=bool(force or cached_ts == 0.0))
             return _make_json_response(resp_json, etag=etag, max_age=0, precompressed_gzip=gz, no_cache=True)
+        finally:
+            _STOCK_DATA_HEALTH_COMPUTE_LOCK.release()
     except Exception as e:
         logger.exception(f"[API_STOCK_DATA_HEALTH] Error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500

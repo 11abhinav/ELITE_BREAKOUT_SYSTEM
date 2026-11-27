@@ -14371,11 +14371,15 @@ async function fetchStockDataHealth(force = false) {
 
   try {
     const forceParam = force ? '&force=1' : '';
+    const abortCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const abortTimer = abortCtrl ? setTimeout(() => abortCtrl.abort(), 15000) : null;
     const fetchOpts = {
       cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
+      ...(abortCtrl ? { signal: abortCtrl.signal } : {})
     };
     const res = await fetch(`/api/admin/stock_data_health?_t=${Date.now()}${forceParam}`, fetchOpts);
+    if (abortTimer) clearTimeout(abortTimer);
     
     if (res.status === 401) {
       try {
