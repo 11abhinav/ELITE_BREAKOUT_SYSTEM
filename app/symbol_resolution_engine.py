@@ -115,7 +115,8 @@ class FyersAdapter(BaseProviderAdapter):
         # 1. Authoritative Instrument Registry Lookup
         try:
             from instrument_registry import get_instrument_registry
-            reg_rec = get_instrument_registry().lookup(symbol)
+            reg = get_instrument_registry()
+            reg_rec = reg.lookup(symbol) or reg.lookup(sym)
             if reg_rec and reg_rec.fyers_symbol:
                 inst_id = f"{reg_rec.asset_type}:{reg_rec.exchange}:{reg_rec.canonical_symbol}"
                 return ResolvedInstrument(inst_id, sym, "fyers", reg_rec.fyers_symbol, reg_rec.exchange, reg_rec.asset_type, 100, "REGISTRY")
@@ -134,11 +135,19 @@ class FyersAdapter(BaseProviderAdapter):
         except Exception as mapper_err:
             logger.debug(f"Fyers symbol mapper lookup error for {symbol}: {mapper_err}")
 
-        # Standard equity fallback for clean symbols
+        # Standard equity fallback for clean symbols (resolving centralized corporate aliases first)
         if not sym.startswith("UNKNOWN") and not str(symbol).startswith("^"):
+            try:
+                try:
+                    from app.data_providers.corporate_aliases import resolve_corporate_alias
+                except ImportError:
+                    from data_providers.corporate_aliases import resolve_corporate_alias
+                target_sym = resolve_corporate_alias(sym)
+            except Exception:
+                target_sym = sym
             prefix = "BSE:" if force_bse else "NSE:"
             inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
-            return ResolvedInstrument(inst_id, sym, "fyers", f"{prefix}{sym}-EQ", prefix.rstrip(":"), "EQ", 90, "MASTER")
+            return ResolvedInstrument(inst_id, sym, "fyers", f"{prefix}{target_sym}-EQ", prefix.rstrip(":"), "EQ", 90, "MASTER")
 
         return None
 
@@ -270,29 +279,40 @@ class UpstoxAdapter(BaseProviderAdapter):
         except Exception:
             pass
 
-        # Check corporate action aliases
-        _corporate_alias_map = {
-            "HEG": "HEGAM",
-            "TATAMOTORS": "TMPV",
-            "M_M": "M&M", "M-M": "M&M",
-            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
-            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
-            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
-            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
-            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
-            "GUJGAS": "GUJGASLTD",
-            "GMRINFRA": "GMRAIRPORT",
-            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
-        }
-        cand_alias = _corporate_alias_map.get(sym)
+        # Check corporate action aliases and BSE Security Master ISIN
+        try:
+            try:
+                from app.data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES
+            except ImportError:
+                from data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES
+        except ImportError:
+            CORPORATE_ACTION_ALIASES = {}
+        cand_alias = CORPORATE_ACTION_ALIASES.get(sym)
         if cand_alias:
             try:
-                from market_data.providers.upstox_instrument_mapper import mapper
+                try:
+                    from app.market_data.providers.upstox_instrument_mapper import mapper
+                except ImportError:
+                    from market_data.providers.upstox_instrument_mapper import mapper
                 alias_key = mapper.get_instrument_key(cand_alias, allow_fallback=True)
                 if alias_key:
                     candidates.append(alias_key)
             except Exception:
                 pass
+        try:
+            try:
+                from app.data_providers.bse_security_master import BseSecurityMasterResolver
+                from app.market_data.providers.upstox_instrument_mapper import mapper
+            except ImportError:
+                from data_providers.bse_security_master import BseSecurityMasterResolver
+                from market_data.providers.upstox_instrument_mapper import mapper
+            bse_entry = BseSecurityMasterResolver().resolve(sym)
+            if bse_entry and bse_entry.isin:
+                isin_key = mapper.get_instrument_key(bse_entry.isin, allow_fallback=False)
+                if isin_key:
+                    candidates.append(isin_key)
+        except Exception:
+            pass
 
         try:
             from bse_mapping_utils import load_bse_mappings

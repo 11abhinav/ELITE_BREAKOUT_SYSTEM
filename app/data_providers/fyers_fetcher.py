@@ -199,14 +199,26 @@ class FyersFetcher(DataFetcher):
         sym = symbol.upper()
         is_bse = sym.endswith(".BO") or sym.startswith("BSE:")
 
-        # Check persistent learned mappings FIRST for all symbols (including BSE: prefixes)
         try:
-            from data_providers.fyers_mapping_utils import load_fyers_mappings
+            from app.data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES
+        except ImportError:
+            from data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES
+
+        # Check persistent learned mappings FIRST for all symbols, skipping stale un-aliased NSE overrides
+        try:
+            try:
+                from app.data_providers.fyers_mapping_utils import load_fyers_mappings
+            except ImportError:
+                from data_providers.fyers_mapping_utils import load_fyers_mappings
             f_map = load_fyers_mappings()
-            if symbol in f_map:
-                return f_map[symbol]
-            if sym in f_map:
-                return f_map[sym]
+            learned = f_map.get(symbol) or f_map.get(sym)
+            if learned:
+                sym_base = sym[:-3] if (sym.endswith(".NS") or sym.endswith(".BO")) else sym
+                alias_target = CORPORATE_ACTION_ALIASES.get(sym_base)
+                if alias_target and alias_target != sym_base and learned.startswith("NSE:") and learned != f"NSE:{alias_target}-EQ":
+                    pass  # Ignore stale pre-rename NSE learned override; fall through to active alias resolution
+                else:
+                    return learned
         except Exception:
             pass
 
@@ -218,23 +230,9 @@ class FyersFetcher(DataFetcher):
         if sym.endswith(".NS") or sym.endswith(".BO"):
             sym = sym[:-3]
             
-        # Corporate action & ampersand aliases
-        _corporate_alias_map = {
-            "HEG": "HEGAM",
-            "TATAMOTORS": "TMPV",
-            "M_M": "M&M", "M-M": "M&M",
-            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
-            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
-            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
-            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
-            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
-            "GUJGAS": "GUJGASLTD",
-            "GMRINFRA": "GMRAIRPORT",
-            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
-            "CCAVENUE": "INFIBEAM",
-        }
-        if sym in _corporate_alias_map:
-            sym = _corporate_alias_map[sym]
+        # Corporate action & ampersand aliases (centralized single source of truth)
+        if sym in CORPORATE_ACTION_ALIASES:
+            sym = CORPORATE_ACTION_ALIASES[sym]
         else:
             sym = sym.replace("_", "-")
         
@@ -341,23 +339,12 @@ class FyersFetcher(DataFetcher):
         norm = self._normalize_symbol(raw)
         if norm and norm.endswith("-INDEX"):
             return [norm]
-        _corporate_alias_map = {
-            "HEG": "HEGAM",
-            "HEGAM": "HEG",
-            "TATAMOTORS": "TMPV",
-            "TMPV": "TATAMOTORS",
-            "M_M": "M&M", "M-M": "M&M",
-            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
-            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
-            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
-            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
-            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
-            "GUJGAS": "GUJGASLTD", "GUJGASLTD": "GUJGAS",
-            "GMRINFRA": "GMRAIRPORT", "GMRAIRPORT": "GMRINFRA",
-            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
-        }
-        if raw in _corporate_alias_map:
-            raw = _corporate_alias_map[raw]
+        try:
+            from app.data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES, REVERSE_CORPORATE_ALIASES
+        except ImportError:
+            from data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES, REVERSE_CORPORATE_ALIASES
+        if raw in CORPORATE_ACTION_ALIASES:
+            raw = CORPORATE_ACTION_ALIASES[raw]
 
         is_bse_pref = raw.startswith("BSE:") or raw.endswith(".BO")
 
@@ -373,8 +360,8 @@ class FyersFetcher(DataFetcher):
                 base = base[:-len(suffix)]
                 break
 
-        if base in _corporate_alias_map:
-            base = _corporate_alias_map[base]
+        if base in CORPORATE_ACTION_ALIASES:
+            base = CORPORATE_ACTION_ALIASES[base]
 
         # Check if known in BSE mappings
         try:
@@ -424,14 +411,20 @@ class FyersFetcher(DataFetcher):
             candidates.append(f"BSE:{base}-XT")
             candidates.append(f"BSE:{base}-X")
 
-        # Also add alias candidates (e.g. HEG -> HEGAM)
-        alias_sym = _corporate_alias_map.get(base)
+        # Also add corporate action & reverse alias candidates (e.g. HEG -> HEGAM, ICICIPRULI -> ICICILIFE)
+        alias_sym = CORPORATE_ACTION_ALIASES.get(base)
+        alias_cands = []
         if alias_sym and alias_sym != base:
-            candidates.append(f"NSE:{alias_sym}-EQ")
-            candidates.append(f"BSE:{alias_sym}-EQ")
-            candidates.append(f"BSE:{alias_sym}-A")
-            candidates.append(f"BSE:{alias_sym}-B")
-            candidates.append(f"NSE:{alias_sym}-BE")
+            alias_cands.append(alias_sym)
+        for rev_sym in REVERSE_CORPORATE_ALIASES.get(base, ()):
+            if rev_sym != base:
+                alias_cands.append(rev_sym)
+        for cand_alias in alias_cands:
+            candidates.append(f"NSE:{cand_alias}-EQ")
+            candidates.append(f"BSE:{cand_alias}-EQ")
+            candidates.append(f"BSE:{cand_alias}-A")
+            candidates.append(f"BSE:{cand_alias}-B")
+            candidates.append(f"NSE:{cand_alias}-BE")
 
         # Known BSE scrip code map for stocks with custom Fyers BSE tickers
         # CRITICAL: Always use BSE:CODE-EQ or -A. Bare BSE:CODE is rejected by Fyers API v3 with code -403.

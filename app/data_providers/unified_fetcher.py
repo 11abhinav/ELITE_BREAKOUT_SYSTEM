@@ -17,27 +17,18 @@ network_fetch_lock = threading.Lock()
 _fyers_reauth_lock = threading.Lock()
 _last_fyers_reauth_ts = 0.0
 
-CORPORATE_ACTION_ALIASES = {
-    "HEG": "HEGAM",
-    "TATAMOTORS": "TMPV",
-    "M-M": "M&M",
-    "M_M": "M&M",
-    "M-MFIN": "M&MFIN",
-    "M_MFIN": "M&MFIN",
-    "J-KBANK": "J&KBANK",
-    "J_KBANK": "J&KBANK",
-    "L-TFH": "L&TFH",
-    "L_TFH": "L&TFH",
-    "GVT-D": "GVT&D",
-    "GVT_D": "GVT&D",
-    "T-IPOWER": "T&IPOWER",
-    "T_IPOWER": "T&IPOWER",
-    "GUJGAS": "GUJGASLTD",
-    "GMRINFRA": "GMRAIRPORT",
-    "MCDOWELL-N": "UNITDSPR",
-    "MCDOWELL": "UNITDSPR",
-    "CCAVENUE": "INFIBEAM",
-}
+try:
+    from .corporate_aliases import (
+        CORPORATE_ACTION_ALIASES,
+        get_alias_variants,
+        strip_exchange_suffixes,
+    )
+except ImportError:
+    from data_providers.corporate_aliases import (
+        CORPORATE_ACTION_ALIASES,
+        get_alias_variants,
+        strip_exchange_suffixes,
+    )
 
 class UnifiedFetcher:
     """
@@ -145,6 +136,55 @@ class UnifiedFetcher:
         return pd.DataFrame()
 
 
+    @staticmethod
+    def _store_live_quote_result(
+        results: dict,
+        pending: set,
+        results_lock: threading.Lock,
+        orig: str,
+        cmd_data: dict,
+    ) -> None:
+        """Stores fetched live quote payload for orig and all its canonical/corporate aliases."""
+        clean_orig = strip_exchange_suffixes(orig)
+        with results_lock:
+            results[orig] = {"v": {"cmd": cmd_data}}
+            if clean_orig:
+                results[clean_orig] = {"v": {"cmd": cmd_data}}
+                results[clean_orig + ".NS"] = {"v": {"cmd": cmd_data}}
+                for variant in get_alias_variants(clean_orig, include_reverse=True):
+                    results[variant] = {"v": {"cmd": cmd_data}}
+                    results[variant + ".NS"] = {"v": {"cmd": cmd_data}}
+                    pending.discard(variant)
+                    pending.discard(variant + ".NS")
+            pending.discard(orig)
+            pending.discard(clean_orig)
+            pending.discard(clean_orig + ".NS")
+
+    def _consume_fyers_quotes_response(
+        self,
+        resp: dict,
+        fyers_map: dict,
+        results: dict,
+        pending: set,
+        results_lock: threading.Lock,
+        extract_cmd_fn,
+    ) -> tuple[int, list[str]]:
+        """Parses a Fyers quotes payload into results/pending and returns (success_count, missed_orig_symbols)."""
+        success_count = 0
+        succeeded_origs = set()
+        for item in resp.get("d", []):
+            if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
+                sym_name = item.get("n")
+                orig = fyers_map.get(sym_name)
+                if orig:
+                    cmd_data = extract_cmd_fn(item["v"])
+                    self._store_live_quote_result(results, pending, results_lock, orig, cmd_data)
+                    logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{cmd_data['c']:.2f}")
+                    succeeded_origs.add(orig)
+                    success_count += 1
+        missed = [orig for orig in fyers_map.values() if orig not in succeeded_origs]
+        return success_count, missed
+
     def fetch_live_quotes(self, symbols: list[str], consumer: str) -> dict[str, dict]:
         """
         Fetches live snapshot data (quotes) for a list of symbols.
@@ -205,6 +245,47 @@ class UnifiedFetcher:
                                 chp_flt = round(((val_flt - pc_flt) / pc_flt) * 100, 2)
                         return {"c": val_flt, "pc": pc_flt, "ch": ch_flt, "chp": chp_flt}
 
+                    def _retry_fyers_missed_symbols(fyers_client, missed_origs, tried_map):
+                        """Refreshes stale Fyers mapper once if needed and retries unresolved symbols via ISIN/alias."""
+                        if not missed_origs:
+                            return 0
+                        try:
+                            from data_providers.fyers_symbol_mapper import fyers_mapper
+                        except ImportError:
+                            from .fyers_symbol_mapper import fyers_mapper
+                        fyers_mapper.refresh_if_stale()
+                        retry_map = {}
+                        for m_orig in missed_origs:
+                            cand_norm = fyers_mapper.get_fyers_symbol(m_orig)
+                            if not cand_norm or cand_norm in tried_map:
+                                clean_m = strip_exchange_suffixes(m_orig)
+                                for v_sym in get_alias_variants(clean_m, include_reverse=False):
+                                    c_norm = fyers_mapper.get_fyers_symbol(v_sym)
+                                    if c_norm and c_norm not in tried_map:
+                                        cand_norm = c_norm
+                                        break
+                            if cand_norm and cand_norm not in tried_map:
+                                retry_map[cand_norm] = m_orig
+                        if not retry_map:
+                            return 0
+                        r_resp = fyers_client.quotes({"symbols": ",".join(retry_map.keys())})
+                        if r_resp and isinstance(r_resp, dict) and r_resp.get("s") == "ok":
+                            r_ok, _ = self._consume_fyers_quotes_response(
+                                r_resp, retry_map, results, pending, results_lock, _extract_cmd_dict
+                            )
+                            if r_ok > 0:
+                                logger.info(f"✅ [Fyers] Recovered {r_ok}/{len(retry_map)} quotes via ISIN/alias retry.")
+                                try:
+                                    from data_providers.fyers_mapping_utils import save_fyers_mapping
+                                    for item in r_resp.get("d", []):
+                                        if item.get("s") == "ok" and item.get("n") in retry_map:
+                                            orig_r = retry_map[item["n"]]
+                                            save_fyers_mapping(strip_exchange_suffixes(orig_r), item["n"])
+                                except Exception:
+                                    pass
+                            return r_ok
+                        return 0
+
                     def fetch_fyers_chunk(chunk):
                         fyers_map = {}
                         for orig in chunk:
@@ -223,35 +304,11 @@ class UnifiedFetcher:
                                 resp = fyers_client.quotes({"symbols": fyers_symbols_str})
 
                                 if resp and isinstance(resp, dict) and resp.get("s") == "ok":
-                                    success_count = 0
-                                    for item in resp.get("d", []):
-                                        if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
-                                            sym_name = item.get("n")
-                                            orig = fyers_map.get(sym_name)
-                                            if orig:
-                                                cmd_data = _extract_cmd_dict(item["v"])
-                                                val = cmd_data["c"]
-                                                clean_orig = orig.replace(".NS", "").replace(".BO", "")
-                                                with results_lock:
-                                                    results[orig] = {"v": {"cmd": cmd_data}}
-                                                    results[clean_orig] = {"v": {"cmd": cmd_data}}
-                                                    results[clean_orig + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                    for alias_k, alias_v in CORPORATE_ACTION_ALIASES.items():
-                                                        if alias_v == clean_orig:
-                                                            results[alias_k] = {"v": {"cmd": cmd_data}}
-                                                            results[alias_k + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                            pending.discard(alias_k)
-                                                            pending.discard(alias_k + ".NS")
-                                                        elif alias_k == clean_orig:
-                                                            results[alias_v] = {"v": {"cmd": cmd_data}}
-                                                            results[alias_v + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                            pending.discard(alias_v)
-                                                            pending.discard(alias_v + ".NS")
-                                                    pending.discard(orig)
-                                                    pending.discard(clean_orig)
-                                                    pending.discard(clean_orig + ".NS")
-                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{val:.2f}")
-                                                success_count += 1
+                                    success_count, missed = self._consume_fyers_quotes_response(
+                                        resp, fyers_map, results, pending, results_lock, _extract_cmd_dict
+                                    )
+                                    if missed:
+                                        success_count += _retry_fyers_missed_symbols(fyers_client, missed, fyers_map)
                                     if success_count > 0:
                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully.")
                                 else:
@@ -279,35 +336,11 @@ class UnifiedFetcher:
                                         if new_client:
                                             resp2 = new_client.quotes({"symbols": fyers_symbols_str})
                                             if resp2 and isinstance(resp2, dict) and resp2.get("s") == "ok":
-                                                success_count = 0
-                                                for item in resp2.get("d", []):
-                                                    if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
-                                                        sym_name = item.get("n")
-                                                        orig = fyers_map.get(sym_name)
-                                                        if orig:
-                                                            cmd_data = _extract_cmd_dict(item["v"])
-                                                            val = cmd_data["c"]
-                                                            clean_orig = orig.replace(".NS", "").replace(".BO", "")
-                                                            with results_lock:
-                                                                results[orig] = {"v": {"cmd": cmd_data}}
-                                                                results[clean_orig] = {"v": {"cmd": cmd_data}}
-                                                                results[clean_orig + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                                for alias_k, alias_v in CORPORATE_ACTION_ALIASES.items():
-                                                                    if alias_v == clean_orig:
-                                                                        results[alias_k] = {"v": {"cmd": cmd_data}}
-                                                                        results[alias_k + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                                        pending.discard(alias_k)
-                                                                        pending.discard(alias_k + ".NS")
-                                                                    elif alias_k == clean_orig:
-                                                                        results[alias_v] = {"v": {"cmd": cmd_data}}
-                                                                        results[alias_v + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                                        pending.discard(alias_v)
-                                                                        pending.discard(alias_v + ".NS")
-                                                                pending.discard(orig)
-                                                                pending.discard(clean_orig)
-                                                                pending.discard(clean_orig + ".NS")
-                                                            logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{val:.2f}")
-                                                            success_count += 1
+                                                success_count, missed = self._consume_fyers_quotes_response(
+                                                    resp2, fyers_map, results, pending, results_lock, _extract_cmd_dict
+                                                )
+                                                if missed:
+                                                    success_count += _retry_fyers_missed_symbols(new_client, missed, fyers_map)
                                                 if success_count > 0:
                                                     logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully on RETRY.")
                         except Exception as e:
@@ -336,18 +369,29 @@ class UnifiedFetcher:
                                 success_count = 0
                                 for orig in chunk:
                                     try:
-                                        raw_key = upstox_fetcher._get_instrument_key(orig)
-                                        clean_sym = raw_key.split(":")[-1].split("|")[-1]
-                                        clean_orig = orig.replace(".NS", "").replace(".BO", "")
-                                        quote_data = (resp.get(orig) or resp.get(clean_orig) or resp.get(clean_orig + ".NS") or
-                                                      resp.get(clean_sym) or resp.get(raw_key) or resp.get(raw_key.replace("|", ":")))
-                                        if not quote_data:
-                                            for ak, av in CORPORATE_ACTION_ALIASES.items():
-                                                if ak == clean_orig or av == clean_orig:
-                                                    tgt = av if ak == clean_orig else ak
-                                                    quote_data = (resp.get(tgt) or resp.get(tgt + ".NS") or resp.get(f"NSE_EQ:{tgt}") or resp.get(f"NSE_EQ|{tgt}"))
-                                                    if quote_data:
-                                                        break
+                                        raw_key = upstox_fetcher._get_instrument_key(orig) or ""
+                                        clean_sym = raw_key.split(":")[-1].split("|")[-1] if raw_key else ""
+                                        clean_orig = strip_exchange_suffixes(orig)
+                                        quote_data = (
+                                            resp.get(orig)
+                                            or resp.get(clean_orig)
+                                            or resp.get(clean_orig + ".NS")
+                                            or (resp.get(clean_sym) if clean_sym else None)
+                                            or (resp.get(raw_key) if raw_key else None)
+                                            or (resp.get(raw_key.replace("|", ":")) if raw_key else None)
+                                        )
+                                        if not quote_data and clean_orig:
+                                            for cand in get_alias_variants(clean_orig, include_reverse=True):
+                                                quote_data = (
+                                                    resp.get(cand)
+                                                    or resp.get(cand + ".NS")
+                                                    or resp.get(f"NSE_EQ:{cand}")
+                                                    or resp.get(f"NSE_EQ|{cand}")
+                                                    or resp.get(f"BSE_EQ:{cand}")
+                                                    or resp.get(f"BSE_EQ|{cand}")
+                                                )
+                                                if quote_data:
+                                                    break
                                         
                                         if quote_data and isinstance(quote_data, dict):
                                             val = quote_data.get("last_price") or quote_data.get("lp") or quote_data.get("cp")
@@ -387,23 +431,8 @@ class UnifiedFetcher:
                                                         chp_flt = round(((val_flt - pc_flt) / pc_flt) * 100, 2)
 
                                                 cmd_data = {"c": val_flt, "pc": pc_flt, "ch": ch_flt, "chp": chp_flt}
-                                                results[orig] = {"v": {"cmd": cmd_data}}
-                                                results[clean_orig] = {"v": {"cmd": cmd_data}}
-                                                results[clean_orig + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                for ak, av in CORPORATE_ACTION_ALIASES.items():
-                                                    if ak == clean_orig or av == clean_orig:
-                                                        results[ak] = {"v": {"cmd": cmd_data}}
-                                                        results[av] = {"v": {"cmd": cmd_data}}
-                                                        results[ak + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                        results[av + ".NS"] = {"v": {"cmd": cmd_data}}
-                                                        pending.discard(ak)
-                                                        pending.discard(av)
-                                                        pending.discard(ak + ".NS")
-                                                        pending.discard(av + ".NS")
+                                                self._store_live_quote_result(results, pending, results_lock, orig, cmd_data)
                                                 logger.debug(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{val_flt:.2f}")
-                                                pending.discard(orig)
-                                                pending.discard(clean_orig)
-                                                pending.discard(clean_orig + ".NS")
                                                 success_count += 1
                                     except Exception as item_err:
                                         logger.error(f"❌ [Upstox] Quote parsing error for symbol {orig}: {item_err}", exc_info=True)

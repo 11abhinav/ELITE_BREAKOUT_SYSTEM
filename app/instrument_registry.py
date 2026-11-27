@@ -90,9 +90,13 @@ class InstrumentRegistry:
             InstrumentRecord("DIACABS", "NSE", "EQ", isin="INE989C01038", company_name="Diamond Power Infrastructure Ltd", first_trading_date="2008-04-10", fyers_symbol="BSE:532959-EQ", upstox_instrument_key="NSE_EQ|INE989C01038", yahoo_symbol="DIACABS.NS"),
             InstrumentRecord("LTF", "NSE", "EQ", isin="INE498L01015", company_name="L&T Finance Ltd", aliases={"L&TFH", "L_TFH", "LTFH"}, fyers_symbol="NSE:LTF-EQ", upstox_instrument_key="NSE_EQ|INE498L01015", yahoo_symbol="LTF.NS"),
             InstrumentRecord("GMRAIRPORT", "NSE", "EQ", isin="INE776C01039", company_name="GMR Airports Infrastructure Ltd", aliases={"GMRINFRA"}, fyers_symbol="NSE:GMRAIRPORT-EQ", upstox_instrument_key="NSE_EQ|INE776C01039", yahoo_symbol="GMRAIRPORT.NS"),
-            InstrumentRecord("GUJGAS", "NSE", "EQ", isin="INE844O01030", company_name="Gujarat Gas Ltd", aliases={"GUJGASLTD"}, fyers_symbol="NSE:GUJGAS-EQ", upstox_instrument_key="NSE_EQ|INE844O01030", yahoo_symbol="GUJGAS.NS"),
+            InstrumentRecord("GUJENERGY", "NSE", "EQ", isin="INE844O01030", company_name="Gujarat Energy Ltd", aliases={"GUJGASLTD", "GUJGAS", "GUJRATGAS"}, fyers_symbol="NSE:GUJENERGY-EQ", upstox_instrument_key="NSE_EQ|INE844O01030", yahoo_symbol="GUJENERGY.NS"),
             InstrumentRecord("PEL", "NSE", "EQ", isin="INE140A01024", company_name="Piramal Enterprises Ltd", fyers_symbol="NSE:PEL-EQ", upstox_instrument_key="NSE_EQ|INE140A01024", yahoo_symbol="PEL.NS"),
             InstrumentRecord("UNITDSPR", "NSE", "EQ", isin="INE854D01024", company_name="United Spirits Ltd", aliases={"MCDOWELL-N", "MCDOWELL_N"}, fyers_symbol="NSE:UNITDSPR-EQ", upstox_instrument_key="NSE_EQ|INE854D01024", yahoo_symbol="UNITDSPR.NS"),
+            InstrumentRecord("ICICILIFE", "NSE", "EQ", isin="INE726G01019", company_name="ICICI Life Insurance Ltd", aliases={"ICICIPRULI"}, fyers_symbol="NSE:ICICILIFE-EQ", upstox_instrument_key="NSE_EQ|INE726G01019", yahoo_symbol="ICICILIFE.NS"),
+            InstrumentRecord("LTM", "NSE", "EQ", isin="INE214T01019", company_name="LTM Limited", aliases={"LTIM", "MINDTREE"}, fyers_symbol="NSE:LTM-EQ", upstox_instrument_key="NSE_EQ|INE214T01019", yahoo_symbol="LTM.NS"),
+            InstrumentRecord("EVONILE", "NSE", "EQ", isin="INE234A01025", company_name="Evonile Pharma Ltd", aliases={"NOVARTIND"}, fyers_symbol="NSE:EVONILE-EQ", upstox_instrument_key="NSE_EQ|INE234A01025", yahoo_symbol="EVONILE.NS"),
+            InstrumentRecord("CCAVENUE", "NSE", "EQ", isin="INE483S01038", company_name="AvenuesAI Ltd", aliases={"INFIBEAM"}, fyers_symbol="NSE:CCAVENUE-EQ", upstox_instrument_key="NSE_EQ|INE483S01038", yahoo_symbol="CCAVENUE.NS"),
         ]
         for eq in special_equities:
             self._register(eq)

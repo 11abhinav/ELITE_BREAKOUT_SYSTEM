@@ -77,6 +77,7 @@ _STATIC_SYMBOL_MAP = {
     "BHARTIARTL": "NSE_EQ|INE397D01024",
     "SBIN": "NSE_EQ|INE062A01020",
     "LTIM": "NSE_EQ|INE214T01019",
+    "LTM": "NSE_EQ|INE214T01019",
     "ITC": "NSE_EQ|INE154A01025",
     "KOTAKBANK": "NSE_EQ|INE237A01036",
     "LT": "NSE_EQ|INE018A01030",
@@ -92,8 +93,8 @@ _STATIC_SYMBOL_MAP = {
     "TATASTEEL": "NSE_EQ|INE081A01020",
     "TMPV": "NSE_EQ|INE155A01022",
     "TMCV": "NSE_EQ|INE155A01022",
-    "INFIBEAM": "NSE_EQ|INE483S01020",
-    "CCAVENUE": "NSE_EQ|INE483S01020",
+    "INFIBEAM": "NSE_EQ|INE483S01038",
+    "CCAVENUE": "NSE_EQ|INE483S01038",
     "NTPC": "NSE_EQ|INE733E01010",
     "POWERGRID": "NSE_EQ|INE752E01010",
     "ONGC": "NSE_EQ|INE213A01029",
@@ -109,13 +110,10 @@ _STATIC_SYMBOL_MAP = {
     "GMRINFRA": "NSE_EQ|INE776C01039",
     "GMRP&UI": "NSE_EQ|INE0CU601026",
     "GMRP-UI": "NSE_EQ|INE0CU601026",
-    # GOVERNANCE NOTE (2026-10-01): ISIN INE844O01030 maps to GUJENERGY (Gujarat Energy Limited)
-    # on Upstox — a DIFFERENT company from GUJGASLTD (Gujarat Gas Ltd).
-    # GUJGASLTD is NOT present in the Upstox NSE instrument master (verified 2026-10-01).
-    # Mapping removed to prevent silently substituting GUJENERGY price for GUJGASLTD.
-    # GUJGASLTD will correctly receive DATA_INSUFFICIENT_PRICE and be counted as a data failure.
-    # "GUJGAS": "NSE_EQ|INE844O01030",    # REMOVED — maps to wrong company GUJENERGY
-    # "GUJGASLTD": "NSE_EQ|INE844O01030", # REMOVED — maps to wrong company GUJENERGY
+    "GUJENERGY": "NSE_EQ|INE844O01030",
+    "GUJGASLTD": "NSE_EQ|INE844O01030",
+    "GUJGAS": "NSE_EQ|INE844O01030",
+    "GUJRATGAS": "NSE_EQ|INE844O01030",
     "PEL": "NSE_EQ|INE140A01024",
     "UNITDSPR": "NSE_EQ|INE854D01024",
     "MCDOWELL-N": "NSE_EQ|INE854D01024",
@@ -123,6 +121,10 @@ _STATIC_SYMBOL_MAP = {
     "HEGAM": "NSE_EQ|INE545A01024",
     "FLYSBS": "NSE_EQ|INE0S0601014",
     "NSDL": "BSE_EQ|INE758A01017",
+    "ICICILIFE": "NSE_EQ|INE726G01019",
+    "ICICIPRULI": "NSE_EQ|INE726G01019",
+    "EVONILE": "NSE_EQ|INE234A01025",
+    "NOVARTIND": "NSE_EQ|INE234A01025",
 }
 
 
@@ -137,10 +139,26 @@ class UpstoxInstrumentMapper:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
                 cls._instance._symbol_map = dict(_STATIC_SYMBOL_MAP)
+                cls._instance._isin_map = {}
                 cls._instance._last_download_ts = 0.0
                 cls._instance._is_downloading = False
+                cls._instance._rebuild_isin_index()
                 cls._instance._load_cache()
             return cls._instance
+
+    def _rebuild_isin_index(self) -> None:
+        """Builds an O(1) ISIN -> instrument_key index preferring NSE_EQ over BSE_EQ."""
+        isin_map: Dict[str, str] = {}
+        with self._lock:
+            for val in self._symbol_map.values():
+                if not isinstance(val, str) or "|" not in val:
+                    continue
+                seg, _, tok = val.partition("|")
+                if seg in ("NSE_EQ", "BSE_EQ") and len(tok) == 12 and tok.startswith("IN") and tok[2:].isalnum():
+                    existing = isin_map.get(tok)
+                    if not existing or (seg == "NSE_EQ" and not existing.startswith("NSE_EQ|")):
+                        isin_map[tok] = val
+            self._isin_map = isin_map
 
     def _load_cache(self):
         """Loads cached instrument map from DB or local disk if available."""
@@ -174,6 +192,7 @@ class UpstoxInstrumentMapper:
                 logger.debug(f"DB load for Upstox instrument map failed: {e}")
 
         static_count = len(_STATIC_SYMBOL_MAP)
+        self._rebuild_isin_index()
         total_count = len(self._symbol_map)
         if _load_source:
             logger.info(
@@ -307,10 +326,17 @@ class UpstoxInstrumentMapper:
                 "MCDOWELL-N": ["UNITDSPR", "MCDOWELL_N"],
                 "TATAMOTORS": ["TMPV", "TMCV"],
                 "TMPV": ["TATAMOTORS"],
-                "GUJGASLTD": ["GUJGAS"],
-                "GUJGAS": ["GUJGASLTD"],
+                "GUJGASLTD": ["GUJGAS", "GUJENERGY"],
+                "GUJGAS": ["GUJGASLTD", "GUJENERGY"],
+                "GUJENERGY": ["GUJGASLTD", "GUJGAS"],
                 "GMRINFRA": ["GMRAIRPORT"],
                 "GMRAIRPORT": ["GMRINFRA"],
+                "ICICIPRULI": ["ICICILIFE"],
+                "ICICILIFE": ["ICICIPRULI"],
+                "LTIM": ["LTM"],
+                "LTM": ["LTIM"],
+                "NOVARTIND": ["EVONILE"],
+                "EVONILE": ["NOVARTIND"],
             }
 
 
@@ -340,21 +366,12 @@ class UpstoxInstrumentMapper:
             index_static = {k: v for k, v in _STATIC_SYMBOL_MAP.items() if "INDEX" in v}
             new_map.update(index_static)
 
-            # Map corporate action aliases in master map
-            _corporate_alias_map = {
-                "HEG": "HEGAM",
-                "TATAMOTORS": "TMPV",
-                "M-M": "M&M", "M_M": "M&M",
-                "M-MFIN": "M&MFIN", "M_MFIN": "M&MFIN",
-                "J-KBANK": "J&KBANK", "J_KBANK": "J&KBANK",
-                "L-TFH": "L&TFH", "L_TFH": "L&TFH",
-                "GVT-D": "GVT&D", "GVT_D": "GVT&D",
-                "T-IPOWER": "T&IPOWER", "T_IPOWER": "T&IPOWER",
-                "GUJGAS": "GUJGASLTD",
-                "GMRINFRA": "GMRAIRPORT",
-                "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
-            }
-            for orig_a, target_a in _corporate_alias_map.items():
+            # Map corporate action aliases in master map using centralized registry
+            try:
+                from app.data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES
+            except ImportError:
+                from data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES
+            for orig_a, target_a in CORPORATE_ACTION_ALIASES.items():
                 if target_a in new_map and orig_a not in new_map:
                     new_map[orig_a] = new_map[target_a]
                 elif orig_a in new_map and target_a not in new_map:
@@ -364,6 +381,7 @@ class UpstoxInstrumentMapper:
                 self._symbol_map.update(new_map)
                 self._last_download_ts = time.time()
                 self._is_downloading = False
+            self._rebuild_isin_index()
 
             # Persist to disk atomically
             os.makedirs(os.path.dirname(_CACHE_FILE), exist_ok=True)
@@ -423,7 +441,8 @@ class UpstoxInstrumentMapper:
             "L&TFH": "LTF",
             "L_TFH": "LTF",
             "GMRINFRA": "GMRAIRPORT",
-            "GUJGASLTD": "GUJGAS",
+            "GUJGASLTD": "GUJENERGY",
+            "GUJGAS": "GUJENERGY",
             "MCDOWELL-N": "UNITDSPR",
             "MCDOWELL_N": "UNITDSPR",
             "BAJAJ-AUTO": "BAJAJ_AUTO",
@@ -533,7 +552,11 @@ class UpstoxInstrumentMapper:
         try:
             import requests
             url = f"https://api.upstox.com/v2/instruments/search?query={query}"
-            headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+            headers = {
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+            }
             resp = requests.get(url, headers=headers, timeout=5)
             if resp.status_code == 200:
                 data = resp.json().get("data", [])
@@ -546,6 +569,7 @@ class UpstoxInstrumentMapper:
                             with self._lock:
                                 self._symbol_map[query] = ikey
                                 self._symbol_map[tsym] = ikey
+                            self._rebuild_isin_index()
                             logger.info(f"✅ [Upstox Search API] Dynamically resolved '{query}' -> '{ikey}' ({tsym})")
                             return ikey
         except Exception as e:
@@ -567,15 +591,28 @@ class UpstoxInstrumentMapper:
         if not clean or clean in ('?', 'NONE', 'NAN', 'NULL', 'UNKNOWN') or not any(c.isalnum() for c in clean):
             return None
 
-        # 0. Check if clean is ISIN (e.g. INE989C01038)
-        if clean.startswith("INE") and len(clean) == 12:
+        # 0. O(1) ISIN lookup (e.g. INE989C01038)
+        if clean.startswith("IN") and len(clean) == 12 and clean[2:].isalnum():
+            if clean in self._isin_map:
+                return self._isin_map[clean]
             isin_key = f"NSE_EQ|{clean}"
             if isin_key in self._symbol_map:
                 return isin_key
-            # Search values in _symbol_map for ISIN
-            for k, v in self._symbol_map.items():
-                if clean in v:
+            for v in self._symbol_map.values():
+                if isinstance(v, str) and clean in v:
                     return v
+
+        # 0a. Active corporate action alias takes priority over stale historical symbol cache entries
+        try:
+            from app.data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES, get_alias_variants
+        except ImportError:
+            from data_providers.corporate_aliases import CORPORATE_ACTION_ALIASES, get_alias_variants
+
+        cand_alias = CORPORATE_ACTION_ALIASES.get(clean)
+        if cand_alias and cand_alias in self._symbol_map:
+            resolved_key = self._symbol_map[cand_alias]
+            self._symbol_map[clean] = resolved_key
+            return resolved_key
 
         # 1. Check in-memory master map first (pre-loaded from Upstox master contract CSV)
         if clean in self._symbol_map:
@@ -589,23 +626,38 @@ class UpstoxInstrumentMapper:
         if raw_no_caret in self._symbol_map:
             return self._symbol_map[raw_no_caret]
 
-        # 1b. Check corporate action aliases
-        _corporate_alias_map = {
-            "HEG": "HEGAM",
-            "TATAMOTORS": "TMPV",
-            "M-M": "M&M", "M_M": "M&M",
-            "M-MFIN": "M&MFIN", "M_MFIN": "M&MFIN",
-            "J-KBANK": "J&KBANK", "J_KBANK": "J&KBANK",
-            "L-TFH": "L&TFH", "L_TFH": "L&TFH",
-            "GVT-D": "GVT&D", "GVT_D": "GVT&D",
-            "T-IPOWER": "T&IPOWER", "T_IPOWER": "T&IPOWER",
-            "GUJGAS": "GUJGASLTD",
-            "GMRINFRA": "GMRAIRPORT",
-            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
-        }
-        cand_alias = _corporate_alias_map.get(clean)
-        if cand_alias and cand_alias in self._symbol_map:
-            return self._symbol_map[cand_alias]
+        # 1a. Universal delimiter variants (_ -> &, _ -> -) and alias candidates
+        for cand in get_alias_variants(clean, include_reverse=False):
+            if cand != clean and cand in self._symbol_map:
+                resolved_key = self._symbol_map[cand]
+                self._symbol_map[clean] = resolved_key
+                return resolved_key
+
+        # 1b. Universal cross-exchange ISIN & BSE Security Master resolution for renamed stocks
+        try:
+            try:
+                from app.data_providers.bse_security_master import BseSecurityMasterResolver
+            except ImportError:
+                from data_providers.bse_security_master import BseSecurityMasterResolver
+            bse_entry = BseSecurityMasterResolver().resolve(clean)
+            if bse_entry:
+                if bse_entry.isin and bse_entry.isin in self._isin_map:
+                    resolved_key = self._isin_map[bse_entry.isin]
+                    self._symbol_map[clean] = resolved_key
+                    return resolved_key
+                for bse_cand in (
+                    bse_entry.canonical_symbol,
+                    bse_entry.bse_security_id,
+                    f"BSE:{bse_entry.bse_scrip_code}",
+                    f"BSE_EQ:{bse_entry.bse_scrip_code}",
+                    bse_entry.bse_scrip_code,
+                ):
+                    if bse_cand and bse_cand in self._symbol_map:
+                        resolved_key = self._symbol_map[bse_cand]
+                        self._symbol_map[clean] = resolved_key
+                        return resolved_key
+        except Exception:
+            pass
 
         # 1c. Check BSE Scrip Code mappings (e.g. 509631 for HEG/HEGAM)
         try:

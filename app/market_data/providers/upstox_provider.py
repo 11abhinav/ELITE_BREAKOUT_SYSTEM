@@ -57,6 +57,22 @@ def _get_cached_resolver():
             _cached_resolver = False  # sentinel: import failed
     return _cached_resolver if _cached_resolver is not False else None
 
+def _is_valid_upstox_instrument_key(key: Optional[str]) -> bool:
+    """Validates that an Upstox instrument key uses an exchange-accepted token rather than a raw equity ticker."""
+    if not key or not isinstance(key, str) or "|" not in key:
+        return False
+    seg, _, tok = key.strip().partition("|")
+    if not seg or not tok:
+        return False
+    if seg in ("NSE_INDEX", "BSE_INDEX"):
+        return True
+    if seg in ("NSE_FO", "BSE_FO", "MCX_FO"):
+        return tok.isdigit()
+    if seg in ("NSE_EQ", "BSE_EQ"):
+        return (len(tok) == 12 and tok.upper().startswith("IN") and tok[2:].isalnum()) or tok.isdigit()
+    return False
+
+
 def _get_cached_mapper_func():
     """Returns the upstox_instrument_mapper.get_upstox_instrument_key function, cached at module level."""
     global _cached_mapper_func
@@ -271,20 +287,23 @@ class UpstoxProvider(ProviderInterface):
         "^NIFTYHEALTHCARE": "NSE_INDEX|Nifty Healthcare Index",
     }
 
-    def _get_instrument_key(self, symbol: str) -> str:
+    def _get_instrument_key(self, symbol: str) -> Optional[str]:
         """Maps symbol to official Upstox instrument key using O(1) RAM cache & instrument mapper first."""
+        if not symbol:
+            return None
         clean = str(symbol).strip().upper()
         if clean in _inst_key_cache:
-            return _inst_key_cache[clean]
+            cached_val = _inst_key_cache[clean]
+            if _is_valid_upstox_instrument_key(cached_val):
+                return cached_val
+            _inst_key_cache.pop(clean, None)
 
-        # [FIX: PRE_RESOLVED_KEY_PASSTHROUGH] If the caller already resolved an official
-        # Upstox instrument key (e.g. NSE_FO|68443, NSE_EQ|INE769A01020), return it
-        # immediately. Previously this check was at the bottom, so pre-resolved NSE_FO keys
-        # passed through the equity mapper first — triggering spurious RESOLUTION_FAILED
-        # warnings and AsyncProbe dispatches before finally short-circuiting here.
+        # [FIX: PRE_RESOLVED_KEY_PASSTHROUGH] Return pre-resolved valid Upstox instrument keys immediately.
         if "|" in clean:
-            _inst_key_cache[clean] = clean
-            return clean
+            if _is_valid_upstox_instrument_key(clean):
+                _inst_key_cache[clean] = clean
+                return clean
+            return None
 
         for sfx in (".NS", ".BO", ".BSE"):
             if clean.endswith(sfx):
@@ -302,23 +321,29 @@ class UpstoxProvider(ProviderInterface):
             _inst_key_cache[clean] = key
             return key
 
-        # 2. Upstox Instrument Mapper O(1) RAM dict lookup (41,221 pre-loaded keys in RAM)
+        # 2. Upstox Instrument Mapper O(1) RAM dict lookup (including ISIN & alias resolution)
         mapper_func = _get_cached_mapper_func()
         if mapper_func:
             try:
                 mapped = mapper_func(symbol)
-                if mapped:
+                if mapped and _is_valid_upstox_instrument_key(mapped):
                     _inst_key_cache[clean] = mapped
                     return mapped
             except Exception as e:
                 logger.warning(f"⚠️ [Upstox] Instrument mapper failed for '{symbol}': {e} — falling back to resolver")
 
-        # 3. Dynamic symbol resolution service fallback (if mapper didn't match)
+        # 3. Dynamic symbol resolution service fallback (reject speculative unverified PROBING_ASYNC ticker guesses)
         resolver = _get_cached_resolver()
         if resolver:
             try:
                 resolved = resolver.resolve(symbol, provider="upstox")
-                if resolved and resolved.is_valid and resolved.mapped_symbol:
+                if (
+                    resolved
+                    and resolved.is_valid
+                    and resolved.mapped_symbol
+                    and getattr(resolved, "source", "") != "PROBING_ASYNC"
+                    and _is_valid_upstox_instrument_key(resolved.mapped_symbol)
+                ):
                     _inst_key_cache[clean] = resolved.mapped_symbol
                     return resolved.mapped_symbol
             except Exception as e:
@@ -567,6 +592,26 @@ class UpstoxProvider(ProviderInterface):
         """Fetches live market quotes for multiple symbols (alias for UnifiedFetcher callers)."""
         return self.get_quotes(symbols)
 
+    @staticmethod
+    def _index_quote_dict(quote_dict: dict, results: dict, tok_map: dict) -> None:
+        """Indexes Upstox quote entries by response key, trading symbol, and instrument_token."""
+        for key, quote in quote_dict.items():
+            results[key] = quote
+            results[key.replace(":", "|")] = quote
+            clean_sym = key.split(":")[-1].split("|")[-1]
+            results[clean_sym] = quote
+            if isinstance(quote, dict):
+                if quote.get("symbol"):
+                    results[str(quote["symbol"]).upper()] = quote
+                inst_tok = quote.get("instrument_token")
+                if inst_tok:
+                    tok_str = str(inst_tok).strip()
+                    tok_map[tok_str] = quote
+                    tok_map[tok_str.replace("|", ":")] = quote
+                    results[tok_str] = quote
+                    results[tok_str.replace("|", ":")] = quote
+                    results[tok_str.split("|")[-1].split(":")[-1]] = quote
+
     def get_quotes(self, symbols: List[str]) -> Dict[str, dict]:
         """Fetches live market quotes for multiple symbols from Upstox v2 API."""
         if not symbols:
@@ -626,33 +671,39 @@ class UpstoxProvider(ProviderInterface):
 
                 # [PHASE1_DIAG] Stage D: Quote Merge
                 _t_merge = time.perf_counter()
+                try:
+                    from app.data_providers.corporate_aliases import get_alias_variants
+                except ImportError:
+                    from data_providers.corporate_aliases import get_alias_variants
+
+                tok_map = {}
                 if res.status_code == 200:
                     quote_dict = data.get("data", {})
-                    for key, quote in quote_dict.items():
-                        results[key] = quote
-                        results[key.replace(":", "|")] = quote
-                        clean_sym = key.split(":")[-1].split("|")[-1]
-                        results[clean_sym] = quote
-                        if isinstance(quote, dict) and quote.get("symbol"):
-                            results[str(quote["symbol"]).upper()] = quote
-                    
+                    self._index_quote_dict(quote_dict, results, tok_map)
+
                     for orig_sym in chunk:
                         inst_key = self._get_instrument_key(orig_sym)
-                        matched_quote = quote_dict.get(inst_key) or quote_dict.get(inst_key.replace("|", ":")) if inst_key else None
-                        if not matched_quote and orig_sym:
-                            clean_o = orig_sym.replace(".NS", "").replace(".BO", "")
-                            matched_quote = results.get(clean_o)
-                            if not matched_quote:
-                                from app.data_providers.unified_fetcher import CORPORATE_ACTION_ALIASES
-                                for ak, av in CORPORATE_ACTION_ALIASES.items():
-                                    if ak == clean_o or av == clean_o:
-                                        tgt = av if ak == clean_o else ak
-                                        matched_quote = results.get(tgt) or quote_dict.get(f"NSE_EQ:{tgt}") or quote_dict.get(f"NSE_EQ|{tgt}")
-                                        if matched_quote:
-                                            break
+                        matched_quote = (
+                            tok_map.get(inst_key)
+                            or results.get(inst_key)
+                            or quote_dict.get(inst_key)
+                            or quote_dict.get(inst_key.replace("|", ":"))
+                        ) if inst_key else None
+                        clean_o = str(orig_sym or "").strip().upper().replace(".NS", "").replace(".BO", "").replace(".BSE", "")
+                        if not matched_quote and clean_o:
+                            for cand in get_alias_variants(clean_o, include_reverse=True):
+                                matched_quote = (
+                                    results.get(cand)
+                                    or quote_dict.get(f"NSE_EQ:{cand}")
+                                    or quote_dict.get(f"NSE_EQ|{cand}")
+                                    or quote_dict.get(f"BSE_EQ:{cand}")
+                                    or quote_dict.get(f"BSE_EQ|{cand}")
+                                )
+                                if matched_quote:
+                                    break
                         if matched_quote:
                             results[orig_sym] = matched_quote
-                            results[orig_sym.replace(".NS", "").replace(".BO", "")] = matched_quote
+                            results[clean_o] = matched_quote
                 elif res.status_code == 400 and len(chunk) > 1:
                     # [RULE 67 CHANGE-RATIONALE] Upstox returns UDAPI1087 (400) for the entire batch if a single key is unlisted/invalid.
                     # Recover gracefully by requesting keys individually for this chunk so valid symbols succeed.
@@ -669,9 +720,11 @@ class UpstoxProvider(ProviderInterface):
                                     import json
                                     s_data = json.loads(s_res.content)
                                     s_dict = s_data.get("data", {})
-                                    for k, q in s_dict.items():
-                                        results[k] = q
-                                        results[single_sym] = q
+                                    self._index_quote_dict(s_dict, results, tok_map)
+                                    matched_single = (tok_map.get(s_key) or results.get(s_key) or next(iter(s_dict.values()), None))
+                                    if matched_single:
+                                        results[single_sym] = matched_single
+                                        results[str(single_sym).strip().upper().replace(".NS", "").replace(".BO", "").replace(".BSE", "")] = matched_single
                                 except Exception:
                                     pass
                         except Exception:
