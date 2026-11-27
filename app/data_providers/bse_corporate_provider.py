@@ -372,7 +372,11 @@ class BseCorporateProvider:
     """
 
     def __init__(self, cache_dir: Optional[str] = None):
-        self.session = requests.Session()
+        try:
+            from curl_cffi import requests as _cffi_req
+            self.session = _cffi_req.Session(impersonate="chrome124")
+        except Exception:
+            self.session = requests.Session()
         self.session.headers.update(_BSE_HEADERS)
         self.cache_dir = cache_dir or DEFAULT_BSE_CACHE_DIR
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -431,24 +435,42 @@ class BseCorporateProvider:
 
         to_d = date.today().strftime("%Y%m%d")
         from_d = (date.today() - timedelta(days=lookback_days)).strftime("%Y%m%d")
-        ann_url = (
-            f"{_BSE_ANN_URL}?pageno=1&strCat=-1&strPrevDate={from_d}&strScrip={scrip_code}"
-            f"&strSearch=P&strToDate={to_d}&strType=C&subcategory=-1"
-        )
 
-        ann_rows = []
-        try:
-            resp = self.session.get(ann_url, timeout=_TIMEOUT)
-            if resp.status_code == 200:
-                data = resp.json()
-                table = data.get("Table", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
-                ann_rows = table
-            elif resp.status_code in (401, 403):
-                self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
-            else:
-                self.last_status[symbol] = "BSE_HTTP_ERROR"
-        except Exception as e:
-            logger.debug(f"[BSE] Announcement fetch error for {symbol}: {e}")
+        def _fetch_bse_cat(cat_val: str) -> List[Dict[str, Any]]:
+            ann_url = (
+                f"{_BSE_ANN_URL}?pageno=1&strCat={cat_val}&strPrevDate={from_d}&strScrip={scrip_code}"
+                f"&strSearch=P&strToDate={to_d}&strType=C&subcategory=-1"
+            )
+            for attempt in range(2):
+                try:
+                    resp = self.session.get(ann_url, timeout=_TIMEOUT)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return data.get("Table", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                    elif resp.status_code in (401, 403):
+                        self.last_status[symbol] = "BSE_FEED_ACCESS_REQUIRED"
+                        if attempt == 0:
+                            try:
+                                self.session.get("https://www.bseindia.com/corporates/ann.html", timeout=6)
+                            except Exception:
+                                pass
+                            continue
+                        logger.warning(f"[BSE] Announcement HTTP {resp.status_code} for {symbol} ({scrip_code})")
+                    else:
+                        self.last_status[symbol] = "BSE_HTTP_ERROR"
+                        logger.warning(f"[BSE] Announcement HTTP {resp.status_code} for {symbol} ({scrip_code})")
+                except Exception as e:
+                    if attempt == 0:
+                        continue
+                    logger.warning(f"[BSE] Announcement fetch error for {symbol} ({scrip_code}): {e}")
+                break
+            return []
+
+        # Query BSE 'Result' category first so high-volume Reg 30 announcements (e.g. MCX, JSWSTEEL, DRREDDY)
+        # do not push financial results off pageno=1; fall back to all categories (-1) if empty.
+        ann_rows = _fetch_bse_cat("Result")
+        if not ann_rows:
+            ann_rows = _fetch_bse_cat("-1")
 
         findings = []
         try:

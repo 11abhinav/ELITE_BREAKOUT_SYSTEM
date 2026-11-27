@@ -837,9 +837,22 @@ class NseXbrlProvider:
             return self._discovered_cache[symbol]
 
         all_filings = []
+        try:
+            try:
+                from app.data_providers.corporate_aliases import get_alias_variants
+            except ImportError:
+                from data_providers.corporate_aliases import get_alias_variants
+            sym_variants = get_alias_variants(symbol, include_reverse=True) or [symbol]
+        except Exception:
+            sym_variants = [symbol]
+
         # Check sweep announcements cache first for incremental runs to eliminate redundant 30s legacy _BASE_URL queries
-        if hasattr(self, "_sweep_announcements_cache") and self._sweep_announcements_cache and symbol in self._sweep_announcements_cache:
-            all_filings.extend(self._sweep_announcements_cache[symbol])
+        sweep_hits = False
+        if hasattr(self, "_sweep_announcements_cache") and self._sweep_announcements_cache:
+            for sv in sym_variants:
+                if sv in self._sweep_announcements_cache:
+                    all_filings.extend(self._sweep_announcements_cache[sv])
+                    sweep_hits = True
 
         # If incremental run already found filings in sweep cache, avoid slow legacy _BASE_URL requests
         has_financial_filings = any(
@@ -850,27 +863,42 @@ class NseXbrlProvider:
         if should_query_base_url:
             # In incremental runs (min_period_end_date >= 2024), skip redundant Annual requests to cut network traffic by 50%
             periods_to_query = ("Quarterly",) if (min_period_end_date and str(min_period_end_date) >= "2024-01-01") else ("Annual", "Quarterly")
-            for period_param in periods_to_query:
-                url = f"{_BASE_URL}?index=equities&symbol={symbol}&period={period_param}"
-                raw = self._get(url, symbol)
-                if raw:
-                    rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
-                    all_filings.extend(rows)
+            for q_sym in sym_variants:
+                got_for_sym = False
+                for period_param in periods_to_query:
+                    url = f"{_BASE_URL}?index=equities&symbol={q_sym}&period={period_param}"
+                    raw = self._get(url, q_sym)
+                    if raw:
+                        rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
+                        if rows:
+                            all_filings.extend(rows)
+                            got_for_sym = True
 
-            # Fallback to plain query if period-filtered returned 0
-            if not all_filings:
-                plain_url = f"{_BASE_URL}?index=equities&symbol={symbol}"
-                raw = self._get(plain_url, symbol)
-                if raw:
-                    rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
-                    all_filings.extend(rows)
+                # Fallback to plain query if period-filtered returned 0
+                if not got_for_sym:
+                    plain_url = f"{_BASE_URL}?index=equities&symbol={q_sym}"
+                    raw = self._get(plain_url, q_sym)
+                    if raw:
+                        rows = raw if isinstance(raw, list) else (raw.get("data", []) if isinstance(raw, dict) else [])
+                        if rows:
+                            all_filings.extend(rows)
+                            got_for_sym = True
+                if got_for_sym:
+                    break
 
         # 3. Query NSE Corporate Announcements feed for real-time same-day filings if not already in sweep cache
-        if hasattr(self, "_sweep_announcements_cache") and self._sweep_announcements_cache and symbol in self._sweep_announcements_cache:
+        if sweep_hits:
             pass  # Already extended above
         else:
-            ann_url = f"{_ANN_URL}?index=equities&symbol={symbol}"
-            ann_raw = self._get(ann_url, symbol)
+            ann_raw = None
+            for q_sym in sym_variants:
+                ann_url = f"{_ANN_URL}?index=equities&symbol={q_sym}"
+                ann_raw = self._get(ann_url, q_sym)
+                if ann_raw:
+                    ann_rows_chk = ann_raw if isinstance(ann_raw, list) else (ann_raw.get("data", []) if isinstance(ann_raw, dict) else [])
+                    if ann_rows_chk:
+                        break
+                    ann_raw = None
             if ann_raw:
                 ann_rows = ann_raw if isinstance(ann_raw, list) else (ann_raw.get("data", []) if isinstance(ann_raw, dict) else [])
                 existing_ann_keys = set()
