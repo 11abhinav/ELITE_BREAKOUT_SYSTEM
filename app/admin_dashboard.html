@@ -14293,15 +14293,20 @@ function _applyStockDataHealthData(data) {
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
-  // SWR: Instant local hydration from localStorage (never leave screen empty)
+  // SWR: Instant local hydration from localStorage only if < 2 minutes old
   if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
     try {
+      const cachedTs = Number(localStorage.getItem('CACHE_SDH_DATA_TS') || 0);
       const cachedStr = localStorage.getItem('CACHE_SDH_DATA');
-      if (cachedStr) {
+      if (cachedStr && cachedTs > 0 && (Date.now() - cachedTs) < 120000) {
         const parsed = JSON.parse(cachedStr);
         if (parsed && parsed.status === 'success') {
           _applyStockDataHealthData(parsed);
         }
+      } else if (cachedStr) {
+        localStorage.removeItem('CACHE_SDH_DATA');
+        localStorage.removeItem('CACHE_SDH_DATA_TS');
+        sessionStorage.removeItem('CACHE_SDH_DATA');
       }
     } catch (_) {}
   }
@@ -14351,6 +14356,15 @@ async function fetchStockDataHealth(force = false) {
       return;
     }
 
+    if (res.status === 503) {
+      const syncBadge = document.getElementById('sdhServerSyncBadge');
+      if (syncBadge) {
+        syncBadge.innerHTML = `<span style="color:#f59e0b;">⏳ Server syncing DB caches... retrying</span>`;
+      }
+      setTimeout(() => fetchStockDataHealth(force), 2500);
+      return;
+    }
+
     let data = {};
     try { data = await res.json(); } catch (_) {}
 
@@ -14371,7 +14385,13 @@ async function fetchStockDataHealth(force = false) {
         localStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
         localStorage.setItem('CACHE_SDH_DATA_TS', String(Date.now()));
         sessionStorage.setItem('CACHE_SDH_DATA', JSON.stringify(data));
-      } catch (_) {}
+      } catch (_) {
+        try {
+          localStorage.removeItem('CACHE_SDH_DATA');
+          localStorage.removeItem('CACHE_SDH_DATA_TS');
+          sessionStorage.removeItem('CACHE_SDH_DATA');
+        } catch (__) {}
+      }
       _applyStockDataHealthData(data);
 
       const syncBadge = document.getElementById('sdhServerSyncBadge');

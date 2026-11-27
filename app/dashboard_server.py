@@ -3558,6 +3558,18 @@ _STOCK_DATA_HEALTH_REFRESHING = False
 _STOCK_DATA_HEALTH_DIRTY = False
 
 
+def _get_stock_data_health_data_sig() -> Tuple[float, float]:
+    """Returns (canonical_pit_rebuilt.parquet mtime, filing_watcher_state.json mtime) for auto-invalidation."""
+    _base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
+    def _mt(fn: str) -> float:
+        p = os.path.join(_base, fn)
+        try:
+            return os.path.getmtime(p) if os.path.exists(p) else 0.0
+        except Exception:
+            return 0.0
+    return (_mt("canonical_pit_rebuilt.parquet"), _mt("filing_watcher_state.json"))
+
+
 def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, bytes]:
     """
     Computes unified stock data health audit JSON payload, etag, and precompressed gzip bytes.
@@ -3567,6 +3579,7 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
     except ImportError:
         from database import get_unified_stock_data_health_audit
 
+    _sig_before = _get_stock_data_health_data_sig()
     stale_stocks, fresh_stocks = get_unified_stock_data_health_audit(limit_fresh=2000, force=force)
     total = len(stale_stocks) + len(fresh_stocks)
     coverage_pct = round((len(fresh_stocks) / total * 100), 1) if total > 0 else 0.0
@@ -3595,6 +3608,7 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
         _STOCK_DATA_HEALTH_CACHE["etag"] = etag
         _STOCK_DATA_HEALTH_CACHE["gzip"] = gz
         _STOCK_DATA_HEALTH_CACHE["ts"] = time.time()
+        _STOCK_DATA_HEALTH_CACHE["data_sig"] = _sig_before
 
     # Persist authoritative audit directly to PostgreSQL DB parquet_cache
     try:
@@ -3661,6 +3675,12 @@ def api_admin_stock_data_health():
             cached_etag = _STOCK_DATA_HEALTH_CACHE.get("etag")
             cached_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip")
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
+            cached_sig = _STOCK_DATA_HEALTH_CACHE.get("data_sig")
+
+        # Auto-invalidate if underlying data files changed on disk or cache is >2m old
+        _cur_sig = _get_stock_data_health_data_sig()
+        if cached_ts > 0.0 and ((cached_sig is not None and cached_sig != _cur_sig) or (now_t - cached_ts > 120.0)):
+            cached_ts = 0.0
 
         # 0. Pre-BOOT_SYNC guard: never recompute from incomplete disk while pit_raw_bundle is actively restoring
         if _is_boot_sync_in_progress():

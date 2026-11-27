@@ -66,7 +66,7 @@ def _extract_pdf_pages_fast(pdf_path: str, max_pages: int = 20, timeout: float =
         return None
     try:
         res = subprocess.run(
-            ["pdftotext", "-f", "1", "-l", str(max_pages), pdf_path, "-"],
+            ["pdftotext", "-layout", "-f", "1", "-l", str(max_pages), pdf_path, "-"],
             capture_output=True,
             timeout=timeout,
             check=False,
@@ -100,6 +100,32 @@ def _extract_page_layout_fast(pdf_path: str, page_idx: int, timeout: float = 3.5
     except Exception:
         pass
     return ""
+
+
+def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0) -> str:
+    """
+    Runs Tesseract OCR on a PIL image and automatically detects/corrects 90/180/270-degree
+    rotated landscape financial tables via Tesseract OSD when upright OCR yields gibberish.
+    """
+    if not _OCR_AVAILABLE or img is None:
+        return ""
+    txt = pytesseract.image_to_string(img, timeout=timeout, config="--psm 6") or ""
+    low = txt.lower()
+    _anchors = ("revenue", "income", "profit", "tax", "total", "particulars", "assets", "auditor", "cash", "balance")
+    if len(txt.strip()) >= 150 and any(k in low for k in _anchors):
+        return txt.strip()
+    try:
+        osd_raw = pytesseract.image_to_osd(img, timeout=4.0)
+        m_rot = re.search(r"Rotate:\s*(\d+)", str(osd_raw))
+        deg = int(m_rot.group(1)) if m_rot else 0
+        if deg in (90, 180, 270):
+            rot_img = img.rotate(-deg, expand=True)
+            rot_txt = pytesseract.image_to_string(rot_img, timeout=timeout, config="--psm 6") or ""
+            if len(rot_txt.strip()) > len(txt.strip()) or any(k in rot_txt.lower() for k in _anchors):
+                return rot_txt.strip()
+    except Exception:
+        pass
+    return txt.strip()
 
 
 def _render_page_image_fast(pdf_path: str, page_idx: int, timeout: float = 6.0, dpi: int = 150) -> Optional["Image.Image"]:
@@ -1024,6 +1050,7 @@ class ExchangePdfParser:
         _rev_kws = (
             "revenue from operations", "net sales", "total income", "income from operations",
             "interest earned", "interest income", "total revenue", "premium earned", "insurance revenue",
+            "first year premium", "renewal premium",
         )
         _auditor_markers = (
             "independent auditor", "limited review", "review report", "auditor's report",
@@ -1056,9 +1083,12 @@ class ExchangePdfParser:
         # Scanned Image PDF / Hybrid Scanned Document Early Detection & OCR Fallback:
         # Never spend OCR budget if digital pages ALREADY scored >= 70 (real digital statements present!)
         doc_total_chars = sum(0 if _is_scanned_or_sig_only(t) else len(t.strip()) for t in cached_page_texts.values())
-        best_digital_score = max((sc for _, sc, _ in page_scores), default=0)
+        has_digital_rev_page = any(
+            any(k in (cached_page_texts.get(p, "")).lower() for k in _rev_kws)
+            for p, sc, _ in page_scores if sc >= 70
+        )
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
-        is_hybrid_scanned = bool(zero_text_page_count >= max(2, len(cached_page_texts) // 2) and best_digital_score < 85)
+        is_hybrid_scanned = bool(zero_text_page_count >= 2 and not has_digital_rev_page)
         ocr_attempted_pages: Set[int] = set()
 
         if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 45.0):
@@ -1081,7 +1111,7 @@ class ExchangePdfParser:
                         try:
                             if comp_img.width > 2000 or comp_img.height > 2400:
                                 comp_img.thumbnail((2000, 2400))
-                            t = pytesseract.image_to_string(comp_img, timeout=12.0, config="--psm 6")
+                            t = _ocr_image_with_osd(comp_img, timeout=12.0)
                             if t and len(t.strip()) > 30:
                                 ocr_page_text = t.strip()
                         except Exception:
@@ -1197,13 +1227,13 @@ class ExchangePdfParser:
 
             # Fast Digital Text First Invariant (with on-demand OCR fallback when no P&L record extracted yet)
             if _is_scanned_or_sig_only(text):
-                if (not records) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 2 and _p3_elapsed < 35.0 and (time.time() - t_parse_start < 85.0):
+                if (not records) and (not has_digital_rev_page) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 35.0 and (time.time() - t_parse_start < 85.0):
                     try:
                         _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
                         if _p3_img is not None:
                             if _p3_img.width > 1600 or _p3_img.height > 2000:
                                 _p3_img.thumbnail((1600, 2000))
-                            _p3_ocr = pytesseract.image_to_string(_p3_img, timeout=10.0, config="--psm 6")
+                            _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=10.0)
                             if _p3_ocr and not _is_scanned_or_sig_only(_p3_ocr):
                                 text = _p3_ocr.strip()
                                 cached_page_texts[page_idx] = text
@@ -1270,7 +1300,9 @@ class ExchangePdfParser:
                         "independent auditor", "limited review", "review report", "auditor's report",
                         "sre 2410", "chartered accountants", "udin:", "membership no",
                         "assets and liabilities", "total assets", "equity and liabilities",
-                        "cash flow from operating", "cash flows from operating",
+                        "cash flow from operating", "cash flows from operating", "statement of cash flow",
+                        "annexure 1", "additional disclosures", "regulation 52(4)",
+                        "notes to the unaudited", "notes to the audited", "notes to statement",
                     )
                 )
                 _re_ocr_ok = False
@@ -1280,13 +1312,17 @@ class ExchangePdfParser:
                         if _comp_img is not None:
                             if _comp_img.width > 2200 or _comp_img.height > 2600:
                                 _comp_img.thumbnail((2200, 2600))
-                            _fresh_ocr = pytesseract.image_to_string(_comp_img, timeout=12.0, config="--psm 6")
+                            _fresh_ocr = _ocr_image_with_osd(_comp_img, timeout=12.0)
                             if _fresh_ocr and len(_fresh_ocr.strip()) >= 50:
                                 text = _normalize_ocr_text(_fresh_ocr.strip())
                                 text_lower = text.lower()
                                 norm_text_lower = re.sub(r"\s+", " ", text_lower)
                                 cached_page_texts[page_idx] = text
-                                _re_ocr_ok = any(k in norm_text_lower for k in _rev_indicators)
+                                _re_is_non_pnl = any(
+                                    k in norm_text_lower[:1500]
+                                    for k in ("cash flow from operating", "cash flows from operating", "assets and liabilities", "total assets", "independent auditor", "limited review")
+                                ) and "revenue from operations" not in norm_text_lower
+                                _re_ocr_ok = (not _re_is_non_pnl) and any(k in norm_text_lower for k in _rev_indicators)
                             logger.info(
                                 f"🔄 [PDF_PARSER: RE_OCR] {symbol} p{page_idx+1}: ok={_re_ocr_ok}, chars={len(_fresh_ocr or '')}"
                             )
