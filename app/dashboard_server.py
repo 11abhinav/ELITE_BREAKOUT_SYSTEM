@@ -3666,6 +3666,10 @@ def _background_refresh_stock_data_health():
             _compute_stock_data_health_payload(force=True)
             if not _STOCK_DATA_HEALTH_DIRTY:
                 break
+        try:
+            notify_stream_clients("cache_invalidated", {"scope": "stock_data_health", "ts": time.time()})
+        except Exception:
+            pass
     except Exception as e:
         logger.debug(f"[STOCK_DATA_HEALTH_BG_REFRESH] Note: {e}")
     finally:
@@ -3731,7 +3735,17 @@ def api_admin_stock_data_health():
                 no_cache=True
             )
 
-        # 2. Synchronous computation (only if force=1 or cold cache with no payload)
+        # 2. Synchronous computation (bounded at 4.0s when warm cache exists so ?force=1 never times out)
+        if force and cached_payload:
+            _bg_t = threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthForceRefresh")
+            _bg_t.start()
+            _bg_t.join(timeout=4.0)
+            with _STOCK_DATA_HEALTH_LOCK:
+                latest_payload = _STOCK_DATA_HEALTH_CACHE.get("payload") or cached_payload
+                latest_etag = _STOCK_DATA_HEALTH_CACHE.get("etag") or cached_etag
+                latest_gz = _STOCK_DATA_HEALTH_CACHE.get("gzip") or cached_gz
+            return _make_json_response(latest_payload, etag=latest_etag, max_age=0, precompressed_gzip=latest_gz, no_cache=True)
+
         _lock_acquired = _STOCK_DATA_HEALTH_COMPUTE_LOCK.acquire(timeout=10.0)
         if not _lock_acquired:
             if cached_payload:
