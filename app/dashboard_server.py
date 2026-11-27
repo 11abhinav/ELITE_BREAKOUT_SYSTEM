@@ -3719,12 +3719,10 @@ def api_admin_stock_data_health():
                 )
             return jsonify({"status": "initializing", "message": "Restoring authoritative DB caches, please retry in a few seconds."}), 503
 
-        # 1. Warm cache hit: Return immediately in <5ms ONLY if cache was NOT explicitly invalidated (cached_ts > 0.0)
-        # When cached_ts == 0.0 (data changed via filing ingestion / restoration), recompute synchronously (~0.15s)
-        # so the UI immediately reflects the latest FRESH/STALE counts on the very first refresh.
-        if cached_payload and not force and cached_ts > 0.0:
-            # Refresh in background if cache is >30s old
-            if (now_t - cached_ts > 30.0):
+        # 1. Warm cache hit (True SWR): ALWAYS serve warm cached_payload immediately (<600ms) when not force=1,
+        # and trigger background refresh + SSE push if stale (>30s) or invalidated (cached_ts == 0.0).
+        if cached_payload and not force:
+            if (cached_ts == 0.0) or (now_t - cached_ts > 30.0):
                 threading.Thread(target=_background_refresh_stock_data_health, daemon=True, name="StockDataHealthSWR").start()
 
             return _make_json_response(
