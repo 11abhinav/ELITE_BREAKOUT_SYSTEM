@@ -315,18 +315,24 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 logger.warning(f"No historical cache provided for {symbol}, skipping technicals to prevent rate limits.")
                 hist = None
 
-            if hist is None or hist.empty or len(hist) < 200:
+            if hist is None or hist.empty or len(hist) < 2:
                 return defaults
 
             is_stale = getattr(hist, 'attrs', {}).get('is_stale', False)
             last_candle_date = None
             try:
-                if hasattr(hist.index, "date"):
+                if isinstance(hist.index, pd.DatetimeIndex):
+                    last_candle_date = hist.index[-1].date()
+                elif hasattr(hist.index, "date"):
                     last_candle_date = hist.index[-1].date() if hasattr(hist.index[-1], "date") else hist.index[-1]
                 elif "Date" in hist.columns:
                     last_candle_date = pd.to_datetime(hist["Date"].iloc[-1]).date()
                 elif "date" in hist.columns:
                     last_candle_date = pd.to_datetime(hist["date"].iloc[-1]).date()
+                elif "Datetime" in hist.columns:
+                    last_candle_date = pd.to_datetime(hist["Datetime"].iloc[-1]).date()
+                elif "datetime" in hist.columns:
+                    last_candle_date = pd.to_datetime(hist["datetime"].iloc[-1]).date()
                 elif hasattr(hist.iloc[-1], "name") and isinstance(hist.iloc[-1].name, (datetime, date, pd.Timestamp)):
                     last_candle_date = pd.to_datetime(hist.iloc[-1].name).date()
             except Exception:
@@ -1304,31 +1310,231 @@ def clear_orphan_fundamental_cache() -> None:
     _orphan_cache_timestamp = 0.0
     _orphan_cache_mtimes = {}
 
-def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
+def _normalize_orphan_metrics(row_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalizes lowercase/master fundamental keys to V5 watchlist column names."""
+    if not isinstance(row_dict, dict):
+        return {}
+    out = dict(row_dict)
+
+    def _first_present(*keys):
+        for k in keys:
+            val = out.get(k)
+            if val is not None and not (isinstance(val, float) and pd.isna(val)) and val != "":
+                return val
+        return None
+
+    roce_val = _first_present("ROCE %", "ROCE", "roce")
+    if roce_val is not None:
+        out["ROCE %"] = roce_val
+    roe_val = _first_present("ROE %", "ROE", "roe")
+    if roe_val is not None:
+        out["ROE %"] = roe_val
+    de_val = _first_present("Debt/Equity", "debt_equity", "debt_to_equity", "debt")
+    if de_val is not None:
+        out["Debt/Equity"] = de_val
+    pe_val = _first_present("PE Ratio", "pe_fallback", "pe")
+    if pe_val is not None:
+        out["PE Ratio"] = pe_val
+    pb_val = _first_present("Price to Book", "pb_fallback", "pb")
+    if pb_val is not None:
+        out["Price to Book"] = pb_val
+
+    mcap_val = _first_present("Market Cap Cr", "Market Capitalization")
+    if mcap_val is None and out.get("market_cap") is not None:
+        try:
+            mc_f = float(out["market_cap"])
+            if not pd.isna(mc_f) and mc_f > 0:
+                mcap_val = (mc_f / 1e7) if mc_f > 1e6 else mc_f
+        except (ValueError, TypeError):
+            pass
+    if mcap_val is not None:
+        out["Market Cap Cr"] = mcap_val
+
+    yoy_rev = _first_present("YOY Revenue %", "Sales growth", "rev_yoy_latest")
+    if yoy_rev is None and out.get("revenue_cagr_3y") is not None:
+        try:
+            rc_f = float(out["revenue_cagr_3y"])
+            if not pd.isna(rc_f):
+                yoy_rev = rc_f * 100.0 if abs(rc_f) < 3.0 else rc_f
+        except (ValueError, TypeError):
+            pass
+    if yoy_rev is not None:
+        out["YOY Revenue %"] = yoy_rev
+
+    yoy_prof = _first_present("YOY Profit %", "Profit growth", "eps_yoy_latest", "op_profit_yoy_latest", "earnings_growth")
+    if yoy_prof is not None:
+        out["YOY Profit %"] = yoy_prof
+
+    return out
+
+
+def _warm_orphan_local_cache() -> None:
+    """Loads/refreshes _orphan_fundamental_cache from authoritative non-Screener local files."""
+    global _orphan_fundamental_cache, _orphan_cache_timestamp, _orphan_cache_mtimes
+    import json
+    from config import DATA_DIR
+
+    _orphan_sources = [
+        "daily_builder_master_v2.parquet",           # PRIMARY: full tracked universe — always first
+        "temp_universe.parquet",
+        "elite_universe_v2.parquet",
+        "near_qualified_v2.parquet",
+        "elite_fundamental_watchlist_excluded.csv",
+    ]
+    _fund_json_name = "fundamentals_cache.json"
+    _all_tracked_files = _orphan_sources + [_fund_json_name]
+
+    _primary_master_path = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+    if not os.path.exists(_primary_master_path):
+        try:
+            from database import download_parquet_from_db
+            download_parquet_from_db("daily_builder_master_v2", _primary_master_path)
+        except Exception:
+            pass
+
+    current_mtimes = {
+        fname: (os.path.getmtime(os.path.join(DATA_DIR, fname)) if os.path.exists(os.path.join(DATA_DIR, fname)) else 0.0)
+        for fname in _all_tracked_files
+    }
+    now_mono = time.monotonic()
+    if (
+        _orphan_fundamental_cache
+        and current_mtimes == _orphan_cache_mtimes
+        and (now_mono - _orphan_cache_timestamp <= 900)
+    ):
+        return
+
+    merged_cache: Dict[str, dict] = {}
+    for fname in _orphan_sources:
+        fpath = os.path.join(DATA_DIR, fname)
+        if not os.path.exists(fpath):
+            continue
+        try:
+            c_df = pd.read_parquet(fpath) if fname.endswith(".parquet") else pd.read_csv(fpath)
+            sym_col = next(
+                (c for c in ["Stock", "Symbol", "symbol", "stock", "ticker"] if c in c_df.columns),
+                None,
+            )
+            if sym_col and not c_df.empty:
+                c_df = c_df.dropna(subset=[sym_col])
+                c_df[sym_col] = c_df[sym_col].astype(str).str.strip().str.upper()
+                c_df = c_df.drop_duplicates(subset=[sym_col])
+                file_dict = c_df.set_index(sym_col).to_dict(orient="index")
+                for s_val, r_dict in file_dict.items():
+                    if not s_val or s_val in merged_cache:
+                        continue
+                    src_tag = str(r_dict.get("source_provider") or r_dict.get("source") or "").upper()
+                    if "SCREENER" in src_tag:
+                        continue
+                    has_fin_metric = any(
+                        r_dict.get(k) is not None and not (isinstance(r_dict.get(k), float) and pd.isna(r_dict.get(k)))
+                        for k in ("ROCE %", "ROCE", "roce", "ROE %", "ROE", "roe", "quality_score", "Market Cap Cr", "market_cap")
+                    )
+                    if not has_fin_metric:
+                        continue
+                    r_dict["Stock"] = s_val
+                    merged_cache[s_val] = r_dict
+        except Exception as _ce:
+            logger.debug(f"Could not read {fname} for orphan cache: {_ce}")
+
+    # Fallback: non-Screener TradingView bulk cache (data/fundamentals_cache.json) for stocks missing above
+    _fjson_path = os.path.join(DATA_DIR, _fund_json_name)
+    if os.path.exists(_fjson_path):
+        try:
+            with open(_fjson_path, "r", encoding="utf-8") as f_fc:
+                fc_raw = json.load(f_fc)
+            if isinstance(fc_raw, dict):
+                for s_raw, r_dict in fc_raw.items():
+                    if not isinstance(r_dict, dict) or r_dict.get("failed"):
+                        continue
+                    s_val = str(s_raw).strip().upper().replace(".NS", "").replace(".BO", "")
+                    if not s_val or s_val in merged_cache:
+                        continue
+                    src_tag = str(r_dict.get("source_provider") or r_dict.get("source") or "").upper()
+                    if "SCREENER" in src_tag:
+                        continue
+                    if any(r_dict.get(k) is not None for k in ("roce", "roe", "market_cap")):
+                        entry = dict(r_dict)
+                        entry["Stock"] = s_val
+                        merged_cache[s_val] = entry
+        except Exception as _fce:
+            logger.debug(f"Could not read {_fund_json_name} for orphan cache: {_fce}")
+
+    _orphan_fundamental_cache = merged_cache
+    _orphan_cache_timestamp = now_mono
+    _orphan_cache_mtimes = current_mtimes
+
+
+def _fetch_bulk_orphan_master_cache(symbols: List[str]) -> Dict[str, dict]:
+    """Prefetches orphan fundamental rows from DB in 1-2 batched queries instead of N roundtrips."""
+    clean_syms = list({str(s).strip().upper().replace(".NS", "").replace(".BO", "") for s in symbols if s})
+    out: Dict[str, dict] = {}
+    if not clean_syms:
+        return out
+    try:
+        from database import get_connection, init_db
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (symbol)
+                        symbol, roce, roe, debt, earnings_growth, current_price,
+                        quality_score, growth_score, valuation_score, wealth_score, fundamental_category
+                    FROM daily_builder_master_v2
+                    WHERE symbol = ANY(%s)
+                    ORDER BY symbol, build_date DESC
+                """, (clean_syms,))
+                cols = [d[0] for d in cur.description] if cur.description else []
+                for row in cur.fetchall() or []:
+                    d = dict(zip(cols, row))
+                    sym_k = str(d.get("symbol") or "").upper()
+                    if sym_k and (d.get("roce") is not None or d.get("roe") is not None):
+                        d["cmp"] = d.pop("current_price", None)
+                        out[sym_k] = d
+                rem = [s for s in clean_syms if s not in out]
+                if rem:
+                    import json as _json_bulk
+                    cur.execute("""
+                        SELECT symbol, deep_analysis_result
+                        FROM stock_analysis_master
+                        WHERE symbol = ANY(%s) AND deep_analysis_result IS NOT NULL
+                    """, (rem,))
+                    for s_k, raw_res in cur.fetchall() or []:
+                        try:
+                            parsed = _json_bulk.loads(raw_res) if isinstance(raw_res, str) else raw_res
+                            if isinstance(parsed, dict):
+                                src_tag = str(parsed.get("source_provider") or parsed.get("source") or "").upper()
+                                if "SCREENER" not in src_tag:
+                                    out[str(s_k).upper()] = parsed.get("deep_analysis_result") or parsed.get("raw_data") or parsed
+                        except Exception:
+                            pass
+    except Exception as _bulk_err:
+        logger.debug(f"Bulk orphan DB prefetch notice: {_bulk_err}")
+    return out
+
+
+def resolve_orphan_fundamental_data(
+    symbol: str,
+    nifty_dist: Optional[float] = None,
+    db_master_cache: Optional[Dict[str, dict]] = None,
+) -> Optional[Dict[str, Any]]:
     """
-    [VERSION: ORPHAN_ENRICHMENT_v1.0]
-    Resolves canonical fundamental metrics and calculates V5 FM_Score / RS_Rating
+    [VERSION: ORPHAN_ENRICHMENT_v1.1]
+    Resolves canonical non-Screener fundamental metrics and calculates V5 FM_Score / RS_Rating
     for open portfolio positions that are not in today's active watchlist.
 
-    Prevents false "SELL_REVIEW: Incomplete Data" alerts for valid holdings that dropped
-    out of the active daily screening universe.
-
-    Data lookup precedence (0ms local cache -> parquet cache -> DB stock_analysis_master):
-      1. Local universe parquets (data/temp_universe.parquet, data/elite_universe_v2.parquet, etc.)
-      2. DB stock_analysis_master (deep_analysis_result JSON)
-      3. DB parquet_cache (daily_builder / daily_builder_excluded)
+    Data lookup precedence:
+      1. Local non-Screener universe parquets & fundamentals_cache.json (TRADINGVIEW_BULK)
+      2. Batched / direct DB daily_builder_master_v2 & stock_analysis_master
     """
     if not symbol:
         return None
 
-    import os
-    import json
-    import pandas as pd
-    from config import DATA_DIR, WATCHLIST_PATH
+    from database import get_stock_master_analysis
+    from macro_utils import get_nifty_6m_state
 
     clean_sym = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
 
-    # Generate canonical alias candidates to match TradingView / Screener / Yahoo formats
     try:
         from daily_builder import normalize_symbol
         norm_sym = normalize_symbol(clean_sym)
@@ -1343,91 +1549,39 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
         clean_sym.replace(' ', '-'),
     ]))
 
-    # 1. Search in cached local universe DataFrames
+    # 1. Search in cached non-Screener local universe files
     found_row_dict = None
-
-    # Load / refresh local parquet cache if any file mtime changed, cache is empty, or older than 15 minutes
-    global _orphan_fundamental_cache, _orphan_cache_timestamp, _orphan_cache_mtimes
-    _orphan_sources = [
-        "daily_builder_master_v2.parquet",           # PRIMARY: full tracked universe — always first
-        "temp_universe.parquet",
-        "elite_universe_v2.parquet",
-        "near_qualified_v2.parquet",
-        "elite_fundamental_watchlist_excluded.csv",
-    ]
-    # If primary master parquet is missing locally, attempt DB restore before building cache
-    _primary_master_path = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
-    if not os.path.exists(_primary_master_path):
-        try:
-            from database import download_parquet_from_db
-            download_parquet_from_db("daily_builder_master_v2", _primary_master_path)
-        except Exception:
-            pass
-
-    current_mtimes = {
-        fname: (os.path.getmtime(os.path.join(DATA_DIR, fname)) if os.path.exists(os.path.join(DATA_DIR, fname)) else 0.0)
-        for fname in _orphan_sources
-    }
-    now_mono = time.monotonic()
-    if (
-        not _orphan_fundamental_cache
-        or current_mtimes != _orphan_cache_mtimes
-        or (now_mono - _orphan_cache_timestamp > 900)
-    ):
-        # Fast vectorized dataframe dictionary conversion instead of slow row-by-row iterrows() loop
-        # daily_builder_master_v2.parquet is listed FIRST — it covers the entire tracked universe (860+ symbols)
-        # and is the authoritative fundamental data source for all open positions.
-        # The other files cover subsets only (elite/near-qualified watchlists, excluded list).
-        merged_cache = {}
-        for fname in _orphan_sources:
-            fpath = os.path.join(DATA_DIR, fname)
-            if os.path.exists(fpath):
-                try:
-                    if fname.endswith(".parquet"):
-                        c_df = pd.read_parquet(fpath)
-                    else:
-                        c_df = pd.read_csv(fpath)
-                    # Detect symbol column — handles Stock, Symbol, symbol, stock
-                    sym_col = next(
-                        (c for c in ["Stock", "Symbol", "symbol", "stock", "ticker"] if c in c_df.columns),
-                        None,
-                    )
-                    if sym_col and not c_df.empty:
-                        c_df = c_df.dropna(subset=[sym_col])
-                        c_df[sym_col] = c_df[sym_col].astype(str).str.strip().str.upper()
-                        c_df = c_df.drop_duplicates(subset=[sym_col])
-                        file_dict = c_df.set_index(sym_col).to_dict(orient="index")
-                        for s_val, r_dict in file_dict.items():
-                            if s_val and s_val not in merged_cache:
-                                r_dict["Stock"] = s_val
-                                merged_cache[s_val] = r_dict
-                except Exception as _ce:
-                    logger.debug(f"Could not read {fname} for orphan cache: {_ce}")
-        _orphan_fundamental_cache = merged_cache
-        _orphan_cache_timestamp = now_mono
-        _orphan_cache_mtimes = current_mtimes
+    _warm_orphan_local_cache()
 
     for key in possible_keys:
         if key in _orphan_fundamental_cache:
             found_row_dict = dict(_orphan_fundamental_cache[key])
             break
 
-    # 2. Fallback to DB stock_analysis_master if not found in local parquets
-    if not found_row_dict:
+    # 2. Fallback to pre-fetched DB master cache or direct DB lookup
+    if not found_row_dict and isinstance(db_master_cache, dict):
+        for key in possible_keys:
+            if key in db_master_cache and isinstance(db_master_cache[key], dict):
+                found_row_dict = dict(db_master_cache[key])
+                break
+
+    if not found_row_dict and db_master_cache is None:
         try:
-            from database import get_stock_master_analysis
             for key in possible_keys:
                 master_res = get_stock_master_analysis(key)
                 if master_res and isinstance(master_res, dict):
-                    found_row_dict = master_res.get("deep_analysis_result") or master_res.get("raw_data") or master_res
-                    break
+                    cand = master_res.get("deep_analysis_result") or master_res.get("raw_data") or master_res
+                    src_tag = str(cand.get("source_provider") or cand.get("source") or "").upper()
+                    if "SCREENER" not in src_tag:
+                        found_row_dict = cand
+                        break
         except Exception as _dbe:
             logger.debug(f"DB master lookup for orphan {symbol} failed: {_dbe}")
 
     if not found_row_dict:
         return None
 
-    # Standardize Stock field
+    found_row_dict = _normalize_orphan_metrics(found_row_dict)
     found_row_dict["Stock"] = symbol
 
     # 3. Score using canonical apply_core_engine_scores() & V5 mapping
@@ -1448,13 +1602,15 @@ def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
         else:
             found_row_dict["RS_Rating"] = None
 
-        try:
-            from macro_utils import get_nifty_52w_dist
-            nifty_dist = get_nifty_52w_dist() or 0.0
-        except Exception:
-            nifty_dist = 0.0
+        eff_nifty_dist = nifty_dist
+        if eff_nifty_dist is None:
+            try:
+                _, eff_nifty_dist = get_nifty_6m_state()
+            except Exception:
+                eff_nifty_dist = 0.0
+        eff_nifty_dist = float(eff_nifty_dist or 0.0)
 
-        found_row_dict["Portfolio_Bucket"] = determine_portfolio_bucket(found_row_dict, nifty_dist)
+        found_row_dict["Portfolio_Bucket"] = determine_portfolio_bucket(found_row_dict, eff_nifty_dist)
         found_row_dict["orphan_enriched"] = True
         rs_str = f"{found_row_dict['RS_Rating']:.1f}" if found_row_dict['RS_Rating'] is not None else "N/A"
         logger.info(f"✅ [ORPHAN ENRICHMENT] Enriched {symbol} (FM_Score={found_row_dict['FM_Score']:.1f}, RS_Rating={rs_str}, Bucket={found_row_dict['Portfolio_Bucket']})")
@@ -2144,7 +2300,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         _t_live = time.perf_counter()
         try:
             from live_prices import get_live_prices
-            all_live_prices = get_live_prices(list(all_symbols_to_fetch)) or {}
+            all_live_prices = get_live_prices(list(all_symbols_to_fetch), purpose="WEALTH_SCAN") or {}
             log_api_cost("live_quotes", cache_hit=False)
         except Exception as _snap_e:
             logger.warning(f"⚠️ [WEALTH ENGINE] Live price fetch failed: {_snap_e}. Falling back to 1D close.")
@@ -2369,7 +2525,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                             try:
                                 if open_symbols:
                                     from live_prices import get_live_prices
-                                    _cb_realtime = get_live_prices(open_symbols) or {}
+                                    _cb_realtime = get_live_prices(open_symbols, purpose="WEALTH_EXIT_MONITOR") or {}
                             except Exception as _rt_cb_err:
                                 logger.warning(f"⚠️ [WEALTH CB FALLBACK] Live price fetch failed: {_rt_cb_err}")
                             _cb_portfolio_rows = []
@@ -2754,7 +2910,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         try:
             if open_symbols:
                 from live_prices import get_live_prices
-                realtime_metrics = get_live_prices(open_symbols)
+                realtime_metrics = get_live_prices(open_symbols, purpose="WEALTH_EXIT_MONITOR")
         except Exception as e:
             logger.warning(f"Failed to fetch real-time prices for wealth engine evaluation: {e}")
 
@@ -3164,7 +3320,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
         if open_symbols:
             try:
                 from live_prices import get_live_prices
-                realtime_metrics = get_live_prices(open_symbols) or {}
+                realtime_metrics = get_live_prices(open_symbols, purpose="WEALTH_EXIT_MONITOR") or {}
             except Exception as e:
                 logger.warning(f"Failed to fetch live prices for wealth intraday update: {e}")
         stage_tracker.end_stage(f"Fetched CMP for {len(realtime_metrics)} positions")
@@ -3201,7 +3357,17 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
             except Exception as _fhe:
                 logger.warning(f"Failed to fetch fresh historical candles for open positions: {_fhe}")
 
-        nifty_6m_ret, _ = fetch_nifty_macro_state()
+        nifty_6m_ret, nifty_dist_52w = fetch_nifty_macro_state()
+
+        # Pre-warm orphan cache + bulk-prefetch DB master rows once for symbols missing locally
+        _warm_orphan_local_cache()
+        _missing_for_db = [
+            al["symbol"] for al in open_alerts
+            if al.get("symbol")
+            and al["symbol"] not in wealth_stock_map
+            and al["symbol"].strip().upper() not in _orphan_fundamental_cache
+        ]
+        _bulk_db_master_cache = _fetch_bulk_orphan_master_cache(_missing_for_db) if _missing_for_db else {}
 
         portfolio_rows = []
         for al in open_alerts:
@@ -3210,7 +3376,11 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
                 row = dict(wealth_stock_map[sym])
             else:
                 row = {"Stock": sym}
-                enriched = resolve_orphan_fundamental_data(sym)
+                enriched = resolve_orphan_fundamental_data(
+                    sym,
+                    nifty_dist=nifty_dist_52w,
+                    db_master_cache=_bulk_db_master_cache,
+                )
                 if enriched:
                     for k, v in enriched.items():
                         row[k] = v
@@ -3220,7 +3390,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
             # DYNAMIC UNIFIED FRESH TECHNICAL INDICATOR RESOLUTION:
             # Recompute technicals from the single unified source of truth (Upstox API historical cache)
             tech = calculate_wealth_technicals(sym, nifty_6m_ret, historical_cache=open_historical_cache)
-            if tech.get("sma_200") is not None and not tech.get("is_stale"):
+            if tech.get("prev_close") is not None and not tech.get("is_stale"):
                 row["sma_200"] = tech.get("sma_200")
                 row["sma_50"] = tech.get("sma_50")
                 row["ema_20"] = tech.get("ema_20")
@@ -3231,6 +3401,9 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True, is_eod=Fal
                 row["is_stale"] = False
                 row["last_candle_date"] = tech.get("last_candle_date")
                 row["data_quality"] = DataQuality.LIVE.value
+                # Hydrate RS_Rating from live 6M RS when missing (e.g. orphan enrichment)
+                if (row.get("RS_Rating") is None or pd.isna(row.get("RS_Rating"))) and row.get("rs_6m") is not None and not pd.isna(row.get("rs_6m")):
+                    row["RS_Rating"] = max(0.0, min(100.0, 50.0 + float(row["rs_6m"]) * 1.5))
             else:
                 row["is_stale"] = True
                 row["data_quality"] = "DATA_STALE"

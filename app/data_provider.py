@@ -620,8 +620,18 @@ class AutoSwitchingFetcher(DataFetcher):
             upstox_only_symbols = []
             fyers_only_symbols = []
             balanced_symbols = []
-            
+            _is_intraday_tf = str(interval or "").lower() not in ("1d", "1wk", "1mo", "daily", "weekly", "monthly")
+
             for s in missing_symbols:
+                # Upstox V3 does not support intraday index candles; route directly to Fyers on first attempt
+                if _is_intraday_tf and upstox_fetcher and fyers_fetcher:
+                    try:
+                        _u_key = upstox_fetcher._get_instrument_key(s) or ""
+                        if _u_key.startswith("NSE_INDEX|") or _u_key.startswith("BSE_INDEX|"):
+                            fyers_only_symbols.append(s)
+                            continue
+                    except Exception:
+                        pass
                 route = symbol_router.get_route(s, interval)
                 if route == RoutingState.UPSTOX_ONLY and upstox_fetcher:
                     upstox_only_symbols.append(s)
@@ -692,6 +702,7 @@ class AutoSwitchingFetcher(DataFetcher):
                         primary_name, primary_fetcher = active_premiums[0]
                         futures.append(executor.submit(fetch_chunk, primary_name, primary_fetcher, balanced_symbols))
 
+            failed_providers_by_sym: Dict[str, Set[str]] = {}
             for future in concurrent.futures.as_completed(futures):
                 try:
                     p_name, prov_results, prov_stats, actual_chunk = future.result()
@@ -744,6 +755,7 @@ class AutoSwitchingFetcher(DataFetcher):
                                 
                             if p_name == "fyers":
                                 self._mark_fyers_degraded(s)
+                            failed_providers_by_sym.setdefault(s, set()).add(p_name)
                             symbol_router.record_result(s, interval, p_name, is_success=False, error_msg=err_msg)
                     
                     if p_name in provider_telemetry:
@@ -765,7 +777,12 @@ class AutoSwitchingFetcher(DataFetcher):
                 if not missing_symbols:
                     break
                 
-                current_batch = list(missing_symbols)
+                current_batch = [
+                    s for s in missing_symbols
+                    if prov_name not in failed_providers_by_sym.get(s, ())
+                ]
+                if not current_batch:
+                    continue
                 start_t = time.time()
                 try:
                     if prov_name in provider_telemetry:

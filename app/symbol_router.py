@@ -133,8 +133,8 @@ class SymbolRouter:
         Structured taxonomy classification of error message and HTTP status code.
         """
         msg = str(error_msg or "").lower()
-        if http_code == 404 or "not found" in msg or "invalid symbol" in msg or "unsupported" in msg or "symbol miss" in msg:
-            if "invalid symbol" in msg or "unsupported" in msg:
+        if http_code == 404 or "not found" in msg or "invalid symbol" in msg or "unsupported" in msg or "not supported" in msg or "symbol miss" in msg:
+            if "invalid symbol" in msg or "unsupported" in msg or "not supported" in msg:
                 return ProviderErrorCode.UNSUPPORTED_SYMBOL
             elif "not found" in msg or http_code == 404:
                 return ProviderErrorCode.NOT_FOUND

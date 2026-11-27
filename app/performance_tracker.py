@@ -109,7 +109,7 @@ def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
         return {}
 
     from live_prices import get_live_prices
-    prices = get_live_prices(symbols)
+    prices = get_live_prices(symbols, purpose="PERFORMANCE_TRACKER")
 
     try:
         from data_fetch_status import mark_success

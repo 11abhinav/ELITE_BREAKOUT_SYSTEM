@@ -102,7 +102,34 @@ def _extract_page_layout_fast(pdf_path: str, page_idx: int, timeout: float = 3.5
     return ""
 
 
-def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0) -> str:
+_UPSIDE_DOWN_TOKENS = (
+    "alindi", "suopelado", "s3liigyt", "powpneun", "suomesado", "suadx3", "juauneis",
+    "sepicmber", "papuz", "a1eus", "asuadx", "asuadr", "ousoout", "popsad", "sumupuos",
+    "onsusyasduoa", "aeduoa", "s3l", "poysad",
+)
+
+
+def _score_ocr_readability(txt: str) -> int:
+    """Scores OCR orientation quality using clean financial/document anchors rather than raw length."""
+    if not txt or len(txt.strip()) < 40:
+        return -1000
+    low = re.sub(r"\s+", " ", txt.lower())
+    _pos_terms = (
+        "revenue from operations", "total income", "interest earned", "profit before tax",
+        "profit/(loss)", "profit / (loss)", "profit for the period", "profit after tax",
+        "net profit", "independent auditor", "limited review", "based on our review conducted",
+        "assets and liabilities", "cash flows from operating", "statement of cash flows",
+        "cost of revenues", "earnings per share", "total expenses", "particulars",
+    )
+    score = sum(25 for k in _pos_terms if k in low)
+    if "revenues" in low and ("profit before" in low or "income tax" in low):
+        score += 30
+    score += min(10, len(re.findall(r"\b202\d\b", low))) * 4
+    score -= sum(40 for k in _UPSIDE_DOWN_TOKENS if k in low)
+    return score
+
+
+def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0, prefer_180: bool = False) -> str:
     """
     Runs Tesseract OCR on a PIL image and automatically detects/corrects 90/180/270-degree
     rotated landscape financial tables via Tesseract OSD and targeted orientation fallback
@@ -112,36 +139,60 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0) -> str:
         return ""
     txt = pytesseract.image_to_string(img, timeout=timeout, config="--psm 6") or ""
     low = re.sub(r"\s+", " ", txt.lower())
+    _has_inverted = any(k in low for k in _UPSIDE_DOWN_TOKENS)
     _strong_upright = (
         "revenue from operations", "total income", "interest earned", "profit before tax",
         "profit for the period", "profit/(loss) for the period", "net profit",
-        "independent auditor", "limited review", "balance sheet", "assets and liabilities",
-        "assets & liabilities",
+        "independent auditor", "limited review", "based on our review conducted",
+        "balance sheet", "assets and liabilities", "assets & liabilities",
+        "cash flows from operating", "statement of cash flows",
+        "dear sir", "dear madam", "listing department",
     )
-    if len(txt.strip()) >= 150 and any(k in low for k in _strong_upright):
+    _is_ifrs_upright = ("revenues" in low and ("profit before" in low or "income tax" in low))
+    if not _has_inverted and len(txt.strip()) >= 150 and (_is_ifrs_upright or any(k in low for k in _strong_upright)):
         return txt.strip()
 
     best_txt = txt.strip()
+    best_score = _score_ocr_readability(best_txt)
     tried_degs: Set[int] = {0}
+
+    # If inverted upside-down glyphs detected in embedded text or 0-deg pass, probe 180 first (~3-4s)
+    if prefer_180 or _has_inverted:
+        tried_degs.add(180)
+        try:
+            rot_180 = img.rotate(-180, expand=True)
+            txt_180 = pytesseract.image_to_string(rot_180, timeout=min(9.0, timeout), config="--psm 6") or ""
+            low_180 = re.sub(r"\s+", " ", txt_180.lower())
+            if len(txt_180.strip()) >= 120 and (any(k in low_180 for k in _strong_upright) or ("revenues" in low_180 and "profit" in low_180)):
+                return txt_180.strip()
+            sc_180 = _score_ocr_readability(txt_180)
+            if sc_180 > best_score:
+                best_score = sc_180
+                best_txt = txt_180.strip()
+        except Exception:
+            pass
+
     try:
         osd_raw = pytesseract.image_to_osd(img, timeout=4.0)
         m_rot = re.search(r"Rotate:\s*(\d+)", str(osd_raw))
         deg = int(m_rot.group(1)) if m_rot else 0
-        if deg in (90, 180, 270):
+        if deg in (90, 180, 270) and deg not in tried_degs:
             tried_degs.add(deg)
             rot_img = img.rotate(-deg, expand=True)
             rot_txt = pytesseract.image_to_string(rot_img, timeout=timeout, config="--psm 6") or ""
             rot_low = re.sub(r"\s+", " ", rot_txt.lower())
-            if any(k in rot_low for k in _strong_upright):
+            if len(rot_txt.strip()) >= 120 and any(k in rot_low for k in _strong_upright):
                 return rot_txt.strip()
-            if len(rot_txt.strip()) > len(best_txt):
+            sc_rot = _score_ocr_readability(rot_txt)
+            if sc_rot > best_score or (sc_rot == best_score and len(rot_txt.strip()) > len(best_txt)):
+                best_score = sc_rot
                 best_txt = rot_txt.strip()
     except Exception:
         pass
 
     # Mixed pages (upright letterhead + rotated landscape/upside-down table) often fool OSD into returning 0.
     # Probe remaining orthogonal angles and return immediately on first financial table hit.
-    probe_order = (270, 90, 180) if img.width >= img.height else (90, 270, 180)
+    probe_order = (180, 270, 90) if (prefer_180 or _has_inverted) else ((270, 90, 180) if img.width >= img.height else (90, 270, 180))
     for deg in probe_order:
         if deg in tried_degs:
             continue
@@ -150,9 +201,11 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0) -> str:
             rot_img = img.rotate(-deg, expand=True)
             rot_txt = pytesseract.image_to_string(rot_img, timeout=min(9.0, timeout), config="--psm 6") or ""
             rot_low = re.sub(r"\s+", " ", rot_txt.lower())
-            if len(rot_txt.strip()) >= 120 and any(k in rot_low for k in _strong_upright):
+            if len(rot_txt.strip()) >= 120 and (any(k in rot_low for k in _strong_upright) or ("revenues" in rot_low and "profit" in rot_low)):
                 return rot_txt.strip()
-            if len(rot_txt.strip()) > len(best_txt) * 1.15:
+            sc_rot = _score_ocr_readability(rot_txt)
+            if sc_rot > best_score or (sc_rot == best_score and len(rot_txt.strip()) > len(best_txt) * 1.15):
+                best_score = sc_rot
                 best_txt = rot_txt.strip()
         except Exception:
             pass
@@ -272,14 +325,16 @@ def _is_garbled_embedded_ocr(text: str) -> bool:
     short_ratio = short_noise / max(1, len(toks))
 
     # Upside-down / mirrored glyph layers (rotated landscape tables read upright)
-    if any(k in low for k in (
-        "alindi", "suopelado", "s3liigyt", "powpneun", "suomesado", "suadx3", "juauneis",
-        "sepicmber", "papuz",
-    )) and len(dec_nums) < 4:
+    if any(k in low for k in _UPSIDE_DOWN_TOKENS):
         return True
 
     # Heavy 1-2 char fragment noise without real decimal table rows
     if len(toks) >= 25 and short_ratio >= 0.32 and len(dec_nums) < 4:
+        return True
+
+    # Embedded OCR punctuation corruption inside words or replacement glyph (\ufffd)
+    inline_punct_corrupt = len(re.findall(r"[a-zA-Z][\\':;\^~`\*!\ufffd][a-zA-Z]", s))
+    if "\ufffd" in s or inline_punct_corrupt >= 5:
         return True
 
     # Broken financial statement OCR: missing clean revenue OR missing clean profit anchor alongside garble signatures
@@ -293,11 +348,12 @@ def _is_garbled_embedded_ocr(text: str) -> bool:
     ))
     if not (has_clean_rev and has_clean_profit):
         garble_hits = len(re.findall(
-            r"\b(?:203\d|200[0-9]|0\s+sep|sepicmber|seplember|revenve|totalincome|totatncome|"
-            r"brofit|prfit|promm|stanbatone|coreotbated|woaudited|audired|powpneun|suomesado|juauneis)\b",
+            r"\b(?:203\d|200[0-9]|0\s+sep|sepicmber|seplember|revenve|revenv|totalincome|totatncome|"
+            r"brofit|prfit|promm|profibetors|stanbatone|coreotbated|woaudited|audired|powpneun|suomesado|juauneis|"
+            r"operatians|unauctited|rcvcnt|tollll|llncomc)\b",
             low,
         ))
-        if garble_hits >= 2 or (not has_clean_rev and len(dec_nums) < 4 and "financial" in low):
+        if garble_hits >= 2 or (not has_clean_rev and len(dec_nums) < 4 and "financial" in low) or (inline_punct_corrupt >= 2 and not has_clean_rev and "statement" in low):
             return True
     return False
 
@@ -600,12 +656,13 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\b[cr]onsolidar[ce]d\b", "consolidated", text, flags=re.I)
     text = re.sub(r"\bta[•\*\.]\b", "tax", text, flags=re.I)
     text = re.sub(r",-1(\d{2})\b", r",4\1", text)
-    text = re.sub(r"(?i)\btotalincome\b", "total income", text)
-    text = re.sub(r"(?i)\breven[uv]e\b", "revenue", text)
+    text = re.sub(r"(?i)\btotalincome\b|\btotatncome\b", "total income", text)
+    text = re.sub(r"(?i)\breven[uv][ce]\b|\brevcn[uv]e\b|\brevenuc\b", "revenue", text)
+    text = re.sub(r"(?i)\boperat[il1]ans\b|\boperatians\b|\bop[ce]rat[a-z1]{2,6}ns\b", "operations", text)
     text = re.sub(r"(?i)\b([a-z]+)\s+gom\s+operations\b", r"\1 from operations", text)
     text = re.sub(r"(?i)\bmill[il1c]{1,2}[eoc][nr]s?\b", "million", text)
     text = re.sub(r"(?i)\bsep[il1r][ce]?mber\b|\bseplember\b", "September", text)
-    text = re.sub(r"(?i)\bbrofit\b", "profit", text)
+    text = re.sub(r"(?i)\bbrofit\b|\bprofibet[oa]rs\b", "profit", text)
     text = re.sub(r"(?i)\bnded\b", "ended", text)
     return text
 
@@ -704,7 +761,8 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
 
     if any(k in head_half for k in [
         "independent auditor", "limited review report", "auditor's review report",
-        "chartered accountants", "we have reviewed the accompanying", "limited review conducted"
+        "chartered accountants", "we have reviewed the accompanying", "limited review conducted",
+        "based on our review conducted", "procedures performed as stated", "nothing has come to our attention",
     ]) and not has_strict_pnl_structure:
         score -= 85
 
@@ -733,7 +791,10 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
     # 9. Penalty for standalone Notes pages (prose paragraphs explaining revenue/tax figures, not financial table rows)
     first_12_lower = " ".join(text_norm.split("\n")[:12]).lower()
     is_notes_only = (
-        bool(re.search(r"(?:\bnotes?\s*:|\[\s*notes?\b|\bnotes?\s+to\s+(?:the\s+)?(?:unaudited|audited|statement|financial))", first_12_lower))
+        bool(re.search(r"(?:^|\b)(?:notes?\s*[:\-]|[\ufffd\W]?otes\s*[:1\-]|\[\s*notes?\b|\bnotes?\s+to\s+(?:the\s+)?(?:unaudited|audited|standalone|consolidated|statement|financial))", first_12_lower))
+        or ("the above standalone financial results" in norm_and_lower and "total expenses" not in norm_and_lower)
+        or ("the above consolidated financial results" in norm_and_lower and "total expenses" not in norm_and_lower)
+        or ("have been prepared in accordance with indian accounting" in norm_and_lower and "total expenses" not in norm_and_lower)
         or ("reviewed by the audit committee" in norm_and_lower and "chief operating decision maker" in norm_and_lower)
         or ("approved by the board of directors" in norm_and_lower and "limited review" in norm_and_lower and "total expenses" not in norm_and_lower)
     )
@@ -1005,8 +1066,9 @@ class ExchangePdfParser:
                     _extra: List[bytes] = []
                     _extra_tot = 0
                     try:
-                        # Alternate to curl_cffi (Chrome TLS) on retry or if available for better NSE/Akamai compatibility
-                        if _cffi_rng_reqs is not None and _consec_rng_fails >= 1:
+                        # Prefer curl_cffi Chrome TLS on Range requests (Akamai honors 206 Range on Chrome TLS
+                        # even when standard requests.get receives ignored 200 full-stream truncation at 8.2MB).
+                        if _cffi_rng_reqs is not None and (_consec_rng_fails % 2 == 0 or _consec_rng_fails >= 1):
                             _cr = _cffi_rng_reqs.get(
                                 pdf_url,
                                 headers=_rng_hdrs,
@@ -1023,7 +1085,11 @@ class ExchangePdfParser:
                             with requests.get(pdf_url, headers=_rng_hdrs, cookies=self.session.cookies, timeout=(10, 60), stream=True) as r_res:
                                 if r_res.status_code == 200:
                                     logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} ignored Range (status=200)")
-                                    break
+                                    _consec_rng_fails += 1
+                                    if _consec_rng_fails >= 3 or _cffi_rng_reqs is None:
+                                        break
+                                    time.sleep(0.5)
+                                    continue
                                 if r_res.status_code not in (206,):
                                     logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} returned status={r_res.status_code}")
                                     _consec_rng_fails += 1
@@ -1192,7 +1258,7 @@ class ExchangePdfParser:
         # Determine document-wide unit and multiplier (explicit patterns only, scanning digital pages beyond cover letters)
         doc_mult = 1.0
         doc_unit = "crore"
-        _UNIT_MILLION_RE = r"(?:in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?|\([\{\[\*a-z0-9\|%\s]{0,8}in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?[^\)\n]*\)|(?:rs\.?|inr|n|r|z|a)\s*(?:in\s*)?m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?\b)"
+        _UNIT_MILLION_RE = r"(?:in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?|\([\{\[\*a-z0-9\|%\s]{0,8}in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?[^\)\n]*\)|(?:rs\.?|inr|n|r|z|a)\s*(?:in\s*)?m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?\b|(?:\d[\d,]*\s*mn\b|\bin\s*mn\b|\(\s*mn\s*\)))"
         _UNIT_LAKH_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*l(?:[an]khs?|acs?)\)|(?:\b[ztf%]{1,2}|\brs\.?|\binr)\s*in\s*l(?:[an]khs?|acs?)\b|\bin\s+l(?:[an]khs?|acs?)\b|\bl(?:[an]khs?|acs?)\s*(?:except|unless)\b|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex)"
         _UNIT_CRORE_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*cr[o0]ree?s?\)|\b(?:rs\.?|inr|z|t|f)\s*(?:in|ln)?\s*cr[o0]ree?s?\b|\b(?:in|ln)\s*cr[o0]ree?s?\b|<n\s*crore|\bcr[o0]res?\s*(?:except|unless)\b)"
 
@@ -1258,6 +1324,7 @@ class ExchangePdfParser:
         _auditor_markers = (
             "independent auditor", "limited review", "review report", "auditor's report",
             "sre 2410", "chartered accountants", "udin:", "membership no",
+            "based on our review conducted", "procedures performed as stated", "nothing has come to our attention",
         )
 
         # Early exit for Regulation 30 non-financial announcements (e.g. subsidiary incorporation)
@@ -1310,19 +1377,22 @@ class ExchangePdfParser:
                         break
                     ocr_attempted_pages.add(p_idx)
                     ocr_page_text = ""
-                    comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=10.0, dpi=200) if tmp_pdf_path else None
+                    comp_img = _render_page_image_fast(tmp_pdf_path, p_idx, timeout=8.0, dpi=150) if tmp_pdf_path else None
                     if comp_img is not None:
                         try:
-                            if comp_img.width > 2000 or comp_img.height > 2400:
-                                comp_img.thumbnail((2000, 2400))
-                            t = _ocr_image_with_osd(comp_img, timeout=12.0)
+                            if comp_img.width > 1600 or comp_img.height > 2000:
+                                comp_img.thumbnail((1600, 2000))
+                            t = _ocr_image_with_osd(comp_img, timeout=10.0)
                             if t and len(t.strip()) > 30:
                                 ocr_page_text = t.strip()
                         except Exception:
                             pass
                     if not ocr_page_text:
                         page_obj = reader.pages[p_idx]
-                        page_images = getattr(page_obj, "images", [])
+                        try:
+                            page_images = getattr(page_obj, "images", [])
+                        except Exception:
+                            page_images = []
                         for img_obj in page_images[:2]:
                             try:
                                 img = Image.open(io.BytesIO(img_obj.data))
@@ -1437,15 +1507,16 @@ class ExchangePdfParser:
                 cached_page_texts[page_idx] = text
 
             # Fast Digital Text First Invariant (with on-demand OCR fallback for scanned pages when digital didn't yield both statements yet)
+            _prefer_180_hint = any(k in (text or "").lower() for k in _UPSIDE_DOWN_TOKENS)
             if _is_scanned_or_sig_only(text):
                 if (not (has_cons and has_std)) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 90.0 and (time.time() - t_parse_start < 130.0):
                     try:
                         ocr_attempted_pages.add(page_idx)
-                        _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
+                        _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=150)
                         if _p3_img is not None:
-                            if _p3_img.width > 1800 or _p3_img.height > 2200:
-                                _p3_img.thumbnail((1800, 2200))
-                            _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=12.0)
+                            if _p3_img.width > 1600 or _p3_img.height > 2000:
+                                _p3_img.thumbnail((1600, 2000))
+                            _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=10.0, prefer_180=_prefer_180_hint)
                             if _p3_ocr and not _is_scanned_or_sig_only(_p3_ocr):
                                 text = _p3_ocr.strip()
                                 cached_page_texts[page_idx] = text
@@ -1463,11 +1534,11 @@ class ExchangePdfParser:
             # Skip standalone auditor review report or pure prose Notes pages that lack financial statement tables
             first_12_lines = text.split("\n")[:12]
             header_preamble = " ".join(first_12_lines).lower().replace("&", " and ")
-            if any(k in header_preamble for k in ["independent auditor", "auditor's review report", "limited review report", "auditor's report"]):
+            if any(k in header_preamble for k in ["independent auditor", "auditor's review report", "limited review report", "auditor's report", "based on our review conducted"]):
                 if not any(k in header_preamble for k in ["statement of", "financial results", "unaudited financial", "audited financial"]):
                     continue
             first_8_lines_low = [ln.strip().lower() for ln in text.split("\n")[:8] if ln.strip()]
-            if any(re.match(r"^notes?\s*[:\-]?$", ln) for ln in first_8_lines_low):
+            if any(re.match(r"^(?:notes?|[\ufffd\W]?otes?)\s*[:1\-]?$", ln) for ln in first_8_lines_low):
                 has_tab_rows = sum(1 for ln in text.split("\n")[:35] if re.match(r"^\s*(?:1\.|i\.|total income|revenue from operations)", ln.strip(), re.I)) >= 2
                 if not has_tab_rows:
                     continue
@@ -1479,7 +1550,7 @@ class ExchangePdfParser:
             )
             if any(k in norm_and_lower for k in (
                 "dear sir", "dear madam", "dear sirs", "yours faithfully", "yours sincerely", "listing department"
-            )) and not _has_strict_pnl and "profit/(loss)" not in norm_and_lower:
+            )) and not _has_strict_pnl and "profit/(loss)" not in norm_and_lower and not _prefer_180_hint:
                 continue
             if any(k in _page_head_1500 for k in [
                 "statement of assets and liabilities", "assets and liabilities", "a ts and liabilities", "balance sheet",
@@ -1489,31 +1560,39 @@ class ExchangePdfParser:
                 "cash flows from investing activities", "cash flows from financing activities",
                 "segment wise information", "segment revenue", "capital employed",
             ]):
-                if "profit and loss" not in _page_head_1500 and not _has_strict_pnl:
+                if "profit and loss" not in _page_head_1500 and not _has_strict_pnl and not _prefer_180_hint:
                     continue
-            if not _has_strict_pnl and any(k in _page_head_1500 for k in _auditor_markers):
+            if not _has_strict_pnl and not _prefer_180_hint and any(k in _page_head_1500 for k in _auditor_markers):
                 continue
 
-            # Must contain SEBI Regulation 33 Statement header keywords (or unambiguous P&L table structure when header has OCR typos)
+            # Must contain SEBI Regulation 33 Statement header keywords (or unambiguous P&L / IFRS table structure)
+            _has_ifrs_pnl = (
+                bool(re.search(r"\brevenues\b", norm_text_lower))
+                and any(k in norm_text_lower for k in ("profit before tax", "profit before income tax", "profit after tax", "profit for the period"))
+            )
             is_stmt_header = any(k in norm_text_lower for k in [
                 "statement of", "financial results", "financial result", "results for the quarter", "results for the period",
                 "unaudited results", "audited results", "financial performance"
             ]) or (
                 any(k in norm_text_lower for k in ("revenue from operations", "total income", "interest income", "gross premium"))
                 and any(k in norm_text_lower for k in ("profit before tax", "profit for the period", "net profit", "profit after tax"))
-            )
+            ) or _has_ifrs_pnl
             if not is_stmt_header and (page_idx == 0 or records) and not _was_garbled_pre_ocr:
                 continue
 
-            # Must contain actual operational revenue indicators (or banking/NBFC total income / interest income / interest earned)
+            # Must contain actual operational revenue indicators (or banking/NBFC/IFRS revenue headers)
             _rev_indicators = (
                 "revenue from operations", "net sales", "total income", "income from operations",
                 "interest earned", "interest income", "total revenue from operations", "total revenue",
                 "premium earned", "gross premium", "net premium", "insurance revenue", "total insurance revenue",
             )
-            if _was_garbled_pre_ocr or (not is_stmt_header) or (not any(k in norm_text_lower for k in _rev_indicators)):
-                # Garbled embedded OCR layers (e.g. SAMHI, AIMTRON p2, VIDHIING p7-8, rotated SGFIN) pass len>=50
-                # yet contain broken keywords/years/digits. Skip cover letters, auditor reports & BS/CF/Notes before re-rendering.
+            _has_rev_anchor = any(k in norm_text_lower for k in _rev_indicators) or _has_ifrs_pnl
+            if _was_garbled_pre_ocr or (not is_stmt_header) or (not _has_rev_anchor):
+                # Garbled embedded OCR layers (e.g. SAMHI, AIMTRON p2, VIDHIING p7-8, rotated SGFIN, PARADEEP) pass len>=50
+                # yet contain broken keywords/years/digits. Skip pure cover/auditor/BS/CF/Notes unless P&L/inverted cues exist.
+                _has_pnl_cues = _has_rev_anchor or any(
+                    k in norm_and_lower for k in ("statement of unaudited", "statement of audited", "financial results for", "total expenses", "profit before tax", "profit/(loss)", "earnings per share")
+                )
                 _is_cover_or_auditor = any(
                     k in _page_head_1500
                     for k in (
@@ -1522,6 +1601,7 @@ class ExchangePdfParser:
                         "regulation 30", "outcome of board meeting", "outcome of the board meeting",
                         "yours faithfully", "yours sincerely", "company secretary",
                         "independent auditor", "limited review", "review report", "auditor's report",
+                        "based on our review conducted", "procedures performed as stated", "nothing has come to our attention",
                         "sre 2410", "chartered accountants", "udin:", "membership no",
                         "assets and liabilities", "a ts and liabilities", "statement of assets", "total assets",
                         "non-current assets", "non-current assels", "equity and liabilities",
@@ -1533,30 +1613,44 @@ class ExchangePdfParser:
                         "notes to the unaudited", "notes to the audited", "notes to statement", "note to the statement",
                         "chief operating decision maker", "reviewed by the audit committee",
                         "the above standalone financial results", "the above consolidated financial results",
-                        "prepared in accordance with indian accounting standards", "not66 to th",
+                        "prepared in accordance with indian accounting standards", "not66 to th", "otes: 1 the above",
                     )
-                ) and not _was_garbled_pre_ocr
-                _re_ocr_ok = False
+                ) and not _has_pnl_cues and not _prefer_180_hint
+                _re_ocr_ok = _has_rev_anchor and not _was_garbled_pre_ocr
                 if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 75.0) and (time.time() - t_parse_start < 130.0):
+                    _orig_text, _orig_text_lower, _orig_norm_lower = text, text_lower, norm_text_lower
+                    _orig_score = _score_ocr_readability(_orig_text)
                     try:
                         ocr_attempted_pages.add(page_idx)
                         _fresh_ocr = ""
-                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=10.0, dpi=200)
+                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=150)
                         if _comp_img is not None:
-                            if _comp_img.width > 2200 or _comp_img.height > 2600:
-                                _comp_img.thumbnail((2200, 2600))
-                            _fresh_ocr = _ocr_image_with_osd(_comp_img, timeout=12.0)
+                            if _comp_img.width > 1600 or _comp_img.height > 2000:
+                                _comp_img.thumbnail((1600, 2000))
+                            _fresh_ocr = _ocr_image_with_osd(_comp_img, timeout=10.0, prefer_180=_prefer_180_hint)
                             if _fresh_ocr and len(_fresh_ocr.strip()) >= 50:
-                                text = _normalize_ocr_text(_fresh_ocr.strip())
-                                text_lower = text.lower()
-                                norm_text_lower = re.sub(r"\s+", " ", text_lower)
-                                cached_page_texts[page_idx] = text
-                                _re_norm_and = norm_text_lower.replace("&", " and ")
+                                _cand_text = _normalize_ocr_text(_fresh_ocr.strip())
+                                _cand_lower = _cand_text.lower()
+                                _cand_norm = re.sub(r"\s+", " ", _cand_lower)
+                                _cand_norm_and = _cand_norm.replace("&", " and ")
+                                _cand_has_ifrs = (
+                                    bool(re.search(r"\brevenues\b", _cand_norm))
+                                    and any(k in _cand_norm for k in ("profit before tax", "profit before income tax", "profit after tax", "profit for the period"))
+                                )
+                                _cand_rev = any(k in _cand_norm for k in _rev_indicators) or _cand_has_ifrs
                                 _re_is_non_pnl = any(
-                                    k in _re_norm_and[:1500]
-                                    for k in ("cash flow from operating", "cash flows from operating", "statement of cash flow", "assets and liabilities", "total assets", "independent auditor", "limited review", "dear sir", "dear madam")
-                                ) and "revenue from operations" not in _re_norm_and and "interest earned" not in _re_norm_and
-                                _re_ocr_ok = (not _re_is_non_pnl) and any(k in norm_text_lower for k in _rev_indicators)
+                                    k in _cand_norm_and[:1500]
+                                    for k in ("cash flow from operating", "cash flows from operating", "statement of cash flow", "assets and liabilities", "total assets", "independent auditor", "limited review", "based on our review conducted", "dear sir", "dear madam")
+                                ) and "revenue from operations" not in _cand_norm_and and "interest earned" not in _cand_norm_and and not _cand_has_ifrs
+                                _cand_score = _score_ocr_readability(_cand_text)
+                                if (not _re_is_non_pnl) and (_cand_rev or (_cand_score > _orig_score)):
+                                    text, text_lower, norm_text_lower = _cand_text, _cand_lower, _cand_norm
+                                    cached_page_texts[page_idx] = text
+                                    _re_ocr_ok = _cand_rev
+                                elif _has_rev_anchor and not _re_is_non_pnl:
+                                    # Keep stronger pre-existing embedded text (e.g. partial OCR layer with clean Revenue rows)
+                                    text, text_lower, norm_text_lower = _orig_text, _orig_text_lower, _orig_norm_lower
+                                    _re_ocr_ok = True
                             logger.info(
                                 f"🔄 [PDF_PARSER: RE_OCR] {symbol} p{page_idx+1}: ok={_re_ocr_ok}, chars={len(_fresh_ocr or '')}"
                             )
@@ -1910,13 +2004,13 @@ class ExchangePdfParser:
                 is_exact_rev_total = any(k in line_lower for k in [
                     "total revenue from operations", "revenue from operations", "net sales",
                     "interest earned", "net premium income", "total insurance revenue", "insurance revenue"
-                ])
+                ]) or bool(re.match(r"^(?:[ivx0-9a-z]+[\.\)]\s*)?revenues?\b", line_lower))
                 is_sub_rev = any(k in line_lower for k in [
                     "interest income", "premium earned", "gross premium written",
                     "net premium written", "gross premium income"
                 ])
 
-                if (is_exact_rev_total or is_sub_rev) and not any(k in line_lower for k in ["total income", "comprehensive", "expenses", "cash flow", "other income", "less:"]):
+                if (is_exact_rev_total or is_sub_rev) and not any(k in line_lower for k in ["total income", "comprehensive", "expenses", "cash flow", "other income", "less:", "cost of", "% of", "segment"]):
                     if rev_from_ops is None or (is_exact_rev_total and not rev_is_exact_total):
                         rev_from_ops = last_val * mult
                         if is_exact_rev_total:

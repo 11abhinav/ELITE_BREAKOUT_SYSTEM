@@ -78,6 +78,59 @@ CAGR_WINDOW_BLOCK_SLACK: float = 1.5   # 5Y target → block if > 6.5Y
 # indicates a missing fiscal year.
 ANNUAL_GAP_THRESHOLD_DAYS: int = 548   # 18 months = 1.5 * 365.25
 
+_MANIFEST_ANNUAL_CACHE: Dict[str, date] = {}
+_MANIFEST_CACHE_MTIME: float = 0.0
+_MANIFEST_CACHE_CHECKED_AT: float = 0.0
+
+
+def _get_manifest_latest_annual(symbol: str) -> Optional[date]:
+    """Return latest annual period_end_date from pit_raw_filings_manifest.json (mtime-cached)."""
+    global _MANIFEST_ANNUAL_CACHE, _MANIFEST_CACHE_MTIME, _MANIFEST_CACHE_CHECKED_AT
+    sym_u = str(symbol or "").strip().upper()
+    if not sym_u:
+        return None
+
+    now_ts = time.time()
+    if now_ts - _MANIFEST_CACHE_CHECKED_AT > 30.0 or not _MANIFEST_ANNUAL_CACHE:
+        _MANIFEST_CACHE_CHECKED_AT = now_ts
+        base_dir = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        manifest_candidates = [
+            os.path.join(base_dir, "data", "pit_raw_filings_manifest.json"),
+            os.path.join(os.getcwd(), "data", "pit_raw_filings_manifest.json"),
+            "/app/data/pit_raw_filings_manifest.json",
+        ]
+        for mp in manifest_candidates:
+            if os.path.exists(mp):
+                try:
+                    mtime = os.path.getmtime(mp)
+                    if mtime != _MANIFEST_CACHE_MTIME or not _MANIFEST_ANNUAL_CACHE:
+                        with open(mp, "r", encoding="utf-8") as mf:
+                            raw_m = json.load(mf)
+                        parsed_map: Dict[str, date] = {}
+                        if isinstance(raw_m, dict):
+                            for k, v in raw_m.items():
+                                if not isinstance(v, dict):
+                                    continue
+                                best_dt: Optional[date] = None
+                                la = str(v.get("latest_annual") or "").strip()[:10]
+                                if la:
+                                    best_dt = _parse_date_fast(la)
+                                for rec in v.get("recent") or []:
+                                    rec_s = str(rec or "")
+                                    if "(A)" in rec_s:
+                                        rec_dt = _parse_date_fast(rec_s[:10])
+                                        if rec_dt and (best_dt is None or rec_dt > best_dt):
+                                            best_dt = rec_dt
+                                if best_dt is not None:
+                                    parsed_map[str(k).strip().upper()] = best_dt
+                        _MANIFEST_ANNUAL_CACHE = parsed_map
+                        _MANIFEST_CACHE_MTIME = mtime
+                except Exception:
+                    pass
+                break
+
+    return _MANIFEST_ANNUAL_CACHE.get(sym_u)
+
 # Share count plausibility bounds (millions).
 # Derived shares outside [MIN_SHARES_M, MAX_SHARES_M] are flagged.
 # Upper bound: Indian mega-caps (e.g. IDEA ~68B shares, YESBANK ~31B, IOC ~14B, TATASTEEL ~12.5B).
@@ -641,6 +694,28 @@ def check_pit_freshness(
     }
 
     # ── Layer 1: Annual staleness check ──
+    if staleness_years > max_staleness_years:
+        # Cross-check authoritative raw filings manifest before blocking:
+        # pit_fundamentals_v1.parquet can lag behind exchange XBRL/PDF ingestion
+        # for symbols whose legacy Screener rows stopped years earlier.
+        manifest_dt = _get_manifest_latest_annual(symbol)
+        if manifest_dt is not None and manifest_dt > latest_dt:
+            manifest_staleness_days = (scan_date - manifest_dt).days
+            manifest_staleness_years = manifest_staleness_days / 365.25
+            if manifest_staleness_years <= max_staleness_years:
+                logger.info(
+                    f"[PIT_STALENESS_MANIFEST_OVERRIDE] {symbol}: parquet latest_annual={latest_dt} "
+                    f"({staleness_years:.1f}Y), but raw filings manifest has fresh annual={manifest_dt} "
+                    f"({manifest_staleness_years:.1f}Y <= {max_staleness_years}Y). Allowing."
+                )
+                latest_dt = manifest_dt
+                staleness_days = manifest_staleness_days
+                staleness_years = manifest_staleness_years
+                detail["latest_annual_period"] = str(latest_dt)
+                detail["staleness_days"] = staleness_days
+                detail["pit_staleness_years"] = round(staleness_years, 2)
+                detail["manifest_override"] = True
+
     if staleness_years > max_staleness_years:
         logger.warning(
             f"[PIT_STALENESS] {symbol}: latest_annual_period={latest_dt} is "

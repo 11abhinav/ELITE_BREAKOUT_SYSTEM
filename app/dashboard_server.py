@@ -8240,7 +8240,7 @@ def api_breakout_watchlist():
                     def _async_cmp_fetch(sym_list):
                         try:
                             from live_prices import get_live_prices
-                            live_prices_dict = get_live_prices(sym_list)
+                            live_prices_dict = get_live_prices(sym_list, purpose="DASHBOARD_LIVE_QUOTES")
                             for s in sym_list:
                                 p = live_prices_dict.get(s)
                                 if p is not None and p > 0:

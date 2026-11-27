@@ -2565,59 +2565,59 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     logger.warning(f"⚠️ [DAILY BUILDER 2.0] Could not pre-load PIT fundamentals: {pit_err}")
 
             master_records = []
-            for _, r in final_df.iterrows():
-                sym = str(r.get("Stock", ""))
-                comp = str(r.get("Company", sym))
-                cmp_price = float(r.get("CMP", r.get("Close", 100.0)) or 100.0)
+            seen_master_syms = set()
+            build_date_str = str(datetime.now(IST).date())
+
+            def _append_master_row(r_series, has_setup: bool):
+                sym = str(r_series.get("Stock", "")).strip()
+                if not sym:
+                    return
                 sym_up = sym.upper()
+                if sym_up in seen_master_syms:
+                    return
+                seen_master_syms.add(sym_up)
+
+                comp = str(r_series.get("Company", sym))
+                cmp_price = float(r_series.get("CMP", r_series.get("Close", 100.0)) or 100.0)
                 pit_rec = pit_data.get(sym_up, {})
 
                 # Sourcing priority: Watchlist -> PIT DB fallback for ROCE / ROE / Debt
-                roce_val = r.get("ROCE %")
+                roce_val = r_series.get("ROCE %")
                 if (roce_val is None or pd.isna(roce_val)) and pit_rec.get("roce") is not None:
                     roce_val = pit_rec["roce"]
 
-                roe_val = r.get("ROE %")
+                roe_val = r_series.get("ROE %")
                 if (roe_val is None or pd.isna(roe_val)) and pit_rec.get("roe") is not None:
                     roe_val = pit_rec["roe"]
 
-                de_val = r.get("Debt/Equity")
+                de_val = r_series.get("Debt/Equity")
                 if (de_val is None or pd.isna(de_val)) and pit_rec.get("debt_equity") is not None:
                     de_val = pit_rec["debt_equity"]
-
-                # P0: Strict Quarterly EA fields — NO Annual FY26 or TTM proxy fallbacks
-                rev_l = pit_rec.get("rev_yoy_latest")
-                op_l = pit_rec.get("op_profit_yoy_latest")
-                eps_l = pit_rec.get("eps_yoy_latest")
-                rev_p = pit_rec.get("rev_yoy_prev")
-                op_p = pit_rec.get("op_profit_yoy_prev")
-                eps_p = pit_rec.get("eps_yoy_prev")
-                p_eps = pit_rec.get("prior_eps")
 
                 fund_data = {
                     "roe": roe_val,
                     "roce": roce_val,
                     "debt_equity": de_val,
-                    "pe": r.get("PE Ratio"),
-                    "pb": r.get("Price to Book"),
-                    "peg": r.get("PEG Ratio"),
-                    "revenue_cagr_3y": r.get("YOY Revenue %"),
-                    "eps_cagr_3y": r.get("YOY Profit %"),
-                    "fcf": r.get("FCF Margin %"),
-                    "market_cap": (float(r.get("Market Cap Cr", 100.0) or 100.0)) * 1e7,
-                    "op_margin": r.get("OPM %"),
-                    "net_margin": r.get("YOY Profit %"),
+                    "pe": r_series.get("PE Ratio"),
+                    "pb": r_series.get("Price to Book"),
+                    "peg": r_series.get("PEG Ratio"),
+                    "revenue_cagr_3y": r_series.get("YOY Revenue %"),
+                    "eps_cagr_3y": r_series.get("YOY Profit %"),
+                    "fcf": r_series.get("FCF Margin %"),
+                    "market_cap": (float(r_series.get("Market Cap Cr", 100.0) or 100.0)) * 1e7,
+                    "op_margin": r_series.get("OPM %"),
+                    "net_margin": r_series.get("YOY Profit %"),
                     "interest_coverage": 6.0,
-                    "rev_yoy_latest": rev_l,
-                    "rev_yoy_prev": rev_p,
-                    "op_profit_yoy_latest": op_l,
-                    "op_profit_yoy_prev": op_p,
-                    "eps_yoy_latest": eps_l,
-                    "eps_yoy_prev": eps_p,
-                    "prior_eps": p_eps,
+                    "rev_yoy_latest": pit_rec.get("rev_yoy_latest"),
+                    "rev_yoy_prev": pit_rec.get("rev_yoy_prev"),
+                    "op_profit_yoy_latest": pit_rec.get("op_profit_yoy_latest"),
+                    "op_profit_yoy_prev": pit_rec.get("op_profit_yoy_prev"),
+                    "eps_yoy_latest": pit_rec.get("eps_yoy_latest"),
+                    "eps_yoy_prev": pit_rec.get("eps_yoy_prev"),
+                    "prior_eps": pit_rec.get("prior_eps"),
                 }
 
-                cat_str = str(r.get("Category", ""))
+                cat_str = str(r_series.get("Category", "")) if has_setup else ""
                 tech_source = "NONE"
                 if "Momentum" in cat_str or "Breakout" in cat_str:
                     tech_source = "TECHNICAL"
@@ -2639,8 +2639,18 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     fund_data=fund_data,
                     tech_data=tech_data
                 )
-                m_rec["build_date"] = str(datetime.now(IST).date())
+                m_rec["build_date"] = build_date_str
                 master_records.append(m_rec)
+
+            # 1. Qualified winners (preserve setup & category fields)
+            for _, r in final_df.iterrows():
+                _append_master_row(r, has_setup=True)
+
+            # 2. Full tracked universe coverage (include excluded/non-qualifying stocks so held
+            # positions in Wealth Exit Monitor never become orphaned from daily_builder_master_v2)
+            if "universe_df" in locals() and isinstance(universe_df, pd.DataFrame) and not universe_df.empty:
+                for _, r in universe_df.iterrows():
+                    _append_master_row(r, has_setup=False)
 
             out_meta = fundamental_wealth_engine.save_master_builder_outputs(master_records)
             logger.info(f"✅ [DAILY BUILDER 2.0] Successfully synthesized and saved {len(master_records)} master records.")

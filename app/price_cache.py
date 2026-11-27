@@ -584,7 +584,7 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                 from live_prices import get_live_prices
                 valid_syms = [s for s, df_val in final_res.items() if isinstance(df_val, pd.DataFrame) and not df_val.empty]
                 if valid_syms:
-                    live_prices_map = get_live_prices(valid_syms)
+                    live_prices_map = get_live_prices(valid_syms, purpose="POST_MARKET_CMP_OVERLAY")
                     for s in valid_syms:
                         df_val = final_res[s]
                         lp = live_prices_map.get(s)
@@ -1794,7 +1794,7 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
                 if is_market_open() and not os.environ.get("PYTEST_CURRENT_TEST"):
                     try:
                         from live_prices import get_live_prices
-                        live_prices_map = get_live_prices(list(res.keys()))
+                        live_prices_map = get_live_prices(list(res.keys()), purpose="INTRADAY_CACHE_STITCH")
                         for sym, df_item in res.items():
                             if isinstance(df_item, pd.DataFrame) and not df_item.empty and sym in live_prices_map:
                                 lp = live_prices_map[sym]
