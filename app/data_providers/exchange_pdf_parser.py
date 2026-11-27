@@ -760,7 +760,7 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
         score += 15
 
     # 7. Penalty for Cover / Transmittal Letters & Auditor Limited Review Reports
-    head_half = " ".join(text_norm.split("\n")[:25]).lower().replace("&", " and ")
+    head_half = re.sub(r"\s+", " ", " ".join(text_norm.split("\n")[:25]).lower().replace("&", " and "))
     norm_and_lower = norm_text_lower.replace("&", " and ")
     is_cover_letter = any(k in norm_and_lower for k in (
         "dear sir", "dear madam", "dear sirs", "yours faithfully", "yours sincerely",
@@ -794,9 +794,11 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
 
     if any(k in head_half for k in [
         "deviation or variation", "statement of deviation", "analytical ratios",
-        "pursuant to regulation 52(4)", "regulation 52 (4)", "ratio analysis", "annexure i"
+        "pursuant to regulation 52(4)", "regulation 52 (4)", "regulation 52(4)", "regulation 52(7)",
+        "regulation 54(", "security cover", "covenant document", "column a particulars",
+        "debentures outstanding", "ratio analysis", "annexure i"
     ]) and not has_strict_pnl_structure:
-        score -= 65
+        score -= 80
 
     # 9. Penalty for standalone Notes pages (prose paragraphs explaining revenue/tax figures, not financial table rows)
     first_12_lower = " ".join(text_norm.split("\n")[:12]).lower()
@@ -1623,7 +1625,8 @@ class ExchangePdfParser:
                         "cash flow statement", "cash flows from investing", "cash flows from financing",
                         "cash flor", "operating activit", "adjustments for:",
                         "annexure 1", "annexure i", "annexure -", "additional disclosures", "additiona i d",
-                        "regulation 52(4)", "regul.uon", "regulation 32", "deviation or variation",
+                        "regulation 52(4)", "regulation 52(7)", "regulation 54(", "regul.uon", "regulation 32", "deviation or variation",
+                        "security cover", "covenant document", "column a particulars", "debentures outstanding",
                         "details with respect to acquisition", "indicative time period", "cost of acquisition",
                         "target company", "sebi master circular", "listing obligations and disclosure requirements",
                         "notes to the unaudited", "notes to the audited", "notes to statement", "note to the statement",
