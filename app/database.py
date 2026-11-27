@@ -7173,6 +7173,23 @@ def acknowledge_scanner_health(scanner_name: str):
                 logger.exception(f"❌ acknowledge_scanner_health failed for {scanner_name}")
 
 
+def _notify_dashboard_cache_invalidation(also_clear_health: bool = False) -> None:
+    """Invalidates in-memory dashboard caches across both module aliases whenever DB data changes."""
+    import sys as _sys_inv
+    for _mod_name in ("dashboard_server", "app.dashboard_server"):
+        _mod = _sys_inv.modules.get(_mod_name)
+        if _mod and hasattr(_mod, "invalidate_all_dashboard_caches"):
+            try:
+                _mod.invalidate_all_dashboard_caches()
+            except Exception:
+                pass
+    if also_clear_health:
+        try:
+            clear_unified_stock_data_health_cache()
+        except Exception:
+            pass
+
+
 def upsert_fetch_error(source_name: str, scanner_name: str, symbol: str, interval: str, category: str, error_msg: str = None):
     """Insert or update a fetch_errors aggregation row.
 
@@ -7193,11 +7210,7 @@ def upsert_fetch_error(source_name: str, scanner_name: str, symbol: str, interva
                         last_error_msg = COALESCE(EXCLUDED.last_error_msg, fetch_errors.last_error_msg)
                 """, (source_name, scanner_name, symbol, interval, category, now, now, error_msg))
                 conn.commit()
-                try:
-                    from dashboard_server import invalidate_all_dashboard_caches
-                    invalidate_all_dashboard_caches()
-                except Exception:
-                    pass
+                _notify_dashboard_cache_invalidation()
             except Exception:
                 conn.rollback()
                 logger.exception(f"❌ upsert_fetch_error failed for {source_name}/{symbol}")
@@ -7221,11 +7234,7 @@ def delete_fetch_errors_batch_on_success(source_name: str, scanner_name: str, sy
                         WHERE source_name = %s AND scanner_name = %s AND symbol = ANY(%s) AND interval = %s AND category = %s
                     """, (source_name, scanner_name, list(symbols), interval, category))
                     conn.commit()
-                    try:
-                        from dashboard_server import invalidate_all_dashboard_caches
-                        invalidate_all_dashboard_caches()
-                    except Exception:
-                        pass
+                    _notify_dashboard_cache_invalidation()
                 except Exception:
                     conn.rollback()
                     logger.exception(f"❌ delete_fetch_errors_batch_on_success failed for {len(symbols)} symbols")
@@ -7615,6 +7624,9 @@ def upload_parquet_to_db(name: str, file_path: str) -> bool:
             conn.commit()
         dur_s = time.perf_counter() - _t_start
         logger.info(f"💾 [PARQUET DB SYNC SUCCESS] Uploaded '{name}' ({size_kb:.1f} KB) for {today} to Postgres DB parquet_cache in {dur_s:.2f}s")
+        _notify_dashboard_cache_invalidation(
+            also_clear_health=(name in ("canonical_pit_rebuilt", "exchange_watermarks", "pit_recovery_status", "daily_builder_master_v2"))
+        )
         return True
     except Exception as e:
         logger.error(f"❌ [PARQUET DB SYNC FAILURE] Failed to upload '{name}' to DB: {e}", exc_info=True)
@@ -9794,14 +9806,6 @@ def upsert_breakout_watchlist(
                                 CASE
                                     WHEN EXCLUDED.current_state = 'HOURLY_APPROVED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY', 'SETUP_ARMED') THEN breakout_watchlist.current_state
                                     WHEN EXCLUDED.current_state = 'SETUP_ARMED' AND breakout_watchlist.current_state IN ('TRADE_ACTIVE', 'ENTRY_READY') THEN breakout_watchlist.current_state
-                                    WHEN EXCLUDED.current_state = 'ENTRY_READY' AND breakout_watchlist.current_state = 'TRADE_ACTIVE' THEN breakout_watchlist.current_state
-                                    ELSE EXCLUDED.current_state
-                                END
-                            ELSE EXCLUDED.current_state
-                        END,
-                        h1_status = EXCLUDED.h1_status,
-                        m30_status = EXCLUDED.m30_status,
-                        m15_status = EXCLUDED.m15_status,
                         m5_status = EXCLUDED.m5_status,
                         breakout_level = COALESCE(EXCLUDED.breakout_level, breakout_watchlist.breakout_level),
                         support_level = COALESCE(EXCLUDED.support_level, breakout_watchlist.support_level),
@@ -11677,6 +11681,8 @@ def clear_unified_stock_data_health_cache() -> None:
                             daemon=True,
                             name="StockDataHealthAutoRefresh",
                         ).start()
+                if _boot_done and hasattr(mod, "notify_stream_clients"):
+                    mod.notify_stream_clients("cache_invalidated", {"scope": "stock_data_health", "ts": time.time()})
             except Exception:
                 pass
 
@@ -12015,6 +12021,7 @@ def reconcile_and_purge_restored_cooloffs() -> List[str]:
                         cur.execute("DELETE FROM fetch_errors WHERE scanner_name = 'FILING_WATCHER' AND symbol = ANY(%s)", (fresh_err_syms,))
                         conn.commit()
                         logger.info(f"🧹 [FETCH_ERRORS_RECONCILIATION] Cleared {len(fresh_err_syms)} resolved FILING_WATCHER fetch_errors: {fresh_err_syms}")
+                        _notify_dashboard_cache_invalidation()
     except Exception as e:
         logger.debug(f"[COOLOFF_RECONCILIATION] DB purge note: {e}")
 

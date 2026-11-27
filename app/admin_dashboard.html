@@ -10041,6 +10041,31 @@ async function initDashboard() {
           }
         } catch(err) {}
       }, false);
+
+      let _sseInvalidateTimer = null;
+      source.addEventListener('cache_invalidated', function(e) {
+        try {
+          const evData = JSON.parse(e.data || '{}');
+          const scope = evData.scope || 'all';
+          try {
+            localStorage.removeItem('CACHE_SDH_DATA');
+            localStorage.removeItem('CACHE_SDH_DATA_TS');
+            sessionStorage.removeItem('CACHE_SDH_DATA');
+            for (const k of Object.keys(sessionStorage)) {
+              if (k.startsWith('CACHE_CF_')) sessionStorage.removeItem(k);
+            }
+          } catch (_) {}
+          clearTimeout(_sseInvalidateTimer);
+          _sseInvalidateTimer = setTimeout(() => {
+            if (activeAdminTab === 'stock-data-health' && typeof fetchStockDataHealth === 'function') {
+              fetchStockDataHealth(false);
+            }
+            if (scope === 'all' && typeof refreshAllData === 'function') {
+              refreshAllData();
+            }
+          }, 1200);
+        } catch(err) {}
+      }, false);
     }
   }
   setupSSEAlertStream();
@@ -10062,34 +10087,6 @@ async function initDashboard() {
       // bust=true forces cache bypass on every automatic poll
       const data = await loadData(false, true);
       if (data && data.trades) {
-        ALL_TRADES = (data.trades || []).filter(t => t && t.execution_state !== 'PENDING_ENTRY' && t.status !== 'PENDING' && t.status !== 'PENDING_ENTRY').map(t => {
-          if (t) t.scanner = normalizeScannerName(t.scanner);
-          return t;
-        });
-        EXIT_HISTORY_CACHE.clear();
-        populateFilters(ALL_TRADES);
-        renderExposureBar(ALL_TRADES);
-        updateScannerChipCounts(ALL_TRADES);
-        await fetchSignalLadder();
-        renderTradeTable();   // re-renders KPI hero cards + small tiles
-        updateSim();
-        await loadCapitalInfo();
-
-        // Update generated-at timestamp indicator
-        const genEl = document.getElementById('gen-time');
-        if (genEl && data.generated_at) {
-          genEl.textContent = 'Updated: ' + new Date(data.generated_at).toLocaleString('en-IN', {timeZone:'Asia/Kolkata'});
-        }
-      }
-      if (diagnosticsLoaded) {
-        await loadDiagnostics();
-      }
-    } catch (e) {
-      console.error('Error in refreshAllData:', e);
-    } finally {
-      _isRefreshingAllData = false;
-    }
-  }
   // Runs every 60 seconds — setInterval never silently stops on a single network error
   setInterval(refreshAllData, 60000);
 
@@ -13478,12 +13475,16 @@ async function loadCorporateFilingsDiscovery(targetDate, targetRunId, forceApi =
 
   const cacheKey = 'CACHE_CF_' + (queryDate || 'LATEST') + '_' + (queryRunId || 'ALL') + '_' + querySymbol;
 
-  // SWR: Instant local hydration from sessionStorage / memory (0ms UI render)
+  // SWR: Instant local hydration from sessionStorage only if < 5 minutes old
   if (!forceApi && (!CURRENT_FILINGS_DATA || CURRENT_FILINGS_DATA.length === 0)) {
     try {
+      const cachedTs = Number(sessionStorage.getItem(cacheKey + '_TS') || 0);
       const cachedStr = sessionStorage.getItem(cacheKey);
-      if (cachedStr) {
+      if (cachedStr && cachedTs > 0 && (Date.now() - cachedTs) < 300000) {
         _applyCorporateFilingsData(JSON.parse(cachedStr));
+      } else if (cachedStr) {
+        sessionStorage.removeItem(cacheKey);
+        sessionStorage.removeItem(cacheKey + '_TS');
       }
     } catch (_) {}
   }
@@ -13509,7 +13510,13 @@ async function loadCorporateFilingsDiscovery(targetDate, targetRunId, forceApi =
     if (data.status === 'success' || data.status === 'ok') {
       try {
         sessionStorage.setItem(cacheKey, JSON.stringify(data));
-      } catch (_) {}
+        sessionStorage.setItem(cacheKey + '_TS', String(Date.now()));
+      } catch (_) {
+        try {
+          sessionStorage.removeItem(cacheKey);
+          sessionStorage.removeItem(cacheKey + '_TS');
+        } catch (__) {}
+      }
       _applyCorporateFilingsData(data);
     }
   } catch (err) {
@@ -14293,12 +14300,12 @@ function _applyStockDataHealthData(data) {
 async function fetchStockDataHealth(force = false) {
   if (SDH_IS_FETCHING && !force) return;
 
-  // SWR: Instant local hydration from localStorage only if < 2 minutes old
+  // SWR: Instant local hydration from localStorage only if < 5 minutes old
   if (!SDH_STALE_STOCKS.length && !SDH_FRESH_STOCKS.length) {
     try {
       const cachedTs = Number(localStorage.getItem('CACHE_SDH_DATA_TS') || 0);
       const cachedStr = localStorage.getItem('CACHE_SDH_DATA');
-      if (cachedStr && cachedTs > 0 && (Date.now() - cachedTs) < 120000) {
+      if (cachedStr && cachedTs > 0 && (Date.now() - cachedTs) < 300000) {
         const parsed = JSON.parse(cachedStr);
         if (parsed && parsed.status === 'success') {
           _applyStockDataHealthData(parsed);

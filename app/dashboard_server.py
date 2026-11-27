@@ -1089,6 +1089,21 @@ def invalidate_all_dashboard_caches():
             _STOCK_DATA_HEALTH_CACHE["ts"] = 0.0
     except Exception:
         pass
+    try:
+        if "_NEAR_MISSES_CACHE" in globals() and isinstance(_NEAR_MISSES_CACHE, dict):
+            _NEAR_MISSES_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        if "_INSTANT_PERF_CACHE" in globals() and isinstance(_INSTANT_PERF_CACHE, dict):
+            _INSTANT_PERF_CACHE["ts"] = 0.0
+            _INSTANT_PERF_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        notify_stream_clients("cache_invalidated", {"scope": "all", "ts": time.time()})
+    except Exception:
+        pass
 
 @app.route('/api/notifications', methods=['GET'])
 @login_required
@@ -3677,9 +3692,9 @@ def api_admin_stock_data_health():
             cached_ts = _STOCK_DATA_HEALTH_CACHE.get("ts", 0.0)
             cached_sig = _STOCK_DATA_HEALTH_CACHE.get("data_sig")
 
-        # Auto-invalidate if underlying data files changed on disk or cache is >2m old
+        # Auto-invalidate if underlying data files changed on disk or cache is >5m old
         _cur_sig = _get_stock_data_health_data_sig()
-        if cached_ts > 0.0 and ((cached_sig is not None and cached_sig != _cur_sig) or (now_t - cached_ts > 120.0)):
+        if cached_ts > 0.0 and ((cached_sig is not None and cached_sig != _cur_sig) or (now_t - cached_ts > 300.0)):
             cached_ts = 0.0
 
         # 0. Pre-BOOT_SYNC guard: never recompute from incomplete disk while pit_raw_bundle is actively restoring
