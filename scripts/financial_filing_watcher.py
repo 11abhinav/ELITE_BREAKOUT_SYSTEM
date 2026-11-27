@@ -1068,6 +1068,7 @@ class FinancialFilingWatcher:
         market_sweep_ok = False
         if not is_targeted_poll:
             try:
+                _t_sweep_start = time.time()
                 try:
                     from app.data_providers.nse_xbrl_provider import NseXbrlProvider
                 except ImportError:
@@ -1075,11 +1076,12 @@ class FinancialFilingWatcher:
                 _sweep_prov = NseXbrlProvider()
                 sweep_lookback = int(os.getenv("FILING_WATCHER_SWEEP_LOOKBACK_DAYS", "45"))
                 market_sweep_filings = _sweep_prov.discover_market_filings_sweep(as_of_date=as_of, lookback_days=sweep_lookback)
+                _sweep_elapsed = max(0.1, time.time() - _t_sweep_start)
                 if market_sweep_filings:
                     market_sweep_ok = True
                     total_market_disclosures = sum(len(v) for v in market_sweep_filings.values())
                     logger.info(
-                        f"⚡ [filling scanner] Market-wide announcement sweep complete in ~2s: "
+                        f"⚡ [filling scanner] Market-wide announcement sweep complete in {_sweep_elapsed:.1f}s: "
                         f"Found {total_market_disclosures} disclosures across {len(market_sweep_filings)} market symbols."
                     )
                     try:
@@ -1322,21 +1324,34 @@ class FinancialFilingWatcher:
                         f"HAS LATEST RESULT ({latest_concluded_qtr} present in local DB/cache | latest_period={latest_local_period} | annual_count={local_annual_count}). "
                         f"Skipping in 0ms."
                     )
-                    # INVARIANT: If stock already has latest concluded quarter, immediately restore from any stale cool-off!
+                    # INVARIANT: If stock already has latest concluded quarter, perform fast DB-only cool-off unblocking
+                    # (skip rewriting/uploading 5MB canonical parquet per skipped symbol).
                     try:
                         try:
-                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache, sync_raw_filings_cache_for_symbol
+                            from app.database import check_and_restore_stale_stock, sync_raw_filings_cache_for_symbol
                         except ImportError:
-                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache, sync_raw_filings_cache_for_symbol
-                        sync_raw_filings_cache_for_symbol(sym_u)
-                        check_and_restore_stale_stock(
-                            symbol=sym_u,
-                            source="EXCHANGE_FILING_WATCHER_LATEST_CONFIRMED",
-                            period_end=latest_local_period or latest_concluded_qtr,
-                            notify_admin=False,
-                            force=True,
-                        )
-                        clear_unified_stock_data_health_cache()
+                            from database import check_and_restore_stale_stock, sync_raw_filings_cache_for_symbol
+                        try:
+                            _was_restored = check_and_restore_stale_stock(
+                                symbol=sym_u,
+                                source="EXCHANGE_FILING_WATCHER_LATEST_CONFIRMED",
+                                period_end=latest_local_period or latest_concluded_qtr,
+                                notify_admin=False,
+                                force=True,
+                                rebuild_snapshot=False,
+                                sync_raw_cache=False,
+                                clear_health_cache=False,
+                            )
+                        except TypeError:
+                            _was_restored = check_and_restore_stale_stock(
+                                symbol=sym_u,
+                                source="EXCHANGE_FILING_WATCHER_LATEST_CONFIRMED",
+                                period_end=latest_local_period or latest_concluded_qtr,
+                                notify_admin=False,
+                                force=True,
+                            )
+                        if _was_restored:
+                            sync_raw_filings_cache_for_symbol(sym_u)
                     except Exception as _rst_err:
                         logger.debug(f"[filling scanner] latest result restore note for {sym_u}: {_rst_err}")
 
@@ -1457,9 +1472,12 @@ class FinancialFilingWatcher:
                 )
 
                 # [RULE 67 CHANGE-RATIONALE: Universal Recent Poll & Market Sweep Integrity Check]
-                # Check whether this symbol was polled/checked within the last 24 hours
+                # Check whether this symbol was polled/checked within the last 24 hours,
+                # and whether an active exchange poll (Tier-1/2/3) already ran within the last 6 hours.
                 last_polled = str(self.state.get(sym_u, {}).get("last_polled_at") or "")
+                last_active_polled = str(self.state.get(sym_u, {}).get("last_active_poll_at") or "")
                 polled_recently = False
+                actively_polled_within_6h = False
                 if last_polled:
                     try:
                         from dateutil.parser import parse as _parse_dt
@@ -1467,6 +1485,15 @@ class FinancialFilingWatcher:
                         now_ist_dt = datetime.now(dt_polled.tzinfo)
                         if (now_ist_dt.date() == dt_polled.date()) or ((now_ist_dt - dt_polled).total_seconds() < 86400):
                             polled_recently = True
+                    except Exception:
+                        pass
+                if last_active_polled:
+                    try:
+                        from dateutil.parser import parse as _parse_dt
+                        dt_act = _parse_dt(last_active_polled)
+                        now_act_dt = datetime.now(dt_act.tzinfo)
+                        if (now_act_dt - dt_act).total_seconds() < 21600:
+                            actively_polled_within_6h = True
                     except Exception:
                         pass
 
@@ -1596,17 +1623,29 @@ class FinancialFilingWatcher:
                     )
                     try:
                         try:
-                            from app.database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
+                            from app.database import check_and_restore_stale_stock
                         except ImportError:
-                            from database import check_and_restore_stale_stock, clear_unified_stock_data_health_cache
-                        check_and_restore_stale_stock(
-                            symbol=sym_u,
-                            source="MARKET_SWEEP_CONFIRMED",
-                            period_end=latest_local_period,
-                            notify_admin=False,
-                            force=True,
-                        )
-                        clear_unified_stock_data_health_cache()
+                            from database import check_and_restore_stale_stock
+                        # Fast DB-only unblocking without rewriting/uploading 5MB canonical parquet per skipped symbol
+                        try:
+                            check_and_restore_stale_stock(
+                                symbol=sym_u,
+                                source="MARKET_SWEEP_CONFIRMED",
+                                period_end=latest_local_period,
+                                notify_admin=False,
+                                force=True,
+                                rebuild_snapshot=False,
+                                sync_raw_cache=False,
+                                clear_health_cache=False,
+                            )
+                        except TypeError:
+                            check_and_restore_stale_stock(
+                                symbol=sym_u,
+                                source="MARKET_SWEEP_CONFIRMED",
+                                period_end=latest_local_period,
+                                notify_admin=False,
+                                force=True,
+                            )
                     except Exception:
                         pass
 
@@ -1617,6 +1656,23 @@ class FinancialFilingWatcher:
                     if snapshot_lagging or is_targeted_symbol:
                         with events_lock:
                             pending_rebuild_syms.add(sym_u)
+                    return
+
+                # Prevent tight-loop re-scraping of missing/overdue stocks actively polled < 6h ago
+                # (unless a new sweep disclosure appeared, force_backfill is set, or symbol was targeted).
+                if (
+                    actively_polled_within_6h
+                    and not has_newer_sweep_filing
+                    and not force_backfill
+                    and not is_targeted_symbol
+                ):
+                    with counter_lock:
+                        skipped_complete_count[0] += 1
+                    logger.info(
+                        f"⚡ [filling scanner] [{completed_count[0] + 1}/{len(symbols)}] {sym_u}: "
+                        f"ACTIVE POLL COOLDOWN (<6h on {last_active_polled[:19]} | latest_local={latest_local_period}). "
+                        f"Skipping redundant exchange scrape in 0ms."
+                    )
                     return
 
                 if is_targeted_symbol:
@@ -1730,6 +1786,7 @@ class FinancialFilingWatcher:
                 direct_sweep_attempted = False
                 if market_sweep_ok and (has_newer_sweep_filing or not has_latest_concluded_quarter):
                     direct_sweep_attempted = True
+                    _t_direct_sweep_start = time.time()
                     sym_sweep_disclosures = market_sweep_filings.get(sym_u, [])
                     # 1. First attempt XBRL XML extraction if available in sweep announcements
                     if nse_prov:
@@ -1827,7 +1884,7 @@ class FinancialFilingWatcher:
                     )
                     if direct_sweep_success:
                         logger.info(
-                            f"⚡ [filling scanner] {sym_u}: Direct sweep attachment ingestion succeeded in ~1s! "
+                            f"⚡ [filling scanner] {sym_u}: Direct sweep attachment ingestion succeeded in {max(0.1, time.time() - _t_direct_sweep_start):.1f}s! "
                             f"Skipping redundant legacy corporates-financial-results calls."
                         )
 
@@ -1874,7 +1931,10 @@ class FinancialFilingWatcher:
                         # Store metadata-only rows in nse_disc_anns for Tier-3 PDF fallback (NEVER merge factless stubs into raw_filings_list)
                         if nse_fetch_count == 0:
                             try:
-                                nse_rows = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)
+                                try:
+                                    nse_rows = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)
+                                except TypeError:
+                                    nse_rows = nse_prov.discover_filings(sym_u)
                                 if nse_rows:
                                     nse_disc_count = len(nse_rows)
                                     for r in nse_rows:
@@ -2018,7 +2078,10 @@ class FinancialFilingWatcher:
                         if not candidate_anns:
                             if nse_prov:
                                 try:
-                                    nse_disc = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)
+                                    try:
+                                        nse_disc = nse_prov.discover_filings(sym_u, min_period_end_date=min_cutoff)
+                                    except TypeError:
+                                        nse_disc = nse_prov.discover_filings(sym_u)
                                     if nse_disc:
                                         candidate_anns.extend(nse_disc)
                                 except Exception as _nse_disc_err:
@@ -2148,9 +2211,11 @@ class FinancialFilingWatcher:
                                 "snapshot_status": freshness,
                                 "bootstrap_completed": not needs_bootstrap,
                                 "last_polled_at": now_ist_str,
+                                "last_active_poll_at": now_ist_str,
                             }
                         else:
                             self.state[sym_u]["last_polled_at"] = now_ist_str
+                            self.state[sym_u]["last_active_poll_at"] = now_ist_str
                             if not needs_bootstrap:
                                 self.state[sym_u]["bootstrap_completed"] = True
                             if latest_local_period:
@@ -2192,9 +2257,11 @@ class FinancialFilingWatcher:
                                 "snapshot_status": freshness,
                                 "bootstrap_completed": not needs_bootstrap,
                                 "last_polled_at": now_ist_str,
+                                "last_active_poll_at": now_ist_str,
                             }
                         else:
                             self.state[sym_u]["last_polled_at"] = now_ist_str
+                            self.state[sym_u]["last_active_poll_at"] = now_ist_str
                             if not needs_bootstrap:
                                 self.state[sym_u]["bootstrap_completed"] = True
                             if latest_local_period:
@@ -2250,7 +2317,15 @@ class FinancialFilingWatcher:
                     if event.event_type != FilingEventType.NO_CHANGE:
                         sym_new_events += 1
                         with self._state_lock:
-                            self._merge_into_pit_raw_filings(sym_u, item, period_end, st_type, basis)
+                            self._merge_into_pit_raw_filings(
+                                sym_u,
+                                item,
+                                period_end,
+                                st_type,
+                                basis,
+                                defer_db_sync=True,
+                                defer_state_save=True,
+                            )
                         with events_lock:
                             discovered_events.append(event.to_dict())
                         rev_str = f"₹{item.get('revenue')} Cr" if item.get('revenue') is not None else "N/A"
@@ -2263,6 +2338,8 @@ class FinancialFilingWatcher:
 
                 # 1. Remove per-symbol serialized rebuild; rebuild happens once per batch at completion / threshold.
                 if sym_new_events > 0:
+                    with self._state_lock:
+                        self._save_state()
                     with events_lock:
                         pending_rebuild_syms.add(sym_u)
                         actually_fetched_syms.add(sym_u)
@@ -2283,10 +2360,30 @@ class FinancialFilingWatcher:
                     )
                     try:
                         try:
-                            from app.database import sync_raw_filings_cache_for_symbol
+                            from app.database import sync_raw_filings_cache_for_symbol, check_and_restore_stale_stock
                         except ImportError:
-                            from database import sync_raw_filings_cache_for_symbol
+                            from database import sync_raw_filings_cache_for_symbol, check_and_restore_stale_stock
                         sync_raw_filings_cache_for_symbol(sym_u)
+                        latest_ing_p = max(p_e for (p_e, _, _) in by_statement.keys()) if by_statement else None
+                        try:
+                            check_and_restore_stale_stock(
+                                symbol=sym_u,
+                                source="EXCHANGE_FILING_WATCHER_INGESTED",
+                                period_end=latest_ing_p,
+                                notify_admin=True,
+                                force=True,
+                                rebuild_snapshot=False,
+                                sync_raw_cache=False,
+                                clear_health_cache=False,
+                            )
+                        except TypeError:
+                            check_and_restore_stale_stock(
+                                symbol=sym_u,
+                                source="EXCHANGE_FILING_WATCHER_INGESTED",
+                                period_end=latest_ing_p,
+                                notify_admin=True,
+                                force=True,
+                            )
                     except Exception as _rst_e:
                         logger.debug(f"[filling scanner] Immediate sync note for {sym_u}: {_rst_e}")
                 else:
@@ -2316,10 +2413,12 @@ class FinancialFilingWatcher:
                             "snapshot_status": freshness,
                             "bootstrap_completed": True,
                             "last_polled_at": now_ist_str,
+                            "last_active_poll_at": now_ist_str,
                         }
                     else:
                         self.state[sym_u]["bootstrap_completed"] = True
                         self.state[sym_u]["last_polled_at"] = now_ist_str
+                        self.state[sym_u]["last_active_poll_at"] = now_ist_str
                         if latest_local_period:
                             self.state[sym_u]["latest_filing_date"] = latest_local_period
                         if latest_ann_p:
@@ -2620,6 +2719,8 @@ class FinancialFilingWatcher:
         period_end: str,
         statement_type: str,
         basis: str,
+        defer_db_sync: bool = False,
+        defer_state_save: bool = False,
     ) -> None:
         """
         Merges an exchange-discovered filing into the canonical data/pit_raw_filings/<SYM>.json
@@ -2712,35 +2813,6 @@ class FinancialFilingWatcher:
         os.replace(tmp_path, raw_path)
         logger.info(f"💾 [filling scanner] Successfully persisted fresh filing for {sym_u} ({norm_period_end} {statement_type}) to {raw_path}.")
 
-        # Immediately synchronize raw filings cache and restore symbol from cool-off
-        try:
-            try:
-                from app.database import (
-                    clear_unified_stock_data_health_cache,
-                    sync_raw_filings_cache_for_symbol,
-                    check_and_restore_stale_stock,
-                    reconcile_and_purge_restored_cooloffs,
-                )
-            except ImportError:
-                from database import (
-                    clear_unified_stock_data_health_cache,
-                    sync_raw_filings_cache_for_symbol,
-                    check_and_restore_stale_stock,
-                    reconcile_and_purge_restored_cooloffs,
-                )
-            sync_raw_filings_cache_for_symbol(sym_u)
-            check_and_restore_stale_stock(
-                symbol=sym_u,
-                source="EXCHANGE_FILING_WATCHER_INGESTED",
-                period_end=norm_period_end,
-                notify_admin=False,
-                force=True,
-            )
-            reconcile_and_purge_restored_cooloffs()
-            clear_unified_stock_data_health_cache()
-        except Exception as _sync_err:
-            logger.debug(f"[filling scanner] Immediate sync error for {sym_u}: {_sync_err}")
-
         # Invariant: Immediately register newly ingested period in persistent state so restarts never re-poll
         try:
             with self._state_lock:
@@ -2748,9 +2820,13 @@ class FinancialFilingWatcher:
                 now_ist_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
                 if sym_u not in self.state:
                     self.state[sym_u] = {}
-                self.state[sym_u]["latest_filing_date"] = norm_period_end
+                prev_dt = self.state[sym_u].get("latest_filing_date")
+                if not prev_dt or not _normalize_iso_date(prev_dt) or norm_period_end > prev_dt:
+                    self.state[sym_u]["latest_filing_date"] = norm_period_end
                 self.state[sym_u]["last_polled_at"] = now_ist_str
                 self.state[sym_u]["bootstrap_completed"] = True
+                if not defer_state_save:
+                    self._save_state()
         except Exception as _st_err:
             logger.debug(f"[filling scanner] State update note for {sym_u}: {_st_err}")
 
@@ -2792,34 +2868,44 @@ class FinancialFilingWatcher:
         except Exception as _sync_err:
             logger.debug(f"[filling scanner] Exchange payload sync note for {sym_u}: {_sync_err}")
 
-        # Evict health audit cache and raw filings audit cache so dashboard displays fresh filing info immediately
-        try:
+        # Standalone callers (not batched via poll_exchange_filings) sync DB & cool-off once outside heavy lock loops
+        if not defer_db_sync:
             try:
-                import app.database as _app_db_evict
-            except ImportError:
-                import database as _app_db_evict
-            if hasattr(_app_db_evict, "_AUDIT_RAW_LOCK") and hasattr(_app_db_evict, "_AUDIT_RAW_FILINGS_CACHE"):
-                with _app_db_evict._AUDIT_RAW_LOCK:
-                    _app_db_evict._AUDIT_RAW_FILINGS_CACHE.pop(sym_u, None)
-            if hasattr(_app_db_evict, "clear_unified_stock_data_health_cache"):
-                _app_db_evict.clear_unified_stock_data_health_cache()
-        except Exception:
-            pass
-
-        # Check and restore if stock was previously marked stale or in cool-off
-        try:
-            try:
-                from app.database import check_and_restore_stale_stock
-            except ImportError:
-                from database import check_and_restore_stale_stock
-            check_and_restore_stale_stock(
-                symbol=sym_u,
-                source="EXCHANGE_FILING_WATCHER",
-                period_end=norm_period_end,
-                notify_admin=True
-            )
-        except Exception as restore_err:
-            logger.debug(f"[filling scanner] check_and_restore_stale_stock notice for {sym_u}: {restore_err}")
+                try:
+                    from app.database import (
+                        clear_unified_stock_data_health_cache,
+                        sync_raw_filings_cache_for_symbol,
+                        check_and_restore_stale_stock,
+                    )
+                except ImportError:
+                    from database import (
+                        clear_unified_stock_data_health_cache,
+                        sync_raw_filings_cache_for_symbol,
+                        check_and_restore_stale_stock,
+                    )
+                sync_raw_filings_cache_for_symbol(sym_u)
+                try:
+                    check_and_restore_stale_stock(
+                        symbol=sym_u,
+                        source="EXCHANGE_FILING_WATCHER_INGESTED",
+                        period_end=norm_period_end,
+                        notify_admin=True,
+                        force=True,
+                        rebuild_snapshot=True,
+                        sync_raw_cache=False,
+                        clear_health_cache=True,
+                    )
+                except TypeError:
+                    check_and_restore_stale_stock(
+                        symbol=sym_u,
+                        source="EXCHANGE_FILING_WATCHER_INGESTED",
+                        period_end=norm_period_end,
+                        notify_admin=True,
+                        force=True,
+                    )
+                clear_unified_stock_data_health_cache()
+            except Exception as _sync_err:
+                logger.debug(f"[filling scanner] Immediate sync error for {sym_u}: {_sync_err}")
 
     # -------------------------------------------------------------------------
     # 5. CORPORATE FILINGS AUDIT & FINDINGS DISCOVERY

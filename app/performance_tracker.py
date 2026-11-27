@@ -1151,12 +1151,22 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                 update_alert_quality_metrics(t["id"], quality_metrics)
             except Exception as db_err:
                 logger.error(f"❌ Failed to persist alert quality metrics: {db_err}")
-def _days_held(alert_date_str: str) -> int:
+def _days_held(alert_date_str: str, closed_at_val=None) -> int:
     try:
         # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
         # Use official NSE trading calendar to compute trading days held, completely excluding weekends and holidays.
+        # For closed trades, freeze holding period at exit/closed date instead of growing indefinitely.
         from trading_calendar import default_trading_calendar
-        return max(0, default_trading_calendar.days_between(date.fromisoformat(alert_date_str), datetime.now(IST).date()))
+        start_d = date.fromisoformat(str(alert_date_str)[:10])
+        end_d = datetime.now(IST).date()
+        if closed_at_val:
+            if hasattr(closed_at_val, "astimezone"):
+                end_d = closed_at_val.astimezone(IST).date()
+            elif isinstance(closed_at_val, date):
+                end_d = closed_at_val
+            else:
+                end_d = date.fromisoformat(str(closed_at_val)[:10])
+        return max(0, default_trading_calendar.days_between(start_d, end_d))
     except Exception:
         return 0
 
@@ -1314,6 +1324,11 @@ def _row_to_trade_dict(row: dict) -> dict:
     else:
         disc_str = None
 
+    _exit_sig_norm = str(_extract_exit_reason(row) or "").upper()
+    _is_terminal_db = status in ("WIN", "LOSS", "CLOSED", "EXPIRED", "NEUTRAL")
+    _days_held_val = _days_held(alert_date, row.get("closed_at") if _is_terminal_db else None)
+    _rem_shares_val = 0 if _is_terminal_db else (row.get("remaining_shares") if row.get("remaining_shares") is not None else row.get("shares_bought", 0))
+
     return {
         "id":            row["id"],          # needed for write-back
         "symbol":        symbol,
@@ -1333,9 +1348,9 @@ def _row_to_trade_dict(row: dict) -> dict:
         "cmp_updated_at": row.get("cmp_updated_at").isoformat() if hasattr(row.get("cmp_updated_at"), "isoformat") else (str(row.get("cmp_updated_at")) if row.get("cmp_updated_at") else None),
         "exit_price":    _extract_exit_price(row),   # pre-filled if already closed
         "pnl_pct":       _f_num(row.get("pnl_pct")),      # pre-filled if already closed
-        "stopped_out":   row.get("status") == "LOSS",
-        "target_hit":    row.get("status") == "WIN",
-        "days_held":     _days_held(alert_date),
+        "stopped_out":   status == "LOSS" or _exit_sig_norm in ("STOP_LOSS", "SL_HIT", "GAP_LOSS", "STRUCTURAL_FAIL", "STRUCT_FAIL"),
+        "target_hit":    status == "WIN" or _exit_sig_norm in ("TARGET_HIT", "T1_HIT", "T2_HIT", "T3_HIT"),
+        "days_held":     _days_held_val,
         "status":        row.get("status") or "OPEN",
         "shares_bought": row.get("shares_bought", 0),
         "capital_allocated": _f_num(row.get("capital_allocated")),
@@ -1344,7 +1359,7 @@ def _row_to_trade_dict(row: dict) -> dict:
         "rsi":           _f_num(row.get("rsi")),
         "volume_ratio":  _f_num(row.get("volume_ratio")),
         "closed_at":     row.get("closed_at"),        # ISO timestamp when SL/Target locked
-        "remaining_shares": row.get("remaining_shares") if row.get("remaining_shares") is not None else row.get("shares_bought", 0),
+        "remaining_shares": _rem_shares_val,
         "exit_history":  row.get("exit_history"),
         "context":       row.get("context"),          # Diagnostic filters and context
         "is_rejected":   row.get("is_rejected", False),
@@ -1364,7 +1379,7 @@ def _row_to_trade_dict(row: dict) -> dict:
         "sales_cagr":      sales_str,
         "debt_to_equity":  de_str,
         "valuation_discount": disc_str,
-        "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
+        "_db_closed":    _is_terminal_db,  # internal flag
     }
 
 

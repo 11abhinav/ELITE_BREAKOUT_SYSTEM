@@ -1024,6 +1024,7 @@ class NseXbrlProvider:
             as_of_dt = as_of_date
 
         cache_key = (as_of_dt.isoformat(), int(lookback_days))
+        sweep_disk_cache_path = os.path.join(BASE_DIR, "data", "nse_market_sweep_cache.json")
         if not force_refresh:
             with _SWEEP_CACHE_LOCK:
                 cached_entry = _GLOBAL_MARKET_SWEEP_CACHE.get(cache_key)
@@ -1032,10 +1033,35 @@ class NseXbrlProvider:
                     if (time.time() - cached_ts) < _MARKET_SWEEP_TTL_SECONDS and cached_map:
                         self._sweep_announcements_cache.update(cached_map)
                         logger.info(
-                            f"⚡ [NSE:SWEEP_CACHE] Reused in-memory 45d market sweep "
+                            f"⚡ [NSE:SWEEP_CACHE] Reused in-memory {lookback_days}d market sweep "
                             f"({len(cached_map)} symbols, age={int(time.time() - cached_ts)}s)."
                         )
                         return dict(cached_map)
+                # Warm in-memory cache from disk across restarts/workers within 15-min TTL
+                if os.path.exists(sweep_disk_cache_path):
+                    try:
+                        import json as _sw_json
+                        st_mtime = os.path.getmtime(sweep_disk_cache_path)
+                        if (time.time() - st_mtime) < _MARKET_SWEEP_TTL_SECONDS:
+                            with open(sweep_disk_cache_path, "r", encoding="utf-8") as _sf:
+                                disk_obj = _sw_json.load(_sf)
+                            if (
+                                isinstance(disk_obj, dict)
+                                and disk_obj.get("as_of") == as_of_dt.isoformat()
+                                and int(disk_obj.get("lookback_days", -1)) >= int(lookback_days)
+                                and isinstance(disk_obj.get("data"), dict)
+                                and disk_obj.get("data")
+                            ):
+                                _disk_map = disk_obj["data"]
+                                _GLOBAL_MARKET_SWEEP_CACHE[cache_key] = (st_mtime, dict(_disk_map))
+                                self._sweep_announcements_cache.update(_disk_map)
+                                logger.info(
+                                    f"⚡ [NSE:SWEEP_CACHE] Reused disk {lookback_days}d market sweep "
+                                    f"({len(_disk_map)} symbols, age={int(time.time() - st_mtime)}s)."
+                                )
+                                return dict(_disk_map)
+                    except Exception:
+                        pass
 
         market_filings: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -1053,7 +1079,7 @@ class NseXbrlProvider:
                 cur_end = cur_start - timedelta(days=1)
 
             sweep_start_ts = time.time()
-            _SWEEP_MAX_BUDGET_S = 45.0
+            _SWEEP_MAX_BUDGET_S = float(os.getenv("NSE_SWEEP_MAX_BUDGET_S", "45.0"))
 
             def _fetch_window(win: Tuple[date, date]) -> List[Dict[str, Any]]:
                 if time.time() - sweep_start_ts > _SWEEP_MAX_BUDGET_S:
@@ -1067,7 +1093,7 @@ class NseXbrlProvider:
                     return raw_chunk if isinstance(raw_chunk, list) else (raw_chunk.get("data", []) if isinstance(raw_chunk, dict) else [])
                 # Only do 3-day sub-chunk fallback if we still have ample sweep budget remaining
                 out_sub: List[Dict[str, Any]] = []
-                if (w_end - w_start).days > 3 and (time.time() - sweep_start_ts) < 25.0:
+                if (w_end - w_start).days > 3 and (time.time() - sweep_start_ts) < min(25.0, _SWEEP_MAX_BUDGET_S * 0.55):
                     sub_end = w_end
                     while sub_end > w_start and (time.time() - sweep_start_ts) < _SWEEP_MAX_BUDGET_S:
                         sub_start = max(w_start, sub_end - timedelta(days=3))
@@ -1080,15 +1106,16 @@ class NseXbrlProvider:
                 return out_sub
 
             ann_rows = []
-            # Ensure session is pre-initialized once before parallel chunk workers run
-            if not self._initialized:
+            # Ensure session is pre-initialized once before parallel chunk workers run (strictly bounded)
+            if not self._initialized and (time.time() - sweep_start_ts) < _SWEEP_MAX_BUDGET_S:
                 self._init_session()
             from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
+            rem_budget = max(5.0, _SWEEP_MAX_BUDGET_S - (time.time() - sweep_start_ts))
             ex = ThreadPoolExecutor(max_workers=min(4, max(1, len(windows))), thread_name_prefix="NseSweep")
             try:
                 futs = [ex.submit(_fetch_window, w) for w in windows]
                 try:
-                    for fut in as_completed(futs, timeout=_SWEEP_MAX_BUDGET_S):
+                    for fut in as_completed(futs, timeout=rem_budget):
                         try:
                             chunk_list = fut.result(timeout=2)
                             if chunk_list:
@@ -1180,6 +1207,22 @@ class NseXbrlProvider:
         if market_filings:
             with _SWEEP_CACHE_LOCK:
                 _GLOBAL_MARKET_SWEEP_CACHE[cache_key] = (time.time(), dict(market_filings))
+                try:
+                    import json as _sw_json
+                    os.makedirs(os.path.dirname(sweep_disk_cache_path), exist_ok=True)
+                    tmp_sw = f"{sweep_disk_cache_path}.tmp.{os.getpid()}"
+                    with open(tmp_sw, "w", encoding="utf-8") as _sf:
+                        _sw_json.dump(
+                            {
+                                "as_of": as_of_dt.isoformat(),
+                                "lookback_days": int(lookback_days),
+                                "data": market_filings,
+                            },
+                            _sf,
+                        )
+                    os.replace(tmp_sw, sweep_disk_cache_path)
+                except Exception:
+                    pass
 
         return market_filings
 

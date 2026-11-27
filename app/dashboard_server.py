@@ -1791,6 +1791,11 @@ def _build_instant_performance_fallback():
                 "earnings_severity": row.get("earnings_severity"),
                 "warning_msg": row.get("warning_msg"),
                 "execution_state": row.get("execution_state"),
+                "exit_signal": row.get("exit_signal"),
+                "exit_reason": row.get("exit_reason") or row.get("exit_signal"),
+                "remaining_shares": 0 if st in ("WIN", "LOSS", "CLOSED", "EXPIRED", "NEUTRAL") else (row.get("remaining_shares") if row.get("remaining_shares") is not None else sh),
+                "stopped_out": st == "LOSS",
+                "target_hit": st == "WIN",
                 "closed_at": sanitize_market_session_timestamp(row.get("closed_at")) if (st in ("WIN", "LOSS", "CLOSED") and row.get("closed_at")) else None,
             })
 
@@ -1965,12 +1970,16 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None, bui
                         cur.execute("""
                             SELECT id, symbol, scanner, category, signals, entry_price, actual_entry_price,
                                    current_price, cmp_updated_at, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3,
-                                   score, alert_time, alert_date, status, pnl_pct, pnl_rs, exit_price, shares_bought,
+                                   score, alert_time, alert_date, status, pnl_pct, pnl_rs, exit_price, shares_bought, remaining_shares,
                                    capital_allocated, is_rejected, days_to_earnings, earnings_date, earnings_severity,
-                                   warning_msg, execution_state, closed_at
+                                   warning_msg, execution_state, closed_at, exit_signal, exit_reason
                             FROM alerts
-                            ORDER BY id DESC
-                            LIMIT 100
+                            WHERE COALESCE(record_type, 'ALERT_EVENT') != 'SCAN_SNAPSHOT'
+                              AND COALESCE(breakout_type, '') != 'SCAN_SNAPSHOT'
+                              AND COALESCE(execution_state, 'OPEN') != 'PENDING_ENTRY'
+                              AND status NOT IN ('PENDING', 'PENDING_ENTRY')
+                            ORDER BY COALESCE(updated_at, closed_at, alert_time) DESC NULLS LAST, id DESC
+                            LIMIT 250
                         """)
                         recent_db_alerts = cur.fetchall()
 
@@ -1981,7 +1990,7 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None, bui
                     aid = r["id"]
                     if aid in trades_by_id:
                         t_existing = trades_by_id[aid]
-                        db_status = r.get("status") or "OPEN"
+                        db_status = (r.get("status") or "OPEN").upper()
                         # If DB status is OPEN (e.g. alert was reset for recalculation), sync state immediately!
                         if db_status == "OPEN" and t_existing.get("status") != "OPEN":
                             t_existing["status"] = "OPEN"
@@ -1993,9 +2002,33 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None, bui
                             t_existing["target_hit"] = False
                             t_existing["exit_history"] = "[]"
                             t_existing["execution_state"] = "OPEN"
+                            t_existing["is_rejected"] = bool(r.get("is_rejected", False))
                             has_reconciled_updates = True
-                        elif db_status in ("WIN", "LOSS", "CLOSED") and t_existing.get("closed_at"):
-                            t_existing["closed_at"] = sanitize_market_session_timestamp(t_existing["closed_at"])
+                        elif db_status in ("WIN", "LOSS", "CLOSED", "EXPIRED", "NEUTRAL", "REJECTED", "PARTIAL_WIN_1", "PARTIAL_WIN_2", "TRAILING"):
+                            if t_existing.get("status") != db_status or t_existing.get("is_rejected") != bool(r.get("is_rejected", False)):
+                                t_existing["status"] = db_status
+                                if r.get("exit_price") is not None:
+                                    t_existing["exit_price"] = float(r["exit_price"])
+                                if r.get("pnl_pct") is not None:
+                                    t_existing["pnl_pct"] = float(r["pnl_pct"])
+                                if r.get("pnl_rs") is not None:
+                                    t_existing["pnl_rs"] = float(r["pnl_rs"])
+                                if r.get("exit_signal") is not None:
+                                    t_existing["exit_signal"] = r["exit_signal"]
+                                if r.get("exit_reason") is not None:
+                                    t_existing["exit_reason"] = r["exit_reason"]
+                                if r.get("execution_state") is not None:
+                                    t_existing["execution_state"] = r["execution_state"]
+                                t_existing["is_rejected"] = bool(r.get("is_rejected", False))
+                                if db_status in ("WIN", "LOSS", "CLOSED", "EXPIRED", "NEUTRAL"):
+                                    t_existing["remaining_shares"] = 0
+                                    t_existing["stopped_out"] = (db_status == "LOSS")
+                                    t_existing["target_hit"] = (db_status == "WIN")
+                                    if r.get("closed_at"):
+                                        t_existing["closed_at"] = sanitize_market_session_timestamp(r["closed_at"])
+                                has_reconciled_updates = True
+                            elif db_status in ("WIN", "LOSS", "CLOSED") and t_existing.get("closed_at"):
+                                t_existing["closed_at"] = sanitize_market_session_timestamp(t_existing["closed_at"])
                     elif aid not in known_ids:
                         def _safe_float(v):
                             return float(v) if v is not None else None
@@ -2050,6 +2083,11 @@ def _build_performance_payload(force_rebuild: bool, client_etag: str = None, bui
                             "earnings_severity": r.get("earnings_severity"),
                             "warning_msg": r.get("warning_msg"),
                             "execution_state": r.get("execution_state"),
+                            "exit_signal": r.get("exit_signal"),
+                            "exit_reason": r.get("exit_reason") or r.get("exit_signal"),
+                            "remaining_shares": 0 if st_val in ("WIN", "LOSS", "CLOSED", "EXPIRED", "NEUTRAL") else (r.get("remaining_shares") if r.get("remaining_shares") is not None else sh_val),
+                            "stopped_out": st_val == "LOSS",
+                            "target_hit": st_val == "WIN",
                             "closed_at": sanitize_market_session_timestamp(r.get("closed_at")) if (st_val in ("WIN", "LOSS", "CLOSED") and r.get("closed_at")) else None,
                         })
 

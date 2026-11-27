@@ -105,30 +105,58 @@ def _extract_page_layout_fast(pdf_path: str, page_idx: int, timeout: float = 3.5
 def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0) -> str:
     """
     Runs Tesseract OCR on a PIL image and automatically detects/corrects 90/180/270-degree
-    rotated landscape financial tables via Tesseract OSD when upright OCR yields gibberish.
+    rotated landscape financial tables via Tesseract OSD and targeted orientation fallback
+    when upright OCR yields gibberish (e.g. upright letterhead above rotated statement table).
     """
     if not _OCR_AVAILABLE or img is None:
         return ""
     txt = pytesseract.image_to_string(img, timeout=timeout, config="--psm 6") or ""
     low = re.sub(r"\s+", " ", txt.lower())
     _strong_upright = (
-        "revenue from operations", "total income", "profit before tax",
+        "revenue from operations", "total income", "interest earned", "profit before tax",
+        "profit for the period", "profit/(loss) for the period", "net profit",
         "independent auditor", "limited review", "balance sheet", "assets and liabilities",
+        "assets & liabilities",
     )
     if len(txt.strip()) >= 150 and any(k in low for k in _strong_upright):
         return txt.strip()
+
+    best_txt = txt.strip()
+    tried_degs: Set[int] = {0}
     try:
         osd_raw = pytesseract.image_to_osd(img, timeout=4.0)
         m_rot = re.search(r"Rotate:\s*(\d+)", str(osd_raw))
         deg = int(m_rot.group(1)) if m_rot else 0
         if deg in (90, 180, 270):
+            tried_degs.add(deg)
             rot_img = img.rotate(-deg, expand=True)
             rot_txt = pytesseract.image_to_string(rot_img, timeout=timeout, config="--psm 6") or ""
-            if len(rot_txt.strip()) > len(txt.strip()) or any(k in rot_txt.lower() for k in _strong_upright):
+            rot_low = re.sub(r"\s+", " ", rot_txt.lower())
+            if any(k in rot_low for k in _strong_upright):
                 return rot_txt.strip()
+            if len(rot_txt.strip()) > len(best_txt):
+                best_txt = rot_txt.strip()
     except Exception:
         pass
-    return txt.strip()
+
+    # Mixed pages (upright letterhead + rotated landscape/upside-down table) often fool OSD into returning 0.
+    # Probe remaining orthogonal angles and return immediately on first financial table hit.
+    probe_order = (270, 90, 180) if img.width >= img.height else (90, 270, 180)
+    for deg in probe_order:
+        if deg in tried_degs:
+            continue
+        tried_degs.add(deg)
+        try:
+            rot_img = img.rotate(-deg, expand=True)
+            rot_txt = pytesseract.image_to_string(rot_img, timeout=min(9.0, timeout), config="--psm 6") or ""
+            rot_low = re.sub(r"\s+", " ", rot_txt.lower())
+            if len(rot_txt.strip()) >= 120 and any(k in rot_low for k in _strong_upright):
+                return rot_txt.strip()
+            if len(rot_txt.strip()) > len(best_txt) * 1.15:
+                best_txt = rot_txt.strip()
+        except Exception:
+            pass
+    return best_txt
 
 
 def _render_page_image_fast(pdf_path: str, page_idx: int, timeout: float = 6.0, dpi: int = 150) -> Optional["Image.Image"]:
@@ -225,6 +253,53 @@ def _is_char_fragmented(text: str) -> bool:
     short_lines = sum(1 for ln in lines[:200] if len(ln) <= 2)
     sample_len = min(len(lines), 200)
     return (short_lines / max(1, sample_len)) >= 0.35
+
+
+def _is_garbled_embedded_ocr(text: str) -> bool:
+    """
+    Detects PDF pages whose embedded OCR text layer is severely corrupted (e.g. 'i S e s Pt 112',
+    corrupted column dates like '0 Sepicmber 2036', missing/garbled PAT or Revenue labels like
+    'promm betore tax'/'prfit(Loss)'/'Revenve Gom', or upside-down mirrored glyphs) so Phase 3
+    runs fresh image RE_OCR instead of trusting broken embedded text.
+    """
+    s = (text or "").strip()
+    if len(s) < 50:
+        return False
+    low = re.sub(r"\s+", " ", s.lower())
+    dec_nums = re.findall(r"\b\d[\d,]*\.\d{1,2}\b", s)
+    toks = low.split()
+    short_noise = sum(1 for t in toks if len(t.strip(".,;:|[](){}-_=+*\"'")) <= 2)
+    short_ratio = short_noise / max(1, len(toks))
+
+    # Upside-down / mirrored glyph layers (rotated landscape tables read upright)
+    if any(k in low for k in (
+        "alindi", "suopelado", "s3liigyt", "powpneun", "suomesado", "suadx3", "juauneis",
+        "sepicmber", "papuz",
+    )) and len(dec_nums) < 4:
+        return True
+
+    # Heavy 1-2 char fragment noise without real decimal table rows
+    if len(toks) >= 25 and short_ratio >= 0.32 and len(dec_nums) < 4:
+        return True
+
+    # Broken financial statement OCR: missing clean revenue OR missing clean profit anchor alongside garble signatures
+    has_clean_rev = any(k in low for k in (
+        "revenue from operations", "interest earned", "total income", "net sales",
+        "net premium income", "total revenue from operations", "income from operations",
+    ))
+    has_clean_profit = any(k in low for k in (
+        "profit before tax", "profit/(loss)", "profit / (loss)", "profit/ (loss)",
+        "profit for the period", "profit after tax", "net profit", "profit from ordinary",
+    ))
+    if not (has_clean_rev and has_clean_profit):
+        garble_hits = len(re.findall(
+            r"\b(?:203\d|200[0-9]|0\s+sep|sepicmber|seplember|revenve|totalincome|totatncome|"
+            r"brofit|prfit|promm|stanbatone|coreotbated|woaudited|audired|powpneun|suomesado|juauneis)\b",
+            low,
+        ))
+        if garble_hits >= 2 or (not has_clean_rev and len(dec_nums) < 4 and "financial" in low):
+            return True
+    return False
 
 
 def _is_fiscal_period_end(iso_date: Optional[str]) -> bool:
@@ -400,12 +475,14 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\b(\d{1,2}),(\d{2})\.(202\d)\b", r"\1.\2.\3", text)  # OCR date comma: 30,09.2026 -> 30.09.2026
     text = re.sub(r"(?<=\d);(?=\d)", ",", text)                         # OCR semicolon: 13;646.84 -> 13,646.84
     text = re.sub(r"(?<=\d):(?=\d{2}(?:\s|$|\)))", ".", text)           # OCR colon decimal: 1,069:04 -> 1,069.04
-    text = re.sub(r'(\d+)\s*,\s*(\d+)', r'\1,\2', text)
+    text = re.sub(r"(?<=\d)\s*,\s*(?=\d)", ",", text)
     text = re.sub(r"(?<=\d),(?=\d{2}(?:\s|$|\)))", ".", text)           # OCR comma decimal: 276,90 -> 276.90
     text = re.sub(r'(\d+[\d,]*)\s*\.\s*(\d+)', r'\1.\2', text)
-    # Repair OCR dot/comma swaps in Indian numbers: '1.29,783' -> '1,29,783', '68.547.37' -> '68,547.37'
+    # Repair OCR dot/comma swaps in Indian numbers: '1.29,783' -> '1,29,783', '68.547.37' -> '68,547.37', '5.484 42' -> '5,484.42'
     text = re.sub(r'\b(\d{1,3})\.(\d{2,3}),(\d{3})\b', r'\1,\2,\3', text)
     text = re.sub(r'\b(\d{1,3})\.(\d{3})\.(\d{2})\b', r'\1,\2.\3', text)
+    text = re.sub(r'(?<![\d\.])(\d{1,2})\.(\d{3})\s+(\d{2})(?=\s|$|\))', r'\1,\2.\3', text)
+    text = re.sub(r'(?<![\d\.])(\d+,\d{3})\s+(\d{2})(?=\s|$|\))', r'\1.\2', text)
     # Fix spaced numbers in Indian balance sheets: "1 747.30" -> "1747.30", "4 882.27" -> "4882.27"
     text = re.sub(r"(?<![\d\.])(\d{1,2})\s+(\d{3}(?:[,\.]\d{2})?\b)", r"\1\2", text)
 
@@ -413,8 +490,8 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\b[l|1iI](total|income|revenue|other|profit|expenses)\b", r"\1", text, flags=re.I)
     # Split merged label words (e.g. expensesProfit -> expenses Profit)
     text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
-    # Formula equation removal (e.g. (3-4), (1+2), (5-6), (111-IV))
-    text = re.sub(r"\(\s*[\d\wIVivxX]+\s*[-+*/\s]\s*[\d\wIVivxX]+\s*\)", "", text)
+    # Formula equation removal (e.g. (3-4), (1+2), (5-6), (III-IV)) — require an arithmetic operator (-+*/) so unit captions like (Zin lacs) are NEVER stripped!
+    text = re.sub(r"\(\s*(?:\d{1,2}|[IVXivx]{1,4}|[A-Za-z])\s*[-+*/]\s*(?:\d{1,2}|[IVXivx]{1,4}|[A-Za-z])(?:\s*[-+*/]\s*(?:\d{1,2}|[IVXivx]{1,4}|[A-Za-z]))*\s*\)", "", text)
 
     # --- Universal kerning de-spacing for corporate financial statement vocabulary ---
     _FINANCIAL_DE_SPACE_TERMS = [
@@ -424,9 +501,9 @@ def _normalize_ocr_text(text: str) -> str:
         'exceptional', 'extraordinary', 'tax', 'taxes', 'earnings', 'share', 'shares',
         'nominal', 'basic', 'diluted', 'equity', 'liabilities', 'assets',
         'capital', 'reserves', 'surplus', 'borrowings', 'provisions', 'payables',
-        'receivables', 'inventories', 'cash', 'balances', 'operating',
+        'receivables', 'inventories', 'cash', 'balances', 'operating', 'ordinary', 'activities',
         'september', 'december', 'march', 'june', 'january', 'february',
-        'april', 'august', 'october', 'november', 'comprehensive', 'continuing'
+        'april', 'august', 'october', 'november', 'comprehensive', 'continuing', 'discontinued'
     ]
     for term in _FINANCIAL_DE_SPACE_TERMS:
         pattern = r'\b' + r'\s*'.join(list(term)) + r'\b'
@@ -500,7 +577,7 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\bunaud\s*ited\b", "unaudited", text, flags=re.I)
     text = re.sub(r"\bs[ir],?ltmcnl\b", "statement", text, flags=re.I)
     text = re.sub(r"\bsi,lcmcnl\b", "statement", text, flags=re.I)
-    text = re.sub(r"[,;:\.']rofit\b", "profit", text, flags=re.I)
+    text = re.sub(r"(?:\b[lI1\|])?[,;:\.'’]rofi[tl1]\b", "profit", text, flags=re.I)
     text = re.sub(r"\b[no]rofit\b", "profit", text, flags=re.I)
     text = re.sub(r"\bpro\s*fit\b", "profit", text, flags=re.I)
     text = re.sub(r"\bprofl[~t]\b", "profit", text, flags=re.I)
@@ -523,6 +600,13 @@ def _normalize_ocr_text(text: str) -> str:
     text = re.sub(r"\b[cr]onsolidar[ce]d\b", "consolidated", text, flags=re.I)
     text = re.sub(r"\bta[•\*\.]\b", "tax", text, flags=re.I)
     text = re.sub(r",-1(\d{2})\b", r",4\1", text)
+    text = re.sub(r"(?i)\btotalincome\b", "total income", text)
+    text = re.sub(r"(?i)\breven[uv]e\b", "revenue", text)
+    text = re.sub(r"(?i)\b([a-z]+)\s+gom\s+operations\b", r"\1 from operations", text)
+    text = re.sub(r"(?i)\bmill[il1c]{1,2}[eoc][nr]s?\b", "million", text)
+    text = re.sub(r"(?i)\bsep[il1r][ce]?mber\b|\bseplember\b", "September", text)
+    text = re.sub(r"(?i)\bbrofit\b", "profit", text)
+    text = re.sub(r"(?i)\bnded\b", "ended", text)
     return text
 
 
@@ -530,6 +614,8 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
     """
     Weighted candidate page scoring algorithm for SEBI LODR Regulation 33 Financial Statements.
     Enforces Safeguard A: Weighted multi-signal scoring rather than rigid co-occurrence.
+    Ensures actual P&L financial results pages always rank above Auditor Review Reports,
+    Balance Sheets, Cash Flows, Notes, and Regulation 32 Deviation statements.
     """
     if not text or len(text.strip()) < 30:
         return 0, ConsolidationType.STANDALONE
@@ -550,11 +636,12 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
         score += 40
 
     # 2. Revenue / Income keywords (+30)
-    if any(k in norm_text_lower for k in [
+    has_rev_kw = any(k in norm_text_lower for k in [
         "revenue from operations", "net sales", "total income",
         "income from operations", "interest earned", "total revenue from operations",
-        "total revenue", "interest income"
-    ]):
+        "total revenue", "interest income", "net premium income", "gross premium income"
+    ])
+    if has_rev_kw:
         score += 30
 
     # 3. PAT / PBT profit keywords (+30)
@@ -590,22 +677,68 @@ def score_page_content(text: str) -> Tuple[int, ConsolidationType]:
         basis = ConsolidationType.STANDALONE
         score += 15
 
-    # 6. Supporting financial metrics (+10)
-    if any(k in norm_text_lower for k in [
+    # 6. Supporting financial metrics (+10 / +15 strict P&L table structure)
+    has_pl_table_rows = any(k in norm_text_lower for k in [
         "total expenses", "expenses", "tax expense", "earnings per share",
         "basic eps", "paid-up equity", "equity share capital"
-    ]):
+    ])
+    if has_pl_table_rows:
         score += 10
 
-    # 7. Penalty for pure Auditor Limited Review Report / Corporate Governance / Notice (-30)
-    if any(k in header_area for k in ["independent auditor", "limited review report", "auditor's review report"]):
-        if not any(k in header_area for k in ["statement of", "financial results", "revenue from operations", "total income"]):
-            score -= 30
+    has_strict_pnl_structure = (
+        any(k in norm_text_lower for k in ("total expenses", "total expenditure", "fotal expenses", "cost of materials", "employee benefits expense"))
+        and any(k in norm_text_lower for k in ("revenue from operations", "interest earned", "total revenue from operations", "net premium income", "total income", "net sales"))
+    )
+    if has_strict_pnl_structure or ("particulars" in norm_text_lower and any(k in norm_text_lower for k in ("total expenses", "profit before tax"))):
+        score += 15
 
-    # 8. Penalty for standalone Notes pages (prose paragraphs explaining revenue/tax figures, not financial table rows)
-    first_6_lower = " ".join(text_norm.split("\n")[:6]).lower()
-    if re.search(r"\bnotes?\s*:", first_6_lower) and not any(k in norm_text_lower for k in ["1.\trevenue", "total expenses", "profit before tax", "paid-up equity"]):
-        score -= 60
+    # 7. Penalty for Cover / Transmittal Letters & Auditor Limited Review Reports
+    head_half = " ".join(text_norm.split("\n")[:25]).lower().replace("&", " and ")
+    norm_and_lower = norm_text_lower.replace("&", " and ")
+    is_cover_letter = any(k in norm_and_lower for k in (
+        "dear sir", "dear madam", "dear sirs", "yours faithfully", "yours sincerely",
+        "listing department", "corporate relationship department", "exchange plaza", "dalal street"
+    )) and not any(k in norm_and_lower for k in ("total expenses", "profit before tax", "profit/(loss)", "particulars"))
+    if is_cover_letter:
+        score -= 80
+
+    if any(k in head_half for k in [
+        "independent auditor", "limited review report", "auditor's review report",
+        "chartered accountants", "we have reviewed the accompanying", "limited review conducted"
+    ]) and not has_strict_pnl_structure:
+        score -= 85
+
+    # 8. Penalty for Cash Flow Statement / Balance Sheet / Reg 32 / Ratio / Annexure Notes without P&L structure
+    # Note: Ind-AS Cash Flows always list 'finance costs' and 'profit before tax', so guard with has_strict_pnl_structure.
+    if any(k in norm_and_lower for k in [
+        "cash flows from operating activities", "cash flow from operating activities",
+        "statement of cash flows", "cash flow statement", "cash flow from operating",
+        "operating profit before working capital", "operating cash flows before working capital",
+        "cash flows from investing activities", "cash flows from financing activities",
+    ]) and not has_strict_pnl_structure:
+        score -= 120
+
+    if any(k in head_half for k in [
+        "statement of assets and liabilities", "assets and liabilities", "a ts and liabilities",
+        "balance sheet", "non-current assets", "non-current assels", "equity and liabilities"
+    ]) and not has_strict_pnl_structure and not any(k in norm_and_lower for k in ["revenue from operations", "interest earned"]):
+        score -= 70
+
+    if any(k in head_half for k in [
+        "deviation or variation", "statement of deviation", "analytical ratios",
+        "pursuant to regulation 52(4)", "regulation 52 (4)", "ratio analysis", "annexure i"
+    ]) and not has_strict_pnl_structure:
+        score -= 65
+
+    # 9. Penalty for standalone Notes pages (prose paragraphs explaining revenue/tax figures, not financial table rows)
+    first_12_lower = " ".join(text_norm.split("\n")[:12]).lower()
+    is_notes_only = (
+        bool(re.search(r"(?:\bnotes?\s*:|\[\s*notes?\b|\bnotes?\s+to\s+(?:the\s+)?(?:unaudited|audited|statement|financial))", first_12_lower))
+        or ("reviewed by the audit committee" in norm_and_lower and "chief operating decision maker" in norm_and_lower)
+        or ("approved by the board of directors" in norm_and_lower and "limited review" in norm_and_lower and "total expenses" not in norm_and_lower)
+    )
+    if is_notes_only and not has_strict_pnl_structure and "total expenses" not in norm_and_lower:
+        score -= 75
 
     return score, basis
 
@@ -615,13 +748,18 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     Checks announcement subject, description, and file metadata to determine if the document
     is an official SEBI LODR Regulation 33 Financial Results / Board Meeting Outcome statement.
     """
-    desc = str((ann.get("desc") if ann else "") or "").lower()
+    desc = str(((ann.get("desc") or ann.get("headline") or ann.get("HEADLINE") or ann.get("NEWSSUB")) if ann else "") or "").lower()
     text = str((ann.get("attchmntText") if ann else "") or "").lower()
     fn = str((ann.get("attchmntFile") or ann.get("attachmentUrl") if ann else "") or "").lower()
     url_fn = os.path.basename(str(pdf_url).split("?")[0]).lower()
     combined = f"{desc} {text} {fn} {url_fn}"
 
-    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper, monitoring agency, investor handouts, non-financial board actions, nomenclature corrections, Reg 74(5)/Asset Cover certificates)
+    if url_fn.endswith(".zip") or (fn.endswith(".zip") and ".pdf" not in combined):
+        return False
+
+    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper,
+    # monitoring agency, investor handouts, non-financial board actions, nomenclature corrections,
+    # Reg 74(5)/Asset Cover, Structural Digital Database (SDD) certificates, trading window notices)
     if any(k in combined for k in [
         "newspaper", "clipping", "advertisement", "publication of",
         "investor presentation", "investor update", "investor handout", "investor_handout", "investorhandout",
@@ -632,6 +770,9 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
         "regulation 74", "reg 74", "reg. 74", "74(5)", "74_5",
         "dp_regulation", "dp regulation", "depository participant",
         "asset cover", "assetcover", "security cover", "securitycover",
+        "structural digital database", "regulation 3(5)", "regulation 3(6)",
+        "_sdd", "sdd.pdf", "intimation_sdd", "compliance certificate",
+        "reconciliation of share capital", "closure of trading window", "tradingwindow", "trading window",
     ]):
         return False
 
@@ -837,39 +978,86 @@ class ExchangePdfParser:
                     logger.debug(f"[PDF_PARSER] Initial stream interrupted for {base_name} at {_tot} bytes: {_stream_err}")
                 content = b"".join(_chunks)
 
-                # If a large exchange PDF stream truncated mid-transfer (e.g. Akamai 8MB cap), resume in 4MB Range chunks
-                for _rng_attempt in range(12):
+                # If a large exchange PDF stream truncated mid-transfer (e.g. Akamai 8MB cap), resume in bounded Range chunks
+                # Retry transient chunk failures (instead of breaking on first empty/exception) and prefer Accept-Encoding: identity.
+                try:
+                    from curl_cffi import requests as _cffi_rng_reqs
+                except Exception:
+                    _cffi_rng_reqs = None
+
+                _consec_rng_fails = 0
+                for _rng_attempt in range(20):
                     if not (content.startswith(b"%PDF") and b"%%EOF" not in content[-8192:]):
                         break
                     if expected_cl and len(content) >= expected_cl:
                         break
                     _start = len(content)
-                    _end = _start + (4 * 1024 * 1024) - 1
+                    _chunk_span = 2 * 1024 * 1024  # 2MB chunks survive Akamai mid-stream drops much better than 4MB
+                    _end = _start + _chunk_span - 1
                     if expected_cl:
                         _end = min(_end, expected_cl - 1)
-                    _rng_hdrs = {**_HEADERS, "Range": f"bytes={_start}-{_end}", "Connection": "close"}
+                    _rng_hdrs = {
+                        **_HEADERS,
+                        "Range": f"bytes={_start}-{_end}",
+                        "Accept-Encoding": "identity",
+                        "Connection": "close",
+                    }
                     _extra: List[bytes] = []
                     _extra_tot = 0
                     try:
-                        with requests.get(pdf_url, headers=_rng_hdrs, cookies=self.session.cookies, timeout=(8, 60), stream=True) as r_res:
-                            if r_res.status_code not in (200, 206):
-                                logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} returned status={r_res.status_code}")
-                                break
-                            if r_res.status_code == 200:
-                                logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} ignored Range (status=200)")
-                                break
-                            for chunk in r_res.iter_content(chunk_size=65536):
-                                if not chunk:
+                        # Alternate to curl_cffi (Chrome TLS) on retry or if available for better NSE/Akamai compatibility
+                        if _cffi_rng_reqs is not None and _consec_rng_fails >= 1:
+                            _cr = _cffi_rng_reqs.get(
+                                pdf_url,
+                                headers=_rng_hdrs,
+                                impersonate="chrome",
+                                timeout=(10, 60),
+                            )
+                            if _cr.status_code in (200, 206):
+                                if _cr.status_code == 200 and len(_cr.content) > len(content) and b"%%EOF" in _cr.content[-8192:]:
+                                    content = _cr.content
+                                    break
+                                if _cr.status_code == 206 and _cr.content:
+                                    _extra.append(_cr.content)
+                        else:
+                            with requests.get(pdf_url, headers=_rng_hdrs, cookies=self.session.cookies, timeout=(10, 60), stream=True) as r_res:
+                                if r_res.status_code == 200:
+                                    logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} ignored Range (status=200)")
+                                    break
+                                if r_res.status_code not in (206,):
+                                    logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} for {base_name} returned status={r_res.status_code}")
+                                    _consec_rng_fails += 1
+                                    if _consec_rng_fails >= 3:
+                                        break
+                                    time.sleep(1.0 * _consec_rng_fails)
                                     continue
-                                _extra_tot += len(chunk)
-                                if len(content) + _extra_tot > ceiling_bytes:
-                                    return None
-                                _extra.append(chunk)
+                                for chunk in r_res.iter_content(chunk_size=65536):
+                                    if not chunk:
+                                        continue
+                                    _extra_tot += len(chunk)
+                                    if len(content) + _extra_tot > ceiling_bytes:
+                                        return None
+                                    _extra.append(chunk)
                     except Exception as _rng_err:
                         logger.warning(f"[PDF_PARSER] Range chunk {_rng_attempt+1} interrupted for {base_name}: {_rng_err}")
                     if not _extra:
-                        break
+                        _consec_rng_fails += 1
+                        if _consec_rng_fails >= 3:
+                            break
+                        time.sleep(1.0 * _consec_rng_fails)
+                        continue
+                    _consec_rng_fails = 0
                     content = content + b"".join(_extra)
+
+                # If requests session failed on direct stream or Range, try one clean Chrome-impersonated curl_cffi full fetch
+                if (not content.startswith(b"%PDF") or b"%%EOF" not in content[-8192:]) and _cffi_rng_reqs is not None:
+                    try:
+                        _cr_full = _cffi_rng_reqs.get(pdf_url, headers=_HEADERS, impersonate="chrome", timeout=(12, 90))
+                        if _cr_full.status_code == 200 and _cr_full.content and _cr_full.content.startswith(b"%PDF"):
+                            if len(_cr_full.content) <= ceiling_bytes and b"%%EOF" in _cr_full.content[-8192:]:
+                                content = _cr_full.content
+                    except Exception as _cffi_err:
+                        logger.debug(f"[PDF_PARSER] curl_cffi fallback failed for {base_name}: {_cffi_err}")
 
                 if content.startswith(b"%PDF"):
                     if b"%%EOF" in content[-8192:]:
@@ -987,12 +1175,12 @@ class ExchangePdfParser:
                 return []
 
         total_doc_pages = len(reader.pages)
-        max_scan_pages = min(20, total_doc_pages)
+        max_scan_pages = min(32, total_doc_pages)
 
-        # Fast C++ batch page text extraction via Poppler `pdftotext` (~0.1-0.4s for 20 pages, SIGKILL on hang)
+        # Fast C++ batch page text extraction via Poppler `pdftotext` (~0.1-0.5s for 32 pages, SIGKILL on hang)
         cached_page_texts: Dict[int, str] = {}
         if tmp_pdf_path and _HAS_PDFTOTEXT:
-            fast_pages = _extract_pdf_pages_fast(tmp_pdf_path, max_pages=max_scan_pages, timeout=8.0)
+            fast_pages = _extract_pdf_pages_fast(tmp_pdf_path, max_pages=max_scan_pages, timeout=10.0)
             if fast_pages:
                 for p_idx, p_t in fast_pages.items():
                     if _is_char_fragmented(p_t):
@@ -1001,39 +1189,18 @@ class ExchangePdfParser:
                             p_t = lay_t
                     cached_page_texts[p_idx] = p_t
 
-        # Determine document-wide unit and multiplier if individual pages omit the unit header
+        # Determine document-wide unit and multiplier (explicit patterns only, scanning digital pages beyond cover letters)
         doc_mult = 1.0
         doc_unit = "crore"
-        doc_sample_text = ""
-        for p_idx in range(min(3, total_doc_pages)):
-            if time.time() - t_parse_start > 10.0:
-                break
-            try:
-                p_t = cached_page_texts.get(p_idx)
-                if p_t is None:
-                    p_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, pdf_path=tmp_pdf_path, page_idx=p_idx)
-                    if _is_char_fragmented(p_t):
-                        lay_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, extraction_mode="layout", pdf_path=tmp_pdf_path, page_idx=p_idx)
-                        if lay_t and len(lay_t.strip()) >= 50:
-                            p_t = lay_t
-                    cached_page_texts[p_idx] = p_t
-                if p_t:
-                    doc_sample_text += "\n" + p_t
-            except Exception:
-                pass
-        if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", doc_sample_text, re.I):
-            doc_mult = 0.1
-            doc_unit = "million"
-        elif re.search(r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex", doc_sample_text, re.I):
-            doc_mult = 0.01
-            doc_unit = "lakh"
-        elif re.search(r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)|<n\s*crore", doc_sample_text, re.I):
-            doc_mult = 1.0
-            doc_unit = "crore"
+        _UNIT_MILLION_RE = r"(?:in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?|\([\{\[\*a-z0-9\|%\s]{0,8}in\s*m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?[^\)\n]*\)|(?:rs\.?|inr|n|r|z|a)\s*(?:in\s*)?m[il1]{1,2}[lr1]{0,2}[il1][co][nr]s?\b)"
+        _UNIT_LAKH_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*l(?:[an]khs?|acs?)\)|(?:\b[ztf%]{1,2}|\brs\.?|\binr)\s*in\s*l(?:[an]khs?|acs?)\b|\bin\s+l(?:[an]khs?|acs?)\b|\bl(?:[an]khs?|acs?)\s*(?:except|unless)\b|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex)"
+        _UNIT_CRORE_RE = r"(?:\([a-z%tflz\?\'\s]{0,5}in\s*cr[o0]ree?s?\)|\b(?:rs\.?|inr|z|t|f)\s*(?:in|ln)?\s*cr[o0]ree?s?\b|\b(?:in|ln)\s*cr[o0]ree?s?\b|<n\s*crore|\bcr[o0]res?\s*(?:except|unless)\b)"
 
         # Phase 2: Lightweight document-wide text pre-scan & candidate scoring
         # Enforces Safeguard A: Multi-signal weighted scoring under strict bounded budget
         page_scores: List[Tuple[int, int, ConsolidationType]] = []
+        garbled_pages: Set[int] = set()
+        non_pnl_pages: Set[int] = set()
         zero_text_page_count = 0
 
         def _is_scanned_or_sig_only(txt: str) -> bool:
@@ -1044,7 +1211,7 @@ class ExchangePdfParser:
 
         t_prescan_start = time.time()
         for p_idx in range(max_scan_pages):
-            if p_idx not in cached_page_texts and (time.time() - t_prescan_start > 10.0 or time.time() - t_parse_start > 16.0):
+            if p_idx not in cached_page_texts and (time.time() - t_prescan_start > 15.0 or time.time() - t_parse_start > 22.0):
                 logger.debug(f"[PDF_PARSER] {symbol}: Pre-scan reached budget at page {p_idx+1}/{total_doc_pages}. Proceeding with scored pages.")
                 break
             p_text = cached_page_texts.get(p_idx)
@@ -1053,18 +1220,40 @@ class ExchangePdfParser:
                 if _is_char_fragmented(p_text):
                     lay_t = _safe_extract_text(reader.pages[p_idx], timeout=3.5, extraction_mode="layout", pdf_path=tmp_pdf_path, page_idx=p_idx)
                     if lay_t and len(lay_t.strip()) >= 50:
-                        p_text = lay_t
+                        p_t_clean = lay_t
+                        p_text = p_t_clean
                 cached_page_texts[p_idx] = p_text
             if _is_scanned_or_sig_only(p_text):
                 zero_text_page_count += 1
             sc, b = score_page_content(p_text)
-            if sc >= 45:
+            if sc < 0:
+                non_pnl_pages.add(p_idx)
+            elif _is_garbled_embedded_ocr(p_text):
+                garbled_pages.add(p_idx)
+                # Garbled financial-statement pages (e.g. broken scanner OCR overlay or rotated P&L table)
+                # must jump ahead of blank/trailing pages for clean 200 DPI OSD RE_OCR.
+                if p_idx >= 1 or "financial result" in (p_text or "").lower():
+                    p_low_hdr = (p_text or "").lower()[:600]
+                    boost_sc = 85 if ("statement of" in p_low_hdr or "financial result" in p_low_hdr) else 60
+                    sc = max(sc, boost_sc)
+            if sc >= 30:
                 page_scores.append((p_idx, sc, b))
+
+        doc_sample_text = "\n".join(cached_page_texts.get(p, "") or "" for p in range(max_scan_pages))
+        if re.search(_UNIT_MILLION_RE, doc_sample_text, re.I):
+            doc_mult = 0.1
+            doc_unit = "million"
+        elif re.search(_UNIT_LAKH_RE, doc_sample_text, re.I):
+            doc_mult = 0.01
+            doc_unit = "lakh"
+        elif re.search(_UNIT_CRORE_RE, doc_sample_text, re.I):
+            doc_mult = 1.0
+            doc_unit = "crore"
 
         _rev_kws = (
             "revenue from operations", "net sales", "total income", "income from operations",
             "interest earned", "interest income", "total revenue", "premium earned", "insurance revenue",
-            "first year premium", "renewal premium",
+            "net premium income", "gross premium income", "first year premium", "renewal premium",
         )
         _auditor_markers = (
             "independent auditor", "limited review", "review report", "auditor's report",
@@ -1094,27 +1283,28 @@ class ExchangePdfParser:
             logger.info(f"⏭️ [PDF_PARSER] {symbol}: Skipping non-financial Reg 30 announcement.")
             return []
 
-        # Scanned Image PDF / Hybrid Scanned Document Early Detection & OCR Fallback:
-        # Never spend OCR budget if digital pages ALREADY scored >= 70 (real digital statements present!)
+        # Candidate selection (Safeguard A): prioritize digital/text statement pages FIRST in <1s
+        # before falling back to Tesseract OCR for any missing scanned or garbled pages.
         doc_total_chars = sum(0 if _is_scanned_or_sig_only(t) else len(t.strip()) for t in cached_page_texts.values())
         has_digital_rev_page = any(
             any(k in (cached_page_texts.get(p, "")).lower() for k in _rev_kws)
-            for p, sc, _ in page_scores if sc >= 70
+            for p, sc, _ in page_scores if sc >= 55
         )
         is_pure_scanned = bool(doc_total_chars < 150 and zero_text_page_count >= max(1, len(cached_page_texts)))
-        is_hybrid_scanned = bool(zero_text_page_count >= 2 and not has_digital_rev_page)
         ocr_attempted_pages: Set[int] = set()
 
-        if (is_pure_scanned or is_hybrid_scanned) and _OCR_AVAILABLE and (time.time() - t_parse_start < 45.0):
+        # Defer bulky Phase 2 pre-OCR until after fast digital pages are attempted (prevents burning 189s on digital+cover hybrid PDFs like SBILIFE);
+        # Only run up-front Phase 2 OCR when document has zero usable digital revenue pages.
+        if is_pure_scanned and _OCR_AVAILABLE and (time.time() - t_parse_start < 45.0):
             ocr_recovered = False
             try:
                 scan_candidates = [p for p in range(min(14, total_doc_pages)) if _is_scanned_or_sig_only(cached_page_texts.get(p, ""))]
                 # Scan statement pages starting from page 2 (p>=1) before cover letter (p=0)
                 scan_candidates.sort(key=lambda p: (0 if p >= 1 else 1, p))
-                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:8])} scanned image pages (hybrid={is_hybrid_scanned})...")
+                logger.info(f"🔍 [PDF_PARSER: OCR_ATTEMPT] {symbol}: Attempting OCR extraction on {len(scan_candidates[:10])} scanned image pages (pure_scanned=True)...")
                 t_ocr_start = time.time()
                 _ocr_rev_pages = 0
-                for p_idx in scan_candidates[:8]:
+                for p_idx in scan_candidates[:10]:
                     if time.time() - t_ocr_start > 75.0 or time.time() - t_parse_start > 95.0:
                         logger.debug(f"[PDF_PARSER: OCR] {symbol}: OCR prescan reached budget at page {p_idx+1}. Breaking.")
                         break
@@ -1152,10 +1342,10 @@ class ExchangePdfParser:
                         if _is_aud:
                             continue
                         sc, b = score_page_content(ocr_page_text)
-                        if sc >= 30:
+                        if sc >= 25:
                             page_scores.append((p_idx, sc, b))
                             ocr_recovered = True
-                            if _has_rev and sc >= 60:
+                            if _has_rev and sc >= 50:
                                 _ocr_rev_pages += 1
                                 if _ocr_rev_pages >= 2:
                                     break
@@ -1164,7 +1354,7 @@ class ExchangePdfParser:
             except Exception as _ocr_err:
                 logger.debug(f"[PDF_PARSER: OCR] {symbol} OCR attempt note: {_ocr_err}")
 
-            if is_pure_scanned and not ocr_recovered:
+            if not ocr_recovered:
                 if hasattr(self, "last_failure_reason"):
                     self.last_failure_reason[symbol] = (
                         "PDF_CANNOT_BE_READ",
@@ -1176,33 +1366,40 @@ class ExchangePdfParser:
                 )
                 return []
 
-        # Candidate selection (Safeguard A): prioritize pages containing revenue keywords first,
-        # then statement pages (p>=1) ahead of cover letter (p=0), in descending score order.
+        # Candidate selection (Safeguard A): prioritize clean digital revenue P&L pages FIRST,
+        # then garbled P&L statement pages for fresh RE_OCR, then other statement pages (p>=1), in descending score order.
+        # Strictly exclude pages already identified in pre-scan as Cover/Auditor/CashFlow/BalanceSheet/Notes (non_pnl_pages).
         candidate_page_indices: List[int] = []
         _sorted_scores = sorted(
             page_scores,
             key=lambda x: (
-                0 if any(k in (cached_page_texts.get(x[0], "")).lower() for k in _rev_kws) else 1,
+                0 if (x[0] not in garbled_pages and any(k in (cached_page_texts.get(x[0], "")).lower() for k in _rev_kws)) else 1,
                 0 if x[0] >= 1 else 1,
                 -x[1],
             ),
         )
         for p_idx, sc, b in _sorted_scores:
-            if p_idx not in candidate_page_indices:
+            if p_idx not in non_pnl_pages and p_idx not in candidate_page_indices:
                 candidate_page_indices.append(p_idx)
         for p_idx, sc, b in _sorted_scores:
-            if p_idx + 1 < total_doc_pages and (p_idx + 1) not in candidate_page_indices:
+            if p_idx + 1 < total_doc_pages and (p_idx + 1) not in non_pnl_pages and (p_idx + 1) not in candidate_page_indices:
                 candidate_page_indices.append(p_idx + 1)
 
-        # Always append unvisited pages 2..14 (then page 1) as tail fallback, visiting any cached
-        # page with revenue keywords first so non-P&L pages cannot starve the parse budget.
-        _fallback_end = min(14, total_doc_pages)
+        # Append remaining scanned/unscored pages (2..max_scan_pages, then page 1), preferring pages right after
+        # Auditor Reports (which often precede scanned P&L tables) and completely excluding known Cover/Auditor/CF/BS/Notes pages.
+        _fallback_end = min(max_scan_pages, total_doc_pages)
         _tail_pages = [
             _fp for _fp in (list(range(1, _fallback_end)) + ([0] if _fallback_end > 0 else []))
-            if _fp not in candidate_page_indices
+            if _fp not in candidate_page_indices and _fp not in non_pnl_pages
         ]
         _tail_pages.sort(
-            key=lambda fp: (0 if any(k in (cached_page_texts.get(fp, "")).lower() for k in _rev_kws) else 1, fp)
+            key=lambda fp: (
+                0 if fp in garbled_pages else 1,
+                0 if any(k in (cached_page_texts.get(fp, "")).lower() for k in _rev_kws) else 1,
+                0 if (fp > 0 and any(m in (cached_page_texts.get(fp - 1, "")).lower()[:1200] for m in _auditor_markers)) else 1,
+                0 if len((cached_page_texts.get(fp, "") or "").strip()) < 250 else 1,
+                fp,
+            )
         )
         candidate_page_indices.extend(_tail_pages)
 
@@ -1210,7 +1407,7 @@ class ExchangePdfParser:
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
             _p3_elapsed = time.time() - t_start
-            if (records and _p3_elapsed > 15.0) or _p3_elapsed > 55.0 or (_p3_elapsed > 40.0 and time.time() - t_parse_start > 110.0):
+            if (records and _p3_elapsed > 25.0) or _p3_elapsed > 105.0 or (_p3_elapsed > 85.0 and time.time() - t_parse_start > 140.0):
                 if records:
                     logger.info(
                         f"✅ [PDF_PARSER] {symbol}: Extracted {len(records)} record(s); "
@@ -1239,15 +1436,16 @@ class ExchangePdfParser:
                         text = lay_t
                 cached_page_texts[page_idx] = text
 
-            # Fast Digital Text First Invariant (with on-demand OCR fallback when no P&L record extracted yet)
+            # Fast Digital Text First Invariant (with on-demand OCR fallback for scanned pages when digital didn't yield both statements yet)
             if _is_scanned_or_sig_only(text):
-                if (not records) and (not has_digital_rev_page) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 35.0 and (time.time() - t_parse_start < 85.0):
+                if (not (has_cons and has_std)) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 90.0 and (time.time() - t_parse_start < 130.0):
                     try:
+                        ocr_attempted_pages.add(page_idx)
                         _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
                         if _p3_img is not None:
-                            if _p3_img.width > 1600 or _p3_img.height > 2000:
-                                _p3_img.thumbnail((1600, 2000))
-                            _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=10.0)
+                            if _p3_img.width > 1800 or _p3_img.height > 2200:
+                                _p3_img.thumbnail((1800, 2200))
+                            _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=12.0)
                             if _p3_ocr and not _is_scanned_or_sig_only(_p3_ocr):
                                 text = _p3_ocr.strip()
                                 cached_page_texts[page_idx] = text
@@ -1256,13 +1454,15 @@ class ExchangePdfParser:
                 if _is_scanned_or_sig_only(text):
                     continue
 
+            _was_garbled_pre_ocr = (page_idx in garbled_pages) or _is_garbled_embedded_ocr(text)
             text = _normalize_ocr_text(text)
             text_lower = text.lower()
             norm_text_lower = re.sub(r"\s+", " ", text_lower)
+            norm_and_lower = norm_text_lower.replace("&", " and ")
 
             # Skip standalone auditor review report or pure prose Notes pages that lack financial statement tables
             first_12_lines = text.split("\n")[:12]
-            header_preamble = " ".join(first_12_lines).lower()
+            header_preamble = " ".join(first_12_lines).lower().replace("&", " and ")
             if any(k in header_preamble for k in ["independent auditor", "auditor's review report", "limited review report", "auditor's report"]):
                 if not any(k in header_preamble for k in ["statement of", "financial results", "unaudited financial", "audited financial"]):
                     continue
@@ -1271,17 +1471,27 @@ class ExchangePdfParser:
                 has_tab_rows = sum(1 for ln in text.split("\n")[:35] if re.match(r"^\s*(?:1\.|i\.|total income|revenue from operations)", ln.strip(), re.I)) >= 2
                 if not has_tab_rows:
                     continue
-            # Pass 1 extracts P&L statements; skip standalone Balance Sheet / Cash Flow / Segment / Auditor pages (handled in Pass 2)
-            _page_head_1500 = norm_text_lower[:1500]
-            _has_pnl_anchor = any(k in norm_text_lower for k in ("revenue from operations", "total income", "profit before tax"))
+            # Pass 1 extracts P&L statements; strictly skip Cover / Balance Sheet / Cash Flow / Segment / Notes / Auditor pages
+            _page_head_1500 = norm_and_lower[:1500]
+            _has_strict_pnl = (
+                any(k in norm_and_lower for k in ("revenue from operations", "interest earned", "total revenue from operations", "net premium income", "net sales"))
+                and any(k in norm_and_lower for k in ("total expenses", "total expenditure", "fotal expenses", "cost of materials", "employee benefits expense"))
+            )
+            if any(k in norm_and_lower for k in (
+                "dear sir", "dear madam", "dear sirs", "yours faithfully", "yours sincerely", "listing department"
+            )) and not _has_strict_pnl and "profit/(loss)" not in norm_and_lower:
+                continue
             if any(k in _page_head_1500 for k in [
-                "statement of assets and liabilities", "assets and liabilities", "balance sheet as at",
-                "statement of cash flows", "cash flows -", "cash flow from operating activities",
-                "cash flows from operating activities", "segment wise information", "segment revenue", "capital employed",
+                "statement of assets and liabilities", "assets and liabilities", "a ts and liabilities", "balance sheet",
+                "non-current assets", "non-current assels", "equity and liabilities",
+                "statement of cash flows", "cash flows -", "cash flow statement",
+                "cash flow from operating activities", "cash flows from operating activities",
+                "cash flows from investing activities", "cash flows from financing activities",
+                "segment wise information", "segment revenue", "capital employed",
             ]):
-                if "profit and loss" not in _page_head_1500 and not _has_pnl_anchor:
+                if "profit and loss" not in _page_head_1500 and not _has_strict_pnl:
                     continue
-            if not _has_pnl_anchor and any(k in _page_head_1500 for k in _auditor_markers):
+            if not _has_strict_pnl and any(k in _page_head_1500 for k in _auditor_markers):
                 continue
 
             # Must contain SEBI Regulation 33 Statement header keywords (or unambiguous P&L table structure when header has OCR typos)
@@ -1292,7 +1502,7 @@ class ExchangePdfParser:
                 any(k in norm_text_lower for k in ("revenue from operations", "total income", "interest income", "gross premium"))
                 and any(k in norm_text_lower for k in ("profit before tax", "profit for the period", "net profit", "profit after tax"))
             )
-            if not is_stmt_header and (page_idx == 0 or records):
+            if not is_stmt_header and (page_idx == 0 or records) and not _was_garbled_pre_ocr:
                 continue
 
             # Must contain actual operational revenue indicators (or banking/NBFC total income / interest income / interest earned)
@@ -1301,30 +1511,36 @@ class ExchangePdfParser:
                 "interest earned", "interest income", "total revenue from operations", "total revenue",
                 "premium earned", "gross premium", "net premium", "insurance revenue", "total insurance revenue",
             )
-            if (not is_stmt_header) or (not any(k in norm_text_lower for k in _rev_indicators)):
-                # Garbled embedded OCR layers (e.g. "lnterest Earned", "Kevenue om oersions") pass len>=50
-                # yet fail keyword matching. Skip cover letters, auditor reports & BS/CF pages before re-rendering.
+            if _was_garbled_pre_ocr or (not is_stmt_header) or (not any(k in norm_text_lower for k in _rev_indicators)):
+                # Garbled embedded OCR layers (e.g. SAMHI, AIMTRON p2, VIDHIING p7-8, rotated SGFIN) pass len>=50
+                # yet contain broken keywords/years/digits. Skip cover letters, auditor reports & BS/CF/Notes before re-rendering.
                 _is_cover_or_auditor = any(
                     k in _page_head_1500
                     for k in (
-                        "dear sir", "dear madam", "listing department", "sub:", "subject:",
+                        "dear sir", "dear madam", "dear sirs", "listing department", "corporate relationship", "sub:", "subject:",
                         "bse limited", "national stock exchange", "exchange plaza", "dalal street",
                         "regulation 30", "outcome of board meeting", "outcome of the board meeting",
                         "yours faithfully", "yours sincerely", "company secretary",
                         "independent auditor", "limited review", "review report", "auditor's report",
                         "sre 2410", "chartered accountants", "udin:", "membership no",
-                        "assets and liabilities", "statement of assets", "total assets", "equity and liabilities",
+                        "assets and liabilities", "a ts and liabilities", "statement of assets", "total assets",
+                        "non-current assets", "non-current assels", "equity and liabilities",
                         "cash flow from operating", "cash flows from operating", "statement of cash flow",
+                        "cash flow statement", "cash flows from investing", "cash flows from financing",
                         "cash flor", "operating activit", "adjustments for:",
-                        "annexure 1", "additional disclosures", "regulation 52(4)",
-                        "notes to the unaudited", "notes to the audited", "notes to statement",
+                        "annexure 1", "annexure i", "annexure -", "additional disclosures", "additiona i d",
+                        "regulation 52(4)", "regul.uon", "regulation 32", "deviation or variation",
+                        "notes to the unaudited", "notes to the audited", "notes to statement", "note to the statement",
+                        "chief operating decision maker", "reviewed by the audit committee",
                         "the above standalone financial results", "the above consolidated financial results",
                         "prepared in accordance with indian accounting standards", "not66 to th",
                     )
-                )
+                ) and not _was_garbled_pre_ocr
                 _re_ocr_ok = False
-                if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 35.0):
+                if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 75.0) and (time.time() - t_parse_start < 130.0):
                     try:
+                        ocr_attempted_pages.add(page_idx)
+                        _fresh_ocr = ""
                         _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=10.0, dpi=200)
                         if _comp_img is not None:
                             if _comp_img.width > 2200 or _comp_img.height > 2600:
@@ -1335,10 +1551,11 @@ class ExchangePdfParser:
                                 text_lower = text.lower()
                                 norm_text_lower = re.sub(r"\s+", " ", text_lower)
                                 cached_page_texts[page_idx] = text
+                                _re_norm_and = norm_text_lower.replace("&", " and ")
                                 _re_is_non_pnl = any(
-                                    k in norm_text_lower[:1500]
-                                    for k in ("cash flow from operating", "cash flows from operating", "assets and liabilities", "total assets", "independent auditor", "limited review")
-                                ) and "revenue from operations" not in norm_text_lower
+                                    k in _re_norm_and[:1500]
+                                    for k in ("cash flow from operating", "cash flows from operating", "statement of cash flow", "assets and liabilities", "total assets", "independent auditor", "limited review", "dear sir", "dear madam")
+                                ) and "revenue from operations" not in _re_norm_and and "interest earned" not in _re_norm_and
                                 _re_ocr_ok = (not _re_is_non_pnl) and any(k in norm_text_lower for k in _rev_indicators)
                             logger.info(
                                 f"🔄 [PDF_PARSER: RE_OCR] {symbol} p{page_idx+1}: ok={_re_ocr_ok}, chars={len(_fresh_ocr or '')}"
@@ -1366,33 +1583,29 @@ class ExchangePdfParser:
             mult = doc_mult
             unit = doc_unit
             explicit_unit = False
-            header_text = "\n".join(text.split("\n")[:25])
-            _lakh_pat = r"in\s*lakhs?|in\s*lnkhs|in\s*lacs|lacs|lakhs|(?:\([zt\?]?\s*in\s*l[an]khs\))|(?:\([zt\?]?\s*in\s*lacs\))|inr\s*in\s*lakhs?|(?:\bin\s+|/\s*\d*\s*)luc[,\.\s]|luc[^\w\n]{0,4}ex"
-            # Fix: Extended _crore_pat to catch OCR variants like "ln Croree" (VENUSREM: "Rs. ln Croree except EPS")
-            # "ln" is OCR for "in"; "Croree" is OCR for "Crore" → must map to mult=1.0
-            _crore_pat = r"in\s*crores?|rs\.?\s*in\s*crores?|\(in\s*crores?\)|<n\s*crore|(?:in|\bin|\bln|rs\.?\s*(?:in|ln))\s*cr[o0]ree?s?"
-            if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", header_text, re.I):
+            header_text = "\n".join(text.split("\n")[:28])
+            if re.search(_UNIT_MILLION_RE, header_text, re.I):
                 mult = 0.1  # 1 Million = 0.1 Crore (10 Lakhs)
                 unit = "million"
                 explicit_unit = True
-            elif re.search(_lakh_pat, header_text, re.I):
+            elif re.search(_UNIT_LAKH_RE, header_text, re.I):
                 mult = 0.01  # 1 Lakh = 0.01 Crore
                 unit = "lakh"
                 explicit_unit = True
-            elif re.search(_crore_pat, header_text, re.I):
+            elif re.search(_UNIT_CRORE_RE, header_text, re.I):
                 mult = 1.0
                 unit = "crore"
                 explicit_unit = True
             else:
-                if re.search(r"in\s*millions?|\(in\s*millions?\)|rs\.?\s*in\s*millions?", text, re.I):
+                if re.search(_UNIT_MILLION_RE, text, re.I):
                     mult = 0.1
                     unit = "million"
                     explicit_unit = True
-                elif re.search(_lakh_pat, text, re.I):
+                elif re.search(_UNIT_LAKH_RE, text, re.I):
                     mult = 0.01
                     unit = "lakh"
                     explicit_unit = True
-                elif re.search(_crore_pat, text, re.I):
+                elif re.search(_UNIT_CRORE_RE, text, re.I):
                     mult = 1.0
                     unit = "crore"
                     explicit_unit = True
@@ -1518,30 +1731,32 @@ class ExchangePdfParser:
             equity_cap: Optional[float] = None
             total_equity: Optional[float] = None
 
-            # Detect column headers for multi-column tables
+            # Detect column headers for multi-column tables (never match phone/fax numbers like 91-44-22!)
             col_idx = 0
             num_cols = 1
-            for line in text.split("\n"):
-                dm = re.findall(r"([0-9'\`~>]{2}[\.,/-](?:[A-Za-z]{3}|\d{2})[\.,/-](?:20)?\d{2})", line)
-                if dm and len(dm) >= 2:
-                    num_cols = len(dm)
-                    col_idx = 0
-                    break
+            best_date_cols = 1
+            for line in text.split("\n")[:30]:
+                # Require valid calendar day (01-31), valid month (01-12 or 3-letter month), and year (2015-2035 or 15-35)
+                dm = re.findall(
+                    r"(?<![+\d-])((?:0?[1-9]|[12]\d|3[01])[\./-](?:0?[1-9]|1[0-2]|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\./-](?:20)?(?:1\d|2\d|3[0-5]))\b",
+                    line,
+                    re.I,
+                )
+                if len(dm) > best_date_cols:
+                    best_date_cols = len(dm)
+            if best_date_cols >= 2:
+                num_cols = min(best_date_cols, 8)
+                col_idx = 0
 
             # Word date headers check (e.g. "September 30, June 30, September 30, ...")
-            if num_cols == 1:
-                months_pat = r"\b(?:jan[a-z]*|feb[a-z]*|mar[a-z]*|apr[a-z]*|may|june?|july?|aug[a-z]*|sep[a-z]*|oct[a-z]*|nov[a-z]*|dec[a-z]*)\b"
-                for line in text.split("\n")[:20]:
-                    m_matches = re.findall(months_pat, line, re.I)
-                    if len(m_matches) >= 2:
-                        num_cols = len(m_matches)
-                        col_idx = 0
-                        break
-                    y_matches = re.findall(r"\b202\d\b", line)
-                    if len(y_matches) >= 2:
-                        num_cols = len(y_matches)
-                        col_idx = 0
-                        break
+            months_pat = r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b"
+            for line in text.split("\n")[:25]:
+                m_matches = re.findall(months_pat, line, re.I)
+                if len(m_matches) > num_cols:
+                    num_cols = min(len(m_matches), 8)
+                y_matches = re.findall(r"\b202\d\b", line)
+                if len(y_matches) > num_cols:
+                    num_cols = min(len(y_matches), 8)
 
             # Expand lines if multiple table rows were concatenated without newlines
             raw_lines = []
@@ -1551,49 +1766,28 @@ class ExchangePdfParser:
                     if sl:
                         raw_lines.append(sl)
 
-            # Infer num_cols from counts of row values if date header regex didn't catch multiple columns
-            if num_cols == 1:
-                col_counts = []
-                for line in raw_lines:
-                    line_clean = re.sub(r'pro\s+fit', 'profit', line, flags=re.I)
-                    line_clean = re.sub(r'[·•]', '', line_clean)
-                    line_clean = re.sub(r"\(\s*[\d\wIVivxX]+\s*[-+*/\s]\s*[\d\wIVivxX]+\s*\)", "", line_clean.strip())
-                    low = re.sub(r"\s+", " ", line_clean.lower())
-                    if any(k in low for k in ["revenue from operations", "total revenue", "total income", "profit for the period", "profit after tax", "net profit"]):
-                        tokens = line_clean.split()
-                        nums = [_clean_token_number(t) for t in tokens if _clean_token_number(t) is not None]
-                        if len(nums) in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12):
-                            col_counts.append(len(nums))
-                if col_counts:
-                    from collections import Counter
-                    num_cols = Counter(col_counts).most_common(1)[0][0]
-                    col_idx = 0
-
-            if col_idx is None:
-                col_idx = 0
-
-            # Strategy A: Line-by-line inspection (Standard inline tables where numbers are adjacent to row label)
-            for line in raw_lines:
-                line_str = line.strip()
-                # Strip formula equations like (7-8), (1+2) and note refs like (Refer Note 4)
-                line_clean = re.sub(r"\(\s*[\d\wIVivxX]+\s*[-+*/\s]\s*[\d\wIVivxX]+\s*\)", "", line_str)
-                line_clean = re.sub(r"\(\s*refer\s+notes?[^\)]*\)", "", line_clean, flags=re.I)
-                line_clean = re.sub(r"(\d+,\d{2})\s+(\d)\s+(\d{2}\b)", r"\1\2.\3", line_clean)
-                line_clean = re.sub(r"(\d,\d{3})\s+(\d{2}\b)", r"\1.\2", line_clean)
-                line_clean = re.sub(r"(\d{2}),(\d{3})(\d{2}\b)", r"\1,\2.\3", line_clean)
-                norm = re.sub(r"\s+", " ", line_clean)
-                norm = re.sub(r"\b[l|1iI](total|income|revenue|other|profit|expenses)\b", r"\1", norm, flags=re.I)
-                norm = re.sub(r"([a-z])([A-Z])", r"\1 \2", norm)
-                l_clean = re.sub(r"[,;:\.']rofit", "profit", norm, flags=re.I)
-                l_clean = re.sub(r"\b[no]rofit\b", "profit", l_clean, flags=re.I)
-                l_clean = re.sub(r"\bnet profit[!/|]\s*\(loss\)", "net profit / (loss)", l_clean, flags=re.I)
-                line_lower = l_clean.lower()
-                tokens = l_clean.split()
-                if not tokens:
-                    continue
-
-                nums = []
-                for t in tokens:
+            def _extract_row_nums(line_str_val: str) -> Tuple[str, List[float]]:
+                """Normalizes a table row, strips serial/formula tokens, and extracts column values."""
+                lc = re.sub(r"\(\s*(?:\d{1,2}|[IVXivx]{1,4}|[A-Za-z])\s*[-+*/]\s*(?:\d{1,2}|[IVXivx]{1,4}|[A-Za-z])(?:\s*[-+*/]\s*(?:\d{1,2}|[IVXivx]{1,4}|[A-Za-z]))*\s*\)", "", line_str_val)
+                lc = re.sub(r"\[\s*(?:\d{1,2}|[IVXivx]{1,4}|[a-zA-Z])[^\]]{0,25}\]", "", lc)
+                lc = re.sub(r"\(\s*refer\s+notes?[^\)]*\)", "", lc, flags=re.I)
+                lc = re.sub(r"(\d+,\d{2})\s+(\d)\s+(\d{2}\b)", r"\1\2.\3", lc)
+                lc = re.sub(r"(\d+,\d{3})\s+(\d{2})(?=\s|$|\))", r"\1.\2", lc)
+                lc = re.sub(r"(?<![\d\.])(\d{1,2})\.(\d{3})\s+(\d{2})(?=\s|$|\))", r"\1,\2.\3", lc)
+                lc = re.sub(r"(\d{2}),(\d{3})(\d{2}\b)", r"\1,\2.\3", lc)
+                nm = re.sub(r"\s+", " ", lc)
+                nm = re.sub(r"\b[l|1iI](total|income|revenue|other|profit|expenses)\b", r"\1", nm, flags=re.I)
+                nm = re.sub(r"([a-z])([A-Z])", r"\1 \2", nm)
+                l_cl = re.sub(r"[,;:\.']rofit", "profit", nm, flags=re.I)
+                l_cl = re.sub(r"\b[l1iI']?['`]?rofi[tl]\b", "profit", l_cl, flags=re.I)
+                l_cl = re.sub(r"\b[no]rofit\b", "profit", l_cl, flags=re.I)
+                l_cl = re.sub(r"\bnet profit[!/|]\s*\(loss\)", "net profit / (loss)", l_cl, flags=re.I)
+                toks = l_cl.split()
+                if not toks:
+                    return l_cl.lower(), []
+                extracted: List[float] = []
+                extracted_raw: List[str] = []
+                for t in toks:
                     if t.count(".") >= 2:
                         continue
                     t_digits = re.sub(r"[,()\s]", "", t)
@@ -1603,21 +1797,97 @@ class ExchangePdfParser:
                     if cl_val is not None:
                         if (not re.search(r"\d,\d", t)) and ("." not in t or t.endswith(".")) and 2020 <= cl_val <= 2030 and abs(cl_val - int(cl_val)) < 1e-6:
                             continue
-                        nums.append(cl_val)
+                        extracted.append(cl_val)
+                        extracted_raw.append(t)
+                # Strip leading serial item number (e.g. "1 Total income ...", "9 Net profit ...")
+                first_tok = toks[0].strip(".)][(")
+                if first_tok.isdigit() and extracted and abs(extracted[0] - int(first_tok)) < 1e-6 and int(first_tok) <= 35:
+                    extracted = extracted[1:]
+                elif len(toks) >= 2 and toks[1].strip(".)][(").isdigit():
+                    sec_tok = toks[1].strip(".)][(")
+                    if extracted and abs(extracted[0] - int(sec_tok)) < 1e-6 and int(sec_tok) <= 35 and "." not in toks[1]:
+                        extracted = extracted[1:]
+                return l_cl.lower(), extracted
 
+            # Infer true table column count from actual multi-column P&L rows (prevents OCR-dropped header dates
+            # like 30062026 / 30-Se p-25 from shrinking num_cols from 6 to 5/3 and shifting Col 0 rightwards!)
+            from collections import Counter
+            row_col_counts = []
+            max_pnl_table_num = 0.0
+            for _rl in raw_lines:
+                _rl_low, _rl_nums = _extract_row_nums(_rl.strip())
+                if _rl_nums:
+                    max_pnl_table_num = max(max_pnl_table_num, max(abs(x) for x in _rl_nums))
+                if any(k in _rl_low for k in [
+                    "revenue from operations", "total revenue from operations", "interest earned",
+                    "total income", "total expenses", "profit before tax",
+                    "profit for the period", "profit after tax", "net profit", "net premium income"
+                ]) and 2 <= len(_rl_nums) <= 8:
+                    row_col_counts.append(len(_rl_nums))
+            if row_col_counts:
+                row_mode_cols = Counter(row_col_counts).most_common(1)[0][0]
+                if row_mode_cols > num_cols:
+                    num_cols = row_mode_cols
+                col_idx = 0
+
+            if col_idx is None:
+                col_idx = 0
+
+            # Priority guards so aggregate P&L rows ("Total revenue from operations", "Net profit for the period")
+            # override sub-items ("Interest income", "Net profit attributable") even if a sub-row appears earlier/later
+            rev_is_exact_total = False
+            pat_priority = 0  # 1 = generic match, 2 = explicit period PAT match
+            pat_raw_tok_had_no_dot = False
+
+            _PAT_EXCLUDE_KWS = [
+                "other comprehensive", "total comprehensive", "before", "operating", "attributable",
+                "share of profit", "share of net profit", "share of loss", "jointly controlled",
+                "joint venture", "associates", "associate", "non-controlling", "non controlling",
+                "minority interest", "on sale of", "disposal of", "fixed asset", "property",
+                "investment", "subsidiar", "per share", "margin", "ratio", "carried to",
+                "appropriat", "capital gain", "net of amorti", "amortisation", "retained",
+                "discontinued",
+            ]
+
+            # Strategy A: Line-by-line inspection (Standard inline tables where numbers are adjacent to row label)
+            for _line_i, line in enumerate(raw_lines):
+                line_str = line.strip()
+                line_lower, nums = _extract_row_nums(line_str)
+                # Next-line numeric alignment recovery: if label row has 0 nums (e.g. M&MFIN "XI profit / (loss) for the period"
+                # followed immediately by numbers on the next line before OCI numbers), peek at raw_lines[_line_i + 1].
+                if not nums and _line_i + 1 < len(raw_lines) and not any(k in line_lower for k in _PAT_EXCLUDE_KWS):
+                    if any(k in line_lower for k in [
+                        "profit / (loss) for the period", "profit/(loss) for the period", "profit for the period",
+                        "profit after tax", "total revenue from operations", "revenue from operations", "total income"
+                    ]):
+                        _, _next_nums = _extract_row_nums(raw_lines[_line_i + 1].strip())
+                        if len(_next_nums) >= max(2, num_cols if num_cols >= 2 else 2):
+                            nums = _next_nums
+                            line_str = f"{line_str} {raw_lines[_line_i + 1].strip()}"
                 if not nums:
                     continue
 
+                # Repair kerning-split single-digit Indian decimal pair (e.g. "5,053.64" -> "5.05 3.64" in TATASTEEL P11)
+                # ONLY when len(nums) == num_cols + 1, first two are < 10.0 decimals, and remaining columns are >= 100.0
+                if (
+                    num_cols >= 4
+                    and len(nums) == num_cols + 1
+                    and 0.0 < nums[0] < 10.0
+                    and 0.0 < nums[1] < 10.0
+                    and all(abs(x) >= 100.0 for x in nums[2:])
+                    and not any(ek in line_lower for ek in ("eps", "earnings per", "ratio", "margin", "tax"))
+                ):
+                    m_sp = re.search(r"(?<![\d\.])(\d)\.(\d{2})\s+(\d)\.(\d{2})(?=\s|$)", line_str)
+                    if m_sp:
+                        rejoined = float(f"{m_sp.group(1)}{m_sp.group(2)}{m_sp.group(3)}.{m_sp.group(4)}")
+                        nums = [rejoined] + nums[2:]
+
                 # Skip prose narrative sentences that happen to mention financial keywords & 1 note figure (e.g. INTELLECT Notes p8)
-                if len(line_clean) > 160 and len(nums) <= 2:
+                if len(line_str) > 160 and len(nums) <= 2:
                     continue
 
-                first_t = tokens[0].strip(".)][(")
-                if first_t.isdigit():
-                    if len(nums) == 1:
-                        continue
-                    else:
-                        nums = nums[1:]
+                if len(line_str.split()) > 0 and line_str.split()[0].strip(".)][(").isdigit() and len(nums) == 0:
+                    continue
 
                 # Skip gross revenue when net revenue is reported
                 if "(gross)" in line_lower and "net" not in line_lower:
@@ -1632,11 +1902,25 @@ class ExchangePdfParser:
                 else:
                     continue
 
-                if rev_from_ops is None and any(k in line_lower for k in [
-                    "revenue from operations", "total revenue from operations", "net sales", "interest income",
-                    "premium earned", "gross premium written", "net premium written", "total insurance revenue", "insurance revenue"
-                ]) and not any(k in line_lower for k in ["total income", "comprehensive", "expenses", "cash flow"]):
-                    rev_from_ops = last_val * mult
+                # Reject detached serial/note integers (e.g. PyPDF2 SBILIFE "Net premium income 1") when page has large financial figures
+                is_stray_small_int = (len(nums) == 1 and num_cols >= 3 and abs(last_val) <= 25.0 and abs(last_val - int(last_val)) < 1e-6 and max_pnl_table_num >= 500.0)
+                if is_stray_small_int:
+                    continue
+
+                is_exact_rev_total = any(k in line_lower for k in [
+                    "total revenue from operations", "revenue from operations", "net sales",
+                    "interest earned", "net premium income", "total insurance revenue", "insurance revenue"
+                ])
+                is_sub_rev = any(k in line_lower for k in [
+                    "interest income", "premium earned", "gross premium written",
+                    "net premium written", "gross premium income"
+                ])
+
+                if (is_exact_rev_total or is_sub_rev) and not any(k in line_lower for k in ["total income", "comprehensive", "expenses", "cash flow", "other income", "less:"]):
+                    if rev_from_ops is None or (is_exact_rev_total and not rev_is_exact_total):
+                        rev_from_ops = last_val * mult
+                        if is_exact_rev_total:
+                            rev_is_exact_total = True
 
                 elif other_income is None and "other income" in line_lower and not any(k in line_lower for k in ["total", "comprehensive", "expenses"]):
                     other_income = last_val * mult
@@ -1651,21 +1935,32 @@ class ExchangePdfParser:
                 ]) and not any(k in line_lower for k in ["income", "profit"]):
                     total_expenses = last_val * mult
 
-                elif pat is None and any(k in line_lower for k in [
+                elif (any(k in line_lower for k in [
                     "profit for the period", "profit / (loss) for the period", "profit/(loss) for the period",
                     "profit/ (loss) for the period", "profit i (loss) for the period", "profit | (loss) for the period",
+                    "net profit for the period", "profit after tax", "ordinary activities (after tax)", "ordinary activities after tax",
+                    "net profit / (loss) for the period", "net profit/(loss) for the period",
                     "profit / (loss)", "profit/ (loss)", "profit/(loss)", "profit i (loss)", "profit | (loss)", "profit/ {loss)",
-                    "profit/{loss)", "profit (loss)", "net profit for the period", "profit after tax",
-                    "net profit / (loss)", "net profit/(loss)", "net profit/ (loss)", "net profit"
-                ]) and not any(k in line_lower for k in [
-                    "other comprehensive", "total comprehensive", "before", "operating", "attributable",
-                    "share of profit", "share of net profit", "share of loss", "jointly controlled", "joint venture", "associates"
-                ]):
-                    pat = last_val * mult
+                    "profit/{loss)", "profit (loss)", "net profit / (loss)", "net profit/(loss)", "net profit/ (loss)", "net profit"
+                ]) or ("ordinary activities" in line_lower and "after tax" in line_lower)) and not any(k in line_lower for k in _PAT_EXCLUDE_KWS):
+                    is_high_pat = any(k in line_lower for k in [
+                        "profit for the period", "profit / (loss) for the period", "profit/(loss) for the period",
+                        "profit/ (loss) for the period", "net profit for the period", "profit after tax",
+                        "ordinary activities (after tax)", "ordinary activities after tax",
+                        "net profit / (loss) for the period", "net profit/(loss) for the period"
+                    ]) or ("ordinary activities" in line_lower and "after tax" in line_lower)
+                    cand_p_pri = 2 if is_high_pat else 1
+                    if cand_p_pri > pat_priority:
+                        pat = last_val * mult
+                        pat_priority = cand_p_pri
+                        # Check whether the matched Col 0 value had an omitted decimal point (e.g. MANORAMA "878190")
+                        _raw_int_str = str(int(abs(last_val))) if abs(last_val - int(last_val)) < 1e-6 else ""
+                        pat_raw_tok_had_no_dot = bool(_raw_int_str and len(_raw_int_str) >= 5 and _raw_int_str in line_str and f"{_raw_int_str}." not in line_str)
 
                 elif pbt is None and any(k in line_lower for k in [
                     "profit before tax", "profit / (loss) before tax", "profit/(loss) before tax",
                     "profit/ (loss) before tax", "profit/ (loss) before exceptional", "profit before exceptional",
+                    "profit from continuing operations before tax",
                     "profit i (loss) before tax", "profit / (loss) belore tax"
                 ]):
                     pbt = last_val * mult
@@ -1678,7 +1973,7 @@ class ExchangePdfParser:
 
                 elif eps is None and any(k in line_lower for k in [
                     "basic and diluted", "basic & diluted", "basic (in rupees)", "basic ( ~)", "basic ( `)", "basic eps", "(1) basic", "basic (", "basic(", "basic ", "earnings per share", "earnings per equity share"
-                ]) and not any(k in line_lower for k in ["share capital", "other equity"]):
+                ]) and not any(k in line_lower for k in ["share capital", "other equity", "face value", "nominal value", "each)"]):
                     if 0.0 < last_val < 1000.0:
                         eps = last_val
 
@@ -1692,9 +1987,17 @@ class ExchangePdfParser:
                 ]):
                     total_equity = last_val * mult
 
+            if max_pnl_table_num * mult >= 50.0:
+                if rev_from_ops is not None and rev_from_ops < 1.0:
+                    rev_from_ops = None
+                if total_income is not None and total_income < 1.0:
+                    total_income = None
+                if pat is not None and abs(pat) < 1.0:
+                    pat = None
+
             # Decoupled layout fallback: if standard text failed to resolve both rev and pat,
-            # retry with layout-mode extraction for decoupled tables (e.g. AARTIIND, NATCOPHARM)
-            if (rev_from_ops is None and total_income is None) or pat is None:
+            # retry with layout-mode extraction for decoupled tables (NEVER overwrite fresh RE_OCR text with broken embedded PDF text)
+            if ((rev_from_ops is None and total_income is None) or pat is None) and (page_idx not in ocr_attempted_pages):
                 try:
                     text_lay = _safe_extract_text(page, timeout=4.0, extraction_mode="layout", pdf_path=tmp_pdf_path, page_idx=page_idx)
                     if text_lay and len(text_lay.strip()) >= 50:
@@ -1723,11 +2026,12 @@ class ExchangePdfParser:
                                 continue
 
                             lay_norm = re.sub(r"\s+", " ", lay_low)
-                            if rev_from_ops is None and any(k in lay_norm for k in ["revenue from operations", "total revenue from operations", "net sales", "interest income"]) and not any(k in lay_norm for k in ["total income", "comprehensive", "expenses", "cash flow"]):
-                                rev_from_ops = lay_val * mult
+                            if any(k in lay_norm for k in ["revenue from operations", "total revenue from operations", "net sales", "interest earned", "interest income", "net premium income"]) and not any(k in lay_norm for k in ["total income", "comprehensive", "expenses", "cash flow", "other income", "less:"]):
+                                if rev_from_ops is None or "total revenue" in lay_norm or "interest earned" in lay_norm:
+                                    rev_from_ops = lay_val * mult
                             elif total_income is None and any(k in lay_norm for k in ["total income", "total revenue", "income from operations"]) and not any(k in lay_norm for k in ["total comprehensive", "other comprehensive", "expenses", "cash flow"]):
                                 total_income = lay_val * mult
-                            elif pat is None and any(k in lay_norm for k in ["profit for the period", "profit / (loss) for the period", "profit/(loss) for the period", "profit after tax", "net profit for the period", "net profit / (loss)", "net profit/(loss)", "net profit"]) and not any(k in lay_norm for k in ["other comprehensive", "total comprehensive", "before", "operating", "attributable", "share of profit", "share of net profit", "share of loss", "jointly controlled", "joint venture", "associates"]):
+                            elif pat is None and any(k in lay_norm for k in ["profit for the period", "profit / (loss) for the period", "profit/(loss) for the period", "profit after tax", "net profit for the period", "net profit / (loss)", "net profit/(loss)", "net profit"]) and not any(k in lay_norm for k in _PAT_EXCLUDE_KWS):
                                 pat = lay_val * mult
                             elif pbt is None and any(k in lay_norm for k in ["profit before tax", "profit / (loss) before tax", "profit/(loss) before tax", "profit before exceptional"]):
                                 pbt = lay_val * mult
@@ -1872,10 +2176,11 @@ class ExchangePdfParser:
                                 rev_from_ops = all_cand_nums[0] * mult
 
             # Safeguard C Precedence for Primary Revenue:
-            # Prefer rev_from_ops; fall back to total_income only if rev_from_ops is absent (e.g. Banks/NBFCs)
-            rev = rev_from_ops if rev_from_ops is not None else total_income
-
-
+            # Prefer rev_from_ops; fall back to total_income if rev_from_ops is absent OR looks like a stray tiny integer (e.g. footnote "5.48 Cr") while total_income is large
+            if rev_from_ops is not None and total_income is not None and rev_from_ops < 10.0 and total_income >= 20.0:
+                rev = total_income
+            else:
+                rev = rev_from_ops if rev_from_ops is not None else total_income
 
             # Calculate EBIT: PBT + Finance Costs (if both present)
             if pbt is not None and finance_costs is not None:
@@ -1883,14 +2188,32 @@ class ExchangePdfParser:
             elif pbt is not None:
                 ebit = pbt
 
-            # Sanity check: Accounting cross-check
+            # Sanity check: Accounting cross-check (filter stray small rev BEFORE checking PAT ratio so valid PAT like TATASTEEL 9588 / LTF 968 isn't discarded!)
             if rev is not None and (rev <= 0 or rev > 500_000.0):
                 rev = None
-            if pat is not None and (abs(pat) > 100_000.0 or (rev is not None and rev > 0 and abs(pat) > max(500.0, rev * 5.0))):
+            # Reject decoupled-label tiny serial extractions (e.g. SBILIFE PyPDF2 "Net premium income 1" -> 0.01 Cr on a 24,000 Cr table)
+            if max_pnl_table_num * mult >= 50.0 and (rev is not None and rev < 1.0) and (pat is None or abs(pat) < 1.0):
+                rev = None
+                pat = None
+            if rev is not None and pat is not None and rev < 10.0 and abs(pat) > 50.0:
+                if total_income is not None and total_income >= 10.0 and total_income <= 500_000.0:
+                    rev = total_income
+                else:
+                    # Reject BOTH spurious tiny revenue and reject partial record if no valid revenue exists (lets remaining pages match real P&L!)
+                    logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Rejecting spurious tiny revenue={rev} Cr vs PAT={pat} Cr on page {page_idx+1}")
+                    rev = None
+                    pat = None
+            # PBT conservation guard: PAT cannot exceed positive PBT * 2.5 unless an OCR decimal point was dropped in a whole integer token (e.g. MANORAMA "878190" = 8,781.90)
+            if pbt is not None and pbt > 0 and pat is not None and pat > max(50.0, pbt * 2.5):
+                if pat_raw_tok_had_no_dot and 0.0 < (pat / 100.0) <= pbt * 1.1:
+                    logger.info(f"🔧 [PDF_PARSER] {symbol}: Repaired missing OCR decimal in PAT {pat} -> {round(pat / 100.0, 4)} Cr (bounded by PBT={pbt} Cr)")
+                    pat = round(pat / 100.0, 4)
+                else:
+                    logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Rejecting PAT={pat} Cr inconsistent with PBT={pbt} Cr (rev={rev} Cr)")
+                    pat = None
+            if pat is not None and (abs(pat) > 100_000.0 or (rev is not None and rev > 0 and abs(pat) > max(500.0, rev * 2.5))):
                 logger.warning(f"⚠️ [PDF_PARSER] {symbol}: Rejecting physically implausible PAT={pat} Cr (rev={rev} Cr)")
                 pat = None
-            if rev is not None and pat is not None and rev < 10.0 and pat > 50.0:
-                rev = None
 
             if rev is None and pat is None:
                 continue
@@ -2288,15 +2611,17 @@ class ExchangePdfParser:
                 f"(XML missing on NSE & BSE). Downloading {os.path.basename(att_file)}..."
             )
 
-            downloaded_pdf_count += 1
             pdf_bytes = self.download_pdf(att_file, announcement_metadata=ann)
             if not pdf_bytes:
+                # Record attempted URL even when fetch fails so Step 3 doesn't immediately re-attempt the same dead URL
+                self.last_attempted_urls[sym_u].append(att_file)
                 record_extraction_failure_rca(
                     sym_u,
                     "UNABLE_TO_FETCH",
                     f"PDF not found or download failed from exchange ({os.path.basename(att_file)}).",
                 )
                 continue
+            downloaded_pdf_count += 1
 
             pdf_sha = hashlib.sha256(pdf_bytes).hexdigest()
             hash_key = (sym_u, pdf_sha)

@@ -9409,6 +9409,10 @@ def close_position_atomic(
                     if updated:
                         logger.info(f"💰 ATOMIC POSITION EXITED ({position_source}): {symbol} at ₹{exit_price} | Outcome: {final_st}")
                         insert_notification('sell', 'Position Closed', f'{symbol} ({position_source}) exited at ₹{exit_price} ({final_st}): {exit_reason}', symbol)
+                        try:
+                            invalidate_performance_cache()
+                        except Exception:
+                            pass
                     return updated
         except Exception as e:
             logger.exception(f"❌ Failed atomic position close for {symbol} ({position_source}): {e}")
@@ -10633,12 +10637,18 @@ def cleanup_expired_cooloffs() -> int:
         return 0
 
 
+_SNAP_REBUILD_LOCK = threading.Lock()
+
+
 def check_and_restore_stale_stock(
     symbol: str,
     source: str = "FILING_WATCHER",
     period_end: Optional[str] = None,
     notify_admin: bool = True,
-    force: bool = False
+    force: bool = False,
+    rebuild_snapshot: bool = True,
+    sync_raw_cache: bool = True,
+    clear_health_cache: bool = True,
 ) -> bool:
     """
     [STALE STOCK RESTORATION & UNBLOCKING GATE]
@@ -10776,70 +10786,71 @@ def check_and_restore_stale_stock(
 
     # 4. Check & update canonical snapshot if marked STALE or having fiscal gaps
     # (Skip if called directly from canonical snapshot publisher or rebuild, which already wrote/published the fresh canonical file)
-    if source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+    if rebuild_snapshot and source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
         try:
             import pandas as pd
             from pathlib import Path
             import tempfile
             snap_path = Path(__file__).resolve().parent.parent / "data" / "canonical_pit_rebuilt.parquet"
-            if snap_path.exists():
-                snap_df = pd.read_parquet(snap_path)
-                if "symbol" in snap_df.columns:
-                    mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym
-                    if mask.any():
-                        row = snap_df.loc[mask].iloc[0]
-                        snap_status = str(row.get("snapshot_status", "")).upper()
-                        has_gap = bool(row.get("filing_gap_detected", False))
-                        curr_status = str(row.get("pit_freshness_status", "")).upper()
-                        needs_period_update = False
-                        if period_end:
-                            p_end_str = str(period_end)[:10]
-                            if "latest_quarterly_period" in snap_df.columns:
-                                curr_q = str(snap_df.loc[mask, "latest_quarterly_period"].iloc[0] or "")
-                                if p_end_str > curr_q or not curr_q or curr_q == "None":
-                                    needs_period_update = True
-                        if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap or needs_period_update:
-                            was_stale = True
-                            stale_reasons.append(f"Snapshot:{curr_status or 'PERIOD_UPDATE' if needs_period_update else 'GAP'}")
-                            snap_df.loc[mask, "pit_freshness_status"] = "VALID"
-                            if "snapshot_status" in snap_df.columns:
-                                snap_df.loc[mask, "snapshot_status"] = "FRESH"
-                            if "filing_gap_detected" in snap_df.columns:
-                                snap_df.loc[mask, "filing_gap_detected"] = False
+            with _SNAP_REBUILD_LOCK:
+                if snap_path.exists():
+                    snap_df = pd.read_parquet(snap_path)
+                    if "symbol" in snap_df.columns:
+                        mask = snap_df["symbol"].astype(str).str.strip().str.upper() == sym
+                        if mask.any():
+                            row = snap_df.loc[mask].iloc[0]
+                            snap_status = str(row.get("snapshot_status", "")).upper()
+                            has_gap = bool(row.get("filing_gap_detected", False))
+                            curr_status = str(row.get("pit_freshness_status", "")).upper()
+                            needs_period_update = False
                             if period_end:
                                 p_end_str = str(period_end)[:10]
-                                if "latest_annual_period" in snap_df.columns and ("ANNUAL" in str(source).upper() or p_end_str.endswith(("-03-31", "-12-31"))):
-                                    snap_df.loc[mask, "latest_annual_period"] = p_end_str
                                 if "latest_quarterly_period" in snap_df.columns:
                                     curr_q = str(snap_df.loc[mask, "latest_quarterly_period"].iloc[0] or "")
                                     if p_end_str > curr_q or not curr_q or curr_q == "None":
-                                        snap_df.loc[mask, "latest_quarterly_period"] = p_end_str
-                            tmp_fd, tmp_snap = tempfile.mkstemp(
-                                dir=str(snap_path.parent),
-                                prefix=f"stale_rst_{os.getpid()}_",
-                                suffix=".parquet"
-                            )
-                            os.close(tmp_fd)
-                            try:
-                                snap_df.to_parquet(tmp_snap, index=False)
-                                os.replace(tmp_snap, snap_path)
-                            except Exception:
-                                if os.path.exists(tmp_snap):
-                                    try:
-                                        os.remove(tmp_snap)
-                                    except Exception:
-                                        pass
-                                raise
-                            try:
-                                from app.financial_data_integrity import clear_shared_snapshot_cache
-                                clear_shared_snapshot_cache()
-                                clear_canonical_snapshot_cache()
-                            except Exception:
-                                pass
-                            try:
-                                upload_parquet_to_db("canonical_pit_rebuilt", str(snap_path))
-                            except Exception as _up_err:
-                                logger.debug(f"[STALE_RESTORE] DB parquet sync note for {sym}: {_up_err}")
+                                        needs_period_update = True
+                            if curr_status in ("STALE", "DATA_STALE", "PIT_DATA_STALE") or snap_status == "STALE" or has_gap or needs_period_update:
+                                was_stale = True
+                                stale_reasons.append(f"Snapshot:{curr_status or 'PERIOD_UPDATE' if needs_period_update else 'GAP'}")
+                                snap_df.loc[mask, "pit_freshness_status"] = "VALID"
+                                if "snapshot_status" in snap_df.columns:
+                                    snap_df.loc[mask, "snapshot_status"] = "FRESH"
+                                if "filing_gap_detected" in snap_df.columns:
+                                    snap_df.loc[mask, "filing_gap_detected"] = False
+                                if period_end:
+                                    p_end_str = str(period_end)[:10]
+                                    if "latest_annual_period" in snap_df.columns and ("ANNUAL" in str(source).upper() or p_end_str.endswith(("-03-31", "-12-31"))):
+                                        snap_df.loc[mask, "latest_annual_period"] = p_end_str
+                                    if "latest_quarterly_period" in snap_df.columns:
+                                        curr_q = str(snap_df.loc[mask, "latest_quarterly_period"].iloc[0] or "")
+                                        if p_end_str > curr_q or not curr_q or curr_q == "None":
+                                            snap_df.loc[mask, "latest_quarterly_period"] = p_end_str
+                                tmp_fd, tmp_snap = tempfile.mkstemp(
+                                    dir=str(snap_path.parent),
+                                    prefix=f"stale_rst_{os.getpid()}_",
+                                    suffix=".parquet"
+                                )
+                                os.close(tmp_fd)
+                                try:
+                                    snap_df.to_parquet(tmp_snap, index=False)
+                                    os.replace(tmp_snap, snap_path)
+                                except Exception:
+                                    if os.path.exists(tmp_snap):
+                                        try:
+                                            os.remove(tmp_snap)
+                                        except Exception:
+                                            pass
+                                    raise
+                                try:
+                                    from app.financial_data_integrity import clear_shared_snapshot_cache
+                                    clear_shared_snapshot_cache()
+                                    clear_canonical_snapshot_cache()
+                                except Exception:
+                                    pass
+                                try:
+                                    upload_parquet_to_db("canonical_pit_rebuilt", str(snap_path))
+                                except Exception as _up_err:
+                                    logger.debug(f"[STALE_RESTORE] DB parquet sync note for {sym}: {_up_err}")
         except Exception as snap_err:
             logger.debug(f"[STALE_RESTORE] Snapshot status update note for {sym}: {snap_err}")
 
@@ -10853,9 +10864,10 @@ def check_and_restore_stale_stock(
         # [CHANGE-RATIONALE: Suppress Stale Stock Restored UI notifications to avoid spamming admin/user]
 
     try:
-        sync_raw_filings_cache_for_symbol(sym)
-        # Suppress individual cache clearing during bulk rebuild unblocking passes to avoid cascading cold recalculations
-        if source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
+        if sync_raw_cache:
+            sync_raw_filings_cache_for_symbol(sym)
+        # Suppress individual cache clearing during bulk rebuild / non-stale fast checks to avoid cascading cold recalculations
+        if clear_health_cache and was_stale and source not in ("REBUILD_PUBLISH", "CANONICAL_PUBLISHER"):
             clear_unified_stock_data_health_cache()
     except Exception:
         pass
@@ -10866,6 +10878,7 @@ _AUDIT_RAW_FILINGS_CACHE = {}
 _AUDIT_RAW_FILINGS_LAST_SCAN = 0.0
 _AUDIT_RAW_DIR_MTIME = 0.0
 _AUDIT_RAW_LOCK = threading.Lock()
+_AUDIT_MANIFEST_WRITE_LOCK = threading.Lock()
 
 _SEC_MASTER_CACHE = {}
 _SEC_MASTER_MTIME = 0.0
@@ -11175,8 +11188,8 @@ def sync_raw_filings_cache_for_symbol(symbol: str) -> Optional[Dict[str, Any]]:
                 "has_missing_bs": has_missing_bs,
             }
 
+        manifest_p = Path(p_found).parent.parent / "pit_raw_filings_manifest.json"
         with _AUDIT_RAW_LOCK:
-            manifest_p = Path(p_found).parent.parent / "pit_raw_filings_manifest.json"
             if _AUDIT_RAW_FILINGS_CACHE is None or not isinstance(_AUDIT_RAW_FILINGS_CACHE, dict):
                 # Never clobber existing universe manifest when updating a single symbol
                 if manifest_p.exists():
@@ -11192,9 +11205,15 @@ def sync_raw_filings_cache_for_symbol(symbol: str) -> Optional[Dict[str, Any]]:
 
             _AUDIT_RAW_FILINGS_CACHE[sym_u] = parsed_item
             _AUDIT_RAW_FILINGS_LAST_SCAN = time.time()
+            manifest_snapshot = dict(_AUDIT_RAW_FILINGS_CACHE)
+
+        # Write manifest atomically OUTSIDE _AUDIT_RAW_LOCK so /api/admin/stock_data_health never blocks or reads torn JSON
+        with _AUDIT_MANIFEST_WRITE_LOCK:
             try:
-                with open(manifest_p, "w", encoding="utf-8") as _mf:
-                    json.dump(_AUDIT_RAW_FILINGS_CACHE, _mf)
+                tmp_manifest = Path(f"{manifest_p}.tmp.{os.getpid()}.{threading.get_ident()}")
+                with open(tmp_manifest, "w", encoding="utf-8") as _mf:
+                    json.dump(manifest_snapshot, _mf)
+                os.replace(tmp_manifest, manifest_p)
             except Exception:
                 pass
         return parsed_item
@@ -11710,6 +11729,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
 
     r_low = str(reason or "").lower()
     sym_u = str(sym or "").strip().upper()
+    _snap = snap_item if isinstance(snap_item, dict) else {}
 
     # 1. Resolve raw filing periods from memory cache or directly from disk
     raw_info = None
@@ -11748,8 +11768,8 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
                 except Exception:
                     pass
 
-    snap_qtr_val = str(snap_item.get("latest_quarterly_period") or "") if snap_item else ""
-    snap_ann_val = str(snap_item.get("latest_annual_period") or "") if snap_item else ""
+    snap_qtr_val = str(_snap.get("latest_quarterly_period") or "") if _snap else ""
+    snap_ann_val = str(_snap.get("latest_annual_period") or "") if _snap else ""
 
     eff_qtr_val = max(snap_qtr_val, raw_qtr_val) if (snap_qtr_val and raw_qtr_val) else (snap_qtr_val or raw_qtr_val)
     eff_ann_val = max(snap_ann_val, raw_ann_val) if (snap_ann_val and raw_ann_val) else (snap_ann_val or raw_ann_val)
@@ -11766,22 +11786,22 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
         except Exception:
             return False
 
-    has_ev_ebitda = snap_item and (_is_num_valid(snap_item.get("current_ev_ebitda")) or _is_num_valid(snap_item.get("ev_ebitda")))
-    has_pe = snap_item and (_is_num_valid(snap_item.get("current_pe")) or _is_num_valid(snap_item.get("pe")))
-    has_roce = snap_item and (_is_num_valid(snap_item.get("roce_5y_avg")) or _is_num_valid(snap_item.get("roce")))
-    has_de = snap_item and (_is_num_valid(snap_item.get("debt_to_equity")) or _is_num_valid(snap_item.get("d_e")) or (snap_item.get("debt_to_equity") == 0.0))
+    has_ev_ebitda = bool(_snap) and (_is_num_valid(_snap.get("current_ev_ebitda")) or _is_num_valid(_snap.get("ev_ebitda")))
+    has_pe = bool(_snap) and (_is_num_valid(_snap.get("current_pe")) or _is_num_valid(_snap.get("pe")))
+    has_roce = bool(_snap) and (_is_num_valid(_snap.get("roce_5y_avg")) or _is_num_valid(_snap.get("roce")))
+    has_de = bool(_snap) and (_is_num_valid(_snap.get("debt_to_equity")) or _is_num_valid(_snap.get("d_e")) or (_snap.get("debt_to_equity") == 0.0))
     has_valuation = has_ev_ebitda or has_pe
 
-    is_pit_valid = snap_item and (str(snap_item.get("pit_freshness_status") or "").upper() in ("VALID", "FRESH"))
-    no_filing_gap = snap_item and not bool(snap_item.get("filing_gap_detected", False))
+    is_pit_valid = bool(_snap) and (str(_snap.get("pit_freshness_status") or "").upper() in ("VALID", "FRESH"))
+    no_filing_gap = bool(_snap) and not bool(_snap.get("filing_gap_detected", False))
 
-    listing_age = float(snap_item.get("listing_age_years") or 99.0) if snap_item else 99.0
-    has_sales = snap_item and (_is_num_valid(snap_item.get("sales_cagr_5y")) or (listing_age < 5.0))
-    is_base_loss = snap_item and ((snap_item.get("pat_base_year_loss") is True) or (snap_item.get("pat_cagr_5y") == -999.0))
-    has_pat = snap_item and (_is_num_valid(snap_item.get("pat_cagr_5y")) or is_base_loss or (listing_age < 5.0))
-    is_bfsi = snap_item and bool(snap_item.get("is_bfsi", False))
+    listing_age = float(_snap.get("listing_age_years") or 99.0) if _snap else 99.0
+    has_sales = bool(_snap) and (_is_num_valid(_snap.get("sales_cagr_5y")) or (listing_age < 5.0))
+    is_base_loss = bool(_snap) and ((_snap.get("pat_base_year_loss") is True) or (_snap.get("pat_cagr_5y") == -999.0))
+    has_pat = bool(_snap) and (_is_num_valid(_snap.get("pat_cagr_5y")) or is_base_loss or (listing_age < 5.0))
+    is_bfsi = bool(_snap) and bool(_snap.get("is_bfsi", False))
     has_de_or_bfsi = has_de or is_bfsi
-    has_cmp = snap_item and (_is_num_valid(snap_item.get("cmp")) or True) # CMP is a live quote resolved at scan runtime
+    has_cmp = bool(_snap) and (_is_num_valid(_snap.get("cmp")) or True) # CMP is a live quote resolved at scan runtime
 
     # -------------------------------------------------------------------------
     # 0. UNIVERSAL SCANNER DATA COMPLETENESS & FRESHNESS INVARIANT
@@ -11816,13 +11836,13 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
         return True
 
     # If the failure reason was quality recovery data insufficiency and core metrics are present:
-    if "recovery_data_insufficient" in r_low and has_roce and (has_de or snap_item.get("debt_to_equity") is None) and has_valuation:
+    if "recovery_data_insufficient" in r_low and has_roce and (has_de or _snap.get("debt_to_equity") is None) and has_valuation:
         return True
 
     # 1. Structural base year net loss exemptions (mathematically undefined 5Y PAT CAGR)
     is_base_year_loss = (
-        bool(snap_item.get("pat_base_year_loss", False))
-        or snap_item.get("pat_cagr_5y") == -999.0
+        bool(_snap.get("pat_base_year_loss", False))
+        or _snap.get("pat_cagr_5y") == -999.0
         or "base year net loss" in r_low
         or "cagr_base_non_positive" in r_low
     )
@@ -11852,15 +11872,15 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     if is_base_year_loss:
         return True
 
-    l_age = float(snap_item.get("listing_age_years") or 99.0)
-    ann_c = int(snap_item.get("annual_filing_count") or snap_item.get("annual_count") or snap_item.get("filings_count") or 99)
+    l_age = float(_snap.get("listing_age_years") or 99.0)
+    ann_c = int(_snap.get("annual_filing_count") or _snap.get("annual_count") or _snap.get("filings_count") or 99)
 
     # 2. Share Dilution 3Y (listing age < 3.0Y, < 4 annual filings, or metric present)
     if "share_dilution_3y" in r_low or "dilution" in r_low:
         if l_age < 3.0 or ann_c < 4:
             return True
-        sd_val = snap_item.get("share_dilution_3y")
-        sd_pct = snap_item.get("share_dilution_3y_pct")
+        sd_val = _snap.get("share_dilution_3y")
+        sd_pct = _snap.get("share_dilution_3y_pct")
         if (sd_val is not None and not pd.isna(sd_val)) or (sd_pct is not None and not pd.isna(sd_pct)):
             return True
 
@@ -11868,8 +11888,8 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     if ("sales_cagr_5y" in r_low or "pat_cagr_5y" in r_low) and "share_dilution_3y" not in r_low:
         if l_age < 5.0 or ann_c < 6:
             return True
-        s_cagr = snap_item.get("sales_cagr_5y")
-        p_cagr = snap_item.get("pat_cagr_5y")
+        s_cagr = _snap.get("sales_cagr_5y")
+        p_cagr = _snap.get("pat_cagr_5y")
         if s_cagr is not None and not pd.isna(s_cagr) and p_cagr is not None and not pd.isna(p_cagr):
             return True
 
@@ -11883,11 +11903,11 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
         except Exception:
             return False
 
-    has_ev_ebitda = _is_num_valid(snap_item.get("current_ev_ebitda")) or _is_num_valid(snap_item.get("ev_ebitda"))
-    has_pe = _is_num_valid(snap_item.get("current_pe")) or _is_num_valid(snap_item.get("pe"))
-    has_roce = _is_num_valid(snap_item.get("roce_5y_avg")) or _is_num_valid(snap_item.get("roce"))
-    has_de = _is_num_valid(snap_item.get("debt_to_equity")) or _is_num_valid(snap_item.get("d_e"))
-    has_cfo_pat = _is_num_valid(snap_item.get("cfo_pat_5y_ratio")) or _is_num_valid(snap_item.get("cfo_pat"))
+    has_ev_ebitda = _is_num_valid(_snap.get("current_ev_ebitda")) or _is_num_valid(_snap.get("ev_ebitda"))
+    has_pe = _is_num_valid(_snap.get("current_pe")) or _is_num_valid(_snap.get("pe"))
+    has_roce = _is_num_valid(_snap.get("roce_5y_avg")) or _is_num_valid(_snap.get("roce"))
+    has_de = _is_num_valid(_snap.get("debt_to_equity")) or _is_num_valid(_snap.get("d_e"))
+    has_cfo_pat = _is_num_valid(_snap.get("cfo_pat_5y_ratio")) or _is_num_valid(_snap.get("cfo_pat"))
 
     # 4. Valuation restoration (EV/EBITDA or PE)
     if ("current_ev_ebitda" in r_low or "ev_ebitda" in r_low) and has_ev_ebitda:
@@ -11907,7 +11927,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
             return True
 
     # 7. Price history / price data insufficiency
-    if ("price_history" in r_low or "price_data" in r_low or "stale_price" in r_low) and _is_num_valid(snap_item.get("cmp")):
+    if ("price_history" in r_low or "price_data" in r_low or "stale_price" in r_low) and _is_num_valid(_snap.get("cmp")):
         if has_roce and has_de:
             return True
 

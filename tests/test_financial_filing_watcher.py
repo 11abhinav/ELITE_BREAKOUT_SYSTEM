@@ -445,6 +445,7 @@ def test_quarterly_gap_triggers_bootstrap(temp_watcher, monkeypatch):
     with open(raw_dir / f"{sym}.json", "w") as f:
         json.dump(filings, f)
 
+    watcher.approved_symbols = [sym]
     requested_cutoffs = []
     class MockNSE:
         def fetch_raw_financials(self, symbol, min_period_end_date=None, **kwargs):
@@ -488,6 +489,7 @@ def test_missing_canonical_metrics_triggers_bootstrap(temp_watcher, monkeypatch)
     with open(raw_dir / f"{sym}.json", "w") as f:
         json.dump(filings, f)
 
+    watcher.approved_symbols = [sym]
     requested_cutoffs = []
     class MockNSE:
         def fetch_raw_financials(self, symbol, min_period_end_date=None, **kwargs):
@@ -573,6 +575,7 @@ def test_incremental_sweep_uses_latest_period_cutoff(temp_watcher):
     with open(raw_dir / f"{sym}.json", "w") as f:
         json.dump(filings, f)
 
+    watcher.approved_symbols = [sym]
     requested_cutoffs = []
     class MockNSE:
         def fetch_raw_financials(self, symbol, min_period_end_date=None, **kwargs):
