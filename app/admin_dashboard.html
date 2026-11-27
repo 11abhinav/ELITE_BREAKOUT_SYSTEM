@@ -10087,6 +10087,34 @@ async function initDashboard() {
       // bust=true forces cache bypass on every automatic poll
       const data = await loadData(false, true);
       if (data && data.trades) {
+        ALL_TRADES = (data.trades || []).filter(t => t && t.execution_state !== 'PENDING_ENTRY' && t.status !== 'PENDING' && t.status !== 'PENDING_ENTRY').map(t => {
+          if (t) t.scanner = normalizeScannerName(t.scanner);
+          return t;
+        });
+        EXIT_HISTORY_CACHE.clear();
+        populateFilters(ALL_TRADES);
+        renderExposureBar(ALL_TRADES);
+        updateScannerChipCounts(ALL_TRADES);
+        await fetchSignalLadder();
+        renderTradeTable();   // re-renders KPI hero cards + small tiles
+        updateSim();
+        await loadCapitalInfo();
+
+        // Update generated-at timestamp indicator
+        const genEl = document.getElementById('gen-time');
+        if (genEl && data.generated_at) {
+          genEl.textContent = 'Updated: ' + new Date(data.generated_at).toLocaleString('en-IN', {timeZone:'Asia/Kolkata'});
+        }
+      }
+      if (diagnosticsLoaded) {
+        await loadDiagnostics();
+      }
+    } catch (e) {
+      console.error('Error in refreshAllData:', e);
+    } finally {
+      _isRefreshingAllData = false;
+    }
+  }
   // Runs every 60 seconds — setInterval never silently stops on a single network error
   setInterval(refreshAllData, 60000);
 
