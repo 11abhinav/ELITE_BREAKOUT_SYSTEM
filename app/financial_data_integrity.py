@@ -311,17 +311,21 @@ def classify_statement_type(
     if any(k in raw_st for k in quarterly_keywords):
         return "QUARTERLY"
 
-    # 5. Strict Period-End Date Guard against False Annuals:
+    # 5. Exact canonical 'ANNUAL' (e.g. June-FY KENNAMET/PGHH or Sept-FY SIEMENS)
+    if raw_st == "ANNUAL":
+        return "ANNUAL"
+
+    # 6. Strict Period-End Date Guard against False Annuals:
     # Under Indian Corporate Law (Companies Act 2013 / SEBI LODR Reg 33):
-    # - June 30 (-06-30) is strictly Q1 (Quarterly). Never Annual.
-    # - September 30 (-09-30) is strictly Q2 / H1 (Half-Yearly). Never Annual.
+    # - June 30 (-06-30) is strictly Q1 (Quarterly) unless explicitly canonical ANNUAL.
+    # - September 30 (-09-30) is strictly Q2 / H1 (Half-Yearly) unless explicitly canonical ANNUAL.
     p_end_clean = str(p_to or period_end_date or "").strip()[:10]
     if p_end_clean.endswith("-06-30"):
         return "QUARTERLY"
     if p_end_clean.endswith("-09-30"):
         return "HALF_YEARLY"
 
-    # 6. Check for Annual / Full Year keywords (NOW SAFE from 'HALF_YEAR' substring and -06-30/-09-30!)
+    # 7. Check for Annual / Full Year keywords (NOW SAFE from 'HALF_YEAR' substring and -06-30/-09-30!)
     annual_keywords = ("ANNUAL", "FULL YEAR", "FULL-YEAR", "AUDITED", "FY", "12 MONTH")
     if any(k in raw_st for k in annual_keywords) or (raw_st in ("YEAR", "YEARLY")) or ("_YEAR" in raw_st) or ("YEARLY" in raw_st):
         return "ANNUAL"

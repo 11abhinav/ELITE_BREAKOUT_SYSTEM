@@ -2,6 +2,7 @@ import os
 import json
 import time
 import logging
+import requests
 # [VERSION: PUSH_SERVICE_IMPORT_FIX_v1.0] Graceful fallback when pywebpush is uninstalled
 try:
     from pywebpush import webpush, WebPushException
@@ -111,20 +112,33 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
     removed_count = 0
     error_count = 0
 
+    def _send_with_retry(sub_info: dict):
+        backoffs = (0.5, 1.5)
+        for attempt in range(len(backoffs) + 1):
+            try:
+                webpush(
+                    subscription_info=sub_info,
+                    data=payload,
+                    vapid_private_key=vapid_private_key,
+                    vapid_claims={"sub": vapid_subject},
+                    timeout=10,
+                )
+                return
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                if attempt < len(backoffs):
+                    time.sleep(backoffs[attempt])
+                    continue
+                raise
+
     for sub in subscriptions:
         try:
-            webpush(
-                subscription_info={
-                    "endpoint": sub["endpoint"],
-                    "keys": {
-                        "p256dh": sub["p256dh"],
-                        "auth":   sub["auth"]
-                    }
-                },
-                data=payload,
-                vapid_private_key=vapid_private_key,
-                vapid_claims={"sub": vapid_subject}
-            )
+            _send_with_retry({
+                "endpoint": sub["endpoint"],
+                "keys": {
+                    "p256dh": sub["p256dh"],
+                    "auth":   sub["auth"]
+                }
+            })
             sent_count += 1
         except WebPushException as ex:
             # 400/401/403/404/410 → subscription is invalid/expired/revoked
@@ -141,6 +155,9 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
             else:
                 logger.error(f"❌ WebPush delivery failed (non-fatal): status={status_code} | error={ex_str[:200]}")
                 error_count += 1
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError, requests.exceptions.Timeout) as net_err:
+            logger.warning(f"⚠️ Transient push transport error after retries for {sub['endpoint'][:60]}: {net_err}")
+            error_count += 1
         except Exception as e:
             logger.exception(f"❌ Unexpected push error for endpoint {sub['endpoint'][:60]}: {e}")
             error_count += 1

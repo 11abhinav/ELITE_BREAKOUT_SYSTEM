@@ -544,6 +544,11 @@ def _normalize_ocr_text(text: str) -> str:
 
     # Clean OCR vertical bar artifacts before words (e.g. lTotal -> Total, |Income -> Income)
     text = re.sub(r"\b[l|1iI](total|income|revenue|other|profit|expenses)\b", r"\1", text, flags=re.I)
+    # Repair common Tesseract 1/l/i/c confusions in key P&L anchor words
+    text = re.sub(r"\b(?:operatlons|operalions|operat1ons|opciat1011s|operattons)\b", "operations", text, flags=re.I)
+    text = re.sub(r"\b(?:lncome|inc\.?ornc|incomc|1ncome)\b", "income", text, flags=re.I)
+    text = re.sub(r"\b(?:rcvcnt1c|revenuc|revcnue)\b", "revenue", text, flags=re.I)
+    text = re.sub(r"\b(?:tollll|tolal|tota1)\b", "total", text, flags=re.I)
     # Split merged label words (e.g. expensesProfit -> expenses Profit)
     text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
     # Formula equation removal (e.g. (3-4), (1+2), (5-6), (III-IV)) — require an arithmetic operator (-+*/) so unit captions like (Zin lacs) are NEVER stripped!
@@ -1610,6 +1615,8 @@ class ExchangePdfParser:
                         "cash flor", "operating activit", "adjustments for:",
                         "annexure 1", "annexure i", "annexure -", "additional disclosures", "additiona i d",
                         "regulation 52(4)", "regul.uon", "regulation 32", "deviation or variation",
+                        "details with respect to acquisition", "indicative time period", "cost of acquisition",
+                        "target company", "sebi master circular", "listing obligations and disclosure requirements",
                         "notes to the unaudited", "notes to the audited", "notes to statement", "note to the statement",
                         "chief operating decision maker", "reviewed by the audit committee",
                         "the above standalone financial results", "the above consolidated financial results",
@@ -1617,7 +1624,7 @@ class ExchangePdfParser:
                     )
                 ) and not _has_pnl_cues and not _prefer_180_hint
                 _re_ocr_ok = _has_rev_anchor and not _was_garbled_pre_ocr
-                if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 75.0) and (time.time() - t_parse_start < 130.0):
+                if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 110.0) and (time.time() - t_parse_start < 150.0):
                     _orig_text, _orig_text_lower, _orig_norm_lower = text, text_lower, norm_text_lower
                     _orig_score = _score_ocr_readability(_orig_text)
                     try:
@@ -1637,7 +1644,13 @@ class ExchangePdfParser:
                                     bool(re.search(r"\brevenues\b", _cand_norm))
                                     and any(k in _cand_norm for k in ("profit before tax", "profit before income tax", "profit after tax", "profit for the period"))
                                 )
-                                _cand_rev = any(k in _cand_norm for k in _rev_indicators) or _cand_has_ifrs
+                                _cand_rev = (
+                                    any(k in _cand_norm for k in _rev_indicators)
+                                    or _cand_has_ifrs
+                                    or "revenue from operat" in _cand_norm
+                                    or "income from operat" in _cand_norm
+                                    or ("total expenses" in _cand_norm and ("profit before tax" in _cand_norm or "earnings per share" in _cand_norm))
+                                )
                                 _re_is_non_pnl = any(
                                     k in _cand_norm_and[:1500]
                                     for k in ("cash flow from operating", "cash flows from operating", "statement of cash flow", "assets and liabilities", "total assets", "independent auditor", "limited review", "based on our review conducted", "dear sir", "dear madam")

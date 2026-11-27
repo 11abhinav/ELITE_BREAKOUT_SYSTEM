@@ -11007,7 +11007,10 @@ def _get_parsed_raw_filings_cache(max_age_sec: float = 300.0) -> Dict[str, Dict[
                             p_end = str(stmt.get("period_end_date") or stmt.get("period_end") or stmt.get("date") or "")[:10]
                             stt = str(stmt.get("statement_type") or stmt.get("period") or "").upper()
                             try:
-                                from app.financial_data_integrity import classify_statement_type
+                                try:
+                                    from app.financial_data_integrity import classify_statement_type
+                                except ImportError:
+                                    from financial_data_integrity import classify_statement_type
                                 is_ann = (classify_statement_type(stt, period_end_date=p_end) == "ANNUAL")
                             except Exception:
                                 is_ann = (("ANNUAL" in stt or "FY" in stt or (p_end.endswith("-03-31") and "QUARTER" not in stt and "Q" not in stt)) and not any(k in stt for k in ("HALF", "H1", "H2", "6M")))
@@ -11720,7 +11723,7 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
     """
     import os, json
     import pandas as pd
-    from datetime import datetime
+    from datetime import datetime, timedelta
     now_dt = datetime.now(IST)
     try:
         sym_mand_qtr, _, _ = get_sebi_lodr_mandatory_filing_status(now_dt)
@@ -11741,6 +11744,13 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
 
     raw_qtr_val = str(raw_info.get("latest_quarterly") or "") if raw_info else ""
     raw_ann_val = str(raw_info.get("latest_annual") or "") if raw_info else ""
+    if raw_info and not raw_ann_val:
+        for _rec in raw_info.get("recent") or []:
+            _rec_s = str(_rec or "")
+            if "(A)" in _rec_s and len(_rec_s) >= 10:
+                _cand = _rec_s[:10]
+                if _cand > raw_ann_val:
+                    raw_ann_val = _cand
     raw_latest_val = str(raw_info.get("latest") or "") if raw_info else ""
 
     if raw_info is None:
@@ -11773,8 +11783,9 @@ def _is_symbol_restored_or_exempt(sym: str, snap_item: Optional[Dict[str, Any]],
 
     eff_qtr_val = max(snap_qtr_val, raw_qtr_val) if (snap_qtr_val and raw_qtr_val) else (snap_qtr_val or raw_qtr_val)
     eff_ann_val = max(snap_ann_val, raw_ann_val) if (snap_ann_val and raw_ann_val) else (snap_ann_val or raw_ann_val)
+    _min_fresh_ann = (now_dt.date() - timedelta(days=730)).isoformat()
     has_recent_quarter = bool(eff_qtr_val and eff_qtr_val >= sym_mand_qtr)
-    has_recent_annual = bool(eff_ann_val and eff_ann_val >= "2025-03-31")
+    has_recent_annual = bool(eff_ann_val and eff_ann_val >= _min_fresh_ann)
 
     # Helper to check numeric validity (> -900 and not NaN)
     def _is_num_valid(v):
@@ -12348,9 +12359,17 @@ def get_unified_stock_data_health_audit(limit_fresh: int = 2000, force: bool = F
             raw_info = raw_cache.get(sym)
             raw_qtr = str(raw_info.get("latest_quarterly") or "") if raw_info else ""
             raw_ann = str(raw_info.get("latest_annual") or "") if raw_info else ""
+            if raw_info and not raw_ann:
+                for _rec in raw_info.get("recent") or []:
+                    _rec_s = str(_rec or "")
+                    if "(A)" in _rec_s and len(_rec_s) >= 10:
+                        _cand = _rec_s[:10]
+                        if _cand > raw_ann:
+                            raw_ann = _cand
             eff_qtr = max(str(row.get("latest_quarterly_period") or ""), raw_qtr)
             eff_ann = max(str(row.get("latest_annual_period") or ""), raw_ann)
-            has_fresh_raw = bool(eff_qtr and eff_qtr >= sym_mand_period and eff_ann and eff_ann >= "2025-03-31")
+            _min_fresh_ann = (now_dt.date() - timedelta(days=730)).isoformat()
+            has_fresh_raw = bool(eff_qtr and eff_qtr >= sym_mand_period and eff_ann and eff_ann >= _min_fresh_ann)
             if has_fresh_raw:
                 freshness = "VALID"
                 snap_st = "FRESH"
