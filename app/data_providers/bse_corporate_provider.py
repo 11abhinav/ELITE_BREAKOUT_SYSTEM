@@ -469,6 +469,7 @@ class BseCorporateProvider:
         # Query BSE 'Result' category first so high-volume Reg 30 announcements (e.g. MCX, JSWSTEEL, DRREDDY)
         # do not push financial results off pageno=1; fall back to all categories (-1) if empty.
         ann_rows = _fetch_bse_cat("Result")
+        from_result_cat = bool(ann_rows)
         if not ann_rows:
             ann_rows = _fetch_bse_cat("-1")
 
@@ -557,6 +558,7 @@ class BseCorporateProvider:
                 "headline": hl,
                 "desc": hl or sub,
                 "exchange": "BSE",
+                "bse_category": "Result" if from_result_cat else str(cat or ""),
                 "news_id": news_id,
                 "xml_name": xml_name,
             })

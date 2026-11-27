@@ -831,14 +831,17 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     if url_fn.endswith(".zip") or (fn.endswith(".zip") and ".pdf" not in combined):
         return False
 
-    # Negative check: skip non-statement attachments (press release, transcript, concall, presentation, newspaper,
-    # monitoring agency, investor handouts, non-financial board actions, nomenclature corrections,
-    # Reg 74(5)/Asset Cover, Structural Digital Database (SDD) certificates, trading window notices)
+    has_explicit_fin_keyword = any(k in combined for k in [
+        "financial result", "financial results", "reg 33", "regulation 33",
+        "unaudited financial", "un-audited financial", "audited financial",
+        "results for the quarter", "results for the period",
+        "quick results", "quickresult", "statement of financial"
+    ])
+
+    # Always-skip non-statement attachments (newspaper ads, SDD, Reg 74(5), trading window, asset/security cover, audio/video/transcript)
     if any(k in combined for k in [
         "newspaper", "clipping", "advertisement", "publication of",
-        "investor presentation", "investor update", "investor handout", "investor_handout", "investorhandout",
-        "monitoring agency", "monitoringagency",
-        "earnings call", "transcript", "audio recording", "video recording", "concall", "con. call", "press release",
+        "earnings call", "transcript", "audio recording", "video recording", "concall", "con. call",
         "correction_of_nomenclature", "correction of nomenclature", "nomenclature_correction", "nomenclature correction",
         "change in management", "change_in_management", "change of management",
         "regulation 74", "reg 74", "reg. 74", "74(5)", "74_5",
@@ -850,11 +853,15 @@ def is_financial_result_announcement(ann: Optional[Dict[str, Any]], pdf_url: str
     ]):
         return False
 
-    has_explicit_fin_keyword = any(k in combined for k in [
-        "financial result", "financial results", "reg 33", "regulation 33",
-        "unaudited financial", "audited financial", "results for the quarter",
-        "results for the period", "quick results", "quickresult", "statement of financial"
-    ])
+    # Skip standalone investor presentations / press releases / monitoring agency unless they also explicitly carry Financial Results (e.g. TRAVELFOOD)
+    if not has_explicit_fin_keyword and any(k in combined for k in [
+        "investor presentation", "investor update", "investor handout", "investor_handout", "investorhandout",
+        "monitoring agency", "monitoringagency", "press release",
+    ]):
+        return False
+
+    if ann and str(ann.get("bse_category") or "").strip().lower() == "result":
+        return True
     if not has_explicit_fin_keyword and any(k in combined for k in [
         "acquisition", "disinvestment", "sale or disposal", "retirement",
         "allotment", "esop", "postal ballot", "agm", "egm", "record date",
