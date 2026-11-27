@@ -35,19 +35,6 @@ if "--worker" not in sys.argv:
         logging.getLogger(__name__).error(f"❌ Could not start health responder: {_hr_err}")
 
     try:
-        # Mark DB boot sync as pending BEFORE dashboard_server imports & seeds/starts HTTP,
-        # eliminating the pre-BOOT_SYNC race window where stale Docker seed files (e.g. 366)
-        # could be audited and persisted to DB before restore_all_boot_caches_from_db() finishes.
-        import database as _boot_db_flag
-        _boot_db_flag._BOOT_SYNC_STARTED = True
-        _boot_db_flag._BOOT_SYNC_COMPLETE = False
-        if "app.database" in sys.modules:
-            sys.modules["app.database"]._BOOT_SYNC_STARTED = True
-            sys.modules["app.database"]._BOOT_SYNC_COMPLETE = False
-    except Exception:
-        pass
-
-    try:
         from dashboard_server import start_dashboard_server_async
         start_dashboard_server_async()
         logging.getLogger(__name__).info("🌐 [BOOT] Dashboard server started asynchronously.")
@@ -2609,6 +2596,18 @@ if __name__ == "__main__":
     # Ports 8000/8080 respond to Coolify health checks in < 1 second on container boot.
     def _bg_boot_sequence():
         # Single-threaded DB initialization & Authoritative DB Cache Restoration
+        try:
+            import database as _boot_db_flag
+            import time as _t_boot
+            _boot_db_flag._BOOT_SYNC_STARTED = True
+            _boot_db_flag._BOOT_SYNC_COMPLETE = False
+            _boot_db_flag._BOOT_SYNC_STARTED_AT = _t_boot.time()
+            if "app.database" in sys.modules:
+                sys.modules["app.database"]._BOOT_SYNC_STARTED = True
+                sys.modules["app.database"]._BOOT_SYNC_COMPLETE = False
+                sys.modules["app.database"]._BOOT_SYNC_STARTED_AT = _boot_db_flag._BOOT_SYNC_STARTED_AT
+        except Exception:
+            pass
         try:
             import shutil
             from database import (

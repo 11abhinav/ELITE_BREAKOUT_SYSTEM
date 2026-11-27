@@ -110,9 +110,12 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0) -> str:
     if not _OCR_AVAILABLE or img is None:
         return ""
     txt = pytesseract.image_to_string(img, timeout=timeout, config="--psm 6") or ""
-    low = txt.lower()
-    _anchors = ("revenue", "income", "profit", "tax", "total", "particulars", "assets", "auditor", "cash", "balance")
-    if len(txt.strip()) >= 150 and any(k in low for k in _anchors):
+    low = re.sub(r"\s+", " ", txt.lower())
+    _strong_upright = (
+        "revenue from operations", "total income", "profit before tax",
+        "independent auditor", "limited review", "balance sheet", "assets and liabilities",
+    )
+    if len(txt.strip()) >= 150 and any(k in low for k in _strong_upright):
         return txt.strip()
     try:
         osd_raw = pytesseract.image_to_osd(img, timeout=4.0)
@@ -121,7 +124,7 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0) -> str:
         if deg in (90, 180, 270):
             rot_img = img.rotate(-deg, expand=True)
             rot_txt = pytesseract.image_to_string(rot_img, timeout=timeout, config="--psm 6") or ""
-            if len(rot_txt.strip()) > len(txt.strip()) or any(k in rot_txt.lower() for k in _anchors):
+            if len(rot_txt.strip()) > len(txt.strip()) or any(k in rot_txt.lower() for k in _strong_upright):
                 return rot_txt.strip()
     except Exception:
         pass
@@ -875,6 +878,17 @@ class ExchangePdfParser:
                         logger.info(f"✅ [PDF:DIRECT] Downloaded exchange PDF {base_name} ({len(content)} bytes, is_result={is_result})")
                         return content
                     else:
+                        # Last-resort ScraperAPI retry with extended timeout for >8MB result PDFs truncated by Akamai
+                        if is_result and fetch_via_scraperapi and get_scraper_api_key():
+                            try:
+                                s_resp2 = fetch_via_scraperapi(pdf_url, timeout=65, country_code="in")
+                                if s_resp2 is not None and s_resp2.status_code == 200 and s_resp2.content and s_resp2.content.startswith(b"%PDF") and len(s_resp2.content) <= ceiling_bytes and b"%%EOF" in s_resp2.content[-8192:]:
+                                    with open(cache_path, "wb") as f_out:
+                                        f_out.write(s_resp2.content)
+                                    logger.info(f"✅ [PDF:SCRAPERAPI_RETRY] Downloaded large exchange PDF {base_name} ({len(s_resp2.content)} bytes)")
+                                    return s_resp2.content
+                            except Exception:
+                                pass
                         logger.warning(f"[PDF_PARSER] Direct download for {base_name} truncated ({len(content)} bytes, missing %%EOF).")
             except Exception as direct_err:
                 logger.debug(f"[PDF_PARSER] Direct download failed for {base_name}: {direct_err}")
@@ -1299,10 +1313,13 @@ class ExchangePdfParser:
                         "yours faithfully", "yours sincerely", "company secretary",
                         "independent auditor", "limited review", "review report", "auditor's report",
                         "sre 2410", "chartered accountants", "udin:", "membership no",
-                        "assets and liabilities", "total assets", "equity and liabilities",
+                        "assets and liabilities", "statement of assets", "total assets", "equity and liabilities",
                         "cash flow from operating", "cash flows from operating", "statement of cash flow",
+                        "cash flor", "operating activit", "adjustments for:",
                         "annexure 1", "additional disclosures", "regulation 52(4)",
                         "notes to the unaudited", "notes to the audited", "notes to statement",
+                        "the above standalone financial results", "the above consolidated financial results",
+                        "prepared in accordance with indian accounting standards", "not66 to th",
                     )
                 )
                 _re_ocr_ok = False

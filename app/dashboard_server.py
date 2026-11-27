@@ -3636,11 +3636,15 @@ def _compute_stock_data_health_payload(force: bool = False) -> Tuple[str, str, b
 
 
 def _is_boot_sync_in_progress() -> bool:
-    """Returns True only while restore_all_boot_caches_from_db() is actively running."""
+    """Returns True only while restore_all_boot_caches_from_db() is actively running (capped at 180s)."""
     import sys as _sys
+    now_t = time.time()
     for _mname in ("database", "app.database"):
         _m = _sys.modules.get(_mname)
         if _m and getattr(_m, "_BOOT_SYNC_STARTED", False) and not getattr(_m, "_BOOT_SYNC_COMPLETE", True):
+            started_at = float(getattr(_m, "_BOOT_SYNC_STARTED_AT", 0.0) or 0.0)
+            if started_at > 0.0 and (now_t - started_at) > 180.0:
+                return False
             return True
     return False
 

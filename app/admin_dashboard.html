@@ -4846,8 +4846,8 @@ function changeAdminPage(type, delta) {
       } else if (tabId === 'filings-discovery') {
         if (typeof loadCorporateFilingsDiscovery === 'function') loadCorporateFilingsDiscovery();
       } else if (tabId === 'stock-data-health') {
-        // Load authoritative stock data health audit with live verification
-        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(true);
+        // Load warm cached stock data health audit immediately (~500ms); Refresh Audit button forces recompute
+        if (typeof fetchStockDataHealth === 'function') fetchStockDataHealth(false);
       }
     }
 
@@ -14394,9 +14394,9 @@ async function fetchStockDataHealth(force = false) {
     if (res.status === 503) {
       const syncBadge = document.getElementById('sdhServerSyncBadge');
       if (syncBadge) {
-        syncBadge.innerHTML = `<span style="color:#f59e0b;">⏳ Server syncing DB caches... retrying</span>`;
+        syncBadge.innerHTML = `<span style="color:#f59e0b;">⏳ Server syncing DB caches... loading cached view</span>`;
       }
-      setTimeout(() => fetchStockDataHealth(force), 2500);
+      setTimeout(() => fetchStockDataHealth(false), 2000);
       return;
     }
 

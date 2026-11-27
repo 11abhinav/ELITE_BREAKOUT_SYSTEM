@@ -8199,6 +8199,7 @@ def restore_stock_data_health_from_db() -> Optional[str]:
 
 _BOOT_SYNC_STARTED = False
 _BOOT_SYNC_COMPLETE = False
+_BOOT_SYNC_STARTED_AT = 0.0
 
 
 def restore_all_boot_caches_from_db() -> Dict[str, Any]:
@@ -8213,12 +8214,16 @@ def restore_all_boot_caches_from_db() -> Dict[str, Any]:
     import json
     import shutil
     import sys as _sys_boot
-    global _BOOT_SYNC_STARTED, _BOOT_SYNC_COMPLETE
+    global _BOOT_SYNC_STARTED, _BOOT_SYNC_COMPLETE, _BOOT_SYNC_STARTED_AT
     _BOOT_SYNC_STARTED = True
+    if not _BOOT_SYNC_STARTED_AT:
+        _BOOT_SYNC_STARTED_AT = time.time()
     for _db_mname in ("database", "app.database"):
         _db_m = _sys_boot.modules.get(_db_mname)
         if _db_m:
             setattr(_db_m, "_BOOT_SYNC_STARTED", True)
+            if not getattr(_db_m, "_BOOT_SYNC_STARTED_AT", 0.0):
+                setattr(_db_m, "_BOOT_SYNC_STARTED_AT", _BOOT_SYNC_STARTED_AT)
     from pathlib import Path
 
     base_dir = Path(__file__).resolve().parent.parent
