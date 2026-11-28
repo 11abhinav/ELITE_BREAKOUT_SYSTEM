@@ -1655,6 +1655,18 @@ class ExchangePdfParser:
                     )
                 ) and not _has_pnl_cues and not _prefer_180_hint
                 _re_ocr_ok = _has_rev_anchor and not _was_garbled_pre_ocr
+                # If this page was freshly OCR'd in the scanned-page branch above (page_idx in ocr_attempted_pages),
+                # the OCR text is already the best we can get — allow it to proceed if it's not a cover/auditor page
+                # and has any P&L cues or just substantive financial table content (GOODYEAR Lakhs integer tables).
+                if not _re_ocr_ok and page_idx in ocr_attempted_pages and not _was_garbled_pre_ocr:
+                    _page_has_financial_numbers = bool(re.search(r"\b\d{2,6}(?:\.\d{1,2})?\b", norm_text_lower))
+                    if not _is_cover_or_auditor and (_has_pnl_cues or _page_has_financial_numbers):
+                        _re_ocr_ok = True
+                        logger.debug(
+                            f"[PDF_PARSER] {symbol} p{page_idx+1}: Allowing fresh-OCR page through "
+                            f"(pnl_cues={_has_pnl_cues}, numbers={_page_has_financial_numbers}, "
+                            f"cover={_is_cover_or_auditor})"
+                        )
                 if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 130.0) and (time.time() - t_parse_start < 175.0):
                     _orig_text, _orig_text_lower, _orig_norm_lower = text, text_lower, norm_text_lower
                     _orig_score = _score_ocr_readability(_orig_text)
