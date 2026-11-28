@@ -1014,6 +1014,86 @@ class NseXbrlProvider:
             except Exception as _sme_err:
                 logger.debug(f"[NSE SME] Discovery notice for {symbol}: {_sme_err}")
 
+        # 5. If symbol yielded 0 recent filings on Equities/SME (e.g. InvITs/REITs like SHREMINVIT or rebranded VERTIS
+        # whose last equity filing was 2022), query NSE InvITs/REITs platform (index=invitsreits).
+        _invit_cutoff = (datetime.now() - timedelta(days=550)).strftime("%Y-%m-%d")
+        _has_recent_filing = any(
+            (_parse_date_to_iso(str(f.get("period_end_date") or f.get("toDate") or "")) or "") >= _invit_cutoff
+            for f in all_filings
+            if isinstance(f, dict)
+        )
+        if not _has_recent_filing:
+            try:
+                _invit_existing_keys = {
+                    (str(f.get("period_end_date") or f.get("toDate") or ""), str(f.get("attchmntFile") or ""))
+                    for f in all_filings if isinstance(f, dict)
+                }
+                _invit_added = 0
+                for q_sym in get_alias_variants(symbol):
+                    invit_ann_url = f"{_ANN_URL}?index=invitsreits&symbol={q_sym}"
+                    invit_ann_raw = self._get(invit_ann_url, symbol)
+                    if not invit_ann_raw:
+                        continue
+                    invit_rows = (
+                        invit_ann_raw
+                        if isinstance(invit_ann_raw, list)
+                        else (invit_ann_raw.get("data", []) if isinstance(invit_ann_raw, dict) else [])
+                    )
+                    for item in invit_rows:
+                        if not isinstance(item, dict):
+                            continue
+                        desc = str(item.get("desc") or "")
+                        txt = str(item.get("attchmntText") or "")
+                        has_xbrl = bool(item.get("hasXbrl"))
+                        combined = f"{desc} {txt}".lower()
+
+                        is_fin_ann = (
+                            has_xbrl
+                            or any(k in combined for k in (
+                                "financial result", "financial results", "outcome of board meeting",
+                                "un-audited financial", "unaudited financial", "audited financial",
+                                "quarterly result", "half year", "period ended"
+                            ))
+                        )
+                        if not is_fin_ann:
+                            continue
+
+                        p_end = _parse_period_end_from_announcement_text(txt) or _parse_period_end_from_announcement_text(desc)
+                        if not p_end or p_end < "2020-01-01":
+                            continue
+                        att_file = str(item.get("attchmntFile") or "")
+                        ann_key = (p_end, att_file)
+                        if ann_key in _invit_existing_keys:
+                            continue
+                        _invit_existing_keys.add(ann_key)
+
+                        st_type = "ANNUAL" if any(k in combined for k in ("annual", "year ended", "audited financial results for the year", "fy2")) else "QUARTERLY"
+                        basis = "CONSOLIDATED" if "consolidated" in combined else "STANDALONE"
+
+                        all_filings.append({
+                            "symbol": symbol,
+                            "toDate": p_end,
+                            "period_end_date": p_end,
+                            "period": "Annual" if st_type == "ANNUAL" else "Quarterly",
+                            "statement_type": st_type,
+                            "consolidated": basis,
+                            "seqNumber": str(item.get("seq_id") or ""),
+                            "broadCastDate": str(item.get("an_dt") or item.get("exchdisstime") or item.get("sort_date") or ""),
+                            "filingDate": str(item.get("an_dt") or "")[:11],
+                            "xbrl": item.get("xbrl") or "",
+                            "attchmntFile": att_file,
+                            "desc": desc,
+                            "attchmntText": txt,
+                            "exchange": "NSE",
+                        })
+                        _invit_added += 1
+                    if _invit_added > 0:
+                        break
+                if _invit_added > 0:
+                    logger.info(f"✨ [NSE INVITS/REITS] {symbol}: Discovered {_invit_added} corporate filing disclosure(s) via index=invitsreits.")
+            except Exception as _invit_err:
+                logger.debug(f"[NSE INVITS/REITS] Discovery notice for {symbol}: {_invit_err}")
+
         self.filing_records_discovered += len(all_filings)
         self._discovered_cache[symbol] = all_filings
         return all_filings

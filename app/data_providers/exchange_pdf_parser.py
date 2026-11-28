@@ -137,6 +137,11 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0, prefer_180: b
     """
     if not _OCR_AVAILABLE or img is None:
         return ""
+    if getattr(img, "mode", "") == "P":
+        try:
+            img = img.convert("L")
+        except Exception:
+            pass
     txt = pytesseract.image_to_string(img, timeout=timeout, config="--psm 6") or ""
     low = re.sub(r"\s+", " ", txt.lower())
     _has_inverted = any(k in low for k in _UPSIDE_DOWN_TOKENS)
@@ -204,7 +209,7 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0, prefer_180: b
         tried_degs.add(deg)
         try:
             rot_img = img.rotate(-deg, expand=True)
-            rot_txt = pytesseract.image_to_string(rot_img, timeout=min(9.0, timeout), config="--psm 6") or ""
+            rot_txt = pytesseract.image_to_string(rot_img, timeout=min(14.0, max(12.0, timeout)), config="--psm 6") or ""
             rot_low = re.sub(r"\s+", " ", rot_txt.lower())
             if len(rot_txt.strip()) >= 120 and (any(k in rot_low for k in _strong_upright) or ("revenues" in rot_low and "profit" in rot_low)):
                 return rot_txt.strip()
@@ -333,8 +338,10 @@ def _is_garbled_embedded_ocr(text: str) -> bool:
     if any(k in low for k in _UPSIDE_DOWN_TOKENS):
         return True
 
-    # Heavy 1-2 char fragment noise without real decimal table rows
-    if len(toks) >= 25 and short_ratio >= 0.32 and len(dec_nums) < 4:
+    # Heavy 1-2 char fragment noise without real decimal table rows (including short rotated-table embedded layers)
+    if (len(toks) >= 25 and short_ratio >= 0.32 and len(dec_nums) < 4) or (
+        len(toks) >= 8 and short_ratio >= 0.45 and len(dec_nums) == 0
+    ):
         return True
 
     # Embedded OCR punctuation corruption inside words or replacement glyph (\ufffd)
@@ -1501,7 +1508,7 @@ class ExchangePdfParser:
         for page_idx in candidate_page_indices:
             page = reader.pages[page_idx]
             _p3_elapsed = time.time() - t_start
-            if (records and _p3_elapsed > 25.0) or _p3_elapsed > 105.0 or (_p3_elapsed > 85.0 and time.time() - t_parse_start > 140.0):
+            if (records and _p3_elapsed > 25.0) or _p3_elapsed > 135.0 or (_p3_elapsed > 110.0 and time.time() - t_parse_start > 165.0):
                 if records:
                     logger.info(
                         f"✅ [PDF_PARSER] {symbol}: Extracted {len(records)} record(s); "
@@ -1533,14 +1540,14 @@ class ExchangePdfParser:
             # Fast Digital Text First Invariant (with on-demand OCR fallback for scanned pages when digital didn't yield both statements yet)
             _prefer_180_hint = any(k in (text or "").lower() for k in _UPSIDE_DOWN_TOKENS)
             if _is_scanned_or_sig_only(text):
-                if (not (has_cons and has_std)) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 150.0 and (time.time() - t_parse_start < 150.0):
+                if (not (has_cons and has_std)) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 165.0 and (time.time() - t_parse_start < 175.0):
                     try:
                         ocr_attempted_pages.add(page_idx)
-                        _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=150)
+                        _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
                         if _p3_img is not None:
-                            if _p3_img.width > 1600 or _p3_img.height > 2000:
-                                _p3_img.thumbnail((1600, 2000))
-                            _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=10.0, prefer_180=_prefer_180_hint)
+                            if _p3_img.width > 1800 or _p3_img.height > 2400:
+                                _p3_img.thumbnail((1800, 2400))
+                            _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=14.0, prefer_180=_prefer_180_hint)
                             if _p3_ocr and not _is_scanned_or_sig_only(_p3_ocr):
                                 text = _p3_ocr.strip()
                                 cached_page_texts[page_idx] = text
@@ -1645,17 +1652,17 @@ class ExchangePdfParser:
                     )
                 ) and not _has_pnl_cues and not _prefer_180_hint
                 _re_ocr_ok = _has_rev_anchor and not _was_garbled_pre_ocr
-                if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 110.0) and (time.time() - t_parse_start < 150.0):
+                if (not _is_cover_or_auditor) and (page_idx not in ocr_attempted_pages) and _OCR_AVAILABLE and tmp_pdf_path and (time.time() - t_start < 130.0) and (time.time() - t_parse_start < 175.0):
                     _orig_text, _orig_text_lower, _orig_norm_lower = text, text_lower, norm_text_lower
                     _orig_score = _score_ocr_readability(_orig_text)
                     try:
                         ocr_attempted_pages.add(page_idx)
                         _fresh_ocr = ""
-                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=150)
+                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
                         if _comp_img is not None:
-                            if _comp_img.width > 1600 or _comp_img.height > 2000:
-                                _comp_img.thumbnail((1600, 2000))
-                            _fresh_ocr = _ocr_image_with_osd(_comp_img, timeout=10.0, prefer_180=_prefer_180_hint)
+                            if _comp_img.width > 1800 or _comp_img.height > 2400:
+                                _comp_img.thumbnail((1800, 2400))
+                            _fresh_ocr = _ocr_image_with_osd(_comp_img, timeout=14.0, prefer_180=_prefer_180_hint)
                             if _fresh_ocr and len(_fresh_ocr.strip()) >= 50:
                                 _cand_text = _normalize_ocr_text(_fresh_ocr.strip())
                                 _cand_lower = _cand_text.lower()
