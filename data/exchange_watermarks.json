@@ -1,13 +1,13 @@
 {
   "BSE": {
     "source_name": "BSE",
-    "last_successful_check_at": "2026-11-28T11:24:27.700004",
+    "last_successful_check_at": "2026-11-28T17:06:01.124423",
     "latest_filing_timestamp": null,
     "symbols": {}
   },
   "NSE": {
     "source_name": "NSE",
-    "last_successful_check_at": "2026-11-28T11:24:27.700004",
+    "last_successful_check_at": "2026-11-28T17:06:01.124423",
     "latest_filing_timestamp": null,
     "symbols": {}
   }
