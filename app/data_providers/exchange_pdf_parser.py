@@ -1671,16 +1671,18 @@ class ExchangePdfParser:
                                     or "revenue from operat" in _cand_norm
                                     or "income from operat" in _cand_norm
                                     or ("total expenses" in _cand_norm and ("profit before tax" in _cand_norm or "earnings per share" in _cand_norm))
+                                    or (any(k in _cand_norm for k in ("profit before tax", "profit/(loss) before tax", "profit for the period", "earnings per share")) and any(k in _cand_norm for k in ("statement of", "financial results", "quarter ended", "six months", "particulars")))
                                 )
                                 _re_is_non_pnl = any(
                                     k in _cand_norm_and[:1500]
                                     for k in ("cash flow from operating", "cash flows from operating", "statement of cash flow", "assets and liabilities", "total assets", "independent auditor", "limited review", "based on our review conducted", "dear sir", "dear madam")
                                 ) and not _cand_rev
                                 _cand_score = _score_ocr_readability(_cand_text)
-                                if (not _re_is_non_pnl) and (_cand_rev or (_cand_score > _orig_score)):
+                                _cand_page_sc, _ = score_page_content(_cand_text)
+                                if (not _re_is_non_pnl) and (_cand_rev or _cand_page_sc >= 30 or (_cand_score > _orig_score)):
                                     text, text_lower, norm_text_lower = _cand_text, _cand_lower, _cand_norm
                                     cached_page_texts[page_idx] = text
-                                    _re_ocr_ok = _cand_rev
+                                    _re_ocr_ok = _cand_rev or (_cand_page_sc >= 30)
                                 elif _has_rev_anchor and not _re_is_non_pnl:
                                     # Keep stronger pre-existing embedded text (e.g. partial OCR layer with clean Revenue rows)
                                     text, text_lower, norm_text_lower = _orig_text, _orig_text_lower, _orig_norm_lower
