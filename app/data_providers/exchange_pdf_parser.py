@@ -209,7 +209,7 @@ def _ocr_image_with_osd(img: "Image.Image", timeout: float = 12.0, prefer_180: b
         tried_degs.add(deg)
         try:
             rot_img = img.rotate(-deg, expand=True)
-            rot_txt = pytesseract.image_to_string(rot_img, timeout=min(14.0, max(12.0, timeout)), config="--psm 6") or ""
+            rot_txt = pytesseract.image_to_string(rot_img, timeout=min(20.0, max(16.0, timeout)), config="--psm 6") or ""
             rot_low = re.sub(r"\s+", " ", rot_txt.lower())
             if len(rot_txt.strip()) >= 120 and (any(k in rot_low for k in _strong_upright) or ("revenues" in rot_low and "profit" in rot_low)):
                 return rot_txt.strip()
@@ -329,9 +329,10 @@ def _is_garbled_embedded_ocr(text: str) -> bool:
     if len(s) < 50:
         return False
     low = re.sub(r"\s+", " ", s.lower())
-    dec_nums = re.findall(r"\b\d[\d,]*\.\d{1,2}\b", s)
-    toks = low.split()
-    short_noise = sum(1 for t in toks if len(t.strip(".,;:|[](){}-_=+*\"'")) <= 2)
+    dec_nums = re.findall(r"\b\d[\d,]*\.\d{1,2}\b|\b\d{1,3}(?:,\d{2,3})+\b", s)
+    toks = [t.strip(".,;:|[](){}-_=+*\"'") for t in low.split()]
+    toks = [t for t in toks if t]
+    short_noise = sum(1 for t in toks if len(t) <= 2)
     short_ratio = short_noise / max(1, len(toks))
 
     # Upside-down / mirrored glyph layers (rotated landscape tables read upright)
@@ -1543,10 +1544,10 @@ class ExchangePdfParser:
                 if (not (has_cons and has_std)) and _OCR_AVAILABLE and tmp_pdf_path and page_idx >= 1 and _p3_elapsed < 165.0 and (time.time() - t_parse_start < 175.0):
                     try:
                         ocr_attempted_pages.add(page_idx)
-                        _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
+                        _p3_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=175)
                         if _p3_img is not None:
-                            if _p3_img.width > 1800 or _p3_img.height > 2400:
-                                _p3_img.thumbnail((1800, 2400))
+                            if _p3_img.width > 1550 or _p3_img.height > 2050:
+                                _p3_img.thumbnail((1550, 2050))
                             _p3_ocr = _ocr_image_with_osd(_p3_img, timeout=14.0, prefer_180=_prefer_180_hint)
                             if _p3_ocr and not _is_scanned_or_sig_only(_p3_ocr):
                                 text = _p3_ocr.strip()
@@ -1556,7 +1557,9 @@ class ExchangePdfParser:
                 if _is_scanned_or_sig_only(text):
                     continue
 
-            _was_garbled_pre_ocr = (page_idx in garbled_pages) or _is_garbled_embedded_ocr(text)
+            _was_garbled_pre_ocr = (page_idx not in ocr_attempted_pages) and (
+                (page_idx in garbled_pages) or _is_garbled_embedded_ocr(text)
+            )
             text = _normalize_ocr_text(text)
             text_lower = text.lower()
             norm_text_lower = re.sub(r"\s+", " ", text_lower)
@@ -1658,10 +1661,10 @@ class ExchangePdfParser:
                     try:
                         ocr_attempted_pages.add(page_idx)
                         _fresh_ocr = ""
-                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=200)
+                        _comp_img = _render_page_image_fast(tmp_pdf_path, page_idx, timeout=8.0, dpi=175)
                         if _comp_img is not None:
-                            if _comp_img.width > 1800 or _comp_img.height > 2400:
-                                _comp_img.thumbnail((1800, 2400))
+                            if _comp_img.width > 1550 or _comp_img.height > 2050:
+                                _comp_img.thumbnail((1550, 2050))
                             _fresh_ocr = _ocr_image_with_osd(_comp_img, timeout=14.0, prefer_180=_prefer_180_hint)
                             if _fresh_ocr and len(_fresh_ocr.strip()) >= 50:
                                 _cand_text = _normalize_ocr_text(_fresh_ocr.strip())
